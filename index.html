@@ -536,16 +536,37 @@ function slaOp(osmId, richting, duur){
 }
 function laadM(osmId,dd){
   try{
-    const s=localStorage.getItem(`${LS_PREFIX}${osmId}_${dd}`);
-    return s?JSON.parse(s):[];
+    // Lees nieuwe data (v4 prefix)
+    const nieuw=localStorage.getItem(`${LS_PREFIX}${osmId}_${dd}`);
+    const nieuwData=nieuw?JSON.parse(nieuw):[];
+
+    // Lees ook oude data (v3 prefix) — behoudt data van eerdere versies
+    const oud=localStorage.getItem(`sl_v3_${osmId}_${dd}`);
+    const oudData=oud?JSON.parse(oud):[];
+
+    // Als maar één bron data heeft — gebruik die direct
+    if(oudData.length===0) return nieuwData;
+    if(nieuwData.length===0) return oudData;
+
+    // Combineer beide en dedupliceer op tijdstempel
+    const alleData=[...nieuwData,...oudData];
+    const gezien=new Set();
+    return alleData.filter(m=>{
+      if(gezien.has(m.tijd))return false;
+      gezien.add(m.tijd);
+      return true;
+    }).sort((a,b)=>b.tijd-a.tijd).slice(0,MAX_METINGEN);
+
   }catch(e){return[];}
 }
 function telKP(){
   const ids=new Set();
   for(let i=0;i<localStorage.length;i++){
     const k=localStorage.key(i);
-    if(k?.startsWith(LS_PREFIX)){
-      const d=k.replace(LS_PREFIX,'').split('_');
+    // Tel beide v3 en v4 prefix mee
+    if(k?.startsWith(LS_PREFIX)||k?.startsWith('sl_v3_')){
+      const prefix=k.startsWith(LS_PREFIX)?LS_PREFIX:'sl_v3_';
+      const d=k.replace(prefix,'').split('_');
       if(d.length>=2)ids.add(d[0]);
     }
   }
