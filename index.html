@@ -6,8 +6,8 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no"/>
   <meta name="apple-mobile-web-app-capable" content="yes"/>
   <meta name="apple-mobile-web-app-status-bar-style" content="black-fullscreen"/>
-  <meta name="apple-mobile-web-app-title" content="Stoplicht"/>
-  <title>Stoplicht HUD v5.4</title>
+  <meta name="apple-mobile-web-app-title" content="StoplichtIQ"/>
+  <title>StoplichtIQ</title>
 
   <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@4.17.0/dist/tf.min.js"></script>
 
@@ -24,6 +24,12 @@
     html,body{width:100%;height:100%;overflow:hidden;background:#000;
       font-family:'Rajdhani',sans-serif;color:#fff;
       -webkit-tap-highlight-color:transparent;-webkit-font-smoothing:antialiased}
+
+    /* ══ SCHERMEN ══ */
+    .scherm{position:fixed;inset:0;z-index:100;transition:opacity .4s,transform .4s}
+    .scherm.verborgen{opacity:0;pointer-events:none;transform:translateY(20px)}
+
+    /* ══ CAMERA SCHERM ══ */
     #camera-canvas{position:fixed;top:0;left:0;width:100%;height:100%;
       object-fit:cover;z-index:0;opacity:0.92}
     #overlay-canvas{position:fixed;top:0;left:0;width:100%;height:100%;
@@ -40,12 +46,12 @@
       justify-content:space-between;
       padding:env(safe-area-inset-top,48px) 0 env(safe-area-inset-bottom,20px)}
 
-    /* Topbalk */
     #topbalk{padding:0 14px 8px;display:flex;align-items:center;
       justify-content:space-between;
       background:linear-gradient(to bottom,rgba(0,0,0,0.55) 0%,transparent 100%)}
-    #app-naam{font-size:10px;font-weight:600;letter-spacing:0.20em;
-      text-transform:uppercase;color:var(--dim)}
+    #app-naam{font-size:13px;font-weight:700;letter-spacing:0.12em;
+      text-transform:uppercase;color:#fff;cursor:pointer}
+    #app-naam span{color:var(--groen)}
     #badges{display:flex;gap:5px;flex-wrap:wrap;justify-content:flex-end}
     .pill{display:flex;align-items:center;gap:4px;background:rgba(0,0,0,0.50);
       border:1px solid var(--border);border-radius:20px;padding:3px 8px;
@@ -59,7 +65,6 @@
     .pill-tekst{font-size:9px;font-weight:600;letter-spacing:0.08em;
       text-transform:uppercase;color:var(--dim);white-space:nowrap}
 
-    /* Model lijn */
     #model-lijn{position:fixed;top:env(safe-area-inset-top,44px);left:0;right:0;
       height:2px;background:rgba(255,255,255,0.06);z-index:30;transition:opacity .5s}
     #model-lijn.weg{opacity:0;pointer-events:none}
@@ -68,11 +73,9 @@
 
     #midden{flex:1}
 
-    /* HUD onderaan */
     #hud{background:linear-gradient(to top,rgba(0,0,0,0.90) 0%,rgba(0,0,0,0.65) 70%,transparent 100%);
       padding:0 0 env(safe-area-inset-bottom,16px)}
 
-    /* Fase balk */
     #fase-balk{display:flex;align-items:center;justify-content:space-between;
       padding:8px 18px;border-top:1px solid rgba(255,255,255,0.06);transition:border-color .3s}
     #fase-balk.rood  {border-top-color:rgba(255,48,48,.45)}
@@ -90,8 +93,6 @@
     #fase-woord{font-size:22px;font-weight:700;letter-spacing:0.12em;text-transform:uppercase;line-height:1}
     #fase-sub{font-size:10px;color:var(--dim);letter-spacing:0.06em;text-transform:uppercase;margin-top:1px}
     #fase-bron{font-size:9px;color:rgba(255,255,255,0.22);letter-spacing:0.06em;text-transform:uppercase;margin-top:1px}
-
-    /* Kruispunt blok */
     #kruispunt-blok{text-align:right;min-width:0;flex-shrink:1}
     #kruispunt-naam{font-size:11px;font-weight:600;color:#fff;
       white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:150px}
@@ -99,7 +100,6 @@
       color:var(--blauw);margin-top:1px}
     #kruispunt-dd{font-size:9px;color:rgba(255,255,255,0.3);margin-top:1px}
 
-    /* Countdown */
     #cd-blok{display:flex;align-items:center;justify-content:space-between;
       padding:10px 18px 6px}
     #cd-links{display:flex;flex-direction:column;gap:2px}
@@ -117,34 +117,25 @@
     #cd-ring-voor{fill:none;stroke:var(--groen);stroke-width:4;stroke-linecap:round;
       stroke-dasharray:201;stroke-dashoffset:201;transition:stroke-dashoffset 1s linear,stroke .4s}
 
-    /* ── LEERKAART — het nieuwe onderdeel ── */
     #leer-kaart{margin:0 14px 6px;background:rgba(0,0,0,0.45);
       border:1px solid var(--border);border-radius:14px;padding:10px 14px;
       display:flex;flex-direction:column;gap:8px}
-
-    /* Stoplicht header */
     #leer-header{display:flex;align-items:center;justify-content:space-between}
     #leer-naam{font-size:11px;font-weight:600;color:#fff;
-      white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:200px}
+      white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:180px}
     #leer-nieuw-badge{font-size:9px;padding:2px 8px;border-radius:8px;font-weight:600;
       letter-spacing:0.1em;text-transform:uppercase;
-      background:rgba(255,255,255,0.08);color:rgba(255,255,255,0.4)}
+      background:rgba(255,255,255,0.08);color:rgba(255,255,255,0.4);cursor:pointer}
     #leer-nieuw-badge.bekend{background:rgba(52,199,89,.15);
       color:var(--groen);border:1px solid rgba(52,199,89,.3)}
-
-    /* Leerpercentage balk — het nieuwe visuele element */
     #leer-pct-rij{display:flex;align-items:center;gap:10px}
     #leer-pct-label{font-size:10px;color:var(--dim);letter-spacing:0.08em;
       text-transform:uppercase;white-space:nowrap}
     #leer-pct-balk-bg{flex:1;height:6px;background:rgba(255,255,255,0.08);
       border-radius:3px;overflow:hidden}
-    #leer-pct-balk{height:100%;width:0%;border-radius:3px;
-      transition:width .8s ease,background .4s}
+    #leer-pct-balk{height:100%;width:0%;border-radius:3px;transition:width .8s ease,background .4s}
     #leer-pct-getal{font-family:'Share Tech Mono',monospace;font-size:14px;
-      font-weight:700;color:#fff;min-width:36px;text-align:right;
-      transition:color .4s}
-
-    /* Dagdelen */
+      font-weight:700;color:#fff;min-width:36px;text-align:right;transition:color .4s}
     #dd-rij{display:flex;gap:4px}
     .dd{display:flex;flex-direction:column;align-items:center;gap:1px;flex:1;
       background:rgba(255,255,255,0.04);border:1px solid var(--border);
@@ -156,13 +147,16 @@
     .dd.actief .dd-val{color:var(--groen)}
     .dd.actief .dd-cnt{color:rgba(52,199,89,.5)}
 
-    /* Info rij */
-    #info-rij{display:flex;align-items:center;justify-content:space-between;
-      padding:0 18px 2px}
-    #geh-info{font-family:'Share Tech Mono',monospace;font-size:9px;
-      color:rgba(255,255,255,0.25);text-align:right}
+    /* Dashboard knop */
+    #dashboard-knop{display:flex;align-items:center;justify-content:space-between;
+      margin:0 14px 4px;background:rgba(255,255,255,0.04);
+      border:1px solid var(--border);border-radius:10px;
+      padding:7px 14px;cursor:pointer}
+    #dashboard-knop-tekst{font-size:10px;color:var(--dim);
+      letter-spacing:0.1em;text-transform:uppercase}
+    #dashboard-knop-cnt{font-family:'Share Tech Mono',monospace;
+      font-size:11px;color:var(--groen)}
 
-    /* Debug */
     #debug{position:fixed;bottom:0;left:0;right:0;z-index:40;pointer-events:none;
       background:rgba(0,0,0,0.7);padding:3px 10px;
       font-family:'Share Tech Mono',monospace;font-size:9px;
@@ -170,14 +164,72 @@
     #d-ai{color:#BF5AF2}#d-pct{color:var(--groen)}
     #d-osm{color:#0A84FF}#d-info{color:rgba(255,255,255,0.35)}
 
-    /* Startscherm */
-    #startscherm{position:fixed;inset:0;background:#080A0C;z-index:200;
+    /* ══ DASHBOARD SCHERM ══ */
+    #dashboard{position:fixed;inset:0;z-index:200;background:#080A0C;
+      display:flex;flex-direction:column;
+      padding:env(safe-area-inset-top,48px) 0 env(safe-area-inset-bottom,20px);
+      transition:opacity .4s,transform .4s}
+    #dashboard.verborgen{opacity:0;pointer-events:none;transform:translateY(30px)}
+
+    #dash-header{display:flex;align-items:center;justify-content:space-between;
+      padding:0 18px 12px;border-bottom:1px solid var(--border)}
+    #dash-titel{font-size:18px;font-weight:700;letter-spacing:0.1em;text-transform:uppercase}
+    #dash-titel span{color:var(--groen)}
+    #dash-sluiten{background:rgba(255,255,255,0.08);border:1px solid var(--border);
+      border-radius:20px;padding:5px 14px;font-size:11px;font-weight:600;
+      letter-spacing:0.1em;text-transform:uppercase;color:var(--dim);cursor:pointer}
+
+    #dash-stats{display:flex;gap:8px;padding:12px 18px;border-bottom:1px solid var(--border)}
+    .dash-stat{flex:1;background:rgba(255,255,255,0.04);border:1px solid var(--border);
+      border-radius:12px;padding:10px;text-align:center}
+    .dash-stat-getal{font-family:'Share Tech Mono',monospace;font-size:24px;
+      font-weight:700;color:var(--groen)}
+    .dash-stat-label{font-size:9px;color:var(--dim);text-transform:uppercase;
+      letter-spacing:0.1em;margin-top:2px}
+
+    #dash-filter{display:flex;gap:6px;padding:10px 18px;overflow-x:auto}
+    .filter-btn{background:rgba(255,255,255,0.06);border:1px solid var(--border);
+      border-radius:20px;padding:4px 12px;font-size:10px;font-weight:600;
+      letter-spacing:0.08em;text-transform:uppercase;color:var(--dim);
+      cursor:pointer;white-space:nowrap;transition:all .2s}
+    .filter-btn.actief{background:rgba(52,199,89,.15);border-color:rgba(52,199,89,.4);
+      color:var(--groen)}
+
+    #dash-lijst{flex:1;overflow-y:auto;padding:8px 18px 16px;
+      display:flex;flex-direction:column;gap:8px}
+
+    /* Stoplicht kaart in dashboard */
+    .sl-kaart{background:rgba(255,255,255,0.04);border:1px solid var(--border);
+      border-radius:14px;padding:12px 14px;display:flex;flex-direction:column;gap:8px}
+    .sl-kaart-header{display:flex;align-items:center;justify-content:space-between}
+    .sl-kaart-naam{font-size:13px;font-weight:600;color:#fff}
+    .sl-kaart-pct{font-family:'Share Tech Mono',monospace;font-size:16px;
+      font-weight:700}
+    .sl-kaart-balk-bg{width:100%;height:5px;background:rgba(255,255,255,0.08);
+      border-radius:3px;overflow:hidden}
+    .sl-kaart-balk{height:100%;border-radius:3px;transition:width .6s}
+    .sl-kaart-info{display:flex;justify-content:space-between;align-items:center}
+    .sl-kaart-metingen{font-size:10px;color:var(--dim)}
+    .sl-kaart-dd{display:flex;gap:4px}
+    .sl-dd-item{font-size:9px;padding:2px 6px;border-radius:6px;
+      background:rgba(255,255,255,0.05);color:rgba(255,255,255,0.35)}
+    .sl-dd-item.heeft-data{background:rgba(52,199,89,.1);color:rgba(52,199,89,.8)}
+    .sl-kaart-laatste{font-size:9px;color:rgba(255,255,255,0.25)}
+
+    #dash-leeg{display:flex;flex-direction:column;align-items:center;
+      justify-content:center;gap:12px;padding:40px;text-align:center;flex:1}
+    #dash-leeg-icoon{font-size:48px}
+    #dash-leeg-tekst{font-size:14px;color:var(--dim);line-height:1.5}
+
+    /* ══ STARTSCHERM ══ */
+    #startscherm{position:fixed;inset:0;background:#080A0C;z-index:300;
       display:flex;flex-direction:column;align-items:center;
       justify-content:center;gap:16px;padding:32px;transition:opacity .5s}
     #startscherm.weg{opacity:0;pointer-events:none}
-    #s-icoon{font-size:60px}
-    #s-titel{font-size:30px;font-weight:700;letter-spacing:0.08em;
+    #s-icoon{font-size:64px}
+    #s-titel{font-size:28px;font-weight:700;letter-spacing:0.08em;
       text-align:center;text-transform:uppercase;line-height:1.1}
+    #s-titel span{color:var(--groen)}
     #s-versie{font-size:10px;color:var(--groen);letter-spacing:0.16em;
       font-weight:600;text-transform:uppercase}
     #s-model-wrap{width:100%;max-width:300px;display:flex;flex-direction:column;gap:5px}
@@ -227,12 +279,12 @@
   <span id="d-info">—</span>
 </div>
 
-<!-- Startscherm -->
+<!-- ══ STARTSCHERM ══ -->
 
 <div id="startscherm">
   <div id="s-icoon">🚦</div>
-  <div id="s-titel">Stoplicht HUD</div>
-  <div id="s-versie">v5.4 — Leerpercentage</div>
+  <div id="s-titel">Stoplicht<span>IQ</span></div>
+  <div id="s-versie">v5.5 — Leer Dashboard</div>
   <div id="s-model-wrap">
     <div id="s-model-rij">
       <div id="s-model-label">🤖 AI model laden…</div>
@@ -242,10 +294,10 @@
   </div>
   <div id="s-geh-info" style="color:var(--dim)">Geheugen laden…</div>
   <div id="s-features">
-    <div class="feat">📊 Leerpercentage per stoplicht</div>
-    <div class="feat">⚡ Snelle reset &lt;1 sec</div>
+    <div class="feat">📊 Leer dashboard</div>
+    <div class="feat">📈 Leerpercentage</div>
+    <div class="feat">⚡ Snelle reset</div>
     <div class="feat">📏 Hoogtefilter</div>
-    <div class="feat">🚫 Geen valse detecties</div>
     <div class="feat">⚖️ Gewogen geheugen</div>
     <div class="feat">🔄 Auto cyclus reset</div>
     <div class="feat">🗺 Lokale kaart 5km</div>
@@ -258,11 +310,11 @@
   <button id="s-knop" onclick="startApp()">Start detectie</button>
 </div>
 
-<!-- Hoofd UI -->
+<!-- ══ HOOFD UI ══ -->
 
 <div id="ui">
   <div id="topbalk">
-    <div id="app-naam">Stoplicht v5.4</div>
+    <div id="app-naam" onclick="openDashboard()">Stoplicht<span>IQ</span></div>
     <div id="badges">
       <div class="pill" onclick="toggleGeluidInApp()">
         <div class="pill-dot" id="p-geluid"></div>
@@ -290,26 +342,23 @@
   <div id="midden"></div>
 
   <div id="hud">
+    <div id="fase-balk">
+      <div id="fase-links">
+        <div id="fase-lamp"></div>
+        <div>
+          <div id="fase-woord">—</div>
+          <div id="fase-sub">Richt camera op stoplicht</div>
+          <div id="fase-bron"></div>
+        </div>
+      </div>
+      <div id="kruispunt-blok">
+        <div id="kruispunt-naam">Wacht op GPS…</div>
+        <div id="kruispunt-af">—</div>
+        <div id="kruispunt-dd"></div>
+      </div>
+    </div>
 
 ```
-<!-- Fase balk -->
-<div id="fase-balk">
-  <div id="fase-links">
-    <div id="fase-lamp"></div>
-    <div>
-      <div id="fase-woord">—</div>
-      <div id="fase-sub">Richt camera op stoplicht</div>
-      <div id="fase-bron"></div>
-    </div>
-  </div>
-  <div id="kruispunt-blok">
-    <div id="kruispunt-naam">Wacht op GPS…</div>
-    <div id="kruispunt-af">—</div>
-    <div id="kruispunt-dd"></div>
-  </div>
-</div>
-
-<!-- Countdown -->
 <div id="cd-blok">
   <div id="cd-links">
     <div id="cd-label">Groen verwacht over</div>
@@ -324,23 +373,16 @@
   </div>
 </div>
 
-<!-- Leerkaart met percentage -->
 <div id="leer-kaart">
   <div id="leer-header">
     <div id="leer-naam">Wacht op GPS…</div>
     <div id="leer-nieuw-badge">Nieuw</div>
   </div>
-
-  <!-- De leerpercentage balk -->
   <div id="leer-pct-rij">
     <div id="leer-pct-label">Geleerd</div>
-    <div id="leer-pct-balk-bg">
-      <div id="leer-pct-balk"></div>
-    </div>
+    <div id="leer-pct-balk-bg"><div id="leer-pct-balk"></div></div>
     <div id="leer-pct-getal">0%</div>
   </div>
-
-  <!-- Dagdelen met aantal metingen -->
   <div id="dd-rij">
     <div class="dd" id="dd-ochtend">
       <div class="dd-ic">🌅</div>
@@ -365,71 +407,78 @@
   </div>
 </div>
 
-<div id="info-rij">
-  <div></div>
-  <div id="geh-info">0 kruispunten opgeslagen</div>
+<!-- Dashboard knop -->
+<div id="dashboard-knop" onclick="openDashboard()">
+  <div id="dashboard-knop-tekst">📊 Bekijk alle geleerde stoplichten</div>
+  <div id="dashboard-knop-cnt">0 kruispunten →</div>
 </div>
 ```
 
   </div>
 </div>
 
+<!-- ══ DASHBOARD ══ -->
+
+<div id="dashboard" class="verborgen">
+  <div id="dash-header">
+    <div id="dash-titel">Stoplicht<span>IQ</span> — Geleerd</div>
+    <div id="dash-sluiten" onclick="sluitDashboard()">✕ Sluiten</div>
+  </div>
+
+  <!-- Statistieken balk -->
+
+  <div id="dash-stats">
+    <div class="dash-stat">
+      <div class="dash-stat-getal" id="ds-kruispunten">0</div>
+      <div class="dash-stat-label">Kruispunten</div>
+    </div>
+    <div class="dash-stat">
+      <div class="dash-stat-getal" id="ds-metingen">0</div>
+      <div class="dash-stat-label">Metingen</div>
+    </div>
+    <div class="dash-stat">
+      <div class="dash-stat-getal" id="ds-gem-pct">0%</div>
+      <div class="dash-stat-label">Gem. geleerd</div>
+    </div>
+  </div>
+
+  <!-- Filter knoppen -->
+
+  <div id="dash-filter">
+    <div class="filter-btn actief" onclick="filterDashboard('alle',this)">Alle</div>
+    <div class="filter-btn" onclick="filterDashboard('hoog',this)">85%+ ⭐</div>
+    <div class="filter-btn" onclick="filterDashboard('goed',this)">60-85%</div>
+    <div class="filter-btn" onclick="filterDashboard('laag',this)">&lt;60%</div>
+    <div class="filter-btn" onclick="filterDashboard('nacht',this)">🌙 Nacht</div>
+  </div>
+
+  <!-- Lijst van stoplichten -->
+
+  <div id="dash-lijst"></div>
+</div>
+
 <script>
 // ═══════════════════════════════════════════════════════════════
-//  STOPLICHT HUD v5.4
-//
-//  NIEUW: LEERPERCENTAGE PER STOPLICHT
-//  ─────────────────────────────────────
-//  Elk stoplicht krijgt een leerpercentage van 0-100%.
-//  Het percentage is gebaseerd op twee factoren:
-//
-//  1. AANTAL METINGEN (gewogen naar dagdeel)
-//     Meer metingen = hoger percentage
-//     Weging: huidig dagdeel telt zwaarder
-//     Max score bij 10+ metingen in huidig dagdeel
-//
-//  2. CONSISTENTIE
-//     Kleine spreiding tussen metingen = hogere score
-//     Als alle metingen ~45 sec zijn → hoge consistentie
-//     Als metingen variëren van 20-80 sec → lage consistentie
-//
-//  Formule: (aantalScore × 0.5) + (consistentieScore × 0.5)
-//  Maximaal 100% — groeit bij elke nieuwe meting
-//
-//  KLEURCODERING VAN DE BALK:
-//  0-30%:  rood   — te weinig data, countdown is een gok
-//  30-60%: oranje — redelijk, countdown globaal kloppend
-//  60-85%: blauw  — goed, countdown betrouwbaar
-//  85%+:   groen  — uitstekend, countdown zeer nauwkeurig
-//
-//  ANDERE FIXES:
-//  - KleurFallback verwijderd (veroorzaakte alle valse detecties)
-//  - Hoogtefilter: stoplichten alleen in bovenste 55% van beeld
-//  - Snelle reset: 20 frames (~0.7 sec) zonder detectie → neutraal
-//  - AI elke 8 frames (was 12) → snellere detectie
-//  - Bevestigingsdrempel: 3 (was 6) → snellere fasewissel
-//  - UI bug opgelost: fase en countdown atomair bijgewerkt
+//  StoplichtIQ v5.5
+//  Nieuwe naam + Leer Dashboard
 // ═══════════════════════════════════════════════════════════════
 
 const OMTREK_CD    = 2 * Math.PI * 32;
 const OSM_RADIUS   = 5000;
 const OSM_REFRESH  = 3000;
 const OVERPASS_URL = 'https://overpass-api.de/api/interpreter';
-const LS_PREFIX    = 'sl_v4_'; // nieuw prefix = schone start
+const LS_PREFIXEN  = ['sl_v4_','sl_v3_']; // beide prefixen lezen
+const LS_PREFIX    = 'sl_v4_';            // nieuwe data schrijven naar v4
 const MAX_METINGEN = 50;
 const HALFWAARDETIJD = 60;
 const AFWIJKING_DREMPEL = 0.20;
 const AFWIJKING_REEKS   = 5;
-
-// Timing parameters
-const AI_INTERVAL = 8;   // AI elke 8 frames
-const GEEN_RESET  = 20;  // Reset na 20 frames zonder detectie (~0.7 sec)
-const AI_DREMPEL  = 3;   // 3 bevestigingen voor fasewissel
-
-// Filters voor stoplicht validatie
-const MAX_Y_RATIO      = 0.55;  // stoplicht moet in bovenste 55% van beeld zitten
-const MIN_BOX_H_PX     = 12;    // minimale hoogte bounding box in pixels
-const MAX_BOX_W_RATIO  = 0.40;  // max 40% van beeldbreedte
+const AI_INTERVAL  = 8;
+const GEEN_RESET   = 20;
+const AI_DREMPEL   = 3;
+const MAX_Y_RATIO  = 0.55;
+const MIN_BOX_H_PX = 12;
+const MAX_BOX_W_RATIO = 0.40;
 
 const DD = {
   ochtend:{uren:[6,7,8],   ic:'🌅'},
@@ -443,7 +492,7 @@ function huidigDD(){
   return 'dag';
 }
 
-// ── GEWOGEN GEHEUGEN ──────────────────────────────────────────
+// Gewogen geheugen
 function gew(ts){return Math.exp(-(Date.now()-ts)/86400000/HALFWAARDETIJD);}
 function gewGem(m){
   if(!m.length)return null;
@@ -452,64 +501,41 @@ function gewGem(m){
   return wS>0?gS/wS:null;
 }
 
-// ── LEERPERCENTAGE BEREKENING ─────────────────────────────────
-// Combineert aantal metingen + consistentie van metingen
+// Leerpercentage
 function berekenLeerPct(osmId){
-  const dd = huidigDD();
-
-  // Laad metingen van alle dagdelen
-  const alleMetingen = [];
-  let huidigDDMetingen = 0;
+  const dd=huidigDD();
+  const alleM=[];
+  let huidigAantal=0;
   for(const dagdeel of Object.keys(DD)){
-    const m = laadM(osmId, dagdeel);
-    alleMetingen.push(...m);
-    if(dagdeel === dd) huidigDDMetingen = m.length;
+    const m=laadM(osmId,dagdeel);
+    alleM.push(...m);
+    if(dagdeel===dd)huidigAantal=m.length;
   }
-
-  if(alleMetingen.length === 0) return 0;
-
-  // Factor 1: Aantal metingen
-  // Huidig dagdeel weegt 2x zwaarder
-  const gewogenAantal = huidigDDMetingen * 2 + (alleMetingen.length - huidigDDMetingen);
-  // Max score bij 20 gewogen metingen
-  const aantalScore = Math.min(100, (gewogenAantal / 20) * 100);
-
-  // Factor 2: Consistentie van metingen in huidig dagdeel
-  const huidigMetingen = laadM(osmId, dd);
-  let consistentieScore = 0;
-  if(huidigMetingen.length >= 2){
-    const gem = gewGem(huidigMetingen);
+  if(!alleM.length)return 0;
+  const gewAantal=huidigAantal*2+(alleM.length-huidigAantal);
+  const aantalScore=Math.min(100,(gewAantal/20)*100);
+  const huidigM=laadM(osmId,dd);
+  let consistScore=0;
+  if(huidigM.length>=2){
+    const gem=gewGem(huidigM);
     if(gem){
-      // Bereken gewogen spreiding
-      let wS=0, vS=0;
-      for(const x of huidigMetingen){
-        const w=gew(x.tijd);
-        vS += w * Math.pow(x.duur - gem, 2);
-        wS += w;
-      }
-      const spreiding = Math.sqrt(wS > 0 ? vS/wS : 0);
-      // Relatieve spreiding: spreiding / gemiddelde
-      // 0% spreiding = 100% consistentie
-      // 50% spreiding = 0% consistentie
-      const relSpreiding = spreiding / gem;
-      consistentieScore = Math.max(0, 100 - (relSpreiding * 200));
+      let wS=0,vS=0;
+      for(const x of huidigM){const w=gew(x.tijd);vS+=w*Math.pow(x.duur-gem,2);wS+=w;}
+      const sp=Math.sqrt(wS>0?vS/wS:0);
+      consistScore=Math.max(0,100-(sp/gem*200));
     }
   }
-
-  // Combineer beide factoren
-  const pct = Math.round((aantalScore * 0.5) + (consistentieScore * 0.5));
-  return Math.min(100, pct);
+  return Math.min(100,Math.round(aantalScore*0.5+consistScore*0.5));
 }
 
-// Kleur van de leerpercentage balk
-function leerPctKleur(pct){
-  if(pct >= 85) return 'var(--groen)';
-  if(pct >= 60) return 'var(--blauw)';
-  if(pct >= 30) return 'var(--oranje)';
+function leerKleur(pct){
+  if(pct>=85)return 'var(--groen)';
+  if(pct>=60)return 'var(--blauw)';
+  if(pct>=30)return 'var(--oranje)';
   return 'var(--rood)';
 }
 
-// ── AFWIJKINGSDETECTOR ────────────────────────────────────────
+// Afwijkingsdetector
 let afwijkBuf=[];
 function checkAfwijking(duur,gem){
   if(!gem)return false;
@@ -519,61 +545,54 @@ function checkAfwijking(duur,gem){
   return false;
 }
 
-// ── LOCALSTORAGE ──────────────────────────────────────────────
-function slaOp(osmId, richting, duur){
+// LocalStorage — leest van beide prefixen
+function laadM(osmId,dd){
+  try{
+    const resultaten=[];
+    const gezien=new Set();
+    for(const prefix of LS_PREFIXEN){
+      const s=localStorage.getItem(`${prefix}${osmId}_${dd}`);
+      if(!s)continue;
+      const data=JSON.parse(s);
+      for(const m of data){
+        if(!gezien.has(m.tijd)){gezien.add(m.tijd);resultaten.push(m);}
+      }
+    }
+    return resultaten.sort((a,b)=>b.tijd-a.tijd).slice(0,MAX_METINGEN);
+  }catch(e){return[];}
+}
+
+function slaOp(osmId,richting,duur){
   if(!osmId||duur<4||duur>300)return false;
   const dd=huidigDD();
   let m=laadM(osmId,dd);
   const gewijzigd=checkAfwijking(duur,gewGem(m));
   if(gewijzigd)m=[];
   m.push({duur:Math.round(duur),tijd:Date.now(),richting:Math.round(richting||0)});
-  if(m.length>MAX_METINGEN){
-    m.sort((a,b)=>gew(b.tijd)-gew(a.tijd));
-    m=m.slice(0,MAX_METINGEN);
-  }
+  if(m.length>MAX_METINGEN){m.sort((a,b)=>gew(b.tijd)-gew(a.tijd));m=m.slice(0,MAX_METINGEN);}
   try{localStorage.setItem(`${LS_PREFIX}${osmId}_${dd}`,JSON.stringify(m));}catch(e){}
   return gewijzigd;
 }
-function laadM(osmId,dd){
-  try{
-    // Lees nieuwe data (v4 prefix)
-    const nieuw=localStorage.getItem(`${LS_PREFIX}${osmId}_${dd}`);
-    const nieuwData=nieuw?JSON.parse(nieuw):[];
 
-    // Lees ook oude data (v3 prefix) — behoudt data van eerdere versies
-    const oud=localStorage.getItem(`sl_v3_${osmId}_${dd}`);
-    const oudData=oud?JSON.parse(oud):[];
-
-    // Als maar één bron data heeft — gebruik die direct
-    if(oudData.length===0) return nieuwData;
-    if(nieuwData.length===0) return oudData;
-
-    // Combineer beide en dedupliceer op tijdstempel
-    const alleData=[...nieuwData,...oudData];
-    const gezien=new Set();
-    return alleData.filter(m=>{
-      if(gezien.has(m.tijd))return false;
-      gezien.add(m.tijd);
-      return true;
-    }).sort((a,b)=>b.tijd-a.tijd).slice(0,MAX_METINGEN);
-
-  }catch(e){return[];}
-}
-function telKP(){
+// Haal alle opgeslagen stoplicht IDs op
+function haalAlleOsmIds(){
   const ids=new Set();
   for(let i=0;i<localStorage.length;i++){
     const k=localStorage.key(i);
-    // Tel beide v3 en v4 prefix mee
-    if(k?.startsWith(LS_PREFIX)||k?.startsWith('sl_v3_')){
-      const prefix=k.startsWith(LS_PREFIX)?LS_PREFIX:'sl_v3_';
-      const d=k.replace(prefix,'').split('_');
-      if(d.length>=2)ids.add(d[0]);
+    for(const prefix of LS_PREFIXEN){
+      if(k?.startsWith(prefix)){
+        const d=k.replace(prefix,'').split('_');
+        if(d.length>=2)ids.add(d[0]);
+        break;
+      }
     }
   }
-  return ids.size;
+  return [...ids];
 }
 
-// DOM refs
+function telKP(){return haalAlleOsmIds().length;}
+
+// DOM
 const video       = document.getElementById('video-hidden');
 const canvas      = document.getElementById('camera-canvas');
 const overlCanvas = document.getElementById('overlay-canvas');
@@ -593,11 +612,11 @@ const cdRingVoor  = document.getElementById('cd-ring-voor');
 const kNaam       = document.getElementById('kruispunt-naam');
 const kAf         = document.getElementById('kruispunt-af');
 const kDD         = document.getElementById('kruispunt-dd');
-const gehInfo     = document.getElementById('geh-info');
 const leerNaam    = document.getElementById('leer-naam');
 const leerBadge   = document.getElementById('leer-nieuw-badge');
 const leerPctBalk = document.getElementById('leer-pct-balk');
 const leerPctGetal= document.getElementById('leer-pct-getal');
+const dashKnopCnt = document.getElementById('dashboard-knop-cnt');
 const pGeluid     = document.getElementById('p-geluid');
 const pGeluidT    = document.getElementById('p-geluid-t');
 const pNacht      = document.getElementById('p-nacht');
@@ -613,37 +632,34 @@ const modelBalk   = document.getElementById('model-lijn-balk');
 const sModelBalk  = document.getElementById('s-model-balk');
 const sModelPct   = document.getElementById('s-model-pct');
 const sModelLabel = document.getElementById('s-model-label');
-const dAI         = document.getElementById('d-ai');
-const dPct        = document.getElementById('d-pct');
-const dOSM        = document.getElementById('d-osm');
-const dInfo       = document.getElementById('d-info');
+const dAI=document.getElementById('d-ai');
+const dPct=document.getElementById('d-pct');
+const dOSM=document.getElementById('d-osm');
+const dInfo=document.getElementById('d-info');
 
 // App staat
-let cocoModel=null, modelGeladen=false, modelLaadStart=null;
-let fase=null, faseStart=null;
-let activeCdDoel=0, activeCdBetr=0;
+let cocoModel=null,modelGeladen=false,modelLaadStart=null;
+let fase=null,faseStart=null;
+let activeCdDoel=0;
 let cdStart=null;
-let geluidAan=true, isNacht=false;
-let huidigePos=null, huidigeRichting=0;
-let dichtstbijOSM=null, vorigOsmId=null;
-let osmCache=[], cacheCentrum=null, cacheGeladen=false, cacheBezig=false;
-
-// Bevestiging
-let aiTeller=0, aiKleur=null;
+let geluidAan=true,isNacht=false;
+let huidigePos=null,huidigeRichting=0;
+let dichtstbijOSM=null,vorigOsmId=null;
+let osmCache=[],cacheCentrum=null,cacheGeladen=false,cacheBezig=false;
+let aiTeller=0,aiKleur=null;
 let geenTeller=0;
-let audioCtx=null, wakeLock=null;
+let audioCtx=null,wakeLock=null;
 let frameT=0;
-let aiBezig=false, laatsteAI=null;
-let sessieCycli=0;
+let aiBezig=false,laatsteAI=null;
 
-// ── MODEL PRELOADEN ───────────────────────────────────────────
+// ── MODEL ─────────────────────────────────────────────────────
 modelLaadStart=performance.now();
 let simPct=0;
 const simInt=setInterval(()=>{
   if(modelGeladen)return;
   simPct=Math.min(90,simPct+Math.random()*7+2);
   const p=Math.round(simPct);
-  sModelBalk.style.width=p+'%'; sModelPct.textContent=p+'%';
+  sModelBalk.style.width=p+'%';sModelPct.textContent=p+'%';
   modelBalk.style.width=p+'%';
 },350);
 
@@ -652,14 +668,13 @@ async function prelaadModel(){
     cocoModel=await cocoSsd.load({base:'lite_mobilenet_v2'});
     modelGeladen=true;
     clearInterval(simInt);
-    sModelBalk.style.width='100%';
-    sModelBalk.style.background='var(--groen)';
+    sModelBalk.style.width='100%';sModelBalk.style.background='var(--groen)';
     sModelPct.textContent='100%';
     const t=((performance.now()-modelLaadStart)/1000).toFixed(1);
     sModelLabel.textContent=`✓ AI klaar (${t}s)`;
     sModelLabel.style.color='var(--groen)';
     modelLijn.classList.add('weg');
-    pAI.className='pill-dot p'; pAIT.textContent='AI';
+    pAI.className='pill-dot p';pAIT.textContent='AI';
     dAI.textContent='ai:klaar';
   }catch(e){
     clearInterval(simInt);
@@ -687,384 +702,218 @@ function rgbHsl(r,g,b){
   r/=255;g/=255;b/=255;
   const mx=Math.max(r,g,b),mn=Math.min(r,g,b);
   let h,s,l=(mx+mn)/2;
-  if(mx===mn){h=s=0;}
-  else{
-    const d=mx-mn;
-    s=l>.5?d/(2-mx-mn):d/(mx+mn);
-    switch(mx){
-      case r:h=((g-b)/d+(g<b?6:0))/6;break;
-      case g:h=((b-r)/d+2)/6;break;
-      default:h=((r-g)/d+4)/6;
-    }
+  if(mx===mn){h=s=0;}else{
+    const d=mx-mn;s=l>.5?d/(2-mx-mn):d/(mx+mn);
+    switch(mx){case r:h=((g-b)/d+(g<b?6:0))/6;break;case g:h=((b-r)/d+2)/6;break;default:h=((r-g)/d+4)/6;}
     h*=360;
   }
   return{h,s,l};
 }
 
-// ── KLEURANALYSE BINNEN BOUNDING BOX ─────────────────────────
-// Alleen gebruikt ná succesvolle AI stoplicht detectie
+// Kleuranalyse binnen box
 function kleurVanBox(bx,by,bw,bh){
   let id;
   try{
-    const x=Math.max(0,Math.floor(bx));
-    const y=Math.max(0,Math.floor(by));
+    const x=Math.max(0,Math.floor(bx)),y=Math.max(0,Math.floor(by));
     const w=Math.min(canvas.width-x,Math.floor(bw));
     const h=Math.min(canvas.height-y,Math.floor(bh));
     if(w<4||h<4)return null;
     id=ctx.getImageData(x,y,w,h);
   }catch(e){return null;}
-
-  const data=id.data;
-  const W=Math.floor(bw), H=Math.floor(bh);
-  const isH=W>H*1.3; // horizontaal stoplicht?
-
-  // Verdeel in 3 secties, weeg per positie
-  const gX=isH?3:1, gY=isH?1:3;
-  const cW=Math.floor(W/3), cH=Math.floor(H/3);
-
-  let roodScore=0, groenScore=0, oranjeScore=0;
-
-  for(let py=0;py<H;py+=2){
-    for(let px=0;px<W;px+=2){
-      const i=(py*W+px)*4;
-      if(i+3>=data.length)continue;
-      const r=data[i],g=data[i+1],b=data[i+2];
-      const hd=r*0.299+g*0.587+b*0.114;
-      if(hd<60)continue; // donkere pixels overslaan
-      const{h,s,l}=rgbHsl(r,g,b);
-      if(s<0.30)continue; // kleurloze pixels overslaan
-
-      // Sectie bepalen
-      const sectie=isH
-        ?Math.min(2,Math.floor(px/cW))
-        :Math.min(2,Math.floor(py/cH));
-
-      // Positieweging: correcte lamp op correcte positie = 3x gewicht
-      if(s>0.35&&(h<18||h>342)){
-        roodScore   += (sectie===0?3:1);
-      }else if(s>0.35&&h>88&&h<167){
-        groenScore  += (sectie===2?3:1);
-      }else if(s>0.40&&h>=13&&h<=47){
-        oranjeScore += (sectie===1?3:1);
-      }
-    }
-  }
-
-  const max=Math.max(roodScore,groenScore,oranjeScore);
-  if(max<6)return null; // te weinig signaal
-
-  if(roodScore===max)   return{kleur:'rood',  horizontaal:isH};
-  if(groenScore===max)  return{kleur:'groen', horizontaal:isH};
-  return                    {kleur:'oranje',horizontaal:isH};
+  const data=id.data,W=Math.floor(bw),H=Math.floor(bh);
+  const isH=W>H*1.3;
+  const cH=Math.floor(H/3),cW=Math.floor(W/3);
+  let rS=0,gS=0,oS=0;
+  for(let py=0;py<H;py+=2){for(let px=0;px<W;px+=2){
+    const i=(py*W+px)*4;if(i+3>=data.length)continue;
+    const r=data[i],g=data[i+1],b=data[i+2];
+    const hd=r*0.299+g*0.587+b*0.114;if(hd<60)continue;
+    const{h,s,l}=rgbHsl(r,g,b);if(s<0.30)continue;
+    const sec=isH?Math.min(2,Math.floor(px/cW)):Math.min(2,Math.floor(py/cH));
+    if(s>0.35&&(h<18||h>342))rS+=(sec===0?3:1);
+    else if(s>0.35&&h>88&&h<167)gS+=(sec===2?3:1);
+    else if(s>0.40&&h>=13&&h<=47)oS+=(sec===1?3:1);
+  }}
+  const max=Math.max(rS,gS,oS);
+  if(max<6)return null;
+  if(rS===max)return{kleur:'rood',horizontaal:isH};
+  if(gS===max)return{kleur:'groen',horizontaal:isH};
+  return{kleur:'oranje',horizontaal:isH};
 }
 
-// ── AI DETECTIE met hoogtefilter ──────────────────────────────
+// AI detectie met hoogtefilter
 async function voerAIUit(){
   if(!modelGeladen||!cocoModel||video.readyState<2||aiBezig)return;
   aiBezig=true;
-
   try{
-    // Lagere confidence drempel zodat het model eerder detecteert
     const detecties=await cocoModel.detect(video,6,0.35);
-
-    // Filter: alleen traffic lights
-    let stoplichten=detecties.filter(d=>
-      d.class==='traffic light' && d.score>0.35
-    );
-
-    if(!stoplichten.length){
-      laatsteAI=null;
-      dAI.textContent='ai:weg';
-      return;
-    }
-
-    // ── HOOGTEFILTER ────────────────────────────────────────
-    // Stoplichten hangen altijd in het bovenste deel van het beeld
-    // Alles in de onderste 45% negeren (auto achterlichten, borden)
-    const geldig=stoplichten.filter(d=>{
+    let sl=detecties.filter(d=>d.class==='traffic light'&&d.score>0.35);
+    if(!sl.length){laatsteAI=null;dAI.textContent='ai:weg';return;}
+    const geldig=sl.filter(d=>{
       const[bx,by,bw,bh]=d.bbox;
-      const middenY=(by+bh/2)/video.videoHeight;
-
-      // Moet in bovenste 55% van beeld zitten
-      if(middenY>MAX_Y_RATIO)return false;
-
-      // Bounding box grootte check
-      // Te klein = te ver weg of geen stoplicht
+      const midY=(by+bh/2)/video.videoHeight;
+      if(midY>MAX_Y_RATIO)return false;
       if(bh<MIN_BOX_H_PX)return false;
-
-      // Te breed = waarschijnlijk geen stoplicht
       if(bw/video.videoWidth>MAX_BOX_W_RATIO)return false;
-
       return true;
     });
-
-    if(!geldig.length){
-      dAI.textContent=`ai:gefilterd(${stoplichten.length})`;
-      // Niet direct resetten — laat geenTeller oplopen
-      return;
-    }
-
-    // Beste detectie op basis van score
+    if(!geldig.length){dAI.textContent=`ai:gefilterd(${sl.length})`;return;}
     const beste=geldig.reduce((a,b)=>a.score>b.score?a:b);
     const[bx,by,bw,bh]=beste.bbox;
-    const scX=canvas.width/video.videoWidth;
-    const scY=canvas.height/video.videoHeight;
-
-    // Kleur bepalen binnen de bounding box
-    const kleurResultaat=kleurVanBox(
-      bx*scX, by*scY, bw*scX, bh*scY
-    );
-
-    dAI.textContent=`ai:${kleurResultaat?.kleur||'?'} ${(beste.score*100).toFixed(0)}% ${Math.round(bw)}x${Math.round(bh)}`;
-
-    if(!kleurResultaat){
-      // Stoplicht gevonden maar kleur onduidelijk
-      // Bewaar de box maar zonder kleur
-      laatsteAI={
-        kleur:null, score:beste.score,
-        box:{x:bx*scX,y:by*scY,w:bw*scX,h:bh*scY,kleur:null},
-        horizontaal:false
-      };
-      return;
-    }
-
+    const scX=canvas.width/video.videoWidth,scY=canvas.height/video.videoHeight;
+    const kr=kleurVanBox(bx*scX,by*scY,bw*scX,bh*scY);
+    dAI.textContent=`ai:${kr?.kleur||'?'} ${(beste.score*100).toFixed(0)}%`;
     laatsteAI={
-      kleur:kleurResultaat.kleur,
-      horizontaal:kleurResultaat.horizontaal,
+      kleur:kr?.kleur||null,horizontaal:kr?.horizontaal||false,
       score:beste.score,
-      box:{x:bx*scX,y:by*scY,w:bw*scX,h:bh*scY,kleur:kleurResultaat.kleur}
+      box:{x:bx*scX,y:by*scY,w:bw*scX,h:bh*scY,kleur:kr?.kleur||null}
     };
-
-  }catch(e){
-    dAI.textContent='ai:err';
-  }finally{
-    aiBezig=false;
-  }
+  }catch(e){dAI.textContent='ai:err';}
+  finally{aiBezig=false;}
 }
 
-// ── OVERLAY ───────────────────────────────────────────────────
+// Overlay
 function tekenOverlay(box,score,horizontaal){
   if(overlCanvas.width!==canvas.width)overlCanvas.width=canvas.width;
   if(overlCanvas.height!==canvas.height)overlCanvas.height=canvas.height;
   octx.clearRect(0,0,overlCanvas.width,overlCanvas.height);
   if(!box)return;
-
-  const scX=window.innerWidth/canvas.width;
-  const scY=window.innerHeight/canvas.height;
+  const scX=window.innerWidth/canvas.width,scY=window.innerHeight/canvas.height;
   const sx=box.x*scX,sy=box.y*scY,sw=box.w*scX,sh=box.h*scY;
-  const kleurCSS=box.kleur==='rood'?'#FF3030':
-                 box.kleur==='groen'?'#34C759':
-                 box.kleur==='oranje'?'#FF9F0A':'#888888';
-
-  // Bounding box
+  const kCSS=box.kleur==='rood'?'#FF3030':box.kleur==='groen'?'#34C759':box.kleur==='oranje'?'#FF9F0A':'#888';
   const mg=6,hl=Math.min(sw,sh)*0.35+6;
   const x1=sx-mg,y1=sy-mg,x2=sx+sw+mg,y2=sy+sh+mg;
-  octx.strokeStyle=kleurCSS;octx.lineWidth=2;octx.globalAlpha=0.85;
-  octx.shadowColor=kleurCSS;octx.shadowBlur=6;
+  octx.strokeStyle=kCSS;octx.lineWidth=2;octx.globalAlpha=0.85;
+  octx.shadowColor=kCSS;octx.shadowBlur=6;
   octx.beginPath();
   octx.moveTo(x1+hl,y1);octx.lineTo(x1,y1);octx.lineTo(x1,y1+hl);
   octx.moveTo(x2-hl,y1);octx.lineTo(x2,y1);octx.lineTo(x2,y1+hl);
   octx.moveTo(x1,y2-hl);octx.lineTo(x1,y2);octx.lineTo(x1+hl,y2);
   octx.moveTo(x2-hl,y2);octx.lineTo(x2,y2);octx.lineTo(x2,y2-hl);
-  octx.stroke();
-  octx.shadowBlur=0;
-
+  octx.stroke();octx.shadowBlur=0;
   if(box.kleur){
-    octx.fillStyle=kleurCSS;octx.globalAlpha=0.9;
-    octx.font='bold 9px monospace';
-    const ori=horizontaal?' ↔':' ↕';
-    const sc=score?` ${(score*100).toFixed(0)}%`:'';
-    octx.fillText(`${box.kleur.toUpperCase()}${ori}${sc}`,x1,y1-4);
+    octx.fillStyle=kCSS;octx.globalAlpha=0.9;octx.font='bold 9px monospace';
+    octx.fillText(`${box.kleur.toUpperCase()}${horizontaal?' ↔':' ↕'}${score?` ${(score*100).toFixed(0)}%`:''}`,x1,y1-4);
   }
 }
 
-// ── BEVESTIGING ───────────────────────────────────────────────
+// Bevestiging
 function verwerkDetecties(){
   const aiR=laatsteAI;
-
   if(aiR&&aiR.kleur){
-    // Goede detectie met kleur
-    if(aiR.kleur===aiKleur){
-      aiTeller++;
-    }else{
-      aiKleur=aiR.kleur;
-      aiTeller=1;
-    }
+    if(aiR.kleur===aiKleur)aiTeller++;
+    else{aiKleur=aiR.kleur;aiTeller=1;}
     tekenOverlay(aiR.box,aiR.score,aiR.horizontaal);
     geenTeller=0;
     dInfo.textContent=`${aiR.kleur} ${aiTeller}/${AI_DREMPEL}`;
-
-    if(aiTeller>=AI_DREMPEL){
-      verwerkFase(aiR.kleur,aiR.horizontaal);
-    }
+    if(aiTeller>=AI_DREMPEL)verwerkFase(aiR.kleur,aiR.horizontaal);
     return;
   }
-
   if(aiR&&!aiR.kleur){
-    // Stoplicht zichtbaar maar kleur onduidelijk — teken box zonder fase te wijzigen
     tekenOverlay(aiR.box,aiR.score,false);
-    geenTeller=0;
-    dInfo.textContent='stoplicht:kleur?';
-    return;
+    geenTeller=0;dInfo.textContent='kleur?';return;
   }
-
-  // Geen detectie
   tekenOverlay(null);
-  aiTeller=0; aiKleur=null;
+  aiTeller=0;aiKleur=null;
   geenTeller++;
   dInfo.textContent=`geen(${geenTeller}/${GEEN_RESET})`;
-
-  // Snelle reset: na GEEN_RESET frames zonder detectie → neutraal
-  if(geenTeller>=GEEN_RESET && fase!==null){
-    resetNeutraal();
-  }
+  if(geenTeller>=GEEN_RESET&&fase!==null)resetNeutraal();
 }
 
 function resetNeutraal(){
-  fase=null; faseStart=null;
-  faseBalk.className='';
-  faseLamp.className='';
-  faseWoord.textContent='—';
-  faseSub.textContent='Richt camera op stoplicht';
-  faseBron.textContent='';
-  randGlow.className='';
-  stopCd();
+  fase=null;faseStart=null;
+  faseBalk.className='';faseLamp.className='';
+  faseWoord.textContent='—';faseSub.textContent='Richt camera op stoplicht';
+  faseBron.textContent='';randGlow.className='';stopCd();
 }
 
-// ── FASEWISSEL ────────────────────────────────────────────────
+// Fasewissel
 function verwerkFase(nieuw,horizontaal){
   if(nieuw===fase)return;
   const nu=performance.now();
-
   if(fase&&faseStart){
     const dur=(nu-faseStart)/1000;
     if(fase==='rood'&&dur>4&&dur<300&&dichtstbijOSM){
       slaOp(dichtstbijOSM.id,huidigeRichting,dur);
-      sessieCycli++;
       bijwerkLeerkaart(dichtstbijOSM);
+      bijwerkDashboardKnop();
     }
   }
-
-  fase=nieuw; faseStart=nu; geenTeller=0;
-  aiTeller=0; aiKleur=nieuw; // reset bevestiging bij fasewissel
-
-  // Atomaire UI update — geen tegenstrijdige staten mogelijk
+  fase=nieuw;faseStart=nu;geenTeller=0;
+  aiTeller=0;aiKleur=nieuw;
   updateUI(nieuw,horizontaal);
-
-  if(nieuw==='groen') speelGroen();
+  if(nieuw==='groen')speelGroen();
   if(nieuw==='rood'){
     const m=dichtstbijOSM?laadM(dichtstbijOSM.id,huidigDD()):[];
     const gem=gewGem(m);
-    if(gem>0){activeCdDoel=gem;startCd();}
-    else stopCd();
-  } else {
-    stopCd();
-  }
+    if(gem>0){activeCdDoel=gem;startCd();}else stopCd();
+  }else stopCd();
 }
 
-// ── ATOMAIRE UI UPDATE ────────────────────────────────────────
-// Alles in één keer bijgewerkt — geen inconsistente tussenstaten
+// Atomaire UI update
 function updateUI(f,horizontaal){
-  faseBalk.className=f||'';
-  faseLamp.className=f||'';
-  randGlow.className=f||'';
-
+  faseBalk.className=f||'';faseLamp.className=f||'';randGlow.className=f||'';
   const woorden={rood:'ROOD',groen:'GROEN',oranje:'ORANJE'};
   const subs={rood:'Stop — wachten op groen',groen:'Rijden!',oranje:'Afremmen'};
   faseWoord.textContent=woorden[f]||'—';
   faseSub.textContent=subs[f]||'Richt camera op stoplicht';
   faseBron.textContent=f?`AI${horizontaal?' ↔':' ↕'}`:'';
-
-  const ringKleur=f==='rood'?'var(--rood)':
-                  f==='groen'?'var(--groen)':
-                  f==='oranje'?'var(--oranje)':'rgba(255,255,255,.12)';
-  cdRingVoor.style.stroke=ringKleur;
-
+  const rk=f==='rood'?'var(--rood)':f==='groen'?'var(--groen)':f==='oranje'?'var(--oranje)':'rgba(255,255,255,.12)';
+  cdRingVoor.style.stroke=rk;
   if(f==='groen'){
-    // Groen — alles consistent groen
-    cdLabel.textContent='Groen actief';
-    cdGetal.textContent='✓';
-    cdGetal.className='nabij';
-    cdEenheid.textContent='';
+    cdLabel.textContent='Groen actief';cdGetal.textContent='✓';
+    cdGetal.className='nabij';cdEenheid.textContent='';
     cdRingVoor.style.strokeDashoffset='0';
   }else if(f==='rood'){
-    // Rood — countdown staat klaar
-    cdGetal.className='';
-    cdEenheid.textContent='seconden';
+    cdGetal.className='';cdEenheid.textContent='seconden';
     cdLabel.textContent='Groen verwacht over';
-    if(activeCdDoel===0){
-      cdGetal.textContent='—';
-      cdGetal.className='leeg';
-    }
+    if(activeCdDoel===0){cdGetal.textContent='—';cdGetal.className='leeg';}
   }else{
-    // Neutraal
-    cdGetal.textContent='—';
-    cdGetal.className='leeg';
-    cdEenheid.textContent='seconden';
-    cdLabel.textContent='Groen verwacht over';
+    cdGetal.textContent='—';cdGetal.className='leeg';
+    cdEenheid.textContent='seconden';cdLabel.textContent='Groen verwacht over';
     cdRingVoor.style.strokeDashoffset=OMTREK_CD.toFixed(1);
   }
 }
 
-// ── COUNTDOWN ─────────────────────────────────────────────────
+// Countdown
 function startCd(){
   cdStart=performance.now();
   const pct=dichtstbijOSM?berekenLeerPct(dichtstbijOSM.id):0;
   cdLabel.textContent=pct>60?`Groen over (${pct}% zeker)`:'Groen verwacht over';
-  cdEenheid.textContent='seconden';
-  cdRingVoor.style.stroke='var(--rood)';
+  cdEenheid.textContent='seconden';cdRingVoor.style.stroke='var(--rood)';
 }
-function stopCd(){
-  cdStart=null;
-  cdRingVoor.style.strokeDashoffset=OMTREK_CD.toFixed(1);
-}
+function stopCd(){cdStart=null;cdRingVoor.style.strokeDashoffset=OMTREK_CD.toFixed(1);}
 function tickCd(){
   if(!fase||fase!=='rood'||!cdStart||!activeCdDoel)return;
-  const ver=(performance.now()-cdStart)/1000;
-  const over=Math.max(0,activeCdDoel-ver);
+  const ver=(performance.now()-cdStart)/1000,over=Math.max(0,activeCdDoel-ver);
   const prog=Math.min(1,ver/activeCdDoel);
   cdGetal.textContent=over<1?'<1':Math.ceil(over).toString();
   cdGetal.className=over<=6?'nabij':'';
   cdRingVoor.style.strokeDashoffset=(OMTREK_CD*(1-prog)).toFixed(1);
 }
 
-// ── LEERKAART BIJWERKEN ───────────────────────────────────────
+// Leerkaart
 function bijwerkLeerkaart(osm){
   if(!osm){
     leerNaam.textContent='Wacht op GPS…';
-    leerBadge.textContent='—';
-    leerBadge.className='leer-nieuw-badge';
-    leerPctBalk.style.width='0%';
-    leerPctGetal.textContent='0%';
+    leerBadge.textContent='—';leerBadge.className='leer-nieuw-badge';
+    leerPctBalk.style.width='0%';leerPctGetal.textContent='0%';
     return;
   }
-
   const pct=berekenLeerPct(osm.id);
-  const kleur=leerPctKleur(pct);
+  const kleur=leerKleur(pct);
   const dd=huidigDD();
-
-  // Naam
   leerNaam.textContent=osm.naam||`Stoplicht ${osm.id}`;
-
-  // Badge: bekend of nieuw
-  const totaalMetingen=Object.keys(DD).reduce((s,d)=>s+laadM(osm.id,d).length,0);
-  if(totaalMetingen>0){
-    leerBadge.textContent=`${totaalMetingen}x gezien`;
+  const totM=Object.keys(DD).reduce((s,d)=>s+laadM(osm.id,d).length,0);
+  if(totM>0){
+    leerBadge.textContent=`${totM}x gezien`;
     leerBadge.className='leer-nieuw-badge bekend';
   }else{
-    leerBadge.textContent='Nieuw';
-    leerBadge.className='leer-nieuw-badge';
+    leerBadge.textContent='Nieuw';leerBadge.className='leer-nieuw-badge';
   }
-
-  // Percentage balk
-  leerPctBalk.style.width=pct+'%';
-  leerPctBalk.style.background=kleur;
-  leerPctGetal.textContent=pct+'%';
-  leerPctGetal.style.color=kleur;
-
+  leerPctBalk.style.width=pct+'%';leerPctBalk.style.background=kleur;
+  leerPctGetal.textContent=pct+'%';leerPctGetal.style.color=kleur;
   dPct.textContent=`leer:${pct}%`;
-
-  // Dagdelen bijwerken
   Object.keys(DD).forEach(d=>{
     const m=laadM(osm.id,d);
     const gem=gewGem(m);
@@ -1072,35 +921,157 @@ function bijwerkLeerkaart(osm){
     document.getElementById(`dc-${d}`).textContent=m.length+'x';
     document.getElementById(`dd-${d}`).classList.toggle('actief',d===dd);
   });
-
-  // Geheugen info
-  gehInfo.textContent=`${telKP()} kruispunten opgeslagen`;
 }
 
-// ── OSM CACHE ─────────────────────────────────────────────────
+function bijwerkDashboardKnop(){
+  const n=telKP();
+  dashKnopCnt.textContent=`${n} kruispunten →`;
+}
+
+// ══ DASHBOARD FUNCTIES ══════════════════════════════════════════
+let huidigFilter='alle';
+
+function openDashboard(){
+  laadDashboard();
+  document.getElementById('dashboard').classList.remove('verborgen');
+}
+
+function sluitDashboard(){
+  document.getElementById('dashboard').classList.add('verborgen');
+}
+
+function filterDashboard(filter, el){
+  huidigFilter=filter;
+  document.querySelectorAll('.filter-btn').forEach(b=>b.classList.remove('actief'));
+  el.classList.add('actief');
+  laadDashboard();
+}
+
+function laadDashboard(){
+  const ids=haalAlleOsmIds();
+  const lijst=document.getElementById('dash-lijst');
+
+  if(ids.length===0){
+    lijst.innerHTML=`
+      <div id="dash-leeg">
+        <div id="dash-leeg-icoon">🗺</div>
+        <div id="dash-leeg-tekst">Nog geen stoplichten geleerd.<br/>Rij langs stoplichten om data op te bouwen.</div>
+      </div>`;
+    document.getElementById('ds-kruispunten').textContent='0';
+    document.getElementById('ds-metingen').textContent='0';
+    document.getElementById('ds-gem-pct').textContent='0%';
+    return;
+  }
+
+  // Bouw data op voor elk stoplicht
+  const data=ids.map(id=>{
+    const pct=berekenLeerPctVoorDashboard(id);
+    const alleM=Object.keys(DD).flatMap(d=>laadM(id,d));
+    const totM=alleM.length;
+    const laatste=alleM.length>0?Math.max(...alleM.map(m=>m.tijd)):0;
+    const naam=vindNaamVoorId(id);
+    return{id,pct,totM,laatste,naam};
+  }).filter(d=>d.totM>0);
+
+  // Filter toepassen
+  const gefilterd=data.filter(d=>{
+    if(huidigFilter==='hoog')return d.pct>=85;
+    if(huidigFilter==='goed')return d.pct>=60&&d.pct<85;
+    if(huidigFilter==='laag')return d.pct<60;
+    if(huidigFilter==='nacht')return laadM(d.id,'nacht').length>0;
+    return true;
+  });
+
+  // Sorteer op percentage hoog naar laag
+  gefilterd.sort((a,b)=>b.pct-a.pct);
+
+  // Statistieken
+  const totMetingen=data.reduce((s,d)=>s+d.totM,0);
+  const gemPct=data.length>0?Math.round(data.reduce((s,d)=>s+d.pct,0)/data.length):0;
+  document.getElementById('ds-kruispunten').textContent=data.length;
+  document.getElementById('ds-metingen').textContent=totMetingen;
+  document.getElementById('ds-gem-pct').textContent=gemPct+'%';
+
+  // Render lijst
+  if(gefilterd.length===0){
+    lijst.innerHTML=`<div style="text-align:center;padding:30px;color:var(--dim);font-size:13px">Geen stoplichten gevonden voor dit filter</div>`;
+    return;
+  }
+
+  lijst.innerHTML=gefilterd.map(d=>{
+    const kleur=leerKleur(d.pct);
+    const kleurCSS=d.pct>=85?'#34C759':d.pct>=60?'#0A84FF':d.pct>=30?'#FF9F0A':'#FF3030';
+    const leeftijd=tijdGeleden(d.laatste);
+
+    // Dagdeel indicators
+    const ddHTML=Object.keys(DD).map(dd=>{
+      const m=laadM(d.id,dd);
+      const gem=gewGem(m);
+      const heeftData=m.length>0;
+      return`<div class="sl-dd-item${heeftData?' heeft-data':''}">${DD[dd].ic}${gem?' '+Math.round(gem)+'s':''}</div>`;
+    }).join('');
+
+    return`
+      <div class="sl-kaart">
+        <div class="sl-kaart-header">
+          <div class="sl-kaart-naam">${d.naam}</div>
+          <div class="sl-kaart-pct" style="color:${kleurCSS}">${d.pct}%</div>
+        </div>
+        <div class="sl-kaart-balk-bg">
+          <div class="sl-kaart-balk" style="width:${d.pct}%;background:${kleurCSS}"></div>
+        </div>
+        <div class="sl-kaart-info">
+          <div class="sl-kaart-dd">${ddHTML}</div>
+          <div class="sl-kaart-laatste">${leeftijd} · ${d.totM}x gemeten</div>
+        </div>
+      </div>`;
+  }).join('');
+}
+
+function berekenLeerPctVoorDashboard(osmId){
+  // Gebruik huidig dagdeel voor consistentie berekening
+  return berekenLeerPct(osmId);
+}
+
+function vindNaamVoorId(id){
+  // Zoek in OSM cache
+  const gevonden=osmCache.find(sl=>sl.id.toString()===id.toString());
+  if(gevonden?.naam)return gevonden.naam;
+  return`Stoplicht ${id}`;
+}
+
+function tijdGeleden(ts){
+  if(!ts)return'Onbekend';
+  const sec=Math.floor((Date.now()-ts)/1000);
+  if(sec<60)return'Zojuist';
+  if(sec<3600)return`${Math.floor(sec/60)}min geleden`;
+  if(sec<86400)return`${Math.floor(sec/3600)}u geleden`;
+  return`${Math.floor(sec/86400)}d geleden`;
+}
+
+// ── OSM ───────────────────────────────────────────────────────
 async function downloadOSM(lat,lon){
   if(cacheBezig)return;
   cacheBezig=true;
-  pOSM.className='pill-dot o'; pOSMT.textContent='laden'; dOSM.textContent='osm:laden';
+  pOSM.className='pill-dot o';pOSMT.textContent='laden';dOSM.textContent='osm:laden';
   const q=`[out:json][timeout:15];node["highway"="traffic_signals"](around:${OSM_RADIUS},${lat},${lon});out body;`;
   try{
     const ctrl=new AbortController();
     const t=setTimeout(()=>ctrl.abort(),18000);
     const r=await fetch(OVERPASS_URL,{method:'POST',body:`data=${encodeURIComponent(q)}`,signal:ctrl.signal});
-    clearTimeout(t);
-    if(!r.ok)throw new Error();
+    clearTimeout(t);if(!r.ok)throw new Error();
     const d=await r.json();
     osmCache=(d.elements||[]).map(el=>({
       id:el.id,lat:el.lat,lon:el.lon,
       naam:el.tags?.name||el.tags?.ref||null,
       slim:!!(el.tags?.['traffic_signals:sound']||el.tags?.description?.toLowerCase().includes('ivri')),
     }));
-    cacheCentrum={lat,lon}; cacheGeladen=true;
-    pOSM.className='pill-dot g'; pOSMT.textContent='Kaart';
+    cacheCentrum={lat,lon};cacheGeladen=true;
+    pOSM.className='pill-dot g';pOSMT.textContent='Kaart';
     dOSM.textContent=`osm:${osmCache.length}`;
     updateDichtbij(lat,lon);
   }catch(e){
-    pOSM.className='pill-dot o'; pOSMT.textContent='Fout'; dOSM.textContent='osm:fout';
+    pOSM.className='pill-dot o';pOSMT.textContent='Fout';dOSM.textContent='osm:fout';
     setTimeout(()=>{cacheBezig=false;if(huidigePos)downloadOSM(huidigePos.lat,huidigePos.lon);},30000);
   }finally{cacheBezig=false;}
 }
@@ -1122,10 +1093,7 @@ function vindDichtbij(lat,lon,heading){
   }
   if(!beste){
     let minA=Infinity;
-    for(const sl of osmCache){
-      const a=afstand(lat,lon,sl.lat,sl.lon);
-      if(a<minA){minA=a;beste={...sl,afstand:a};}
-    }
+    for(const sl of osmCache){const a=afstand(lat,lon,sl.lat,sl.lon);if(a<minA){minA=a;beste={...sl,afstand:a};}}
   }
   return beste;
 }
@@ -1140,51 +1108,34 @@ function updateDichtbij(lat,lon){
   if(!osmCache.length){kNaam.textContent='Geen kaartdata';kAf.textContent='—';return;}
   const nieuw=vindDichtbij(lat,lon,huidigeRichting);
   if(!nieuw)return;
-
   const a=Math.round(nieuw.afstand);
   kNaam.textContent=nieuw.naam||(nieuw.slim?'⚡ Slim':'Stoplicht');
   kAf.textContent=a<1000?`${a}m`:`${(a/1000).toFixed(1)}km`;
-  const ddInfo=DD[huidigDD()];
-  kDD.textContent=`${ddInfo.ic} ${huidigDD()}`;
-
+  kDD.textContent=`${DD[huidigDD()].ic} ${huidigDD()}`;
   if(nieuw.id!==vorigOsmId){
-    vorigOsmId=nieuw.id;
-    dichtstbijOSM=nieuw;
-    afwijkBuf=[]; sessieCycli=0;
-
-    // Laad countdown doel voor dit kruispunt
+    vorigOsmId=nieuw.id;dichtstbijOSM=nieuw;
+    afwijkBuf=[];
     const m=laadM(nieuw.id,huidigDD());
-    const gem=gewGem(m);
-    activeCdDoel=gem||0;
-
-    // Bijwerken leerkaart voor het nieuwe kruispunt
+    activeCdDoel=gewGem(m)||0;
     bijwerkLeerkaart(nieuw);
-  }else{
-    dichtstbijOSM=nieuw;
-  }
-
-  if(cacheCentrum&&afstand(lat,lon,cacheCentrum.lat,cacheCentrum.lon)>OSM_REFRESH&&!cacheBezig){
+    bijwerkDashboardKnop();
+  }else{dichtstbijOSM=nieuw;}
+  if(cacheCentrum&&afstand(lat,lon,cacheCentrum.lat,cacheCentrum.lon)>OSM_REFRESH&&!cacheBezig)
     downloadOSM(lat,lon);
-  }
 }
 
-// ── GPS ───────────────────────────────────────────────────────
+// GPS
 async function onGPS(pos){
   const lat=pos.coords.latitude,lon=pos.coords.longitude;
   huidigePos={lat,lon};
-  if(pos.coords.heading!==null&&!isNaN(pos.coords.heading)){
-    huidigeRichting=pos.coords.heading;
-  }
-  pGPS.className='pill-dot b'; pGPST.textContent='GPS';
-  if(!cacheGeladen&&!cacheBezig) downloadOSM(lat,lon);
-  else if(cacheGeladen) updateDichtbij(lat,lon);
+  if(pos.coords.heading!==null&&!isNaN(pos.coords.heading))huidigeRichting=pos.coords.heading;
+  pGPS.className='pill-dot b';pGPST.textContent='GPS';
+  if(!cacheGeladen&&!cacheBezig)downloadOSM(lat,lon);
+  else if(cacheGeladen)updateDichtbij(lat,lon);
 }
 
-// ── GELUID ────────────────────────────────────────────────────
-function initialiseerAudio(){
-  if(audioCtx)return;
-  audioCtx=new(window.AudioContext||window.webkitAudioContext)();
-}
+// Geluid
+function initialiseerAudio(){if(audioCtx)return;audioCtx=new(window.AudioContext||window.webkitAudioContext)();}
 function speelGroen(){
   if(!geluidAan||!audioCtx)return;
   try{
@@ -1202,39 +1153,26 @@ function speelGroen(){
     setTimeout(()=>geluidFlash.style.opacity='0',350);
   }catch(e){}
 }
-function toggleGeluid(){
-  geluidAan=!geluidAan;
-  document.getElementById('geluid-toggle').classList.toggle('uit',!geluidAan);
-}
-function toggleGeluidInApp(){
-  geluidAan=!geluidAan;
-  pGeluid.className='pill-dot'+(geluidAan?' g':'');
-  pGeluidT.textContent=geluidAan?'SND':'MUTE';
-}
+function toggleGeluid(){geluidAan=!geluidAan;document.getElementById('geluid-toggle').classList.toggle('uit',!geluidAan);}
+function toggleGeluidInApp(){geluidAan=!geluidAan;pGeluid.className='pill-dot'+(geluidAan?' g':'');pGeluidT.textContent=geluidAan?'SND':'MUTE';}
 
 async function activeerWakeLock(){
-  try{
-    if('wakeLock'in navigator){
-      wakeLock=await navigator.wakeLock.request('screen');
-      document.addEventListener('visibilitychange',async()=>{
-        if(document.visibilityState==='visible'&&wakeLock===null)
-          wakeLock=await navigator.wakeLock.request('screen');
-      });
-    }
-  }catch(e){}
+  try{if('wakeLock'in navigator){wakeLock=await navigator.wakeLock.request('screen');
+    document.addEventListener('visibilitychange',async()=>{
+      if(document.visibilityState==='visible'&&wakeLock===null)
+        wakeLock=await navigator.wakeLock.request('screen');
+    });}}catch(e){}
 }
 
 function checkNacht(){
   const u=new Date().getHours(),n=u>=20||u<7;
   if(n!==isNacht){
-    isNacht=n;
-    canvas.style.opacity=n?'0.85':'0.92';
-    pNacht.className='pill-dot'+(n?' o':'');
-    pNachtT.textContent=n?'Nacht':'Dag';
+    isNacht=n;canvas.style.opacity=n?'0.85':'0.92';
+    pNacht.className='pill-dot'+(n?' o':'');pNachtT.textContent=n?'Nacht':'Dag';
   }
 }
 
-// ── ANIMATIELUS ───────────────────────────────────────────────
+// Animatielus
 function lus(){
   if(video.readyState>=2){
     canvas.width=video.videoWidth||window.innerWidth;
@@ -1242,34 +1180,28 @@ function lus(){
     ctx.drawImage(video,0,0,canvas.width,canvas.height);
   }
   frameT++;
-  if(frameT%AI_INTERVAL===0&&modelGeladen&&!aiBezig) voerAIUit();
+  if(frameT%AI_INTERVAL===0&&modelGeladen&&!aiBezig)voerAIUit();
   verwerkDetecties();
   tickCd();
-  if(frameT%1800===0) checkNacht();
+  if(frameT%1800===0)checkNacht();
   requestAnimationFrame(lus);
 }
 
-// ── START ─────────────────────────────────────────────────────
+// Start
 async function startApp(){
   initialiseerAudio();
   pGeluid.className='pill-dot'+(geluidAan?' g':'');
   pGeluidT.textContent=geluidAan?'SND':'MUTE';
   document.getElementById('startscherm').classList.add('weg');
-
   try{
     const stream=await navigator.mediaDevices.getUserMedia({
       video:{facingMode:{ideal:'environment'},width:{ideal:1280},height:{ideal:720}},
       audio:false
     });
-    video.srcObject=stream; await video.play();
-  }catch(e){
-    document.getElementById('startscherm').classList.remove('weg');
-    return;
-  }
-
+    video.srcObject=stream;await video.play();
+  }catch(e){document.getElementById('startscherm').classList.remove('weg');return;}
   await activeerWakeLock();
   checkNacht();
-
   if(navigator.geolocation){
     navigator.geolocation.watchPosition(
       onGPS,
@@ -1277,12 +1209,13 @@ async function startApp(){
       {enableHighAccuracy:true,maximumAge:5000,timeout:12000}
     );
   }
-
   bijwerkLeerkaart(null);
+  bijwerkDashboardKnop();
   lus();
 }
 
 document.getElementById('geluid-toggle').classList.remove('uit');
+bijwerkDashboardKnop();
 </script>
 
 </body>
