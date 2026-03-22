@@ -7,7 +7,9 @@
   <meta name="apple-mobile-web-app-capable" content="yes"/>
   <meta name="apple-mobile-web-app-status-bar-style" content="black-fullscreen"/>
   <meta name="apple-mobile-web-app-title" content="Stoplicht"/>
-  <title>Stoplicht Detector Pro v4.8</title>
+  <title>Stoplicht Detector Pro v4.9</title>
+
+  <!-- TensorFlow start laden zodra pagina opent — niet wachten op knop -->
 
   <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@4.17.0/dist/tf.min.js"></script>
 
@@ -25,7 +27,6 @@
     html,body{width:100%;height:100%;overflow:hidden;background:#000;
       font-family:'Rajdhani',sans-serif;color:#fff;
       -webkit-tap-highlight-color:transparent;-webkit-font-smoothing:antialiased}
-
     #camera-canvas{position:fixed;top:0;left:0;width:100%;height:100%;
       object-fit:cover;z-index:0;opacity:0.92}
     #overlay-canvas{position:fixed;top:0;left:0;width:100%;height:100%;
@@ -60,17 +61,26 @@
     .pill-tekst{font-size:9px;font-weight:600;letter-spacing:0.08em;
       text-transform:uppercase;color:var(--dim);white-space:nowrap}
 
-    /* Model laad balk */
+    /* Model status balk — toont voortgang */
     #model-status{width:100%;background:rgba(0,0,0,0.55);
       backdrop-filter:blur(10px);-webkit-backdrop-filter:blur(10px);
       border:1px solid rgba(191,90,242,0.3);border-radius:12px;
-      padding:8px 14px;display:flex;align-items:center;gap:8px}
-    #model-status.verborgen{display:none}
+      padding:8px 14px;display:flex;flex-direction:column;gap:5px;
+      transition:opacity .4s}
+    #model-status.verborgen{opacity:0;pointer-events:none;height:0;padding:0;margin:0;overflow:hidden}
+    #model-top{display:flex;align-items:center;gap:8px}
     #model-dot{width:7px;height:7px;border-radius:50%;background:#BF5AF2;
-      box-shadow:0 0 6px #BF5AF2;animation:mpuls 1s ease-in-out infinite;flex-shrink:0}
+      box-shadow:0 0 6px #BF5AF2;flex-shrink:0}
+    #model-dot.laden{animation:mpuls 1s ease-in-out infinite}
     @keyframes mpuls{0%,100%{opacity:1}50%{opacity:0.35}}
     #model-tekst{font-size:10px;color:rgba(191,90,242,0.9);
-      font-weight:600;letter-spacing:0.08em;text-transform:uppercase}
+      font-weight:600;letter-spacing:0.08em;text-transform:uppercase;flex:1}
+    #model-pct{font-family:'Share Tech Mono',monospace;font-size:10px;
+      color:rgba(191,90,242,0.7)}
+    #model-balk-bg{width:100%;height:3px;background:rgba(255,255,255,0.08);
+      border-radius:2px}
+    #model-balk{height:100%;width:0%;border-radius:2px;
+      background:#BF5AF2;transition:width .4s}
 
     /* Fase balk */
     #fase-balk{width:100%;background:rgba(0,0,0,0.65);
@@ -95,12 +105,8 @@
       text-transform:uppercase;line-height:1}
     #fase-sub{font-size:10px;color:var(--dim);letter-spacing:0.06em;
       text-transform:uppercase;margin-top:1px}
-
-    /* Oriëntatie badge */
-    #orientatie-badge{display:inline-flex;align-items:center;gap:3px;
-      font-size:9px;color:rgba(255,255,255,0.35);letter-spacing:0.06em;
-      text-transform:uppercase;margin-top:2px}
-
+    #fase-bron{font-size:9px;color:rgba(255,255,255,0.25);
+      letter-spacing:0.06em;text-transform:uppercase;margin-top:1px}
     #kruispunt-mini{text-align:right;min-width:0;flex-shrink:1}
     #kruispunt-mini-naam{font-size:11px;font-weight:600;color:#fff;
       white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:130px}
@@ -127,7 +133,6 @@
     #cd-ring-voor{fill:none;stroke:var(--groen);stroke-width:5;stroke-linecap:round;
       stroke-dasharray:170;stroke-dashoffset:170;
       transition:stroke-dashoffset 1s linear,stroke .4s}
-
     #leer-kaart{background:rgba(0,0,0,0.60);
       backdrop-filter:blur(12px);-webkit-backdrop-filter:blur(12px);
       border:1px solid var(--border);border-radius:14px;
@@ -148,16 +153,14 @@
       border-color:rgba(52,199,89,.35)}
     #leer-info{font-size:10px;color:var(--dim);line-height:1.4}
 
-    /* Debug — onderin, klein, niet afleidend */
-    #debug-balk{position:fixed;bottom:env(safe-area-inset-bottom,0px);
+    /* Debug onderin */
+    #debug-balk{position:fixed;bottom:env(safe-area-inset-bottom,0);
       left:0;right:0;z-index:20;pointer-events:none;
       background:rgba(0,0,0,0.65);padding:3px 10px;
       font-family:'Share Tech Mono',monospace;font-size:9px;
-      display:flex;gap:8px;justify-content:center;align-items:center;
-      opacity:0.7}
-    #d-ai{color:#BF5AF2}
+      display:flex;gap:8px;justify-content:center;opacity:0.65}
+    #d-modus{color:#BF5AF2}
     #d-kleur{color:#FFD60A}
-    #d-orient{color:#64D2FF}
     #d-info{color:rgba(255,255,255,0.35)}
 
     /* Startscherm */
@@ -170,6 +173,19 @@
       text-align:center;text-transform:uppercase;line-height:1.1}
     #s-versie{font-size:10px;color:var(--groen);letter-spacing:0.16em;
       font-weight:600;text-transform:uppercase}
+
+    /* Model laad voortgang op startscherm */
+    #s-model-wrap{width:100%;max-width:300px;display:flex;
+      flex-direction:column;gap:6px}
+    #s-model-rij{display:flex;justify-content:space-between;align-items:center}
+    #s-model-label{font-size:11px;color:var(--dim)}
+    #s-model-pct{font-family:'Share Tech Mono',monospace;font-size:11px;
+      color:#BF5AF2}
+    #s-model-bg{width:100%;height:4px;background:rgba(255,255,255,0.08);
+      border-radius:2px}
+    #s-model-balk{height:100%;width:0%;border-radius:2px;
+      background:#BF5AF2;transition:width .3s}
+
     #s-features{background:rgba(255,255,255,0.04);
       border:1px solid rgba(255,255,255,0.09);border-radius:14px;
       padding:12px 15px;width:100%;max-width:300px;
@@ -193,10 +209,8 @@
     #s-knop{background:var(--groen);color:#000;border:none;border-radius:14px;
       padding:14px 48px;font-family:'Rajdhani',sans-serif;font-size:17px;
       font-weight:700;letter-spacing:0.14em;text-transform:uppercase;cursor:pointer;
-      box-shadow:0 0 36px rgba(52,199,89,.4);transition:transform .15s}
+      box-shadow:0 0 36px rgba(52,199,89,.4);transition:transform .15s,opacity .2s}
     #s-knop:active{transform:scale(0.96)}
-    #s-model-info{font-size:11px;color:var(--dim);text-align:center;
-      max-width:280px;line-height:1.5}
   </style>
 
 </head>
@@ -209,12 +223,9 @@
 <div id="rand-glow"></div>
 <div id="geluid-flash"></div>
 
-<!-- Debug balk — nu onderin en klein -->
-
 <div id="debug-balk">
-  <span id="d-ai">AI:—</span>
+  <span id="d-modus">modus:—</span>
   <span id="d-kleur">—</span>
-  <span id="d-orient">—</span>
   <span id="d-info">—</span>
 </div>
 
@@ -223,18 +234,28 @@
 <div id="startscherm">
   <div id="s-icoon">🚦</div>
   <div id="s-titel">Stoplicht<br/>Detector Pro</div>
-  <div id="s-versie">Versie 4.8 — Volledig</div>
+  <div id="s-versie">Versie 4.9</div>
+
+  <!-- Model laad voortgang direct zichtbaar op startscherm -->
+
+  <div id="s-model-wrap">
+    <div id="s-model-rij">
+      <div id="s-model-label">🤖 AI model laden…</div>
+      <div id="s-model-pct">0%</div>
+    </div>
+    <div id="s-model-bg"><div id="s-model-balk"></div></div>
+  </div>
+
   <div id="s-features">
-    <div class="feature">🤖 TensorFlow.js AI</div>
+    <div class="feature">🤖 AI + kleur fallback</div>
+    <div class="feature">⚡ Directe detectie</div>
     <div class="feature">↔️ Horizontaal + verticaal</div>
-    <div class="feature">🔷 Vormherkenning</div>
-    <div class="feature">🚗 Auto's genegeerd</div>
     <div class="feature">🔊 Geluid bij groen</div>
     <div class="feature">🌈 Schermrand gloeit</div>
     <div class="feature">🗺 OSM stoplichten</div>
     <div class="feature">📍 Kruispunt geheugen</div>
+    <div class="feature">📱 Scherm blijft aan</div>
   </div>
-  <div id="s-model-info">AI model (~5MB) wordt eenmalig geladen.<br/>Daarna werkt alles volledig offline.</div>
   <div id="geluid-toggle-wrap">
     <div id="geluid-toggle-label">🔊 Geluid bij groen</div>
     <button id="geluid-toggle" onclick="toggleGeluid()"></button>
@@ -247,7 +268,7 @@
 <div id="ui">
   <div id="bovenste">
     <div id="badges-rij">
-      <div id="app-naam">Stoplicht v4.8</div>
+      <div id="app-naam">Stoplicht v4.9</div>
       <div id="badges">
         <div class="pill" onclick="toggleGeluidInApp()">
           <div class="pill-dot" id="geluid-dot"></div>
@@ -259,7 +280,7 @@
         </div>
         <div class="pill">
           <div class="pill-dot" id="ai-dot"></div>
-          <div class="pill-tekst" id="ai-tekst">AI laden</div>
+          <div class="pill-tekst" id="ai-tekst">AI</div>
         </div>
         <div class="pill">
           <div class="pill-dot" id="gps-dot"></div>
@@ -273,9 +294,14 @@
     </div>
 
 ```
+<!-- Model voortgang balk in hoofd UI -->
 <div id="model-status">
-  <div id="model-dot"></div>
-  <div id="model-tekst">AI model laden (~5MB)…</div>
+  <div id="model-top">
+    <div id="model-dot" class="laden"></div>
+    <div id="model-tekst">AI laden…</div>
+    <div id="model-pct">0%</div>
+  </div>
+  <div id="model-balk-bg"><div id="model-balk"></div></div>
 </div>
 
 <div id="fase-balk">
@@ -283,8 +309,8 @@
     <div id="fase-lamp"></div>
     <div>
       <div id="fase-woord">—</div>
-      <div id="fase-sub">AI model wordt geladen…</div>
-      <div id="orientatie-badge"></div>
+      <div id="fase-sub">Richt camera op stoplicht</div>
+      <div id="fase-bron"></div>
     </div>
   </div>
   <div id="kruispunt-mini">
@@ -318,85 +344,91 @@
         <div id="leer-badge">Actief</div>
       </div>
       <div id="blokken-rij"></div>
-      <div id="leer-info">Wacht op AI model…</div>
+      <div id="leer-info">Richt camera op een stoplicht om te beginnen.</div>
     </div>
   </div>
 </div>
 
 <script>
 // ═══════════════════════════════════════════════════════════════
-//  STOPLICHT DETECTOR PRO v4.8
+//  STOPLICHT DETECTOR PRO v4.9
 //
-//  NIEUW T.O.V. v4.7:
+//  FIXES T.O.V. v4.8:
 //
-//  1. HORIZONTALE STOPLICHTEN
-//     Detecteert of bounding box breder dan hoog is.
-//     Verticaal: rood boven, oranje midden, groen onder
-//     Horizontaal: rood links, oranje midden, groen rechts
-//     Oriëntatie badge toont welk type herkend is.
+//  1. MODEL PRELOADEN
+//     Het AI model begint laden zodra de pagina opent —
+//     niet pas na drukken op de startknop. Op de startknop
+//     is een voortgangsbalk zichtbaar. Zo is het model
+//     vaak al klaar zodra de gebruiker op start drukt.
 //
-//  2. HOGERE AI CONFIDENCE DREMPEL (0.35 → 0.50)
-//     Vermindert valse detecties van verkeersborden etc.
+//  2. SLIMME FALLBACK
+//     Kleurdetectie (v4.6 aanpak) is altijd actief als backup.
+//     Zodra AI klaar is neemt het over. Als AI langer dan
+//     8 seconden nodig heeft, gebruikt de app kleurdetectie
+//     als primaire bron — niet als concurrent maar als vangnet.
+//     Bij conflicten wint AI altijd over kleur.
 //
-//  3. TIJDMETING FIX
-//     AI draait asynchroon via requestAnimationFrame ipv
-//     setInterval — synchroon met de renderlus, geen mismatch.
+//  3. VOORTGANGSINDICATOR
+//     Zichtbare voortgangsbalk op startscherm én in hoofd UI.
+//     Gebruiker weet precies hoe ver het laden is.
 //
-//  4. LEERGEHEUGEN RESET FIX
-//     Reset alleen als het een écht nieuw kruispunt is,
-//     niet bij elke OSM data refresh.
-//
-//  5. DEBUG BALK ONDERIN
-//     Niet meer midden in het beeld — onderin, klein en dim.
-//
-//  6. BEVESTIGINGSDREMPEL VERHOOGD (4 → 6)
-//     AI runt elke ~500ms dus 6 bevestigingen = ~3 seconden
-//     stabiele detectie voordat fase wisselt.
+//  4. BEVESTIGINGSSYSTEEM PER BRON
+//     AI heeft drempel 6, kleur heeft drempel 8.
+//     Kleur is minder betrouwbaar dus heeft hogere drempel.
+//     Bij AI actief worden kleurbevestigingen genegeerd.
 // ═══════════════════════════════════════════════════════════════
 
-const OMTREK_CD = 2 * Math.PI * 27; // ~170
+const OMTREK_CD = 2 * Math.PI * 27;
 
-// DOM refs
-const video          = document.getElementById('video-hidden');
-const canvas         = document.getElementById('camera-canvas');
-const overlayCanvas  = document.getElementById('overlay-canvas');
-const ctx            = canvas.getContext('2d', { willReadFrequently: true });
-const octx           = overlayCanvas.getContext('2d');
-const faseBalk       = document.getElementById('fase-balk');
-const faseLamp       = document.getElementById('fase-lamp');
-const faseWoord      = document.getElementById('fase-woord');
-const faseSub        = document.getElementById('fase-sub');
-const oriëntatieBadge= document.getElementById('orientatie-badge');
-const randGlow       = document.getElementById('rand-glow');
-const geluidFlash    = document.getElementById('geluid-flash');
-const cdGetal        = document.getElementById('cd-getal');
-const cdLabel        = document.getElementById('cd-label');
-const cdEenheid      = document.getElementById('cd-eenheid');
-const cdRingVoor     = document.getElementById('cd-ring-voor');
-const aiDot          = document.getElementById('ai-dot');
-const aiTekst        = document.getElementById('ai-tekst');
-const gpsDot         = document.getElementById('gps-dot');
-const gpsTekst       = document.getElementById('gps-tekst');
-const osmDot         = document.getElementById('osm-dot');
-const osmTekst       = document.getElementById('osm-tekst');
-const nachtDot       = document.getElementById('nacht-dot');
-const nachtTekst     = document.getElementById('nacht-tekst');
-const geluidDot      = document.getElementById('geluid-dot');
-const geluidTekst    = document.getElementById('geluid-pill-tekst');
-const blokkenRij     = document.getElementById('blokken-rij');
-const leerInfo       = document.getElementById('leer-info');
-const leerBadge      = document.getElementById('leer-badge');
-const kmNaam         = document.getElementById('kruispunt-mini-naam');
-const kmAf           = document.getElementById('kruispunt-mini-af');
-const modelStatus    = document.getElementById('model-status');
-const modelTekst     = document.getElementById('model-tekst');
-const dAI            = document.getElementById('d-ai');
-const dKleur         = document.getElementById('d-kleur');
-const dOrient        = document.getElementById('d-orient');
-const dInfo          = document.getElementById('d-info');
+// DOM
+const video         = document.getElementById('video-hidden');
+const canvas        = document.getElementById('camera-canvas');
+const overlayCanvas = document.getElementById('overlay-canvas');
+const ctx           = canvas.getContext('2d', { willReadFrequently: true });
+const octx          = overlayCanvas.getContext('2d');
+const faseBalk      = document.getElementById('fase-balk');
+const faseLamp      = document.getElementById('fase-lamp');
+const faseWoord     = document.getElementById('fase-woord');
+const faseSub       = document.getElementById('fase-sub');
+const faseBron      = document.getElementById('fase-bron');
+const randGlow      = document.getElementById('rand-glow');
+const geluidFlash   = document.getElementById('geluid-flash');
+const cdGetal       = document.getElementById('cd-getal');
+const cdLabel       = document.getElementById('cd-label');
+const cdEenheid     = document.getElementById('cd-eenheid');
+const cdRingVoor    = document.getElementById('cd-ring-voor');
+const aiDot         = document.getElementById('ai-dot');
+const aiTekst       = document.getElementById('ai-tekst');
+const gpsDot        = document.getElementById('gps-dot');
+const gpsTekst      = document.getElementById('gps-tekst');
+const osmDot        = document.getElementById('osm-dot');
+const osmTekst      = document.getElementById('osm-tekst');
+const nachtDot      = document.getElementById('nacht-dot');
+const nachtTekst    = document.getElementById('nacht-tekst');
+const geluidDot     = document.getElementById('geluid-dot');
+const geluidTekst   = document.getElementById('geluid-pill-tekst');
+const blokkenRij    = document.getElementById('blokken-rij');
+const leerInfo      = document.getElementById('leer-info');
+const leerBadge     = document.getElementById('leer-badge');
+const kmNaam        = document.getElementById('kruispunt-mini-naam');
+const kmAf          = document.getElementById('kruispunt-mini-af');
+const modelStatus   = document.getElementById('model-status');
+const modelTekst    = document.getElementById('model-tekst');
+const modelBalk     = document.getElementById('model-balk');
+const modelPct      = document.getElementById('model-pct');
+const sModelBalk    = document.getElementById('s-model-balk');
+const sModelPct     = document.getElementById('s-model-pct');
+const sModelLabel   = document.getElementById('s-model-label');
+const dModus        = document.getElementById('d-modus');
+const dKleur        = document.getElementById('d-kleur');
+const dInfo         = document.getElementById('d-info');
 
 // Staat
-let cocoModel = null, modelGeladen = false;
+let cocoModel = null;
+let modelGeladen = false;
+let modelLaadStart = null;
+const FALLBACK_TIMEOUT = 8000; // na 8 sec zonder AI → kleur als primair
+
 let fase = null, faseStart = null;
 let roodLijst = [], groenLijst = [], cycli = 0;
 let cdStart = null, cdDoel = 0;
@@ -405,18 +437,79 @@ let huidigePositie = null;
 let osmStoplichten = [], dichtstbijOSM = null, vorigOsmId = null;
 const kruispuntGeheugen = {};
 
-// FIX: hogere bevestigingsdrempel voor stabielere detectie
-const BEVESTIGINGS_DREMPEL = 6;
-let bevestigingsTeller = 0, bevestigingsKleur = null;
+// Aparte bevestigingssystemen voor AI en kleur
+const AI_DREMPEL    = 6;
+const KLEUR_DREMPEL = 8; // hoger want minder betrouwbaar
+let aiBevestigingsTeller = 0, aiBevestigingsKleur = null;
+let kleurBevestigingsTeller = 0, kleurBevestigingsKleur = null;
+
 let audioCtx = null, wakeLock = null, osmBezig = false;
 let geenDetectieTeller = 0;
-const GEEN_DETECTIE_RESET = 90; // ~3 sec bij 30fps
+const GEEN_DETECTIE_RESET = 90;
 
-// FIX: AI timing via frame teller ipv setInterval
 let frameT = 0;
-const AI_INTERVAL_FRAMES = 15; // elke 15 frames (~500ms bij 30fps)
+const AI_INTERVAL_FRAMES = 15;
 let aiBezig = false;
 let laatsteAIResultaat = null;
+
+// ── MODEL PRELOADEN — start direct bij pagina laden ──────────
+// Dit is de kernfix: model laadt al terwijl gebruiker nog
+// op het startscherm kijkt
+modelLaadStart = performance.now();
+let modelLaadBezig = true;
+
+function updateLaadVoortgang(pct){
+  const p = Math.round(pct);
+  sModelBalk.style.width = p + '%';
+  sModelPct.textContent  = p + '%';
+  modelBalk.style.width  = p + '%';
+  modelPct.textContent   = p + '%';
+}
+
+// Simuleer voortgang want TF geeft geen echte progressie events
+let simulatiePct = 0;
+const simulatieInterval = setInterval(()=>{
+  if(modelGeladen || !modelLaadBezig) return;
+  simulatiePct = Math.min(90, simulatiePct + (Math.random()*8+2));
+  updateLaadVoortgang(simulatiePct);
+}, 300);
+
+async function prelaadModel(){
+  try{
+    cocoModel = await cocoSsd.load({ base:'lite_mobilenet_v2' });
+    modelGeladen = true;
+    modelLaadBezig = false;
+    clearInterval(simulatieInterval);
+    updateLaadVoortgang(100);
+
+    const laadTijd = ((performance.now()-modelLaadStart)/1000).toFixed(1);
+
+    // Update startscherm
+    sModelLabel.textContent = `✓ AI klaar (${laadTijd}s)`;
+    sModelLabel.style.color = 'var(--groen)';
+    sModelPct.style.color   = 'var(--groen)';
+    sModelBalk.style.background = 'var(--groen)';
+
+    // Update hoofd UI
+    modelStatus.classList.add('verborgen');
+    aiDot.className  = 'pill-dot paars-aan';
+    aiTekst.textContent = 'AI';
+    dModus.textContent  = 'AI';
+
+  }catch(e){
+    modelLaadBezig = false;
+    clearInterval(simulatieInterval);
+    sModelLabel.textContent = '⚠ AI fout — kleurdetectie actief';
+    sModelLabel.style.color = 'var(--oranje)';
+    aiDot.className  = 'pill-dot oranje-aan';
+    aiTekst.textContent = 'Kleur';
+    dModus.textContent  = 'KLEUR';
+    modelStatus.classList.add('verborgen');
+  }
+}
+
+// Start model laden direct
+prelaadModel();
 
 // ── Geluid ────────────────────────────────────────────────────
 function initialiseerAudio(){
@@ -488,153 +581,127 @@ function rgbNaarHsl(r,g,b){
   return{h,s,l};
 }
 
-// ── AI MODEL ──────────────────────────────────────────────────
-async function laadAIModel(){
-  try{
-    modelTekst.textContent='AI model laden (~5MB)…';
-    cocoModel = await cocoSsd.load({ base:'lite_mobilenet_v2' });
-    modelGeladen = true;
-    modelStatus.classList.add('verborgen');
-    aiDot.className='pill-dot paars-aan';
-    aiTekst.textContent='AI';
-    faseSub.textContent='Richt camera op stoplicht';
-    leerInfo.textContent='Richt camera op een stoplicht om te beginnen.';
-    dAI.textContent='AI:klaar';
-  }catch(e){
-    modelTekst.textContent='AI fout — probeer opnieuw';
-    aiDot.className='pill-dot oranje-aan';
-    aiTekst.textContent='AI fout';
-    dAI.textContent='AI:fout';
-  }
+// ── KLEUR FALLBACK DETECTIE (helderheidscontrast aanpak v4.6) ─
+function kleurAnalyseFrame(){
+  const W=canvas.width, H=canvas.height;
+  const roiX=Math.floor(W*0.10), roiY=Math.floor(H*0.02);
+  const roiW=Math.floor(W*0.80), roiH=Math.floor(H*0.58);
+
+  let imageData;
+  try{ imageData=ctx.getImageData(roiX,roiY,roiW,roiH); }
+  catch(e){ return null; }
+
+  const data=imageData.data;
+  let totHd=0, aantalS=0;
+  for(let y=0;y<roiH;y+=4){ for(let x=0;x<roiW;x+=4){
+    const i=(y*roiW+x)*4;
+    totHd += data[i]*0.299+data[i+1]*0.587+data[i+2]*0.114;
+    aantalS++;
+  }}
+  const gemHd = totHd/aantalS;
+  const hdDrempel = Math.min(255, gemHd*1.35);
+
+  const roodP=[], groenP=[], oranjeP=[];
+  for(let y=0;y<roiH;y+=2){ for(let x=0;x<roiW;x+=2){
+    const i=(y*roiW+x)*4;
+    const hd=data[i]*0.299+data[i+1]*0.587+data[i+2]*0.114;
+    if(hd<hdDrempel) continue;
+    const{h,s,l}=rgbNaarHsl(data[i],data[i+1],data[i+2]);
+    if(s>0.45&&(h<18||h>342))       roodP.push({x,y});
+    else if(s>0.38&&h>88&&h<167)    groenP.push({x,y});
+    else if(s>0.50&&h>=13&&h<=47)   oranjeP.push({x,y});
+  }}
+
+  const minP=isNacht?15:30;
+  const telling={rood:roodP.length,groen:groenP.length,oranje:oranjeP.length};
+  const kandidaat=Object.keys(telling).reduce((a,b)=>telling[a]>telling[b]?a:b);
+  const pixels=telling[kandidaat]===roodP.length?roodP:telling[kandidaat]===groenP.length?groenP:oranjeP;
+
+  if(pixels.length<minP) return null;
+
+  // Compactheid
+  let minX=roiW,maxX=0,minY=roiH,maxY=0;
+  for(const p of pixels){if(p.x<minX)minX=p.x;if(p.x>maxX)maxX=p.x;if(p.y<minY)minY=p.y;if(p.y>maxY)maxY=p.y;}
+  const bw=maxX-minX+1, bh=maxY-minY+1, bopp=bw*bh;
+  if(bopp>(roiW*roiH)*0.15||bopp<6) return null;
+  if(pixels.length/bopp<0.12) return null;
+
+  dKleur.textContent=`K:${kandidaat} (${pixels.length})`;
+  return{kleur:kandidaat, box:{x:roiX+minX,y:roiY+minY,w:bw,h:bh,kleur:kandidaat}};
 }
 
-// ── KLEURANALYSE BINNEN BOUNDING BOX ─────────────────────────
-// FIX v4.8: detecteert oriëntatie en past sectieverdeling aan
-function bepaalKleurInBox(bx, by, bw, bh){
+// ── AI KLEURANALYSE BINNEN BOUNDING BOX ──────────────────────
+function bepaalKleurInBox(bx,by,bw,bh){
   let imageData;
   try{
-    const x=Math.max(0,Math.floor(bx));
-    const y=Math.max(0,Math.floor(by));
-    const w=Math.min(canvas.width-x, Math.floor(bw));
-    const h=Math.min(canvas.height-y, Math.floor(bh));
+    const x=Math.max(0,Math.floor(bx)), y=Math.max(0,Math.floor(by));
+    const w=Math.min(canvas.width-x,Math.floor(bw)), h=Math.min(canvas.height-y,Math.floor(bh));
     if(w<4||h<4) return{kleur:null,horizontaal:false};
     imageData=ctx.getImageData(x,y,w,h);
   }catch(e){ return{kleur:null,horizontaal:false}; }
 
   const data=imageData.data;
   const W=Math.floor(bw), H=Math.floor(bh);
+  const isHorizontaal = W > H*1.3;
 
-  // FIX: detecteer oriëntatie op basis van aspect ratio
-  // Een horizontaal stoplicht is significant breder dan hoog
-  const isHorizontaal = W > H * 1.3;
-  dOrient.textContent = isHorizontaal ? '↔ horiz' : '↕ vert';
-
-  // Sectieverdeling afhankelijk van oriëntatie
-  // Verticaal: 3 rijen (boven=rood, midden=oranje, onder=groen)
-  // Horizontaal: 3 kolommen (links=rood, midden=oranje, rechts=groen)
   let roodScore=0, groenScore=0, oranjeScore=0;
+  for(let py=0;py<H;py+=2){ for(let px=0;px<W;px+=2){
+    const i=(py*W+px)*4;
+    if(i+3>=data.length) continue;
+    const r=data[i],g=data[i+1],b=data[i+2];
+    const hd=r*0.299+g*0.587+b*0.114;
+    if(hd<70) continue;
+    const{h,s,l}=rgbNaarHsl(r,g,b);
+    const sectie=isHorizontaal
+      ?Math.min(2,Math.floor(px/(W/3)))
+      :Math.min(2,Math.floor(py/(H/3)));
+    if(s>0.35&&(h<18||h>342))     roodScore  +=(sectie===0?2.5:0.5);
+    else if(s>0.35&&h>88&&h<167)  groenScore +=(sectie===2?2.5:0.5);
+    else if(s>0.40&&h>=13&&h<=47) oranjeScore+=(sectie===1?2.5:0.5);
+  }}
 
-  for(let py=0; py<H; py+=2){
-    for(let px=0; px<W; px+=2){
-      const i=(py*W+px)*4;
-      if(i+3>=data.length) continue;
-      const r=data[i], g=data[i+1], b=data[i+2];
+  const max=Math.max(roodScore,groenScore,oranjeScore);
+  if(max<8) return{kleur:null,horizontaal:isHorizontaal};
 
-      // Helderheid check — alleen echte lichtpixels tellen
-      const hd = r*0.299 + g*0.587 + b*0.114;
-      if(hd < 70) continue;
-
-      const{h,s,l} = rgbNaarHsl(r,g,b);
-
-      // Sectie: 0=eerste derde, 1=midden, 2=laatste derde
-      const sectie = isHorizontaal
-        ? Math.min(2, Math.floor(px / (W/3)))  // links/midden/rechts
-        : Math.min(2, Math.floor(py / (H/3))); // boven/midden/onder
-
-      // Kleur scoring met sectieweging
-      // Juiste positie = dubbel gewicht
-      if(s>0.35 && (h<18||h>342)){
-        // Rood: sectie 0 (boven of links)
-        roodScore   += (sectie===0 ? 2.5 : 0.5);
-      } else if(s>0.35 && h>88&&h<167){
-        // Groen: sectie 2 (onder of rechts)
-        groenScore  += (sectie===2 ? 2.5 : 0.5);
-      } else if(s>0.40 && h>=13&&h<=47){
-        // Oranje: sectie 1 (midden altijd)
-        oranjeScore += (sectie===1 ? 2.5 : 0.5);
-      }
-    }
-  }
-
-  const max = Math.max(roodScore, groenScore, oranjeScore);
-  if(max < 8) return{kleur:null, horizontaal:isHorizontaal}; // te weinig signaal
-
-  let kleur = null;
-  if(roodScore===max)   kleur='rood';
-  else if(groenScore===max)  kleur='groen';
-  else if(oranjeScore===max) kleur='oranje';
-
-  dKleur.textContent=`R:${roodScore.toFixed(0)} G:${groenScore.toFixed(0)} O:${oranjeScore.toFixed(0)}`;
-  return{kleur, horizontaal:isHorizontaal};
+  const kleur=roodScore===max?'rood':groenScore===max?'groen':'oranje';
+  return{kleur,horizontaal:isHorizontaal};
 }
 
 // ── AI DETECTIE ───────────────────────────────────────────────
 async function voerAIUit(){
-  if(!modelGeladen || !cocoModel || video.readyState<2 || aiBezig) return;
+  if(!modelGeladen||!cocoModel||video.readyState<2||aiBezig) return;
   aiBezig=true;
-
   try{
-    // FIX: hogere confidence drempel (0.35 → 0.50) minder valse detecties
-    const detecties = await cocoModel.detect(video, 5, 0.50);
-    const stoplichten = detecties.filter(d => d.class==='traffic light' && d.score>0.50);
+    const detecties=await cocoModel.detect(video,5,0.50);
+    const stoplichten=detecties.filter(d=>d.class==='traffic light'&&d.score>0.50);
 
-    dAI.textContent=`AI:${stoplichten.length}x ${stoplichten.length>0?stoplichten[0].score.toFixed(2):''}`;
+    if(stoplichten.length===0){ laatsteAIResultaat=null; return; }
 
-    if(stoplichten.length===0){
-      laatsteAIResultaat=null;
-      aiBezig=false;
-      return;
-    }
+    const beste=stoplichten.reduce((a,b)=>a.score>b.score?a:b);
+    const [bx,by,bw,bh]=beste.bbox;
+    const scX=canvas.width/video.videoWidth, scY=canvas.height/video.videoHeight;
+    const sx=bx*scX,sy=by*scY,sw=bw*scX,sh=bh*scY;
+    const{kleur,horizontaal}=bepaalKleurInBox(sx,sy,sw,sh);
 
-    // Kies het stoplicht met de hoogste score
-    const beste = stoplichten.reduce((a,b)=>a.score>b.score?a:b);
-    const [bx,by,bw,bh] = beste.bbox;
-
-    // Schaal naar canvas coördinaten
-    const scX=canvas.width/video.videoWidth;
-    const scY=canvas.height/video.videoHeight;
-    const sx=bx*scX, sy=by*scY, sw=bw*scX, sh=bh*scY;
-
-    // Kleur binnen de box bepalen
-    const{kleur, horizontaal} = bepaalKleurInBox(sx, sy, sw, sh);
-
-    laatsteAIResultaat={
-      kleur, horizontaal, score:beste.score,
-      box:{x:sx, y:sy, w:sw, h:sh, kleur}
-    };
-
+    dKleur.textContent=`AI:${kleur||'?'} ${(beste.score*100).toFixed(0)}%`;
+    laatsteAIResultaat={kleur,horizontaal,score:beste.score,
+      box:{x:sx,y:sy,w:sw,h:sh,kleur}};
   }catch(e){
-    dAI.textContent='AI:fout';
-  }finally{
-    aiBezig=false;
-  }
+    dKleur.textContent='AI:fout';
+  }finally{ aiBezig=false; }
 }
 
 // ── OVERLAY ───────────────────────────────────────────────────
-function tekenOverlay(resultaat){
-  overlayCanvas.width=canvas.width;
-  overlayCanvas.height=canvas.height;
+function tekenOverlay(box, score, horizontaal){
+  overlayCanvas.width=canvas.width; overlayCanvas.height=canvas.height;
   octx.clearRect(0,0,overlayCanvas.width,overlayCanvas.height);
-  if(!resultaat) return;
-
-  const{box,horizontaal,score} = resultaat;
+  if(!box) return;
   const scX=window.innerWidth/canvas.width, scY=window.innerHeight/canvas.height;
-  const sx=box.x*scX, sy=box.y*scY, sw=box.w*scX, sh=box.h*scY;
+  const sx=box.x*scX,sy=box.y*scY,sw=box.w*scX,sh=box.h*scY;
   const kleur=box.kleur==='rood'?'#FF3030':box.kleur==='groen'?'#34C759':
-               box.kleur==='oranje'?'#FF9F0A':'#BF5AF2';
-  const mg=8, hl=Math.min(sw,sh)*0.3+8;
-  const x1=sx-mg, y1=sy-mg, x2=sx+sw+mg, y2=sy+sh+mg;
-
+    box.kleur==='oranje'?'#FF9F0A':'#BF5AF2';
+  const mg=8,hl=Math.min(sw,sh)*0.3+8;
+  const x1=sx-mg,y1=sy-mg,x2=sx+sw+mg,y2=sy+sh+mg;
   octx.strokeStyle=kleur; octx.lineWidth=2.5; octx.globalAlpha=0.92;
   octx.beginPath();
   octx.moveTo(x1+hl,y1);octx.lineTo(x1,y1);octx.lineTo(x1,y1+hl);
@@ -642,50 +709,76 @@ function tekenOverlay(resultaat){
   octx.moveTo(x1,y2-hl);octx.lineTo(x1,y2);octx.lineTo(x1+hl,y2);
   octx.moveTo(x2-hl,y2);octx.lineTo(x2,y2);octx.lineTo(x2,y2-hl);
   octx.stroke();
-
-  // Label met oriëntatie en score
   octx.fillStyle=kleur; octx.globalAlpha=0.9; octx.font='bold 10px monospace';
-  const label=`${box.kleur?.toUpperCase()||'?'} ${horizontaal?'↔':'↕'} ${(score*100).toFixed(0)}%`;
-  octx.fillText(label, x1, y1-5);
+  const scoreStr=score?` ${(score*100).toFixed(0)}%`:'';
+  const orientStr=horizontaal!==undefined?(horizontaal?' ↔':' ↕'):'';
+  octx.fillText(`${box.kleur?.toUpperCase()||''}${orientStr}${scoreStr}`,x1,y1-5);
 }
 
-// ── BEVESTIGING + AUTO-RESET ──────────────────────────────────
-function verwerkDetectie(){
-  const r = laatsteAIResultaat;
+// ── GECOMBINEERDE VERWERKING ──────────────────────────────────
+function verwerkAlleDetecties(){
+  const aiR = laatsteAIResultaat;
+  const modeLaadTijd = performance.now() - modelLaadStart;
+  const gebruikAI = modelGeladen;
+  const gebruikKleurAlsPrimair = !gebruikAI && modeLaadTijd > FALLBACK_TIMEOUT;
 
-  if(!r || !r.kleur){
-    bevestigingsTeller=0; bevestigingsKleur=null;
-    tekenOverlay(null);
-    geenDetectieTeller++;
+  // ── AI bevestiging ────────────────────────────────────────
+  if(gebruikAI && aiR && aiR.kleur){
+    if(aiR.kleur===aiBevestigingsKleur) aiBevestigingsTeller++;
+    else{ aiBevestigingsKleur=aiR.kleur; aiBevestigingsTeller=1; }
 
-    if(geenDetectieTeller>=GEEN_DETECTIE_RESET && fase!==null){
-      fase=null; faseStart=null;
-      faseBalk.className='';
-      faseLamp.className='';
-      faseWoord.textContent='—';
-      faseSub.textContent='Richt camera op stoplicht';
-      oriëntatieBadge.textContent='';
-      randGlow.className='';
-      stopCd();
+    tekenOverlay(aiR.box, aiR.score, aiR.horizontaal);
+    geenDetectieTeller=0;
+    dModus.textContent='AI';
+    dInfo.textContent=`${aiR.kleur} ${aiBevestigingsTeller}/${AI_DREMPEL}`;
+
+    if(aiBevestigingsTeller>=AI_DREMPEL){
+      verwerkFase(aiR.kleur, aiR.horizontaal, 'AI');
     }
-    dInfo.textContent=`geen (${geenDetectieTeller})`;
+    return; // AI is actief — kleur wordt genegeerd
+  }
+
+  // ── Kleur fallback ────────────────────────────────────────
+  const kleurR = kleurAnalyseFrame();
+
+  if(kleurR && kleurR.kleur){
+    if(kleurR.kleur===kleurBevestigingsKleur) kleurBevestigingsTeller++;
+    else{ kleurBevestigingsKleur=kleurR.kleur; kleurBevestigingsTeller=1; }
+
+    tekenOverlay(kleurR.box, null, false);
+    geenDetectieTeller=0;
+    dModus.textContent=gebruikAI?'AI laden…':'Kleur';
+    dInfo.textContent=`${kleurR.kleur} ${kleurBevestigingsTeller}/${KLEUR_DREMPEL}`;
+
+    // Kleur detecteert alleen als AI nog niet klaar is
+    if(!gebruikAI && kleurBevestigingsTeller>=KLEUR_DREMPEL){
+      verwerkFase(kleurR.kleur, false, 'Kleur');
+    }
     return;
   }
 
-  geenDetectieTeller=0;
-  tekenOverlay(r);
+  // ── Geen detectie ─────────────────────────────────────────
+  tekenOverlay(null);
+  aiBevestigingsTeller=0; aiBevestigingsKleur=null;
+  kleurBevestigingsTeller=0; kleurBevestigingsKleur=null;
+  geenDetectieTeller++;
 
-  if(r.kleur===bevestigingsKleur) bevestigingsTeller++;
-  else{ bevestigingsKleur=r.kleur; bevestigingsTeller=1; }
+  dInfo.textContent=`geen (${geenDetectieTeller})`;
 
-  dInfo.textContent=`${r.kleur} ${bevestigingsTeller}/${BEVESTIGINGS_DREMPEL}`;
-
-  if(bevestigingsTeller>=BEVESTIGINGS_DREMPEL)
-    verwerkFase(r.kleur, r.horizontaal);
+  if(geenDetectieTeller>=GEEN_DETECTIE_RESET && fase!==null){
+    fase=null; faseStart=null;
+    faseBalk.className='';
+    faseLamp.className='';
+    faseWoord.textContent='—';
+    faseSub.textContent='Richt camera op stoplicht';
+    faseBron.textContent='';
+    randGlow.className='';
+    stopCd();
+  }
 }
 
 // ── FASEWISSEL ────────────────────────────────────────────────
-function verwerkFase(nieuw, horizontaal){
+function verwerkFase(nieuw, horizontaal, bron){
   if(nieuw===fase) return;
   const nu=performance.now();
   if(fase && faseStart){
@@ -694,33 +787,25 @@ function verwerkFase(nieuw, horizontaal){
     if(fase==='groen' && dur>2){ groenLijst.push(dur); if(groenLijst.length>8) groenLijst.shift(); cycli++; slaKruispuntOp(); bijwerkBlokken(); }
   }
   fase=nieuw; faseStart=nu; geenDetectieTeller=0;
-  updateUI(nieuw, horizontaal);
+  updateUI(nieuw, horizontaal, bron);
   if(nieuw==='groen') speelGroenToon();
   if(nieuw==='rood' && roodLijst.length>=2) startCd();
   else if(nieuw!=='rood') stopCd();
 }
 
-// ── UI UPDATE ─────────────────────────────────────────────────
-function updateUI(f, horizontaal){
+// ── UI ────────────────────────────────────────────────────────
+function updateUI(f, horizontaal, bron){
   faseBalk.className=f||'';
   faseLamp.className=f||'';
   const woorden={rood:'ROOD',groen:'GROEN',oranje:'ORANJE'};
   const subs={rood:'Stop — wachten op groen',groen:'Rijden!',oranje:'Afremmen'};
   faseWoord.textContent=woorden[f]||'—';
   faseSub.textContent=subs[f]||'Richt camera op stoplicht';
-
-  // Toon oriëntatie in de balk
-  if(f){
-    oriëntatieBadge.textContent = horizontaal ? '↔ horizontaal stoplicht' : '↕ verticaal stoplicht';
-  } else {
-    oriëntatieBadge.textContent='';
-  }
-
+  faseBron.textContent=bron?`via ${bron}${horizontaal?' ↔':' ↕'}`:'';
   randGlow.className=f||'';
   const ringKleur=f==='rood'?'var(--rood)':f==='groen'?'var(--groen)':
-                  f==='oranje'?'var(--oranje)':'rgba(255,255,255,.15)';
+    f==='oranje'?'var(--oranje)':'rgba(255,255,255,.15)';
   cdRingVoor.style.stroke=ringKleur;
-
   if(f==='groen'){
     cdLabel.textContent='Groen actief';
     cdGetal.textContent='✓';
@@ -810,52 +895,34 @@ async function onGpsUpdate(pos){
     const af=Math.round(nieuw.afstand);
     kmNaam.textContent=nieuw.naam||(nieuw.slim?'⚡ Slim stoplicht':'Stoplicht');
     kmAf.textContent=af<1000?`${af}m`:`${(af/1000).toFixed(1)}km`;
-
-    // FIX: alleen reset als het écht een ander kruispunt is
     if(nieuw.id!==vorigOsmId){
-      vorigOsmId=nieuw.id;
-      dichtstbijOSM=nieuw;
+      vorigOsmId=nieuw.id; dichtstbijOSM=nieuw;
       if(kruispuntGeheugen[nieuw.id]){
         const m=kruispuntGeheugen[nieuw.id];
         roodLijst=[...m.rood]; groenLijst=[...m.groen]; cycli=m.cycli;
         leerInfo.textContent=`Kruispunt herkend — ${cycli} cycli geladen.`;
-      }else{
-        roodLijst=[]; groenLijst=[]; cycli=0; stopCd();
-        leerInfo.textContent='Nieuw kruispunt — leergeheugen gestart.';
-      }
+      }else{ roodLijst=[]; groenLijst=[]; cycli=0; stopCd(); }
       bijwerkBlokken();
-    } else {
-      // Zelfde kruispunt, update alleen afstand
-      dichtstbijOSM=nieuw;
-    }
+    }else{ dichtstbijOSM=nieuw; }
   }else{
-    dichtstbijOSM=null;
-    kmNaam.textContent='Geen stoplicht gevonden';
-    kmAf.textContent='—';
+    dichtstbijOSM=null; kmNaam.textContent='Geen stoplicht gevonden'; kmAf.textContent='—';
   }
 }
 
 // ── ANIMATIELUS ───────────────────────────────────────────────
 function lus(){
-  // Frame tekenen
   if(video.readyState>=2){
     canvas.width=video.videoWidth||window.innerWidth;
     canvas.height=video.videoHeight||window.innerHeight;
     ctx.drawImage(video,0,0,canvas.width,canvas.height);
   }
-
-  // FIX: AI elke AI_INTERVAL_FRAMES frames (synchroon met renderlus)
   frameT++;
   if(frameT%AI_INTERVAL_FRAMES===0 && modelGeladen && !aiBezig){
-    voerAIUit(); // async, resultaat wordt volgende frames verwerkt
+    voerAIUit();
   }
-
-  // Verwerk laatste AI resultaat
-  verwerkDetectie();
+  verwerkAlleDetecties();
   tickCd();
-
   if(frameT%1800===0) checkNachtmodus();
-
   requestAnimationFrame(lus);
 }
 
@@ -865,7 +932,6 @@ async function startApp(){
   geluidDot.classList.toggle('groen-aan',geluidAan);
   geluidTekst.textContent=geluidAan?'Geluid':'Stil';
   document.getElementById('startscherm').classList.add('weg');
-
   try{
     const stream=await navigator.mediaDevices.getUserMedia({
       video:{facingMode:{ideal:'environment'},width:{ideal:1280},height:{ideal:720}},
@@ -876,10 +942,8 @@ async function startApp(){
     document.getElementById('startscherm').classList.remove('weg');
     return;
   }
-
   await activeerWakeLock();
   checkNachtmodus();
-
   if(navigator.geolocation){
     navigator.geolocation.watchPosition(
       onGpsUpdate,
@@ -887,14 +951,8 @@ async function startApp(){
       {enableHighAccuracy:true,maximumAge:8000,timeout:12000}
     );
   }
-
-  // AI laden terwijl app al draait
-  laadAIModel();
-
   bijwerkBlokken();
   lus();
-
-  // OSM elke 45 seconden verversen
   setInterval(async()=>{
     if(huidigePositie&&!osmBezig)
       osmStoplichten=await haalOSMStoplichten(huidigePositie.lat,huidigePositie.lon);
