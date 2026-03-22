@@ -484,8 +484,10 @@ const GEEN_RESET = 60; // 2 seconden
 
 let audioCtx=null,wakeLock=null;
 let frameT=0;
-const AI_INTERVAL=12; // iets vaker dan v5.2
+const AI_INTERVAL=12;
+const KLEUR_INTERVAL=3; // kleurFallback elke 3 frames — niet elke frame
 let aiBezig=false,laatsteAI=null;
+let laatsteKleurR=null; // cache laatste kleur resultaat
 let sessieCycli=0;
 
 // ── MODEL PRELOADEN ───────────────────────────────────────────
@@ -557,9 +559,9 @@ function vindLichtbron(data, W, H){
   let besteLichtbron = null;
 
   // Scan het gebied met een sliding window
-  // Stap 4 pixels voor snelheid
-  for(let cy=vensterR; cy<H-vensterR; cy+=4){
-    for(let cx=vensterR; cx<W-vensterR; cx+=4){
+  // Stap 6 pixels voor snelheid (was 4) — goede balans tussen snelheid en nauwkeurigheid
+  for(let cy=vensterR; cy<H-vensterR; cy+=6){
+    for(let cx=vensterR; cx<W-vensterR; cx+=6){
       let totHd=0, roodPx=0, groenPx=0, oranjePx=0, totPx=0;
 
       // Sample pixels in het venster
@@ -723,7 +725,9 @@ async function voerAIUit(){
 
 // ── OVERLAY ───────────────────────────────────────────────────
 function tekenOverlay(resultaat){
-  overlCanvas.width=canvas.width; overlCanvas.height=canvas.height;
+  // Alleen resetten als dimensies veranderd zijn — voorkomt onnodige canvas clear
+  if(overlCanvas.width!==canvas.width) overlCanvas.width=canvas.width;
+  if(overlCanvas.height!==canvas.height) overlCanvas.height=canvas.height;
   octx.clearRect(0,0,overlCanvas.width,overlCanvas.height);
   if(!resultaat)return;
 
@@ -786,8 +790,11 @@ function verwerkDetecties(){
     return;
   }
 
-  // Kleur fallback
-  const kR=kleurFallback();
+  // Kleur fallback — alleen elke KLEUR_INTERVAL frames uitvoeren
+  if(frameT%KLEUR_INTERVAL===0){
+    laatsteKleurR=kleurFallback();
+  }
+  const kR=laatsteKleurR;
   if(kR&&kR.kleur){
     if(kR.kleur===kleurKleur){
       kleurTeller++;
@@ -922,7 +929,7 @@ function vindDichtbij(lat,lon,heading){
   let beste=null,bestS=-Infinity;
   for(const sl of osmCache){
     const af=afstand(lat,lon,sl.lat,sl.lon);
-    if(af>250)continue;
+    if(af>400)continue; // vergroot van 250m naar 400m
     const dLon=(sl.lon-lon)*Math.PI/180;
     const y2=Math.sin(dLon)*Math.cos(sl.lat*Math.PI/180);
     const x2=Math.cos(lat*Math.PI/180)*Math.sin(sl.lat*Math.PI/180)-
