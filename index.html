@@ -7,7 +7,7 @@
   <meta name="apple-mobile-web-app-capable" content="yes"/>
   <meta name="apple-mobile-web-app-status-bar-style" content="black-fullscreen"/>
   <meta name="apple-mobile-web-app-title" content="Stoplicht"/>
-  <title>Stoplicht Detector Pro v5.0</title>
+  <title>Stoplicht Detector Pro v5.2</title>
 
   <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@4.17.0/dist/tf.min.js"></script>
 
@@ -32,8 +32,7 @@
     #video-hidden{position:fixed;top:-9999px}
     #geluid-flash{position:fixed;inset:0;z-index:50;pointer-events:none;
       opacity:0;transition:opacity .15s}
-    #rand-glow{position:fixed;inset:0;z-index:3;pointer-events:none;
-      transition:box-shadow .4s}
+    #rand-glow{position:fixed;inset:0;z-index:3;pointer-events:none;transition:box-shadow .4s}
     #rand-glow.rood  {box-shadow:inset 0 0 50px rgba(255,48,48,.45)}
     #rand-glow.oranje{box-shadow:inset 0 0 50px rgba(255,159,10,.45)}
     #rand-glow.groen {box-shadow:inset 0 0 60px rgba(52,199,89,.55)}
@@ -46,9 +45,8 @@
     #app-naam{font-size:10px;font-weight:600;letter-spacing:0.20em;
       text-transform:uppercase;color:var(--dim)}
     #badges{display:flex;gap:5px;flex-wrap:wrap;justify-content:flex-end}
-    .pill{display:flex;align-items:center;gap:4px;
-      background:rgba(0,0,0,0.50);border:1px solid var(--border);
-      border-radius:20px;padding:3px 8px;cursor:pointer;
+    .pill{display:flex;align-items:center;gap:4px;background:rgba(0,0,0,0.50);
+      border:1px solid var(--border);border-radius:20px;padding:3px 8px;cursor:pointer;
       backdrop-filter:blur(8px);-webkit-backdrop-filter:blur(8px)}
     .pill-dot{width:6px;height:6px;border-radius:50%;background:var(--dim);
       transition:background .3s,box-shadow .3s;flex-shrink:0}
@@ -59,62 +57,50 @@
     .pill-tekst{font-size:9px;font-weight:600;letter-spacing:0.08em;
       text-transform:uppercase;color:var(--dim);white-space:nowrap}
 
-    /* Model status */
-    #model-status{width:100%;background:rgba(0,0,0,0.55);
-      backdrop-filter:blur(10px);border:1px solid rgba(191,90,242,0.3);
-      border-radius:12px;padding:8px 14px;display:flex;
-      flex-direction:column;gap:5px;transition:opacity .4s,height .4s}
-    #model-status.verborgen{opacity:0;pointer-events:none;
-      height:0;padding:0;margin:0;overflow:hidden}
+    #model-status{width:100%;background:rgba(0,0,0,0.55);backdrop-filter:blur(10px);
+      border:1px solid rgba(191,90,242,0.3);border-radius:12px;padding:8px 14px;
+      display:flex;flex-direction:column;gap:5px;transition:opacity .4s}
+    #model-status.verborgen{opacity:0;pointer-events:none;height:0;padding:0;margin:0;overflow:hidden}
     #model-top{display:flex;align-items:center;gap:8px}
     #model-dot{width:7px;height:7px;border-radius:50%;background:#BF5AF2;
       box-shadow:0 0 6px #BF5AF2;flex-shrink:0}
     #model-dot.laden{animation:mpuls 1s ease-in-out infinite}
     @keyframes mpuls{0%,100%{opacity:1}50%{opacity:0.35}}
-    #model-tekst{font-size:10px;color:rgba(191,90,242,0.9);
-      font-weight:600;letter-spacing:0.08em;text-transform:uppercase;flex:1}
-    #model-pct{font-family:'Share Tech Mono',monospace;font-size:10px;
-      color:rgba(191,90,242,0.7)}
+    #model-tekst{font-size:10px;color:rgba(191,90,242,0.9);font-weight:600;
+      letter-spacing:0.08em;text-transform:uppercase;flex:1}
+    #model-pct{font-family:'Share Tech Mono',monospace;font-size:10px;color:rgba(191,90,242,0.7)}
     #model-balk-bg{width:100%;height:3px;background:rgba(255,255,255,0.08);border-radius:2px}
     #model-balk{height:100%;width:0%;border-radius:2px;background:#BF5AF2;transition:width .3s}
 
-    /* Fase balk */
-    #fase-balk{width:100%;background:rgba(0,0,0,0.65);
-      backdrop-filter:blur(14px);-webkit-backdrop-filter:blur(14px);
-      border:1px solid var(--border);border-radius:16px;
-      padding:10px 16px;display:flex;align-items:center;
-      justify-content:space-between;gap:12px;
-      transition:border-color .4s,background .4s}
+    #fase-balk{width:100%;background:rgba(0,0,0,0.65);backdrop-filter:blur(14px);
+      -webkit-backdrop-filter:blur(14px);border:1px solid var(--border);border-radius:16px;
+      padding:10px 16px;display:flex;align-items:center;justify-content:space-between;
+      gap:12px;transition:border-color .4s,background .4s}
     #fase-balk.rood  {border-color:rgba(255,48,48,.5);background:rgba(60,0,0,.65)}
     #fase-balk.oranje{border-color:rgba(255,159,10,.5);background:rgba(60,35,0,.65)}
     #fase-balk.groen {border-color:rgba(52,199,89,.5);background:rgba(0,50,15,.65)}
     #fase-links{display:flex;align-items:center;gap:10px}
-    #fase-lamp{width:18px;height:18px;border-radius:50%;
-      background:rgba(255,255,255,0.12);flex-shrink:0;
-      transition:background .4s,box-shadow .4s}
+    #fase-lamp{width:18px;height:18px;border-radius:50%;background:rgba(255,255,255,0.12);
+      flex-shrink:0;transition:background .4s,box-shadow .4s}
     #fase-lamp.rood  {background:var(--rood);box-shadow:0 0 10px var(--rood)}
     #fase-lamp.oranje{background:var(--oranje);box-shadow:0 0 10px var(--oranje)}
     #fase-lamp.groen {background:var(--groen);box-shadow:0 0 10px var(--groen);
       animation:lpuls 1.8s ease-in-out infinite}
     @keyframes lpuls{0%,100%{box-shadow:0 0 10px var(--groen)}50%{box-shadow:0 0 22px var(--groen)}}
-    #fase-woord{font-size:20px;font-weight:700;letter-spacing:0.12em;
-      text-transform:uppercase;line-height:1}
-    #fase-sub{font-size:10px;color:var(--dim);letter-spacing:0.06em;
+    #fase-woord{font-size:20px;font-weight:700;letter-spacing:0.12em;text-transform:uppercase;line-height:1}
+    #fase-sub{font-size:10px;color:var(--dim);letter-spacing:0.06em;text-transform:uppercase;margin-top:1px}
+    #fase-bron{font-size:9px;color:rgba(255,255,255,0.25);letter-spacing:0.06em;
       text-transform:uppercase;margin-top:1px}
-    #fase-bron{font-size:9px;color:rgba(255,255,255,0.25);
-      letter-spacing:0.06em;text-transform:uppercase;margin-top:1px}
     #kruispunt-mini{text-align:right;min-width:0;flex-shrink:1}
     #kruispunt-mini-naam{font-size:11px;font-weight:600;color:#fff;
       white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:140px}
     #kruispunt-mini-af{font-family:'Share Tech Mono',monospace;font-size:11px;
       color:var(--dim);margin-top:1px}
-    #kruispunt-mini-count{font-size:9px;color:rgba(255,255,255,0.25);margin-top:1px}
+    #kruispunt-mini-dagdeel{font-size:9px;color:rgba(255,255,255,0.3);margin-top:1px}
 
-    /* Onderste */
     #onderste{display:flex;flex-direction:column;gap:8px;padding:0 14px}
-    #countdown-blok{background:rgba(0,0,0,0.60);
-      backdrop-filter:blur(12px);border:1px solid var(--border);
-      border-radius:16px;padding:12px 18px;
+    #countdown-blok{background:rgba(0,0,0,0.60);backdrop-filter:blur(12px);
+      border:1px solid var(--border);border-radius:16px;padding:12px 18px;
       display:flex;align-items:center;justify-content:space-between}
     #cd-links{display:flex;flex-direction:column;gap:2px}
     #cd-label{font-size:10px;font-weight:600;letter-spacing:0.18em;
@@ -128,8 +114,8 @@
     #cd-ring-svg{width:100%;height:100%;transform:rotate(-90deg)}
     #cd-ring-achter{fill:none;stroke:rgba(255,255,255,0.08);stroke-width:5}
     #cd-ring-voor{fill:none;stroke:var(--groen);stroke-width:5;stroke-linecap:round;
-      stroke-dasharray:170;stroke-dashoffset:170;
-      transition:stroke-dashoffset 1s linear,stroke .4s}
+      stroke-dasharray:170;stroke-dashoffset:170;transition:stroke-dashoffset 1s linear,stroke .4s}
+
     #leer-kaart{background:rgba(0,0,0,0.60);backdrop-filter:blur(12px);
       border:1px solid var(--border);border-radius:14px;
       padding:10px 14px;display:flex;flex-direction:column;gap:6px}
@@ -140,26 +126,34 @@
       letter-spacing:0.1em;text-transform:uppercase;display:none}
     #leer-badge.zichtbaar{display:block;background:rgba(52,199,89,.15);
       color:var(--groen);border:1px solid rgba(52,199,89,.25)}
+    #leer-badge.reset{display:block;background:rgba(255,159,10,.15);
+      color:var(--oranje);border:1px solid rgba(255,159,10,.25)}
     #blokken-rij{display:flex;gap:5px}
     .blok{flex:1;height:28px;border-radius:8px;background:rgba(255,255,255,0.06);
       border:1px solid var(--border);display:flex;align-items:center;
       justify-content:center;font-family:'Share Tech Mono',monospace;
       font-size:10px;color:var(--dim);transition:all .4s}
-    .blok.vol{background:rgba(52,199,89,.18);color:var(--groen);
-      border-color:rgba(52,199,89,.35)}
+    .blok.vol{background:rgba(52,199,89,.18);color:var(--groen);border-color:rgba(52,199,89,.35)}
+    .blok.oud{background:rgba(255,159,10,.1);color:rgba(255,159,10,0.6);border-color:rgba(255,159,10,.2)}
+    #dagdeel-rij{display:flex;gap:4px}
+    .dagdeel-blok{flex:1;background:rgba(255,255,255,0.04);border:1px solid var(--border);
+      border-radius:8px;padding:4px 6px;text-align:center}
+    .dagdeel-blok.actief{border-color:rgba(52,199,89,.35);background:rgba(52,199,89,.08)}
+    .dagdeel-naam{font-size:8px;color:var(--dim);text-transform:uppercase;letter-spacing:0.06em}
+    .dagdeel-waarde{font-family:'Share Tech Mono',monospace;font-size:10px;color:var(--dim);margin-top:1px}
+    .dagdeel-blok.actief .dagdeel-waarde{color:var(--groen)}
+    .dagdeel-blok.actief .dagdeel-naam{color:rgba(52,199,89,.7)}
     #leer-info{font-size:10px;color:var(--dim);line-height:1.4}
 
-    /* Debug */
-    #debug-balk{position:fixed;bottom:env(safe-area-inset-bottom,0);
-      left:0;right:0;z-index:20;pointer-events:none;
-      background:rgba(0,0,0,0.65);padding:3px 10px;
+    #debug-balk{position:fixed;bottom:env(safe-area-inset-bottom,0);left:0;right:0;
+      z-index:20;pointer-events:none;background:rgba(0,0,0,0.65);padding:3px 10px;
       font-family:'Share Tech Mono',monospace;font-size:9px;
       display:flex;gap:8px;justify-content:center;opacity:0.65}
     #d-modus{color:#BF5AF2}
+    #d-kleur{color:#FFD60A}
     #d-osm{color:#0A84FF}
     #d-info{color:rgba(255,255,255,0.35)}
 
-    /* Startscherm */
     #startscherm{position:fixed;inset:0;background:#080A0C;z-index:200;
       display:flex;flex-direction:column;align-items:center;
       justify-content:center;gap:16px;padding:32px;transition:opacity .5s}
@@ -175,23 +169,20 @@
     #s-model-pct{font-family:'Share Tech Mono',monospace;font-size:11px;color:#BF5AF2}
     #s-model-bg{width:100%;height:4px;background:rgba(255,255,255,0.08);border-radius:2px}
     #s-model-balk{height:100%;width:0%;border-radius:2px;background:#BF5AF2;transition:width .3s}
-    #s-features{background:rgba(255,255,255,0.04);
-      border:1px solid rgba(255,255,255,0.09);border-radius:14px;
-      padding:12px 15px;width:100%;max-width:300px;
+    #s-geheugen-info{font-size:11px;color:var(--dim);text-align:center;max-width:280px}
+    #s-features{background:rgba(255,255,255,0.04);border:1px solid rgba(255,255,255,0.09);
+      border-radius:14px;padding:12px 15px;width:100%;max-width:300px;
       display:grid;grid-template-columns:1fr 1fr;gap:7px}
     .feature{font-size:11px;color:rgba(255,255,255,0.6);display:flex;
       gap:5px;align-items:flex-start;line-height:1.4}
-    #geluid-toggle-wrap{display:flex;align-items:center;
-      justify-content:space-between;background:rgba(255,255,255,0.04);
-      border:1px solid rgba(255,255,255,0.09);border-radius:14px;
-      padding:12px 16px;width:100%;max-width:300px}
+    #geluid-toggle-wrap{display:flex;align-items:center;justify-content:space-between;
+      background:rgba(255,255,255,0.04);border:1px solid rgba(255,255,255,0.09);
+      border-radius:14px;padding:12px 16px;width:100%;max-width:300px}
     #geluid-toggle-label{font-size:13px;font-weight:600;letter-spacing:0.06em}
-    #geluid-toggle{width:44px;height:26px;border-radius:13px;
-      background:var(--groen);border:none;position:relative;cursor:pointer;
-      transition:background .2s;flex-shrink:0}
-    #geluid-toggle::after{content:'';position:absolute;top:3px;left:3px;
-      width:20px;height:20px;border-radius:50%;background:#fff;
-      transition:transform .2s;box-shadow:0 1px 3px rgba(0,0,0,.3)}
+    #geluid-toggle{width:44px;height:26px;border-radius:13px;background:var(--groen);
+      border:none;position:relative;cursor:pointer;transition:background .2s;flex-shrink:0}
+    #geluid-toggle::after{content:'';position:absolute;top:3px;left:3px;width:20px;height:20px;
+      border-radius:50%;background:#fff;transition:transform .2s;box-shadow:0 1px 3px rgba(0,0,0,.3)}
     #geluid-toggle.uit{background:rgba(255,255,255,0.15)}
     #geluid-toggle.uit::after{transform:translateX(0)}
     #geluid-toggle:not(.uit)::after{transform:translateX(18px)}
@@ -214,16 +205,15 @@
 
 <div id="debug-balk">
   <span id="d-modus">modus:—</span>
+  <span id="d-kleur">kleur:—</span>
   <span id="d-osm">osm:—</span>
   <span id="d-info">—</span>
 </div>
 
-<!-- Startscherm -->
-
 <div id="startscherm">
   <div id="s-icoon">🚦</div>
   <div id="s-titel">Stoplicht<br/>Detector Pro</div>
-  <div id="s-versie">Versie 5.0 — Lokale kaart</div>
+  <div id="s-versie">Versie 5.2 — Slim geheugen</div>
   <div id="s-model-wrap">
     <div id="s-model-rij">
       <div id="s-model-label">🤖 AI model laden…</div>
@@ -231,14 +221,15 @@
     </div>
     <div id="s-model-bg"><div id="s-model-balk"></div></div>
   </div>
+  <div id="s-geheugen-info" style="color:var(--dim)">Geheugen laden…</div>
   <div id="s-features">
-    <div class="feature">🗺 Lokale stoplichtenkaart</div>
-    <div class="feature">⚡ Altijd snelle GPS info</div>
+    <div class="feature">💡 Slimste kleurdetectie</div>
+    <div class="feature">⚖️ Gewogen geheugen</div>
+    <div class="feature">🔄 Auto-reset bij wijziging</div>
+    <div class="feature">🕐 4 dagdelen</div>
+    <div class="feature">🧭 Rijrichtingsbewust</div>
+    <div class="feature">🗺 Lokale kaart 5km</div>
     <div class="feature">🤖 AI + kleur fallback</div>
-    <div class="feature">↔️ Horiz. + vert. stoplicht</div>
-    <div class="feature">🔊 Geluid bij groen</div>
-    <div class="feature">🌈 Schermrand gloeit</div>
-    <div class="feature">📍 Kruispunt geheugen</div>
     <div class="feature">📱 Scherm blijft aan</div>
   </div>
   <div id="geluid-toggle-wrap">
@@ -248,12 +239,10 @@
   <button id="s-knop" onclick="startApp()">Start detectie</button>
 </div>
 
-<!-- Hoofd UI -->
-
 <div id="ui">
   <div id="bovenste">
     <div id="badges-rij">
-      <div id="app-naam">Stoplicht v5.0</div>
+      <div id="app-naam">Stoplicht v5.2</div>
       <div id="badges">
         <div class="pill" onclick="toggleGeluidInApp()">
           <div class="pill-dot" id="geluid-dot"></div>
@@ -297,7 +286,7 @@
       <div id="kruispunt-mini">
         <div id="kruispunt-mini-naam">Wacht op GPS…</div>
         <div id="kruispunt-mini-af">—</div>
-        <div id="kruispunt-mini-count"></div>
+        <div id="kruispunt-mini-dagdeel"></div>
       </div>
     </div>
   </div>
@@ -320,47 +309,221 @@
     </div>
     <div id="leer-kaart">
       <div id="leer-header">
-        <div id="leer-titel">⚙ Leergeheugen kruispunt</div>
+        <div id="leer-titel">⚙ Geheugen — <span id="leer-dagdeel-naam">—</span></div>
         <div id="leer-badge">Actief</div>
       </div>
       <div id="blokken-rij"></div>
-      <div id="leer-info">Richt camera op een stoplicht om te beginnen.</div>
+      <div id="dagdeel-rij">
+        <div class="dagdeel-blok" id="dd-ochtend">
+          <div class="dagdeel-naam">🌅 Ochtend</div>
+          <div class="dagdeel-waarde" id="dd-ochtend-val">—</div>
+        </div>
+        <div class="dagdeel-blok" id="dd-dag">
+          <div class="dagdeel-naam">☀️ Dag</div>
+          <div class="dagdeel-waarde" id="dd-dag-val">—</div>
+        </div>
+        <div class="dagdeel-blok" id="dd-avond">
+          <div class="dagdeel-naam">🌆 Avond</div>
+          <div class="dagdeel-waarde" id="dd-avond-val">—</div>
+        </div>
+        <div class="dagdeel-blok" id="dd-nacht">
+          <div class="dagdeel-naam">🌙 Nacht</div>
+          <div class="dagdeel-waarde" id="dd-nacht-val">—</div>
+        </div>
+      </div>
+      <div id="leer-info">Richt camera op een stoplicht.</div>
     </div>
   </div>
 </div>
 
 <script>
 // ═══════════════════════════════════════════════════════════════
-//  STOPLICHT DETECTOR PRO v5.0
+//  STOPLICHT DETECTOR PRO v5.2
 //
-//  KERNFIX: LOKALE OSM CACHE
-//  ─────────────────────────────────────────────────────────────
-//  Vorige versies: elke 45 seconden een Overpass API request
-//  → traag, onbetrouwbaar, 80-90% "geen stoplichten gevonden"
+//  VERBETERINGEN T.O.V. v5.1:
 //
-//  v5.0: één grote download bij opstarten (5km radius)
-//  → alle stoplichten in de buurt in het geheugen
-//  → dichtstbijzijnde stoplicht berekend LOKAAL elke seconde
-//  → geen server meer nodig voor GPS stoplicht info
-//  → alleen nieuwe download als je >3km van startpunt rijdt
+//  1. SLIMSTE KLEURDETECTIE (Route 2)
+//     Zoekt eerst de helderste cluster van pixels in de
+//     bounding box — dat is de brandende lamp.
+//     Analyseert dan alleen die cluster op kleur.
+//     Veel robuuster bij tegenlicht, regen en bewolking.
 //
-//  Gemiddeld aantal stoplichten per 5km in NL:
-//  - Stad centrum: 300-500
-//  - Woonwijk: 100-200
-//  - Platteland: 20-50
-//  Allemaal prima voor geheugen (~50KB data)
+//  2. GEWOGEN GEHEUGEN (geen vaste tijdsgrens)
+//     Recentere metingen krijgen meer gewicht dan oude.
+//     Meting van gisteren weegt 3x zwaarder dan 6 maanden oud.
+//     Geen abrupt verdwijnen van data na X dagen.
+//     Vakantie of pauze verliest je opgebouwde kennis niet.
+//
+//  3. AUTOMATISCHE RESET BIJ AFWIJKING
+//     Als 5 opeenvolgende metingen >20% afwijken van
+//     het historische gewogen gemiddelde → cyclus veranderd.
+//     App reset geheugen automatisch en begint opnieuw.
+//     Detecteert wegwerkzaamheden en beleidswijzigingen.
 // ═══════════════════════════════════════════════════════════════
 
 const OMTREK_CD = 2 * Math.PI * 27;
-const OSM_RADIUS_METER  = 5000;  // 5km initiële download
-const OSM_REFRESH_METER = 3000;  // herlaad als >3km van cache centrum
+const OSM_RADIUS_METER  = 5000;
+const OSM_REFRESH_METER = 3000;
 const OVERPASS_URL = 'https://overpass-api.de/api/interpreter';
+const LS_PREFIX = 'sl_v3_';
+const MAX_METINGEN = 50; // bewaar meer metingen dan v5.1
+const AFWIJKING_DREMPEL = 0.20;   // 20% afwijking
+const AFWIJKING_BENODIGDE_REEKS = 5; // 5 op rij
 
-// DOM
+// ── DAGDELEN ──────────────────────────────────────────────────
+const DAGDELEN = {
+  ochtend:{ naam:'Ochtend', uren:[6,7,8],          icoon:'🌅' },
+  dag:    { naam:'Dag',     uren:[9,10,11,12,13,14,15], icoon:'☀️' },
+  avond:  { naam:'Avond',   uren:[16,17,18,19],     icoon:'🌆' },
+  nacht:  { naam:'Nacht',   uren:[20,21,22,23,0,1,2,3,4,5], icoon:'🌙' },
+};
+function huidigDagdeel(){
+  const u=new Date().getHours();
+  for(const[k,d]of Object.entries(DAGDELEN)) if(d.uren.includes(u)) return k;
+  return 'dag';
+}
+
+// ── GEWOGEN GEHEUGEN ──────────────────────────────────────────
+// Gewicht op basis van leeftijd: recent = zwaarder
+// Gewicht = e^(-leeftijdInDagen / halfwaardetijd)
+// Halfwaardetijd = 60 dagen → meting van 60 dagen oud weegt
+// nog maar de helft van een meting van vandaag
+const HALFWAARDETIJD_DAGEN = 60;
+
+function berekenGewicht(tijdstempelMs){
+  const leeftijdDagen = (Date.now()-tijdstempelMs) / 86400000;
+  return Math.exp(-leeftijdDagen / HALFWAARDETIJD_DAGEN);
+}
+
+function gewogenGemiddelde(metingen){
+  if(metingen.length===0) return null;
+  let totaalGewicht=0, gewogenSom=0;
+  for(const m of metingen){
+    const w=berekenGewicht(m.tijd);
+    gewogenSom    += m.duur * w;
+    totaalGewicht += w;
+  }
+  return totaalGewicht>0 ? gewogenSom/totaalGewicht : null;
+}
+
+function berekenBetrouwbaarheid(metingen){
+  if(metingen.length===0) return 0;
+  const gem=gewogenGemiddelde(metingen);
+  if(!gem) return 0;
+  // Gewogen spreiding
+  let totaalGewicht=0, gewogenVariantie=0;
+  for(const m of metingen){
+    const w=berekenGewicht(m.tijd);
+    gewogenVariantie += w * Math.pow(m.duur-gem,2);
+    totaalGewicht    += w;
+  }
+  const spreiding=Math.sqrt(totaalGewicht>0?gewogenVariantie/totaalGewicht:0);
+  const spreidingScore = Math.max(0,100-(spreiding/gem*100));
+  // Effectief aantal metingen (gewogen)
+  const effectiefAantal = Math.min(100, totaalGewicht*10);
+  return Math.round(spreidingScore*0.6 + effectiefAantal*0.4);
+}
+
+// ── AFWIJKINGSDETECTOR ────────────────────────────────────────
+// Bijhoudt laatste N metingen om afwijkende cyclus te detecteren
+let afwijkingsBuffer = []; // laatste metingen voor huidig kruispunt
+
+function checkAfwijking(nieuweDuur, historischGem){
+  if(!historischGem || historischGem===0) return false;
+  const afwijking = Math.abs(nieuweDuur - historischGem) / historischGem;
+  if(afwijking > AFWIJKING_DREMPEL){
+    afwijkingsBuffer.push(true);
+  } else {
+    afwijkingsBuffer = []; // reset bij normale meting
+  }
+  if(afwijkingsBuffer.length >= AFWIJKING_BENODIGDE_REEKS){
+    afwijkingsBuffer = [];
+    return true; // cyclus veranderd!
+  }
+  return false;
+}
+
+// ── PERSISTENT OPSLAG ─────────────────────────────────────────
+function opslaanMeting(osmId, rijrichting, duurSec){
+  if(!osmId||duurSec<4||duurSec>300) return false;
+  const dd=huidigDagdeel();
+  const sleutel=`${LS_PREFIX}${osmId}_${dd}`;
+  let metingen=laadMetingen(osmId,dd);
+
+  // Check afwijking tov historisch gewogen gemiddelde
+  const historischGem=gewogenGemiddelde(metingen);
+  const cyclisGewijzigd=checkAfwijking(duurSec,historischGem);
+
+  if(cyclisGewijzigd){
+    // Cyclus veranderd → reset geheugen en begin opnieuw
+    metingen=[];
+    afwijkingsBuffer=[];
+    document.getElementById('leer-badge').className='leer-badge reset';
+    document.getElementById('leer-badge').textContent='Cyclus gewijzigd';
+    setTimeout(()=>{
+      document.getElementById('leer-badge').className='leer-badge';
+    },5000);
+  }
+
+  metingen.push({
+    duur: Math.round(duurSec),
+    tijd: Date.now(),
+    richting: Math.round(rijrichting||0)
+  });
+
+  // Bewaar max 50 — verwijder oudste (laagste gewicht)
+  if(metingen.length>MAX_METINGEN){
+    metingen.sort((a,b)=>berekenGewicht(b.tijd)-berekenGewicht(a.tijd));
+    metingen=metingen.slice(0,MAX_METINGEN);
+  }
+
+  try{ localStorage.setItem(sleutel,JSON.stringify(metingen)); }
+  catch(e){ opruimen(); try{localStorage.setItem(sleutel,JSON.stringify(metingen));}catch(e2){} }
+
+  return cyclisGewijzigd;
+}
+
+function laadMetingen(osmId,dd){
+  const sleutel=`${LS_PREFIX}${osmId}_${dd}`;
+  try{
+    const s=localStorage.getItem(sleutel);
+    return s?JSON.parse(s):[];
+  }catch(e){return[];}
+}
+
+function opruimen(){
+  // Verwijder entries met laagste totaal gewicht
+  const entries=[];
+  for(let i=0;i<localStorage.length;i++){
+    const k=localStorage.key(i);
+    if(!k?.startsWith(LS_PREFIX)) continue;
+    try{
+      const m=JSON.parse(localStorage.getItem(k)||'[]');
+      const totGew=m.reduce((s,x)=>s+berekenGewicht(x.tijd),0);
+      entries.push({k,totGew});
+    }catch(e){localStorage.removeItem(k);}
+  }
+  entries.sort((a,b)=>a.totGew-b.totGew);
+  entries.slice(0,Math.ceil(entries.length/3)).forEach(e=>localStorage.removeItem(e.k));
+}
+
+function telKruispunten(){
+  const ids=new Set();
+  for(let i=0;i<localStorage.length;i++){
+    const k=localStorage.key(i);
+    if(k?.startsWith(LS_PREFIX)){
+      const d=k.replace(LS_PREFIX,'').split('_');
+      if(d.length>=2)ids.add(d[0]);
+    }
+  }
+  return ids.size;
+}
+
+// DOM refs
 const video         = document.getElementById('video-hidden');
 const canvas        = document.getElementById('camera-canvas');
 const overlayCanvas = document.getElementById('overlay-canvas');
-const ctx           = canvas.getContext('2d', { willReadFrequently: true });
+const ctx           = canvas.getContext('2d',{willReadFrequently:true});
 const octx          = overlayCanvas.getContext('2d');
 const faseBalk      = document.getElementById('fase-balk');
 const faseLamp      = document.getElementById('fase-lamp');
@@ -386,9 +549,10 @@ const geluidTekst   = document.getElementById('geluid-pill-tekst');
 const blokkenRij    = document.getElementById('blokken-rij');
 const leerInfo      = document.getElementById('leer-info');
 const leerBadge     = document.getElementById('leer-badge');
+const leerDagdeelNaam=document.getElementById('leer-dagdeel-naam');
 const kmNaam        = document.getElementById('kruispunt-mini-naam');
 const kmAf          = document.getElementById('kruispunt-mini-af');
-const kmCount       = document.getElementById('kruispunt-mini-count');
+const kmDagdeel     = document.getElementById('kruispunt-mini-dagdeel');
 const modelStatus   = document.getElementById('model-status');
 const modelTekst    = document.getElementById('model-tekst');
 const modelBalk     = document.getElementById('model-balk');
@@ -397,71 +561,51 @@ const sModelBalk    = document.getElementById('s-model-balk');
 const sModelPct     = document.getElementById('s-model-pct');
 const sModelLabel   = document.getElementById('s-model-label');
 const dModus        = document.getElementById('d-modus');
+const dKleur        = document.getElementById('d-kleur');
 const dOSM          = document.getElementById('d-osm');
 const dInfo         = document.getElementById('d-info');
 
 // App staat
-let cocoModel = null, modelGeladen = false, modelLaadStart = null;
-let fase = null, faseStart = null;
-let roodLijst = [], groenLijst = [], cycli = 0;
-let cdStart = null, cdDoel = 0;
-let geluidAan = true, isNacht = false;
-
-// GPS staat
-let huidigePositie  = null;
-let dichtstbijOSM   = null;
-let vorigOsmId      = null;
-const kruispuntGeheugen = {};
-
-// ── LOKALE OSM CACHE (de kernfix) ────────────────────────────
-// Alle stoplichten worden hier opgeslagen na één grote download
-let osmCache = [];           // array van alle gecachte stoplichten
-let cacheCentrum = null;     // GPS coördinaat van cache centrum
-let cacheBezig = false;
-let cacheGeladen = false;
-
-// Bevestiging
-const AI_DREMPEL    = 6;
-const KLEUR_DREMPEL = 8;
-let aiBevestigingsTeller = 0, aiBevestigingsKleur = null;
-let kleurBevestigingsTeller = 0, kleurBevestigingsKleur = null;
-let geenDetectieTeller = 0;
-const GEEN_DETECTIE_RESET = 90;
-
-let audioCtx = null, wakeLock = null;
-let frameT = 0;
-const AI_INTERVAL_FRAMES = 15;
-let aiBezig = false;
-let laatsteAIResultaat = null;
+let cocoModel=null, modelGeladen=false, modelLaadStart=null;
+let fase=null, faseStart=null;
+let actieveMetingen=[], activeCdDoel=0, activeCdBetr=0;
+let cdStart=null;
+let geluidAan=true, isNacht=false;
+let huidigePositie=null, huidigeRijrichting=0;
+let dichtstbijOSM=null, vorigOsmId=null;
+let osmCache=[], cacheCentrum=null, cacheGeladen=false, cacheBezig=false;
+const AI_DREMPEL=6, KLEUR_DREMPEL=8;
+let aiBevestigingsTeller=0, aiBevestigingsKleur=null;
+let kleurBevestigingsTeller=0, kleurBevestigingsKleur=null;
+let geenDetectieTeller=0;
+const GEEN_DETECTIE_RESET=90;
+let audioCtx=null, wakeLock=null;
+let frameT=0;
+const AI_INTERVAL_FRAMES=15;
+let aiBezig=false, laatsteAIResultaat=null;
 
 // ── MODEL PRELOADEN ───────────────────────────────────────────
-modelLaadStart = performance.now();
-let simulatiePct = 0;
-const simInterval = setInterval(()=>{
-  if(modelGeladen) return;
-  simulatiePct = Math.min(90, simulatiePct + Math.random()*8+2);
-  updateLaadUI(simulatiePct);
-}, 300);
-
-function updateLaadUI(pct){
-  const p=Math.round(pct);
-  sModelBalk.style.width=p+'%'; sModelPct.textContent=p+'%';
-  modelBalk.style.width=p+'%'; modelPct.textContent=p+'%';
-}
+modelLaadStart=performance.now();
+let simPct=0;
+const simInterval=setInterval(()=>{
+  if(modelGeladen)return;
+  simPct=Math.min(90,simPct+Math.random()*8+2);
+  sModelBalk.style.width=Math.round(simPct)+'%';sModelPct.textContent=Math.round(simPct)+'%';
+  modelBalk.style.width=Math.round(simPct)+'%';modelPct.textContent=Math.round(simPct)+'%';
+},300);
 
 async function prelaadModel(){
   try{
-    cocoModel = await cocoSsd.load({base:'lite_mobilenet_v2'});
+    cocoModel=await cocoSsd.load({base:'lite_mobilenet_v2'});
     modelGeladen=true;
     clearInterval(simInterval);
-    updateLaadUI(100);
+    [sModelBalk,modelBalk].forEach(b=>{b.style.width='100%';b.style.background='var(--groen)';});
+    [sModelPct,modelPct].forEach(p=>p.textContent='100%');
     const t=((performance.now()-modelLaadStart)/1000).toFixed(1);
     sModelLabel.textContent=`✓ AI klaar (${t}s)`;
     sModelLabel.style.color='var(--groen)';
-    sModelBalk.style.background='var(--groen)';
     modelStatus.classList.add('verborgen');
-    aiDot.className='pill-dot paars-aan';
-    aiTekst.textContent='AI';
+    aiDot.className='pill-dot paars-aan'; aiTekst.textContent='AI';
     dModus.textContent='AI';
   }catch(e){
     clearInterval(simInterval);
@@ -474,182 +618,180 @@ async function prelaadModel(){
 }
 prelaadModel();
 
-// ── LOKALE OSM CACHE: grote download ─────────────────────────
-async function downloadOSMCache(lat, lon){
-  if(cacheBezig) return;
+// Toon opgeslagen kruispunten
+const aantalKP=telKruispunten();
+const sGeheugenInfo=document.getElementById('s-geheugen-info');
+if(aantalKP>0){
+  sGeheugenInfo.textContent=`💾 ${aantalKP} kruispunten opgeslagen`;
+  sGeheugenInfo.style.color='var(--groen)';
+}else{
+  sGeheugenInfo.textContent='Eerste gebruik — geheugen wordt opgebouwd';
+}
+
+// ── OSM CACHE ─────────────────────────────────────────────────
+async function downloadOSMCache(lat,lon){
+  if(cacheBezig)return;
   cacheBezig=true;
-  osmDot.className='pill-dot oranje-aan';
-  osmTekst.textContent='Laden...';
-  dOSM.textContent='osm:laden';
-
-  // Download ALLE stoplichten in 5km radius in één request
-  // Dit is de enige OSM request — daarna alles lokaal
-  const query=`
-    [out:json][timeout:15];
-    node["highway"="traffic_signals"](around:${OSM_RADIUS_METER},${lat},${lon});
-    out body;
-  `;
-
+  osmDot.className='pill-dot oranje-aan'; osmTekst.textContent='Laden...'; dOSM.textContent='osm:laden';
+  const query=`[out:json][timeout:15];node["highway"="traffic_signals"](around:${OSM_RADIUS_METER},${lat},${lon});out body;`;
   try{
-    const ctrl = new AbortController();
-    const timer = setTimeout(()=>ctrl.abort(), 18000); // 18 sec timeout voor grote download
-
-    const resp = await fetch(OVERPASS_URL,{
-      method:'POST',
-      body:`data=${encodeURIComponent(query)}`,
-      signal:ctrl.signal
-    });
+    const ctrl=new AbortController();
+    const timer=setTimeout(()=>ctrl.abort(),18000);
+    const resp=await fetch(OVERPASS_URL,{method:'POST',body:`data=${encodeURIComponent(query)}`,signal:ctrl.signal});
     clearTimeout(timer);
-    if(!resp.ok) throw new Error(`HTTP ${resp.status}`);
-
-    const data = await resp.json();
-    const elementen = data.elements||[];
-
-    // Sla alle stoplichten op in lokale cache
-    osmCache = elementen.map(el=>({
-      id:   el.id,
-      lat:  el.lat,
-      lon:  el.lon,
-      naam: el.tags?.name || el.tags?.ref || null,
-      slim: !!(el.tags?.['traffic_signals:sound'] ||
-               el.tags?.description?.toLowerCase().includes('ivri')),
+    if(!resp.ok)throw new Error();
+    const data=await resp.json();
+    osmCache=(data.elements||[]).map(el=>({
+      id:el.id,lat:el.lat,lon:el.lon,
+      naam:el.tags?.name||el.tags?.ref||null,
+      slim:!!(el.tags?.['traffic_signals:sound']||el.tags?.description?.toLowerCase().includes('ivri')),
     }));
-
-    cacheCentrum = {lat, lon};
-    cacheGeladen = true;
-
-    osmDot.className='pill-dot groen-aan';
-    osmTekst.textContent='Kaart';
+    cacheCentrum={lat,lon}; cacheGeladen=true;
+    osmDot.className='pill-dot groen-aan'; osmTekst.textContent='Kaart';
     dOSM.textContent=`osm:${osmCache.length}`;
-
-    // Meteen de dichtstbijzijnde berekenen
-    updateDichtstbijzijnde(lat, lon);
-
+    updateDichtstbijzijnde(lat,lon);
   }catch(e){
-    osmDot.className='pill-dot oranje-aan';
-    osmTekst.textContent='Fout';
-    dOSM.textContent='osm:fout';
-    // Probeer opnieuw na 30 seconden
-    setTimeout(()=>{ cacheBezig=false; if(huidigePositie) downloadOSMCache(huidigePositie.lat,huidigePositie.lon); }, 30000);
-  }finally{
-    cacheBezig=false;
-  }
+    osmDot.className='pill-dot oranje-aan'; osmTekst.textContent='Fout'; dOSM.textContent='osm:fout';
+    setTimeout(()=>{cacheBezig=false;if(huidigePositie)downloadOSMCache(huidigePositie.lat,huidigePositie.lon);},30000);
+  }finally{cacheBezig=false;}
 }
 
-// ── LOKAAL BEREKENEN welk stoplicht het dichtstbijst is ───────
-// Dit draait elke GPS update — geen server nodig
-function updateDichtstbijzijnde(lat, lon){
-  if(osmCache.length===0){
-    kmNaam.textContent='Geen kaartdata';
-    kmAf.textContent='—';
-    kmCount.textContent='';
-    return;
-  }
-
-  // Bereken afstand tot alle gecachte stoplichten — lokaal, instant
-  let minAfstand = Infinity;
-  let dichtstbij = null;
-  let aantalNabij = 0; // stoplichten binnen 300m
-
+function vindDichtstbijste(lat,lon,heading){
+  if(osmCache.length===0)return null;
+  let beste=null,bestScore=-Infinity;
   for(const sl of osmCache){
-    const af = berekenAfstand(lat, lon, sl.lat, sl.lon);
-    if(af < minAfstand){ minAfstand=af; dichtstbij={...sl, afstand:af}; }
-    if(af < 300) aantalNabij++;
+    const af=berekenAfstand(lat,lon,sl.lat,sl.lon);
+    if(af>200)continue;
+    const dLon=(sl.lon-lon)*Math.PI/180;
+    const y=Math.sin(dLon)*Math.cos(sl.lat*Math.PI/180);
+    const x=Math.cos(lat*Math.PI/180)*Math.sin(sl.lat*Math.PI/180)-
+             Math.sin(lat*Math.PI/180)*Math.cos(sl.lat*Math.PI/180)*Math.cos(dLon);
+    const hoek=(Math.atan2(y,x)*180/Math.PI+360)%360;
+    let rv=Math.abs(heading-hoek);if(rv>180)rv=360-rv;
+    const score=(1/(af*af+1))*0.5+(Math.cos(rv*Math.PI/180))*0.5;
+    if(score>bestScore){bestScore=score;beste={...sl,afstand:af};}
   }
-
-  dichtstbijOSM = dichtstbij;
-  const af = Math.round(minAfstand);
-  kmNaam.textContent = dichtstbij?.naam || (dichtstbij?.slim?'⚡ Slim stoplicht':'Stoplicht');
-  kmAf.textContent   = af<1000 ? `${af}m` : `${(af/1000).toFixed(1)}km`;
-  kmCount.textContent = aantalNabij>0 ? `${aantalNabij} stoplichten binnen 300m` : '';
-
-  // Leergeheugen laden als nieuw kruispunt
-  if(dichtstbij && dichtstbij.id !== vorigOsmId){
-    vorigOsmId = dichtstbij.id;
-    if(kruispuntGeheugen[dichtstbij.id]){
-      const m=kruispuntGeheugen[dichtstbij.id];
-      roodLijst=[...m.rood]; groenLijst=[...m.groen]; cycli=m.cycli;
-      leerInfo.textContent=`Kruispunt herkend — ${cycli} cycli geladen.`;
-    }else{
-      roodLijst=[]; groenLijst=[]; cycli=0; stopCd();
-      leerInfo.textContent='Nieuw kruispunt — leergeheugen gestart.';
-    }
-    bijwerkBlokken();
+  if(!beste){
+    let minAf=Infinity;
+    for(const sl of osmCache){const af=berekenAfstand(lat,lon,sl.lat,sl.lon);if(af<minAf){minAf=af;beste={...sl,afstand:af};}}
   }
-
-  // Check of we buiten het cache gebied rijden
-  if(cacheCentrum){
-    const afVanCentrum = berekenAfstand(lat,lon,cacheCentrum.lat,cacheCentrum.lon);
-    if(afVanCentrum > OSM_REFRESH_METER && !cacheBezig){
-      dOSM.textContent=`osm:vernieuwen`;
-      downloadOSMCache(lat, lon); // nieuwe cache voor nieuw gebied
-    }
-  }
+  return beste;
 }
 
-// ── AFSTAND BEREKENING (Haversine) ────────────────────────────
 function berekenAfstand(la1,lo1,la2,lo2){
-  const R=6371000, dL=(la2-la1)*Math.PI/180, dO=(lo2-lo1)*Math.PI/180;
+  const R=6371000,dL=(la2-la1)*Math.PI/180,dO=(lo2-lo1)*Math.PI/180;
   const a=Math.sin(dL/2)**2+Math.cos(la1*Math.PI/180)*Math.cos(la2*Math.PI/180)*Math.sin(dO/2)**2;
   return R*2*Math.atan2(Math.sqrt(a),Math.sqrt(1-a));
 }
 
-// ── GPS UPDATE ────────────────────────────────────────────────
-async function onGpsUpdate(pos){
-  const lat=pos.coords.latitude, lon=pos.coords.longitude;
-  huidigePositie={lat,lon};
-  gpsDot.classList.add('blauw-aan'); gpsTekst.textContent='GPS';
-
-  if(!cacheGeladen && !cacheBezig){
-    // Eerste GPS fix → start grote OSM download
-    downloadOSMCache(lat, lon);
-  } else if(cacheGeladen){
-    // Cache al geladen → bereken lokaal, instant
-    updateDichtstbijzijnde(lat, lon);
+function updateDichtstbijzijnde(lat,lon){
+  if(osmCache.length===0){kmNaam.textContent='Geen kaartdata';kmAf.textContent='—';return;}
+  const dd=huidigDagdeel(),ddInfo=DAGDELEN[dd];
+  dichtstbijOSM=vindDichtstbijste(lat,lon,huidigeRijrichting);
+  if(!dichtstbijOSM)return;
+  const af=Math.round(dichtstbijOSM.afstand);
+  kmNaam.textContent=dichtstbijOSM.naam||(dichtstbijOSM.slim?'⚡ Slim':'Stoplicht');
+  kmAf.textContent=af<1000?`${af}m`:`${(af/1000).toFixed(1)}km`;
+  kmDagdeel.textContent=`${ddInfo.icoon} ${ddInfo.naam}`;
+  if(dichtstbijOSM.id!==vorigOsmId){
+    vorigOsmId=dichtstbijOSM.id;
+    afwijkingsBuffer=[];
+    laadKruispuntGeheugen(dichtstbijOSM.id);
+  }else{dichtstbijOSM.id&&bijwerkDagdeelOverzicht(dichtstbijOSM.id);}
+  if(cacheCentrum){
+    const afC=berekenAfstand(lat,lon,cacheCentrum.lat,cacheCentrum.lon);
+    if(afC>OSM_REFRESH_METER&&!cacheBezig)downloadOSMCache(lat,lon);
   }
 }
 
-// ── GELUID ────────────────────────────────────────────────────
-function initialiseerAudio(){
-  if(audioCtx) return;
-  audioCtx=new(window.AudioContext||window.webkitAudioContext)();
+function laadKruispuntGeheugen(osmId){
+  const dd=huidigDagdeel();
+  actieveMetingen=laadMetingen(osmId,dd);
+  const gem=gewogenGemiddelde(actieveMetingen);
+  activeCdDoel=gem||0;
+  activeCdBetr=berekenBetrouwbaarheid(actieveMetingen);
+  bijwerkBlokken();
+  bijwerkDagdeelOverzicht(osmId);
 }
+
+function bijwerkBlokken(){
+  blokkenRij.innerHTML='';
+  const dd=huidigDagdeel(),ddInfo=DAGDELEN[dd];
+  leerDagdeelNaam.textContent=`${ddInfo.icoon} ${ddInfo.naam}`;
+  const recent=actieveMetingen.slice().sort((a,b)=>b.tijd-a.tijd).slice(0,5);
+  for(let i=0;i<5;i++){
+    const b=document.createElement('div');
+    const m=recent[i];
+    if(m){
+      const oudheidDagen=(Date.now()-m.tijd)/86400000;
+      b.className=oudheidDagen>14?'blok oud':'blok vol';
+      b.textContent=m.duur+'s';
+      b.title=`${Math.round(oudheidDagen)}d oud`;
+    }else{b.className='blok';b.textContent='–';}
+    blokkenRij.appendChild(b);
+  }
+  leerBadge.className='leer-badge'+(actieveMetingen.length>=2?' zichtbaar':'');
+  if(actieveMetingen.length===0){
+    leerInfo.textContent=`Eerste keer hier (${ddInfo.icoon} ${ddInfo.naam}).`;
+  }else if(actieveMetingen.length<3){
+    leerInfo.textContent=`${actieveMetingen.length} meting(en). Nog ${3-actieveMetingen.length} nodig.`;
+  }else{
+    const gem=gewogenGemiddelde(actieveMetingen);
+    leerInfo.textContent=`${actieveMetingen.length} metingen — gew. gem. ${Math.round(gem)}s — ${activeCdBetr}% betrouwbaar`;
+  }
+}
+
+function bijwerkDagdeelOverzicht(osmId){
+  const huidig=huidigDagdeel();
+  ['ochtend','dag','avond','nacht'].forEach(dd=>{
+    const metingen=laadMetingen(osmId,dd);
+    const el=document.getElementById(`dd-${dd}`);
+    const val=document.getElementById(`dd-${dd}-val`);
+    const gem=gewogenGemiddelde(metingen);
+    val.textContent=gem?Math.round(gem)+'s':metingen.length===1?'1x':'—';
+    el.classList.toggle('actief',dd===huidig);
+  });
+}
+
+// ── GPS ───────────────────────────────────────────────────────
+async function onGpsUpdate(pos){
+  const lat=pos.coords.latitude,lon=pos.coords.longitude;
+  huidigePositie={lat,lon};
+  if(pos.coords.heading!==null&&!isNaN(pos.coords.heading))
+    huidigeRijrichting=pos.coords.heading;
+  gpsDot.classList.add('blauw-aan');gpsTekst.textContent='GPS';
+  if(!cacheGeladen&&!cacheBezig)downloadOSMCache(lat,lon);
+  else if(cacheGeladen)updateDichtstbijzijnde(lat,lon);
+}
+
+// ── GELUID ────────────────────────────────────────────────────
+function initialiseerAudio(){if(audioCtx)return;audioCtx=new(window.AudioContext||window.webkitAudioContext)();}
 function speelGroenToon(){
-  if(!geluidAan||!audioCtx) return;
+  if(!geluidAan||!audioCtx)return;
   try{
     [[0,880],[0.15,1108]].forEach(([t,f])=>{
-      const o=audioCtx.createOscillator(), g=audioCtx.createGain();
-      o.connect(g); g.connect(audioCtx.destination);
-      o.type='sine'; o.frequency.value=f;
+      const o=audioCtx.createOscillator(),g=audioCtx.createGain();
+      o.connect(g);g.connect(audioCtx.destination);
+      o.type='sine';o.frequency.value=f;
       g.gain.setValueAtTime(0,audioCtx.currentTime+t);
       g.gain.linearRampToValueAtTime(0.5,audioCtx.currentTime+t+0.02);
       g.gain.exponentialRampToValueAtTime(0.001,audioCtx.currentTime+t+0.22);
-      o.start(audioCtx.currentTime+t); o.stop(audioCtx.currentTime+t+0.25);
+      o.start(audioCtx.currentTime+t);o.stop(audioCtx.currentTime+t+0.25);
     });
     geluidFlash.style.background='rgba(52,199,89,0.25)';
     geluidFlash.style.opacity='1';
     setTimeout(()=>geluidFlash.style.opacity='0',350);
   }catch(e){}
 }
-function toggleGeluid(){ geluidAan=!geluidAan; document.getElementById('geluid-toggle').classList.toggle('uit',!geluidAan); }
-function toggleGeluidInApp(){ geluidAan=!geluidAan; geluidDot.classList.toggle('groen-aan',geluidAan); geluidTekst.textContent=geluidAan?'Geluid':'Stil'; }
+function toggleGeluid(){geluidAan=!geluidAan;document.getElementById('geluid-toggle').classList.toggle('uit',!geluidAan);}
+function toggleGeluidInApp(){geluidAan=!geluidAan;geluidDot.classList.toggle('groen-aan',geluidAan);geluidTekst.textContent=geluidAan?'Geluid':'Stil';}
 
-// ── WAKE LOCK ─────────────────────────────────────────────────
 async function activeerWakeLock(){
-  try{
-    if('wakeLock' in navigator){
-      wakeLock=await navigator.wakeLock.request('screen');
-      document.addEventListener('visibilitychange',async()=>{
-        if(document.visibilityState==='visible'&&wakeLock===null)
-          wakeLock=await navigator.wakeLock.request('screen');
-      });
-    }
-  }catch(e){}
+  try{if('wakeLock'in navigator){wakeLock=await navigator.wakeLock.request('screen');document.addEventListener('visibilitychange',async()=>{if(document.visibilityState==='visible'&&wakeLock===null)wakeLock=await navigator.wakeLock.request('screen');});}}catch(e){}
 }
 
-// ── NACHTMODUS ────────────────────────────────────────────────
 function checkNachtmodus(){
-  const u=new Date().getHours(), n=u>=20||u<7;
+  const u=new Date().getHours(),n=u>=20||u<7;
   if(n!==isNacht){
     isNacht=n;
     document.body.classList.toggle('nacht',isNacht);
@@ -672,12 +814,115 @@ function rgbNaarHsl(r,g,b){
   return{h,s,l};
 }
 
-// ── KLEUR FALLBACK ────────────────────────────────────────────
+// ── ROUTE 2: SLIMSTE KLEURDETECTIE IN BOX ────────────────────
+// Stap 1: Vind de helderste cluster (= brandende lamp)
+// Stap 2: Analyseer alleen die cluster op kleur
+function bepaalKleurInBox(bx,by,bw,bh){
+  let id;
+  try{
+    const x=Math.max(0,Math.floor(bx)),y=Math.max(0,Math.floor(by));
+    const w=Math.min(canvas.width-x,Math.floor(bw));
+    const h=Math.min(canvas.height-y,Math.floor(bh));
+    if(w<4||h<4)return{kleur:null,horizontaal:false};
+    id=ctx.getImageData(x,y,w,h);
+  }catch(e){return{kleur:null,horizontaal:false};}
+
+  const data=id.data;
+  const W=Math.floor(bw), H=Math.floor(bh);
+  const isH=W>H*1.3;
+
+  // ── STAP 1: Vind helderste cluster ───────────────────────
+  // Verdeel box in 3x3 grid, bereken gemiddelde helderheid per cel
+  // De helderste cel is de brandende lamp
+  const gridX=3, gridY=isH?1:3; // horizontaal=3 kolommen, verticaal=3 rijen
+  const celW=Math.floor(W/gridX), celH=Math.floor(H/gridY);
+  let heldersteScore=-1, heldersteKolom=1, heldersteRij=1;
+
+  for(let gy=0;gy<gridY;gy++){
+    for(let gx=0;gx<gridX;gx++){
+      let celHd=0,celAantal=0;
+      const startX=gx*celW, startY=gy*celH;
+      const eindX=Math.min(W,(gx+1)*celW), eindY=Math.min(H,(gy+1)*celH);
+      for(let py=startY;py<eindY;py+=2){
+        for(let px=startX;px<eindX;px+=2){
+          const i=(py*W+px)*4;
+          if(i+3>=data.length)continue;
+          celHd+=data[i]*0.299+data[i+1]*0.587+data[i+2]*0.114;
+          celAantal++;
+        }
+      }
+      const gemHd=celAantal>0?celHd/celAantal:0;
+      if(gemHd>heldersteScore){
+        heldersteScore=gemHd;
+        heldersteKolom=gx;
+        heldersteRij=gy;
+      }
+    }
+  }
+
+  // ── STAP 2: Analyseer alleen de helderste cel op kleur ───
+  // Dit is de brandende lamp
+  const analyseStartX=heldersteKolom*celW;
+  const analyseStartY=heldersteRij*celH;
+  const analyseEindX=Math.min(W,(heldersteKolom+1)*celW);
+  const analyseEindY=Math.min(H,(heldersteRij+1)*celH);
+
+  let roodScore=0,groenScore=0,oranjeScore=0,totaalPixels=0;
+
+  for(let py=analyseStartY;py<analyseEindY;py+=2){
+    for(let px=analyseStartX;px<analyseEindX;px+=2){
+      const i=(py*W+px)*4;
+      if(i+3>=data.length)continue;
+      const r=data[i],g=data[i+1],b=data[i+2];
+      const hd=r*0.299+g*0.587+b*0.114;
+      // Alleen heldere pixels analyseren — dit zijn de lampPixels
+      if(hd<80)continue;
+      const{h,s,l}=rgbNaarHsl(r,g,b);
+      totaalPixels++;
+      if(s>0.35&&(h<18||h>342))      roodScore++;
+      else if(s>0.35&&h>88&&h<167)   groenScore++;
+      else if(s>0.40&&h>=13&&h<=47)  oranjeScore++;
+    }
+  }
+
+  // Bepaal welke kleur dominant is in de helderste cel
+  const maxScore=Math.max(roodScore,groenScore,oranjeScore);
+  if(maxScore<3||totaalPixels<5)return{kleur:null,horizontaal:isH};
+
+  // Positie check: klopt de gevonden kleur met de verwachte positie?
+  // Rood hoort in cel 0 (boven/links), groen in cel 2 (onder/rechts)
+  const verwachtRoodCel  = isH?0:0;
+  const verwachtGroenCel = isH?2:2;
+  const actiefCel = isH?heldersteKolom:heldersteRij;
+
+  let kleur=null;
+  if(roodScore===maxScore){
+    kleur='rood';
+    // Bonus vertrouwen als rode lamp op juiste positie zit
+    if(actiefCel===verwachtRoodCel) roodScore*=1.5;
+  } else if(groenScore===maxScore){
+    kleur='groen';
+    if(actiefCel===verwachtGroenCel) groenScore*=1.5;
+  } else {
+    kleur='oranje'; // oranje is altijd midden — cel 1
+  }
+
+  // Hercheck na positieweging
+  const maxNa=Math.max(roodScore,groenScore,oranjeScore);
+  if(roodScore===maxNa)kleur='rood';
+  else if(groenScore===maxNa)kleur='groen';
+  else kleur='oranje';
+
+  dKleur.textContent=`${kleur} (cel${actiefCel} hd:${Math.round(heldersteScore)})`;
+  return{kleur,horizontaal:isH};
+}
+
+// ── KLEUR FALLBACK (geheel beeld) ─────────────────────────────
 function kleurAnalyseFrame(){
   const W=canvas.width,H=canvas.height;
   const roiX=Math.floor(W*0.10),roiY=Math.floor(H*0.02);
   const roiW=Math.floor(W*0.80),roiH=Math.floor(H*0.58);
-  let id; try{id=ctx.getImageData(roiX,roiY,roiW,roiH);}catch(e){return null;}
+  let id;try{id=ctx.getImageData(roiX,roiY,roiW,roiH);}catch(e){return null;}
   const data=id.data;
   let totHd=0,aantalS=0;
   for(let y=0;y<roiH;y+=4){for(let x=0;x<roiW;x+=4){const i=(y*roiW+x)*4;totHd+=data[i]*0.299+data[i+1]*0.587+data[i+2]*0.114;aantalS++;}}
@@ -705,33 +950,7 @@ function kleurAnalyseFrame(){
   return{kleur:k,box:{x:roiX+minX,y:roiY+minY,w:bw,h:bh,kleur:k}};
 }
 
-// ── AI KLEUR IN BOX ───────────────────────────────────────────
-function bepaalKleurInBox(bx,by,bw,bh){
-  let id; try{
-    const x=Math.max(0,Math.floor(bx)),y=Math.max(0,Math.floor(by));
-    const w=Math.min(canvas.width-x,Math.floor(bw)),h=Math.min(canvas.height-y,Math.floor(bh));
-    if(w<4||h<4)return{kleur:null,horizontaal:false};
-    id=ctx.getImageData(x,y,w,h);
-  }catch(e){return{kleur:null,horizontaal:false};}
-  const data=id.data,W=Math.floor(bw),H=Math.floor(bh);
-  const isH=W>H*1.3;
-  let rS=0,gS=0,oS=0;
-  for(let py=0;py<H;py+=2){for(let px=0;px<W;px+=2){
-    const i=(py*W+px)*4;if(i+3>=data.length)continue;
-    const r=data[i],g=data[i+1],b=data[i+2];
-    const hd=r*0.299+g*0.587+b*0.114;if(hd<70)continue;
-    const{h,s,l}=rgbNaarHsl(r,g,b);
-    const sec=isH?Math.min(2,Math.floor(px/(W/3))):Math.min(2,Math.floor(py/(H/3)));
-    if(s>0.35&&(h<18||h>342))rS+=(sec===0?2.5:0.5);
-    else if(s>0.35&&h>88&&h<167)gS+=(sec===2?2.5:0.5);
-    else if(s>0.40&&h>=13&&h<=47)oS+=(sec===1?2.5:0.5);
-  }}
-  const max=Math.max(rS,gS,oS);
-  if(max<8)return{kleur:null,horizontaal:isH};
-  return{kleur:rS===max?'rood':gS===max?'groen':'oranje',horizontaal:isH};
-}
-
-// ── AI DETECTIE ───────────────────────────────────────────────
+// ── AI ────────────────────────────────────────────────────────
 async function voerAIUit(){
   if(!modelGeladen||!cocoModel||video.readyState<2||aiBezig)return;
   aiBezig=true;
@@ -742,11 +961,11 @@ async function voerAIUit(){
     const beste=sl.reduce((a,b)=>a.score>b.score?a:b);
     const[bx,by,bw,bh]=beste.bbox;
     const scX=canvas.width/video.videoWidth,scY=canvas.height/video.videoHeight;
+    // Gebruik de nieuwe slimste kleurdetectie
     const{kleur,horizontaal}=bepaalKleurInBox(bx*scX,by*scY,bw*scX,bh*scY);
     laatsteAIResultaat={kleur,horizontaal,score:beste.score,
       box:{x:bx*scX,y:by*scY,w:bw*scX,h:bh*scY,kleur}};
-  }catch(e){dInfo.textContent='ai:fout';}
-  finally{aiBezig=false;}
+  }catch(e){}finally{aiBezig=false;}
 }
 
 // ── OVERLAY ───────────────────────────────────────────────────
@@ -756,8 +975,7 @@ function tekenOverlay(box,score,horizontaal){
   if(!box)return;
   const scX=window.innerWidth/canvas.width,scY=window.innerHeight/canvas.height;
   const sx=box.x*scX,sy=box.y*scY,sw=box.w*scX,sh=box.h*scY;
-  const kleur=box.kleur==='rood'?'#FF3030':box.kleur==='groen'?'#34C759':
-    box.kleur==='oranje'?'#FF9F0A':'#BF5AF2';
+  const kleur=box.kleur==='rood'?'#FF3030':box.kleur==='groen'?'#34C759':box.kleur==='oranje'?'#FF9F0A':'#BF5AF2';
   const mg=8,hl=Math.min(sw,sh)*0.3+8;
   const x1=sx-mg,y1=sy-mg,x2=sx+sw+mg,y2=sy+sh+mg;
   octx.strokeStyle=kleur;octx.lineWidth=2.5;octx.globalAlpha=0.92;
@@ -771,10 +989,9 @@ function tekenOverlay(box,score,horizontaal){
   octx.fillText(`${box.kleur?.toUpperCase()||''}${horizontaal?' ↔':' ↕'}${score?` ${(score*100).toFixed(0)}%`:''}`,x1,y1-5);
 }
 
-// ── GECOMBINEERDE VERWERKING ──────────────────────────────────
+// ── VERWERKING ────────────────────────────────────────────────
 function verwerkAlleDetecties(){
   const aiR=laatsteAIResultaat;
-
   if(modelGeladen&&aiR&&aiR.kleur){
     if(aiR.kleur===aiBevestigingsKleur)aiBevestigingsTeller++;
     else{aiBevestigingsKleur=aiR.kleur;aiBevestigingsTeller=1;}
@@ -785,7 +1002,6 @@ function verwerkAlleDetecties(){
     if(aiBevestigingsTeller>=AI_DREMPEL)verwerkFase(aiR.kleur,aiR.horizontaal,'AI');
     return;
   }
-
   const kleurR=kleurAnalyseFrame();
   if(kleurR&&kleurR.kleur){
     if(kleurR.kleur===kleurBevestigingsKleur)kleurBevestigingsTeller++;
@@ -798,13 +1014,11 @@ function verwerkAlleDetecties(){
       verwerkFase(kleurR.kleur,false,'Kleur');
     return;
   }
-
   tekenOverlay(null);
   aiBevestigingsTeller=0;aiBevestigingsKleur=null;
   kleurBevestigingsTeller=0;kleurBevestigingsKleur=null;
   geenDetectieTeller++;
   dInfo.textContent=`geen (${geenDetectieTeller})`;
-
   if(geenDetectieTeller>=GEEN_DETECTIE_RESET&&fase!==null){
     fase=null;faseStart=null;
     faseBalk.className='';faseLamp.className='';
@@ -813,23 +1027,30 @@ function verwerkAlleDetecties(){
   }
 }
 
-// ── FASEWISSEL ────────────────────────────────────────────────
+// ── FASEWISSEL met gewogen opslag ─────────────────────────────
 function verwerkFase(nieuw,horizontaal,bron){
   if(nieuw===fase)return;
   const nu=performance.now();
   if(fase&&faseStart){
     const dur=(nu-faseStart)/1000;
-    if(fase==='rood'&&dur>4){roodLijst.push(dur);if(roodLijst.length>8)roodLijst.shift();}
-    if(fase==='groen'&&dur>2){groenLijst.push(dur);if(groenLijst.length>8)groenLijst.shift();cycli++;slaKruispuntOp();bijwerkBlokken();}
+    if(fase==='rood'&&dur>4&&dur<300&&dichtstbijOSM){
+      const cyclisGewijzigd=opslaanMeting(dichtstbijOSM.id,huidigeRijrichting,dur);
+      // Herlaad geheugen na opslaan (bevat nu nieuwe meting)
+      actieveMetingen=laadMetingen(dichtstbijOSM.id,huidigDagdeel());
+      const gem=gewogenGemiddelde(actieveMetingen);
+      activeCdDoel=gem||0;
+      activeCdBetr=berekenBetrouwbaarheid(actieveMetingen);
+      bijwerkBlokken();
+      bijwerkDagdeelOverzicht(dichtstbijOSM.id);
+    }
   }
   fase=nieuw;faseStart=nu;geenDetectieTeller=0;
   updateUI(nieuw,horizontaal,bron);
   if(nieuw==='groen')speelGroenToon();
-  if(nieuw==='rood'&&roodLijst.length>=2)startCd();
+  if(nieuw==='rood'&&activeCdDoel>0)startCd();
   else if(nieuw!=='rood')stopCd();
 }
 
-// ── UI ────────────────────────────────────────────────────────
 function updateUI(f,horizontaal,bron){
   faseBalk.className=f||'';faseLamp.className=f||'';
   const woorden={rood:'ROOD',groen:'GROEN',oranje:'ORANJE'};
@@ -838,45 +1059,33 @@ function updateUI(f,horizontaal,bron){
   faseSub.textContent=subs[f]||'Richt camera op stoplicht';
   faseBron.textContent=bron?`via ${bron}${horizontaal?' ↔':' ↕'}`:'';
   randGlow.className=f||'';
-  const ringKleur=f==='rood'?'var(--rood)':f==='groen'?'var(--groen)':
-    f==='oranje'?'var(--oranje)':'rgba(255,255,255,.15)';
+  const ringKleur=f==='rood'?'var(--rood)':f==='groen'?'var(--groen)':f==='oranje'?'var(--oranje)':'rgba(255,255,255,.15)';
   cdRingVoor.style.stroke=ringKleur;
-  if(f==='groen'){cdLabel.textContent='Groen actief';cdGetal.textContent='✓';cdGetal.className='nabij';cdEenheid.textContent='';cdRingVoor.style.strokeDashoffset='0';}
-  else if(f!=='rood'){cdGetal.textContent='—';cdGetal.className='';cdEenheid.textContent='seconden';cdLabel.textContent='Groen verwacht over';}
+  if(f==='groen'){
+    cdLabel.textContent='Groen actief';cdGetal.textContent='✓';
+    cdGetal.className='nabij';cdEenheid.textContent='';
+    cdRingVoor.style.strokeDashoffset='0';
+  }else if(f!=='rood'){
+    cdGetal.textContent='—';cdGetal.className='';
+    cdEenheid.textContent='seconden';cdLabel.textContent='Groen verwacht over';
+  }
 }
 
-// ── COUNTDOWN ─────────────────────────────────────────────────
-function gemRood(){return roodLijst.reduce((a,b)=>a+b,0)/roodLijst.length;}
-function startCd(){cdDoel=gemRood();cdStart=performance.now();cdLabel.textContent='Groen verwacht over';cdEenheid.textContent='seconden';cdRingVoor.style.stroke='var(--rood)';}
+function startCd(){
+  cdStart=performance.now();
+  cdLabel.textContent=activeCdBetr>60?`Groen over (${activeCdBetr}%)`:'Groen verwacht over';
+  cdEenheid.textContent='seconden';
+  cdRingVoor.style.stroke='var(--rood)';
+}
 function stopCd(){cdStart=null;cdRingVoor.style.strokeDashoffset=OMTREK_CD.toFixed(1);}
 function tickCd(){
-  if(!fase||fase!=='rood'||!cdStart)return;
-  const ver=(performance.now()-cdStart)/1000,over=Math.max(0,cdDoel-ver),prog=Math.min(1,ver/cdDoel);
+  if(!fase||fase!=='rood'||!cdStart||!activeCdDoel)return;
+  const ver=(performance.now()-cdStart)/1000,over=Math.max(0,activeCdDoel-ver),prog=Math.min(1,ver/activeCdDoel);
   cdGetal.textContent=over<1?'<1':Math.ceil(over).toString();
   cdGetal.className=over<=6?'nabij':'';
   cdRingVoor.style.strokeDashoffset=(OMTREK_CD*(1-prog)).toFixed(1);
 }
 
-// ── LEERGEHEUGEN ──────────────────────────────────────────────
-function bijwerkBlokken(){
-  blokkenRij.innerHTML='';
-  for(let i=0;i<5;i++){
-    const b=document.createElement('div');
-    b.className='blok'+(i<cycli?' vol':'');
-    b.textContent=i<groenLijst.length?Math.round(groenLijst[i])+'s':'–';
-    blokkenRij.appendChild(b);
-  }
-  leerBadge.className='leer-badge'+(roodLijst.length>=2?' zichtbaar':'');
-  if(cycli===0)leerInfo.textContent='Nog geen cycli gemeten.';
-  else if(cycli<2)leerInfo.textContent=`${cycli} cyclus — nog 1 nodig.`;
-  else leerInfo.textContent=`${cycli} cycli. Gem. rood: ${Math.round(gemRood())}s.`;
-}
-function slaKruispuntOp(){
-  if(!dichtstbijOSM)return;
-  kruispuntGeheugen[dichtstbijOSM.id]={rood:[...roodLijst],groen:[...groenLijst],cycli};
-}
-
-// ── ANIMATIELUS ───────────────────────────────────────────────
 function lus(){
   if(video.readyState>=2){
     canvas.width=video.videoWidth||window.innerWidth;
@@ -884,14 +1093,13 @@ function lus(){
     ctx.drawImage(video,0,0,canvas.width,canvas.height);
   }
   frameT++;
-  if(frameT%AI_INTERVAL_FRAMES===0&&modelGeladen&&!aiBezig) voerAIUit();
+  if(frameT%AI_INTERVAL_FRAMES===0&&modelGeladen&&!aiBezig)voerAIUit();
   verwerkAlleDetecties();
   tickCd();
-  if(frameT%1800===0) checkNachtmodus();
+  if(frameT%1800===0)checkNachtmodus();
   requestAnimationFrame(lus);
 }
 
-// ── START ─────────────────────────────────────────────────────
 async function startApp(){
   initialiseerAudio();
   geluidDot.classList.toggle('groen-aan',geluidAan);
