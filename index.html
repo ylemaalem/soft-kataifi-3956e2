@@ -7,8 +7,14 @@
   <meta name="apple-mobile-web-app-capable" content="yes"/>
   <meta name="apple-mobile-web-app-status-bar-style" content="black-fullscreen"/>
   <meta name="apple-mobile-web-app-title" content="Stoplicht"/>
-  <title>Stoplicht Detector Pro v4.5</title>
+  <title>Stoplicht Detector Pro v4.8</title>
+
+  <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@4.17.0/dist/tf.min.js"></script>
+
+  <script src="https://cdn.jsdelivr.net/npm/@tensorflow-models/coco-ssd@2.2.3/dist/coco-ssd.min.js"></script>
+
   <link href="https://fonts.googleapis.com/css2?family=Rajdhani:wght@300;400;600;700&family=Share+Tech+Mono&display=swap" rel="stylesheet"/>
+
   <style>
     *,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
     :root{
@@ -16,193 +22,183 @@
       --bg:#080A0C;--card:rgba(0,0,0,0.55);--border:rgba(255,255,255,0.10);
       --dim:rgba(255,255,255,0.40);
     }
-    body.nacht{ --card:rgba(0,0,0,0.70); }
     html,body{width:100%;height:100%;overflow:hidden;background:#000;
       font-family:'Rajdhani',sans-serif;color:#fff;
       -webkit-tap-highlight-color:transparent;-webkit-font-smoothing:antialiased}
 
-```
-/* Camera volledig scherm — maximaal zicht op de weg */
-#camera-canvas{position:fixed;top:0;left:0;width:100%;height:100%;
-  object-fit:cover;z-index:0;opacity:0.92}
-#overlay-canvas{position:fixed;top:0;left:0;width:100%;height:100%;
-  z-index:2;pointer-events:none}
-#video-hidden{position:fixed;top:-9999px}
-#geluid-flash{position:fixed;inset:0;z-index:50;pointer-events:none;
-  opacity:0;transition:opacity .1s}
-#geluid-flash.aan{opacity:1}
+    #camera-canvas{position:fixed;top:0;left:0;width:100%;height:100%;
+      object-fit:cover;z-index:0;opacity:0.92}
+    #overlay-canvas{position:fixed;top:0;left:0;width:100%;height:100%;
+      z-index:2;pointer-events:none}
+    #video-hidden{position:fixed;top:-9999px}
+    #geluid-flash{position:fixed;inset:0;z-index:50;pointer-events:none;
+      opacity:0;transition:opacity .15s}
+    #rand-glow{position:fixed;inset:0;z-index:3;pointer-events:none;
+      transition:box-shadow .4s}
+    #rand-glow.rood  {box-shadow:inset 0 0 50px rgba(255,48,48,.45)}
+    #rand-glow.oranje{box-shadow:inset 0 0 50px rgba(255,159,10,.45)}
+    #rand-glow.groen {box-shadow:inset 0 0 60px rgba(52,199,89,.55)}
 
-/* Schermrand gloeit op in de kleur van het stoplicht */
-#rand-glow{position:fixed;inset:0;z-index:3;pointer-events:none;
-  border:0px solid transparent;border-radius:0;
-  transition:box-shadow .35s,border-color .35s}
-#rand-glow.rood  {box-shadow:inset 0 0 40px rgba(255,48,48,.35)}
-#rand-glow.oranje{box-shadow:inset 0 0 40px rgba(255,159,10,.35)}
-#rand-glow.groen {box-shadow:inset 0 0 50px rgba(52,199,89,.45)}
+    #ui{position:fixed;inset:0;z-index:10;display:flex;flex-direction:column;
+      justify-content:space-between;
+      padding:env(safe-area-inset-top,48px) 0 env(safe-area-inset-bottom,20px)}
+    #bovenste{display:flex;flex-direction:column;gap:6px;padding:0 14px}
+    #badges-rij{display:flex;align-items:center;justify-content:space-between}
+    #app-naam{font-size:10px;font-weight:600;letter-spacing:0.20em;
+      text-transform:uppercase;color:var(--dim)}
+    #badges{display:flex;gap:5px}
+    .pill{display:flex;align-items:center;gap:4px;
+      background:rgba(0,0,0,0.50);border:1px solid var(--border);
+      border-radius:20px;padding:3px 8px;cursor:pointer;
+      backdrop-filter:blur(8px);-webkit-backdrop-filter:blur(8px)}
+    .pill-dot{width:6px;height:6px;border-radius:50%;background:var(--dim);
+      transition:background .3s,box-shadow .3s;flex-shrink:0}
+    .pill-dot.groen-aan {background:var(--groen);box-shadow:0 0 5px var(--groen)}
+    .pill-dot.blauw-aan {background:var(--blauw);box-shadow:0 0 5px var(--blauw)}
+    .pill-dot.oranje-aan{background:var(--oranje);box-shadow:0 0 5px var(--oranje)}
+    .pill-dot.paars-aan {background:#BF5AF2;box-shadow:0 0 5px #BF5AF2}
+    .pill-tekst{font-size:9px;font-weight:600;letter-spacing:0.08em;
+      text-transform:uppercase;color:var(--dim);white-space:nowrap}
 
-/* ── HOOFD UI LAYOUT ── */
-#ui{position:fixed;inset:0;z-index:10;display:flex;flex-direction:column;
-  justify-content:space-between;
-  padding:env(safe-area-inset-top,48px) 0 env(safe-area-inset-bottom,20px)}
+    /* Model laad balk */
+    #model-status{width:100%;background:rgba(0,0,0,0.55);
+      backdrop-filter:blur(10px);-webkit-backdrop-filter:blur(10px);
+      border:1px solid rgba(191,90,242,0.3);border-radius:12px;
+      padding:8px 14px;display:flex;align-items:center;gap:8px}
+    #model-status.verborgen{display:none}
+    #model-dot{width:7px;height:7px;border-radius:50%;background:#BF5AF2;
+      box-shadow:0 0 6px #BF5AF2;animation:mpuls 1s ease-in-out infinite;flex-shrink:0}
+    @keyframes mpuls{0%,100%{opacity:1}50%{opacity:0.35}}
+    #model-tekst{font-size:10px;color:rgba(191,90,242,0.9);
+      font-weight:600;letter-spacing:0.08em;text-transform:uppercase}
 
-/* ── BOVENSTE BLOK ── */
-#bovenste{display:flex;flex-direction:column;gap:6px;padding:0 14px}
+    /* Fase balk */
+    #fase-balk{width:100%;background:rgba(0,0,0,0.65);
+      backdrop-filter:blur(14px);-webkit-backdrop-filter:blur(14px);
+      border:1px solid var(--border);border-radius:16px;
+      padding:10px 16px;display:flex;align-items:center;
+      justify-content:space-between;gap:12px;
+      transition:border-color .4s,background .4s}
+    #fase-balk.rood  {border-color:rgba(255,48,48,.5);background:rgba(60,0,0,.65)}
+    #fase-balk.oranje{border-color:rgba(255,159,10,.5);background:rgba(60,35,0,.65)}
+    #fase-balk.groen {border-color:rgba(52,199,89,.5);background:rgba(0,50,15,.65)}
+    #fase-links{display:flex;align-items:center;gap:10px}
+    #fase-lamp{width:18px;height:18px;border-radius:50%;
+      background:rgba(255,255,255,0.12);flex-shrink:0;
+      transition:background .4s,box-shadow .4s}
+    #fase-lamp.rood  {background:var(--rood);box-shadow:0 0 10px var(--rood)}
+    #fase-lamp.oranje{background:var(--oranje);box-shadow:0 0 10px var(--oranje)}
+    #fase-lamp.groen {background:var(--groen);box-shadow:0 0 10px var(--groen);
+      animation:lpuls 1.8s ease-in-out infinite}
+    @keyframes lpuls{0%,100%{box-shadow:0 0 10px var(--groen)}50%{box-shadow:0 0 22px var(--groen)}}
+    #fase-woord{font-size:20px;font-weight:700;letter-spacing:0.12em;
+      text-transform:uppercase;line-height:1}
+    #fase-sub{font-size:10px;color:var(--dim);letter-spacing:0.06em;
+      text-transform:uppercase;margin-top:1px}
 
-/* Kleine badges rij */
-#badges-rij{display:flex;align-items:center;justify-content:space-between}
-#app-naam{font-size:10px;font-weight:600;letter-spacing:0.20em;
-  text-transform:uppercase;color:var(--dim)}
-#badges{display:flex;gap:5px}
-.pill{display:flex;align-items:center;gap:4px;
-  background:rgba(0,0,0,0.45);border:1px solid var(--border);
-  border-radius:20px;padding:3px 8px;cursor:pointer;
-  backdrop-filter:blur(8px);-webkit-backdrop-filter:blur(8px)}
-.pill-dot{width:6px;height:6px;border-radius:50%;background:var(--dim);
-  transition:background .3s,box-shadow .3s;flex-shrink:0}
-.pill-dot.groen-aan{background:var(--groen);box-shadow:0 0 5px var(--groen)}
-.pill-dot.blauw-aan{background:var(--blauw);box-shadow:0 0 5px var(--blauw)}
-.pill-dot.oranje-aan{background:var(--oranje);box-shadow:0 0 5px var(--oranje)}
-.pill-tekst{font-size:9px;font-weight:600;letter-spacing:0.08em;
-  text-transform:uppercase;color:var(--dim);white-space:nowrap}
+    /* Oriëntatie badge */
+    #orientatie-badge{display:inline-flex;align-items:center;gap:3px;
+      font-size:9px;color:rgba(255,255,255,0.35);letter-spacing:0.06em;
+      text-transform:uppercase;margin-top:2px}
 
-/* ── FASE STATUSBALK — vervangt de grote zwarte bol ── */
-#fase-balk{
-  width:100%;
-  background:rgba(0,0,0,0.60);
-  backdrop-filter:blur(12px);-webkit-backdrop-filter:blur(12px);
-  border:1px solid var(--border);
-  border-radius:16px;
-  padding:10px 16px;
-  display:flex;
-  align-items:center;
-  justify-content:space-between;
-  gap:12px;
-  transition:border-color .35s, background .35s;
-}
-#fase-balk.rood  {border-color:rgba(255,48,48,.45);background:rgba(80,0,0,.55)}
-#fase-balk.oranje{border-color:rgba(255,159,10,.45);background:rgba(80,50,0,.55)}
-#fase-balk.groen {border-color:rgba(52,199,89,.45);background:rgba(0,60,20,.55)}
+    #kruispunt-mini{text-align:right;min-width:0;flex-shrink:1}
+    #kruispunt-mini-naam{font-size:11px;font-weight:600;color:#fff;
+      white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:130px}
+    #kruispunt-mini-af{font-family:'Share Tech Mono',monospace;font-size:11px;
+      color:var(--dim);margin-top:1px}
 
-#fase-links{display:flex;align-items:center;gap:10px}
-#fase-lamp{width:20px;height:20px;border-radius:50%;background:rgba(255,255,255,0.15);
-  flex-shrink:0;transition:background .35s,box-shadow .35s}
-#fase-lamp.rood  {background:var(--rood);box-shadow:0 0 10px var(--rood)}
-#fase-lamp.oranje{background:var(--oranje);box-shadow:0 0 10px var(--oranje)}
-#fase-lamp.groen {background:var(--groen);box-shadow:0 0 10px var(--groen);
-  animation:lamp-puls 1.8s ease-in-out infinite}
-@keyframes lamp-puls{0%,100%{box-shadow:0 0 10px var(--groen)}50%{box-shadow:0 0 20px var(--groen)}}
+    /* Onderste blok */
+    #onderste{display:flex;flex-direction:column;gap:8px;padding:0 14px}
+    #countdown-blok{background:rgba(0,0,0,0.60);
+      backdrop-filter:blur(12px);-webkit-backdrop-filter:blur(12px);
+      border:1px solid var(--border);border-radius:16px;
+      padding:12px 18px;display:flex;align-items:center;justify-content:space-between}
+    #cd-links{display:flex;flex-direction:column;gap:2px}
+    #cd-label{font-size:10px;font-weight:600;letter-spacing:0.18em;
+      text-transform:uppercase;color:var(--dim)}
+    #cd-getal{font-family:'Share Tech Mono',monospace;font-size:64px;
+      font-weight:400;line-height:1;color:#fff;transition:color .3s,text-shadow .3s}
+    #cd-getal.nabij{color:var(--groen);text-shadow:0 0 20px rgba(52,199,89,.5)}
+    #cd-eenheid{font-size:11px;font-weight:600;letter-spacing:0.14em;
+      text-transform:uppercase;color:var(--dim)}
+    #cd-ring-wrap{position:relative;width:64px;height:64px;flex-shrink:0}
+    #cd-ring-svg{width:100%;height:100%;transform:rotate(-90deg)}
+    #cd-ring-achter{fill:none;stroke:rgba(255,255,255,0.08);stroke-width:5}
+    #cd-ring-voor{fill:none;stroke:var(--groen);stroke-width:5;stroke-linecap:round;
+      stroke-dasharray:170;stroke-dashoffset:170;
+      transition:stroke-dashoffset 1s linear,stroke .4s}
 
-#fase-tekst-blok{}
-#fase-woord{font-size:20px;font-weight:700;letter-spacing:0.12em;
-  text-transform:uppercase;line-height:1}
-#fase-sub{font-size:10px;color:var(--dim);letter-spacing:0.06em;
-  text-transform:uppercase;margin-top:1px}
+    #leer-kaart{background:rgba(0,0,0,0.60);
+      backdrop-filter:blur(12px);-webkit-backdrop-filter:blur(12px);
+      border:1px solid var(--border);border-radius:14px;
+      padding:10px 14px;display:flex;flex-direction:column;gap:6px}
+    #leer-header{display:flex;justify-content:space-between;align-items:center}
+    #leer-titel{font-size:9px;font-weight:600;letter-spacing:0.16em;
+      text-transform:uppercase;color:var(--dim)}
+    #leer-badge{font-size:9px;padding:2px 7px;border-radius:8px;font-weight:600;
+      letter-spacing:0.1em;text-transform:uppercase;display:none}
+    #leer-badge.zichtbaar{display:block;background:rgba(52,199,89,.15);
+      color:var(--groen);border:1px solid rgba(52,199,89,.25)}
+    #blokken-rij{display:flex;gap:5px}
+    .blok{flex:1;height:28px;border-radius:8px;background:rgba(255,255,255,0.06);
+      border:1px solid var(--border);display:flex;align-items:center;
+      justify-content:center;font-family:'Share Tech Mono',monospace;
+      font-size:10px;color:var(--dim);transition:all .4s}
+    .blok.vol{background:rgba(52,199,89,.18);color:var(--groen);
+      border-color:rgba(52,199,89,.35)}
+    #leer-info{font-size:10px;color:var(--dim);line-height:1.4}
 
-/* Kruispunt info rechts in de balk */
-#kruispunt-mini{text-align:right;min-width:0;flex-shrink:1;overflow:hidden}
-#kruispunt-mini-naam{font-size:11px;font-weight:600;color:#fff;
-  white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:130px}
-#kruispunt-mini-af{font-family:'Share Tech Mono',monospace;font-size:11px;
-  color:var(--dim);margin-top:1px}
+    /* Debug — onderin, klein, niet afleidend */
+    #debug-balk{position:fixed;bottom:env(safe-area-inset-bottom,0px);
+      left:0;right:0;z-index:20;pointer-events:none;
+      background:rgba(0,0,0,0.65);padding:3px 10px;
+      font-family:'Share Tech Mono',monospace;font-size:9px;
+      display:flex;gap:8px;justify-content:center;align-items:center;
+      opacity:0.7}
+    #d-ai{color:#BF5AF2}
+    #d-kleur{color:#FFD60A}
+    #d-orient{color:#64D2FF}
+    #d-info{color:rgba(255,255,255,0.35)}
 
-/* ── ONDERSTE BLOK ── */
-#onderste{display:flex;flex-direction:column;gap:8px;padding:0 14px}
-
-/* Countdown groot en leesbaar */
-#countdown-blok{
-  background:rgba(0,0,0,0.55);
-  backdrop-filter:blur(12px);-webkit-backdrop-filter:blur(12px);
-  border:1px solid var(--border);border-radius:16px;
-  padding:12px 18px;
-  display:flex;align-items:center;justify-content:space-between;
-}
-#cd-links{display:flex;flex-direction:column;gap:2px}
-#cd-label{font-size:10px;font-weight:600;letter-spacing:0.18em;
-  text-transform:uppercase;color:var(--dim)}
-#cd-getal{font-family:'Share Tech Mono',monospace;font-size:64px;
-  font-weight:400;line-height:1;color:#fff;transition:color .3s,text-shadow .3s}
-#cd-getal.nabij{color:var(--groen);text-shadow:0 0 20px rgba(52,199,89,.5)}
-#cd-eenheid{font-size:11px;font-weight:600;letter-spacing:0.14em;
-  text-transform:uppercase;color:var(--dim)}
-
-/* Voortgangsring rechts van de countdown */
-#cd-ring-wrap{position:relative;width:64px;height:64px;flex-shrink:0}
-#cd-ring-svg{width:100%;height:100%;transform:rotate(-90deg)}
-#cd-ring-achter{fill:none;stroke:rgba(255,255,255,0.08);stroke-width:5}
-#cd-ring-voor{fill:none;stroke:var(--groen);stroke-width:5;stroke-linecap:round;
-  stroke-dasharray:175;stroke-dashoffset:175;transition:stroke-dashoffset 1s linear,stroke .4s}
-
-/* Leergeheugen kaart */
-#leer-kaart{
-  background:rgba(0,0,0,0.55);
-  backdrop-filter:blur(12px);-webkit-backdrop-filter:blur(12px);
-  border:1px solid var(--border);border-radius:14px;
-  padding:10px 14px;display:flex;flex-direction:column;gap:6px
-}
-#leer-header{display:flex;justify-content:space-between;align-items:center}
-#leer-titel{font-size:9px;font-weight:600;letter-spacing:0.16em;
-  text-transform:uppercase;color:var(--dim)}
-#leer-badge{font-size:9px;padding:2px 7px;border-radius:8px;font-weight:600;
-  letter-spacing:0.1em;text-transform:uppercase;display:none}
-#leer-badge.zichtbaar{display:block;background:rgba(52,199,89,.15);
-  color:var(--groen);border:1px solid rgba(52,199,89,.25)}
-#blokken-rij{display:flex;gap:5px}
-.blok{flex:1;height:28px;border-radius:8px;background:rgba(255,255,255,0.06);
-  border:1px solid var(--border);display:flex;align-items:center;
-  justify-content:center;font-family:'Share Tech Mono',monospace;
-  font-size:10px;color:var(--dim);transition:all .4s}
-.blok.vol{background:rgba(52,199,89,.18);color:var(--groen);
-  border-color:rgba(52,199,89,.35)}
-#leer-info{font-size:10px;color:var(--dim);line-height:1.4}
-
-/* Debug balk */
-#debug-balk{position:fixed;top:50%;left:0;right:0;z-index:20;
-  transform:translateY(-50%);
-  background:rgba(0,0,0,0.65);padding:4px 12px;
-  font-family:'Share Tech Mono',monospace;font-size:10px;
-  display:flex;gap:10px;justify-content:center;align-items:center;
-  pointer-events:none}
-#debug-rood{color:#FF3030;font-weight:700}
-#debug-groen{color:#34C759;font-weight:700}
-#debug-oranje{color:#FF9F0A;font-weight:700}
-#debug-drempel{color:rgba(255,255,255,0.4)}
-#debug-status{color:rgba(255,255,255,0.3);font-size:9px}
-
-/* Startscherm */
-#startscherm{position:fixed;inset:0;background:#080A0C;z-index:200;
-  display:flex;flex-direction:column;align-items:center;
-  justify-content:center;gap:18px;padding:32px;transition:opacity .5s}
-#startscherm.weg{opacity:0;pointer-events:none}
-#s-icoon{font-size:64px}
-#s-titel{font-size:34px;font-weight:700;letter-spacing:0.08em;
-  text-align:center;text-transform:uppercase;line-height:1.1}
-#s-versie{font-size:10px;color:var(--groen);letter-spacing:0.16em;
-  font-weight:600;text-transform:uppercase}
-#s-features{background:rgba(255,255,255,0.04);border:1px solid rgba(255,255,255,0.09);
-  border-radius:14px;padding:12px 15px;width:100%;max-width:300px;
-  display:grid;grid-template-columns:1fr 1fr;gap:8px}
-.feature{font-size:11px;color:rgba(255,255,255,0.6);display:flex;
-  gap:6px;align-items:flex-start;line-height:1.4}
-#geluid-toggle-wrap{display:flex;align-items:center;justify-content:space-between;
-  background:rgba(255,255,255,0.04);border:1px solid rgba(255,255,255,0.09);
-  border-radius:14px;padding:12px 16px;width:100%;max-width:300px}
-#geluid-toggle-label{font-size:13px;font-weight:600;letter-spacing:0.06em}
-#geluid-toggle{width:44px;height:26px;border-radius:13px;background:var(--groen);
-  border:none;position:relative;cursor:pointer;transition:background .2s;flex-shrink:0}
-#geluid-toggle::after{content:'';position:absolute;top:3px;left:3px;
-  width:20px;height:20px;border-radius:50%;background:#fff;
-  transition:transform .2s;box-shadow:0 1px 3px rgba(0,0,0,.3)}
-#geluid-toggle.uit{background:rgba(255,255,255,0.15)}
-#geluid-toggle.uit::after{transform:translateX(0)}
-#geluid-toggle:not(.uit)::after{transform:translateX(18px)}
-#s-knop{background:var(--groen);color:#000;border:none;border-radius:14px;
-  padding:15px 48px;font-family:'Rajdhani',sans-serif;font-size:17px;
-  font-weight:700;letter-spacing:0.14em;text-transform:uppercase;cursor:pointer;
-  box-shadow:0 0 36px rgba(52,199,89,.4);transition:transform .15s}
-#s-knop:active{transform:scale(0.96)}
-```
-
+    /* Startscherm */
+    #startscherm{position:fixed;inset:0;background:#080A0C;z-index:200;
+      display:flex;flex-direction:column;align-items:center;
+      justify-content:center;gap:16px;padding:32px;transition:opacity .5s}
+    #startscherm.weg{opacity:0;pointer-events:none}
+    #s-icoon{font-size:60px}
+    #s-titel{font-size:32px;font-weight:700;letter-spacing:0.08em;
+      text-align:center;text-transform:uppercase;line-height:1.1}
+    #s-versie{font-size:10px;color:var(--groen);letter-spacing:0.16em;
+      font-weight:600;text-transform:uppercase}
+    #s-features{background:rgba(255,255,255,0.04);
+      border:1px solid rgba(255,255,255,0.09);border-radius:14px;
+      padding:12px 15px;width:100%;max-width:300px;
+      display:grid;grid-template-columns:1fr 1fr;gap:7px}
+    .feature{font-size:11px;color:rgba(255,255,255,0.6);display:flex;
+      gap:5px;align-items:flex-start;line-height:1.4}
+    #geluid-toggle-wrap{display:flex;align-items:center;
+      justify-content:space-between;background:rgba(255,255,255,0.04);
+      border:1px solid rgba(255,255,255,0.09);border-radius:14px;
+      padding:12px 16px;width:100%;max-width:300px}
+    #geluid-toggle-label{font-size:13px;font-weight:600;letter-spacing:0.06em}
+    #geluid-toggle{width:44px;height:26px;border-radius:13px;
+      background:var(--groen);border:none;position:relative;cursor:pointer;
+      transition:background .2s;flex-shrink:0}
+    #geluid-toggle::after{content:'';position:absolute;top:3px;left:3px;
+      width:20px;height:20px;border-radius:50%;background:#fff;
+      transition:transform .2s;box-shadow:0 1px 3px rgba(0,0,0,.3)}
+    #geluid-toggle.uit{background:rgba(255,255,255,0.15)}
+    #geluid-toggle.uit::after{transform:translateX(0)}
+    #geluid-toggle:not(.uit)::after{transform:translateX(18px)}
+    #s-knop{background:var(--groen);color:#000;border:none;border-radius:14px;
+      padding:14px 48px;font-family:'Rajdhani',sans-serif;font-size:17px;
+      font-weight:700;letter-spacing:0.14em;text-transform:uppercase;cursor:pointer;
+      box-shadow:0 0 36px rgba(52,199,89,.4);transition:transform .15s}
+    #s-knop:active{transform:scale(0.96)}
+    #s-model-info{font-size:11px;color:var(--dim);text-align:center;
+      max-width:280px;line-height:1.5}
   </style>
+
 </head>
 <body>
 
@@ -213,12 +209,13 @@
 <div id="rand-glow"></div>
 <div id="geluid-flash"></div>
 
+<!-- Debug balk — nu onderin en klein -->
+
 <div id="debug-balk">
-  <span id="debug-rood">R:0</span>
-  <span id="debug-groen">G:0</span>
-  <span id="debug-oranje">O:0</span>
-  <span id="debug-drempel">min:0</span>
-  <span id="debug-status">wacht...</span>
+  <span id="d-ai">AI:—</span>
+  <span id="d-kleur">—</span>
+  <span id="d-orient">—</span>
+  <span id="d-info">—</span>
 </div>
 
 <!-- Startscherm -->
@@ -226,17 +223,18 @@
 <div id="startscherm">
   <div id="s-icoon">🚦</div>
   <div id="s-titel">Stoplicht<br/>Detector Pro</div>
-  <div id="s-versie">Versie 4.5 — Volledig zicht</div>
+  <div id="s-versie">Versie 4.8 — Volledig</div>
   <div id="s-features">
-    <div class="feature">☀️ Maximaal wegzicht</div>
+    <div class="feature">🤖 TensorFlow.js AI</div>
+    <div class="feature">↔️ Horizontaal + verticaal</div>
+    <div class="feature">🔷 Vormherkenning</div>
+    <div class="feature">🚗 Auto's genegeerd</div>
     <div class="feature">🔊 Geluid bij groen</div>
     <div class="feature">🌈 Schermrand gloeit</div>
-    <div class="feature">🌙 Auto nachtmodus</div>
     <div class="feature">🗺 OSM stoplichten</div>
     <div class="feature">📍 Kruispunt geheugen</div>
-    <div class="feature">📱 Scherm blijft aan</div>
-    <div class="feature">⚡ Daglicht fix</div>
   </div>
+  <div id="s-model-info">AI model (~5MB) wordt eenmalig geladen.<br/>Daarna werkt alles volledig offline.</div>
   <div id="geluid-toggle-wrap">
     <div id="geluid-toggle-label">🔊 Geluid bij groen</div>
     <button id="geluid-toggle" onclick="toggleGeluid()"></button>
@@ -247,13 +245,9 @@
 <!-- Hoofd UI -->
 
 <div id="ui">
-
-  <!-- Bovenste blok -->
-
   <div id="bovenste">
-    <!-- Badges rij -->
     <div id="badges-rij">
-      <div id="app-naam">Stoplicht v4.5</div>
+      <div id="app-naam">Stoplicht v4.8</div>
       <div id="badges">
         <div class="pill" onclick="toggleGeluidInApp()">
           <div class="pill-dot" id="geluid-dot"></div>
@@ -264,8 +258,8 @@
           <div class="pill-tekst" id="nacht-tekst">Dag</div>
         </div>
         <div class="pill">
-          <div class="pill-dot" id="cam-dot"></div>
-          <div class="pill-tekst">Cam</div>
+          <div class="pill-dot" id="ai-dot"></div>
+          <div class="pill-tekst" id="ai-tekst">AI laden</div>
         </div>
         <div class="pill">
           <div class="pill-dot" id="gps-dot"></div>
@@ -279,13 +273,18 @@
     </div>
 
 ```
-<!-- Fase statusbalk — vervangt de zwarte bol -->
+<div id="model-status">
+  <div id="model-dot"></div>
+  <div id="model-tekst">AI model laden (~5MB)…</div>
+</div>
+
 <div id="fase-balk">
   <div id="fase-links">
     <div id="fase-lamp"></div>
-    <div id="fase-tekst-blok">
+    <div>
       <div id="fase-woord">—</div>
-      <div id="fase-sub">Richt camera op stoplicht</div>
+      <div id="fase-sub">AI model wordt geladen…</div>
+      <div id="orientatie-badge"></div>
     </div>
   </div>
   <div id="kruispunt-mini">
@@ -297,98 +296,107 @@
 
   </div>
 
-  <!-- Midden: leeg = maximaal wegzicht -->
-
   <div></div>
 
-  <!-- Onderste blok -->
-
   <div id="onderste">
-
-```
-<!-- Countdown met ring -->
-<div id="countdown-blok">
-  <div id="cd-links">
-    <div id="cd-label">Groen verwacht over</div>
-    <div id="cd-getal">—</div>
-    <div id="cd-eenheid">seconden</div>
-  </div>
-  <div id="cd-ring-wrap">
-    <svg id="cd-ring-svg" viewBox="0 0 64 64">
-      <circle id="cd-ring-achter" cx="32" cy="32" r="27"/>
-      <circle id="cd-ring-voor"   cx="32" cy="32" r="27"/>
-    </svg>
-  </div>
-</div>
-
-<!-- Leergeheugen -->
-<div id="leer-kaart">
-  <div id="leer-header">
-    <div id="leer-titel">⚙ Leergeheugen kruispunt</div>
-    <div id="leer-badge">Actief</div>
-  </div>
-  <div id="blokken-rij"></div>
-  <div id="leer-info">Richt camera op een stoplicht om te beginnen.</div>
-</div>
-```
-
+    <div id="countdown-blok">
+      <div id="cd-links">
+        <div id="cd-label">Groen verwacht over</div>
+        <div id="cd-getal">—</div>
+        <div id="cd-eenheid">seconden</div>
+      </div>
+      <div id="cd-ring-wrap">
+        <svg id="cd-ring-svg" viewBox="0 0 64 64">
+          <circle id="cd-ring-achter" cx="32" cy="32" r="27"/>
+          <circle id="cd-ring-voor"   cx="32" cy="32" r="27"/>
+        </svg>
+      </div>
+    </div>
+    <div id="leer-kaart">
+      <div id="leer-header">
+        <div id="leer-titel">⚙ Leergeheugen kruispunt</div>
+        <div id="leer-badge">Actief</div>
+      </div>
+      <div id="blokken-rij"></div>
+      <div id="leer-info">Wacht op AI model…</div>
+    </div>
   </div>
 </div>
 
 <script>
 // ═══════════════════════════════════════════════════════════════
-//  STOPLICHT DETECTOR PRO v4.5
+//  STOPLICHT DETECTOR PRO v4.8
 //
-//  UI REDESIGN:
-//  - Zwarte bol verwijderd
-//  - Smalle glasmorfisme statusbalk bovenaan
-//  - Schermrand gloeit in de kleur van het stoplicht
-//  - Camera opacity 0.92 → bijna volledig zicht op de weg
-//  - Countdown + ring compact onderaan
+//  NIEUW T.O.V. v4.7:
 //
-//  DETECTIE: zelfde als v4.4 (daglicht fix behouden)
+//  1. HORIZONTALE STOPLICHTEN
+//     Detecteert of bounding box breder dan hoog is.
+//     Verticaal: rood boven, oranje midden, groen onder
+//     Horizontaal: rood links, oranje midden, groen rechts
+//     Oriëntatie badge toont welk type herkend is.
+//
+//  2. HOGERE AI CONFIDENCE DREMPEL (0.35 → 0.50)
+//     Vermindert valse detecties van verkeersborden etc.
+//
+//  3. TIJDMETING FIX
+//     AI draait asynchroon via requestAnimationFrame ipv
+//     setInterval — synchroon met de renderlus, geen mismatch.
+//
+//  4. LEERGEHEUGEN RESET FIX
+//     Reset alleen als het een écht nieuw kruispunt is,
+//     niet bij elke OSM data refresh.
+//
+//  5. DEBUG BALK ONDERIN
+//     Niet meer midden in het beeld — onderin, klein en dim.
+//
+//  6. BEVESTIGINGSDREMPEL VERHOOGD (4 → 6)
+//     AI runt elke ~500ms dus 6 bevestigingen = ~3 seconden
+//     stabiele detectie voordat fase wisselt.
 // ═══════════════════════════════════════════════════════════════
 
-const OMTREK_CD = 2 * Math.PI * 27; // ~170 voor de kleine ring
+const OMTREK_CD = 2 * Math.PI * 27; // ~170
 
-const video         = document.getElementById('video-hidden');
-const canvas        = document.getElementById('camera-canvas');
-const overlayCanvas = document.getElementById('overlay-canvas');
-const ctx           = canvas.getContext('2d', { willReadFrequently: true });
-const octx          = overlayCanvas.getContext('2d');
-
-// UI refs
-const faseBalk      = document.getElementById('fase-balk');
-const faseLamp      = document.getElementById('fase-lamp');
-const faseWoord     = document.getElementById('fase-woord');
-const faseSub       = document.getElementById('fase-sub');
-const randGlow      = document.getElementById('rand-glow');
-const geluidFlash   = document.getElementById('geluid-flash');
-const cdGetal       = document.getElementById('cd-getal');
-const cdLabel       = document.getElementById('cd-label');
-const cdEenheid     = document.getElementById('cd-eenheid');
-const cdRingVoor    = document.getElementById('cd-ring-voor');
-const camDot        = document.getElementById('cam-dot');
-const gpsDot        = document.getElementById('gps-dot');
-const gpsTekst      = document.getElementById('gps-tekst');
-const osmDot        = document.getElementById('osm-dot');
-const osmTekst      = document.getElementById('osm-tekst');
-const nachtDot      = document.getElementById('nacht-dot');
-const nachtTekst    = document.getElementById('nacht-tekst');
-const geluidDot     = document.getElementById('geluid-dot');
-const geluidTekst   = document.getElementById('geluid-pill-tekst');
-const blokkenRij    = document.getElementById('blokken-rij');
-const leerInfo      = document.getElementById('leer-info');
-const leerBadge     = document.getElementById('leer-badge');
-const kmNaam        = document.getElementById('kruispunt-mini-naam');
-const kmAf          = document.getElementById('kruispunt-mini-af');
-const debugRood     = document.getElementById('debug-rood');
-const debugGroen    = document.getElementById('debug-groen');
-const debugOranje   = document.getElementById('debug-oranje');
-const debugDrempel  = document.getElementById('debug-drempel');
-const debugStatus   = document.getElementById('debug-status');
+// DOM refs
+const video          = document.getElementById('video-hidden');
+const canvas         = document.getElementById('camera-canvas');
+const overlayCanvas  = document.getElementById('overlay-canvas');
+const ctx            = canvas.getContext('2d', { willReadFrequently: true });
+const octx           = overlayCanvas.getContext('2d');
+const faseBalk       = document.getElementById('fase-balk');
+const faseLamp       = document.getElementById('fase-lamp');
+const faseWoord      = document.getElementById('fase-woord');
+const faseSub        = document.getElementById('fase-sub');
+const oriëntatieBadge= document.getElementById('orientatie-badge');
+const randGlow       = document.getElementById('rand-glow');
+const geluidFlash    = document.getElementById('geluid-flash');
+const cdGetal        = document.getElementById('cd-getal');
+const cdLabel        = document.getElementById('cd-label');
+const cdEenheid      = document.getElementById('cd-eenheid');
+const cdRingVoor     = document.getElementById('cd-ring-voor');
+const aiDot          = document.getElementById('ai-dot');
+const aiTekst        = document.getElementById('ai-tekst');
+const gpsDot         = document.getElementById('gps-dot');
+const gpsTekst       = document.getElementById('gps-tekst');
+const osmDot         = document.getElementById('osm-dot');
+const osmTekst       = document.getElementById('osm-tekst');
+const nachtDot       = document.getElementById('nacht-dot');
+const nachtTekst     = document.getElementById('nacht-tekst');
+const geluidDot      = document.getElementById('geluid-dot');
+const geluidTekst    = document.getElementById('geluid-pill-tekst');
+const blokkenRij     = document.getElementById('blokken-rij');
+const leerInfo       = document.getElementById('leer-info');
+const leerBadge      = document.getElementById('leer-badge');
+const kmNaam         = document.getElementById('kruispunt-mini-naam');
+const kmAf           = document.getElementById('kruispunt-mini-af');
+const modelStatus    = document.getElementById('model-status');
+const modelTekst     = document.getElementById('model-tekst');
+const dAI            = document.getElementById('d-ai');
+const dKleur         = document.getElementById('d-kleur');
+const dOrient        = document.getElementById('d-orient');
+const dInfo          = document.getElementById('d-info');
 
 // Staat
+let cocoModel = null, modelGeladen = false;
 let fase = null, faseStart = null;
 let roodLijst = [], groenLijst = [], cycli = 0;
 let cdStart = null, cdDoel = 0;
@@ -396,27 +404,41 @@ let geluidAan = true, isNacht = false;
 let huidigePositie = null;
 let osmStoplichten = [], dichtstbijOSM = null, vorigOsmId = null;
 const kruispuntGeheugen = {};
-const BEVESTIGINGS_DREMPEL = 5;
+
+// FIX: hogere bevestigingsdrempel voor stabielere detectie
+const BEVESTIGINGS_DREMPEL = 6;
 let bevestigingsTeller = 0, bevestigingsKleur = null;
 let audioCtx = null, wakeLock = null, osmBezig = false;
+let geenDetectieTeller = 0;
+const GEEN_DETECTIE_RESET = 90; // ~3 sec bij 30fps
+
+// FIX: AI timing via frame teller ipv setInterval
+let frameT = 0;
+const AI_INTERVAL_FRAMES = 15; // elke 15 frames (~500ms bij 30fps)
+let aiBezig = false;
+let laatsteAIResultaat = null;
 
 // ── Geluid ────────────────────────────────────────────────────
-function initialiseerAudio(){ if(audioCtx)return; audioCtx=new(window.AudioContext||window.webkitAudioContext)(); }
+function initialiseerAudio(){
+  if(audioCtx) return;
+  audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+}
 function speelGroenToon(){
-  if(!geluidAan||!audioCtx)return;
+  if(!geluidAan || !audioCtx) return;
   try{
     [[0,880],[0.15,1108]].forEach(([t,f])=>{
-      const o=audioCtx.createOscillator(),g=audioCtx.createGain();
-      o.connect(g);g.connect(audioCtx.destination);
-      o.type='sine';o.frequency.value=f;
+      const o=audioCtx.createOscillator(), g=audioCtx.createGain();
+      o.connect(g); g.connect(audioCtx.destination);
+      o.type='sine'; o.frequency.value=f;
       g.gain.setValueAtTime(0,audioCtx.currentTime+t);
       g.gain.linearRampToValueAtTime(0.5,audioCtx.currentTime+t+0.02);
       g.gain.exponentialRampToValueAtTime(0.001,audioCtx.currentTime+t+0.22);
-      o.start(audioCtx.currentTime+t);o.stop(audioCtx.currentTime+t+0.25);
+      o.start(audioCtx.currentTime+t);
+      o.stop(audioCtx.currentTime+t+0.25);
     });
-    geluidFlash.style.background='rgba(52,199,89,0.2)';
+    geluidFlash.style.background='rgba(52,199,89,0.25)';
     geluidFlash.style.opacity='1';
-    setTimeout(()=>geluidFlash.style.opacity='0',300);
+    setTimeout(()=>geluidFlash.style.opacity='0',350);
   }catch(e){}
 }
 function toggleGeluid(){ geluidAan=!geluidAan; document.getElementById('geluid-toggle').classList.toggle('uit',!geluidAan); }
@@ -425,11 +447,11 @@ function toggleGeluidInApp(){ geluidAan=!geluidAan; geluidDot.classList.toggle('
 // ── Wake Lock ─────────────────────────────────────────────────
 async function activeerWakeLock(){
   try{
-    if('wakeLock'in navigator){
-      wakeLock=await navigator.wakeLock.request('screen');
-      document.addEventListener('visibilitychange',async()=>{
-        if(document.visibilityState==='visible'&&wakeLock===null)
-          wakeLock=await navigator.wakeLock.request('screen');
+    if('wakeLock' in navigator){
+      wakeLock = await navigator.wakeLock.request('screen');
+      document.addEventListener('visibilitychange', async()=>{
+        if(document.visibilityState==='visible' && wakeLock===null)
+          wakeLock = await navigator.wakeLock.request('screen');
       });
     }
   }catch(e){}
@@ -437,7 +459,7 @@ async function activeerWakeLock(){
 
 // ── Nachtmodus ────────────────────────────────────────────────
 function checkNachtmodus(){
-  const u=new Date().getHours(),n=u>=20||u<7;
+  const u=new Date().getHours(), n=u>=20||u<7;
   if(n!==isNacht){
     isNacht=n;
     document.body.classList.toggle('nacht',isNacht);
@@ -449,142 +471,254 @@ function checkNachtmodus(){
 
 // ── HSL ───────────────────────────────────────────────────────
 function rgbNaarHsl(r,g,b){
-  r/=255;g/=255;b/=255;
-  const mx=Math.max(r,g,b),mn=Math.min(r,g,b);
+  r/=255; g/=255; b/=255;
+  const mx=Math.max(r,g,b), mn=Math.min(r,g,b);
   let h,s,l=(mx+mn)/2;
-  if(mx===mn){h=s=0;}else{
-    const d=mx-mn;s=l>.5?d/(2-mx-mn):d/(mx+mn);
-    switch(mx){case r:h=((g-b)/d+(g<b?6:0))/6;break;case g:h=((b-r)/d+2)/6;break;default:h=((r-g)/d+4)/6;}
+  if(mx===mn){ h=s=0; }
+  else{
+    const d=mx-mn;
+    s=l>.5?d/(2-mx-mn):d/(mx+mn);
+    switch(mx){
+      case r:h=((g-b)/d+(g<b?6:0))/6;break;
+      case g:h=((b-r)/d+2)/6;break;
+      default:h=((r-g)/d+4)/6;
+    }
     h*=360;
   }
   return{h,s,l};
 }
 
-// Kleurdrempels — daglicht fix behouden uit v4.4
-function isRood(h,s,l){ return isNacht?s>0.45&&l>0.25&&l<0.95&&(h<16||h>344):s>0.40&&l>0.25&&l<0.92&&(h<18||h>342); }
-function isGroen(h,s,l){ return isNacht?s>0.35&&l>0.20&&l<0.92&&h>90&&h<165:s>0.35&&l>0.22&&l<0.90&&h>90&&h<165; }
-function isOranje(h,s,l){ return isNacht?s>0.50&&l>0.25&&l<0.90&&h>=14&&h<=46:s>0.45&&l>0.28&&l<0.88&&h>=14&&h<=46; }
-
-// ── Analyse ───────────────────────────────────────────────────
-function analyseFrame(){
-  const W=canvas.width,H=canvas.height;
-  const roiX=Math.floor(W*0.15),roiY=Math.floor(H*0.02);
-  const roiW=Math.floor(W*0.70),roiH=Math.floor(H*0.60);
-  let imageData;
-  try{ imageData=ctx.getImageData(roiX,roiY,roiW,roiH); }
-  catch(e){ return{kleur:null,betrouwbaarheid:0,box:null}; }
-  const data=imageData.data;
-  const roodP=[],groenP=[],oranjeP=[];
-  for(let y=0;y<roiH;y+=2){
-    for(let x=0;x<roiW;x+=2){
-      const i=(y*roiW+x)*4;
-      const{h,s,l}=rgbNaarHsl(data[i],data[i+1],data[i+2]);
-      if(isRood(h,s,l))roodP.push({x,y});
-      else if(isGroen(h,s,l))groenP.push({x,y});
-      else if(isOranje(h,s,l))oranjeP.push({x,y});
-    }
+// ── AI MODEL ──────────────────────────────────────────────────
+async function laadAIModel(){
+  try{
+    modelTekst.textContent='AI model laden (~5MB)…';
+    cocoModel = await cocoSsd.load({ base:'lite_mobilenet_v2' });
+    modelGeladen = true;
+    modelStatus.classList.add('verborgen');
+    aiDot.className='pill-dot paars-aan';
+    aiTekst.textContent='AI';
+    faseSub.textContent='Richt camera op stoplicht';
+    leerInfo.textContent='Richt camera op een stoplicht om te beginnen.';
+    dAI.textContent='AI:klaar';
+  }catch(e){
+    modelTekst.textContent='AI fout — probeer opnieuw';
+    aiDot.className='pill-dot oranje-aan';
+    aiTekst.textContent='AI fout';
+    dAI.textContent='AI:fout';
   }
-  const minP=isNacht?20:50;
-  debugRood.textContent=`R:${roodP.length}`;
-  debugGroen.textContent=`G:${groenP.length}`;
-  debugOranje.textContent=`O:${oranjeP.length}`;
-  debugDrempel.textContent=`min:${minP}`;
-  const telling={rood:roodP.length,groen:groenP.length,oranje:oranjeP.length};
-  const kandidaat=Object.keys(telling).reduce((a,b)=>telling[a]>telling[b]?a:b);
-  const pixels=kandidaat==='rood'?roodP:kandidaat==='groen'?groenP:oranjeP;
-  const aantal=pixels.length;
-  if(aantal<minP)return{kleur:null,betrouwbaarheid:0,box:null};
-  let minX=roiW,maxX=0,minY=roiH,maxY=0;
-  for(const p of pixels){if(p.x<minX)minX=p.x;if(p.x>maxX)maxX=p.x;if(p.y<minY)minY=p.y;if(p.y>maxY)maxY=p.y;}
-  const boxW=maxX-minX+1,boxH=maxY-minY+1,boxOpp=boxW*boxH;
-  const maxOpp=(roiW*roiH)*(isNacht?0.30:0.25);
-  if(boxOpp>maxOpp||boxOpp<4)return{kleur:null,betrouwbaarheid:0,box:null};
-  const vulling=aantal/boxOpp;
-  if(vulling<(isNacht?0.08:0.10))return{kleur:null,betrouwbaarheid:0,box:null};
-  // Donkere omranding alleen 's nachts (v4.4 fix behouden)
-  let donkerScore=0.5;
-  if(isNacht){
-    let donker=0,checkT=0;
-    const m=5,cx1=Math.max(0,minX-m),cy1=Math.max(0,minY-m);
-    const cx2=Math.min(roiW-1,maxX+m),cy2=Math.min(roiH-1,maxY+m);
-    for(let x=cx1;x<=cx2;x+=3){
-      if(cy1>=0){const i=(cy1*roiW+x)*4;if(data[i]<90&&data[i+1]<90&&data[i+2]<90)donker++;checkT++;}
-      if(cy2<roiH){const i=(cy2*roiW+x)*4;if(data[i]<90&&data[i+1]<90&&data[i+2]<90)donker++;checkT++;}
-    }
-    for(let y=cy1;y<=cy2;y+=3){
-      if(cx1>=0){const i=(y*roiW+cx1)*4;if(data[i]<90&&data[i+1]<90&&data[i+2]<90)donker++;checkT++;}
-      if(cx2<roiW){const i=(y*roiW+cx2)*4;if(data[i]<90&&data[i+1]<90&&data[i+2]<90)donker++;checkT++;}
-    }
-    donkerScore=checkT>0?donker/checkT:0;
-    if(donkerScore<0.12)return{kleur:null,betrouwbaarheid:0,box:null};
-  }
-  const betrouwbaarheid=Math.min(100,Math.round((vulling*50)+(donkerScore*30)+(Math.min(aantal/minP,3)*20/3)));
-  return{kleur:kandidaat,betrouwbaarheid,box:{x:roiX+minX,y:roiY+minY,w:boxW,h:boxH,kleur:kandidaat}};
 }
 
-// ── Overlay ───────────────────────────────────────────────────
-function tekenOverlay(box){
-  overlayCanvas.width=canvas.width;overlayCanvas.height=canvas.height;
+// ── KLEURANALYSE BINNEN BOUNDING BOX ─────────────────────────
+// FIX v4.8: detecteert oriëntatie en past sectieverdeling aan
+function bepaalKleurInBox(bx, by, bw, bh){
+  let imageData;
+  try{
+    const x=Math.max(0,Math.floor(bx));
+    const y=Math.max(0,Math.floor(by));
+    const w=Math.min(canvas.width-x, Math.floor(bw));
+    const h=Math.min(canvas.height-y, Math.floor(bh));
+    if(w<4||h<4) return{kleur:null,horizontaal:false};
+    imageData=ctx.getImageData(x,y,w,h);
+  }catch(e){ return{kleur:null,horizontaal:false}; }
+
+  const data=imageData.data;
+  const W=Math.floor(bw), H=Math.floor(bh);
+
+  // FIX: detecteer oriëntatie op basis van aspect ratio
+  // Een horizontaal stoplicht is significant breder dan hoog
+  const isHorizontaal = W > H * 1.3;
+  dOrient.textContent = isHorizontaal ? '↔ horiz' : '↕ vert';
+
+  // Sectieverdeling afhankelijk van oriëntatie
+  // Verticaal: 3 rijen (boven=rood, midden=oranje, onder=groen)
+  // Horizontaal: 3 kolommen (links=rood, midden=oranje, rechts=groen)
+  let roodScore=0, groenScore=0, oranjeScore=0;
+
+  for(let py=0; py<H; py+=2){
+    for(let px=0; px<W; px+=2){
+      const i=(py*W+px)*4;
+      if(i+3>=data.length) continue;
+      const r=data[i], g=data[i+1], b=data[i+2];
+
+      // Helderheid check — alleen echte lichtpixels tellen
+      const hd = r*0.299 + g*0.587 + b*0.114;
+      if(hd < 70) continue;
+
+      const{h,s,l} = rgbNaarHsl(r,g,b);
+
+      // Sectie: 0=eerste derde, 1=midden, 2=laatste derde
+      const sectie = isHorizontaal
+        ? Math.min(2, Math.floor(px / (W/3)))  // links/midden/rechts
+        : Math.min(2, Math.floor(py / (H/3))); // boven/midden/onder
+
+      // Kleur scoring met sectieweging
+      // Juiste positie = dubbel gewicht
+      if(s>0.35 && (h<18||h>342)){
+        // Rood: sectie 0 (boven of links)
+        roodScore   += (sectie===0 ? 2.5 : 0.5);
+      } else if(s>0.35 && h>88&&h<167){
+        // Groen: sectie 2 (onder of rechts)
+        groenScore  += (sectie===2 ? 2.5 : 0.5);
+      } else if(s>0.40 && h>=13&&h<=47){
+        // Oranje: sectie 1 (midden altijd)
+        oranjeScore += (sectie===1 ? 2.5 : 0.5);
+      }
+    }
+  }
+
+  const max = Math.max(roodScore, groenScore, oranjeScore);
+  if(max < 8) return{kleur:null, horizontaal:isHorizontaal}; // te weinig signaal
+
+  let kleur = null;
+  if(roodScore===max)   kleur='rood';
+  else if(groenScore===max)  kleur='groen';
+  else if(oranjeScore===max) kleur='oranje';
+
+  dKleur.textContent=`R:${roodScore.toFixed(0)} G:${groenScore.toFixed(0)} O:${oranjeScore.toFixed(0)}`;
+  return{kleur, horizontaal:isHorizontaal};
+}
+
+// ── AI DETECTIE ───────────────────────────────────────────────
+async function voerAIUit(){
+  if(!modelGeladen || !cocoModel || video.readyState<2 || aiBezig) return;
+  aiBezig=true;
+
+  try{
+    // FIX: hogere confidence drempel (0.35 → 0.50) minder valse detecties
+    const detecties = await cocoModel.detect(video, 5, 0.50);
+    const stoplichten = detecties.filter(d => d.class==='traffic light' && d.score>0.50);
+
+    dAI.textContent=`AI:${stoplichten.length}x ${stoplichten.length>0?stoplichten[0].score.toFixed(2):''}`;
+
+    if(stoplichten.length===0){
+      laatsteAIResultaat=null;
+      aiBezig=false;
+      return;
+    }
+
+    // Kies het stoplicht met de hoogste score
+    const beste = stoplichten.reduce((a,b)=>a.score>b.score?a:b);
+    const [bx,by,bw,bh] = beste.bbox;
+
+    // Schaal naar canvas coördinaten
+    const scX=canvas.width/video.videoWidth;
+    const scY=canvas.height/video.videoHeight;
+    const sx=bx*scX, sy=by*scY, sw=bw*scX, sh=bh*scY;
+
+    // Kleur binnen de box bepalen
+    const{kleur, horizontaal} = bepaalKleurInBox(sx, sy, sw, sh);
+
+    laatsteAIResultaat={
+      kleur, horizontaal, score:beste.score,
+      box:{x:sx, y:sy, w:sw, h:sh, kleur}
+    };
+
+  }catch(e){
+    dAI.textContent='AI:fout';
+  }finally{
+    aiBezig=false;
+  }
+}
+
+// ── OVERLAY ───────────────────────────────────────────────────
+function tekenOverlay(resultaat){
+  overlayCanvas.width=canvas.width;
+  overlayCanvas.height=canvas.height;
   octx.clearRect(0,0,overlayCanvas.width,overlayCanvas.height);
-  if(!box)return;
-  const sx=box.x*(window.innerWidth/canvas.width),sy=box.y*(window.innerHeight/canvas.height);
-  const sw=box.w*(window.innerWidth/canvas.width),sh=box.h*(window.innerHeight/canvas.height);
-  const mg=12,hl=Math.min(sw,sh)*0.4+8;
-  const kleur=box.kleur==='rood'?'#FF3030':box.kleur==='groen'?'#34C759':'#FF9F0A';
-  const x1=sx-mg,y1=sy-mg,x2=sx+sw+mg,y2=sy+sh+mg;
-  octx.strokeStyle=kleur;octx.lineWidth=2.5;octx.globalAlpha=0.9;
+  if(!resultaat) return;
+
+  const{box,horizontaal,score} = resultaat;
+  const scX=window.innerWidth/canvas.width, scY=window.innerHeight/canvas.height;
+  const sx=box.x*scX, sy=box.y*scY, sw=box.w*scX, sh=box.h*scY;
+  const kleur=box.kleur==='rood'?'#FF3030':box.kleur==='groen'?'#34C759':
+               box.kleur==='oranje'?'#FF9F0A':'#BF5AF2';
+  const mg=8, hl=Math.min(sw,sh)*0.3+8;
+  const x1=sx-mg, y1=sy-mg, x2=sx+sw+mg, y2=sy+sh+mg;
+
+  octx.strokeStyle=kleur; octx.lineWidth=2.5; octx.globalAlpha=0.92;
   octx.beginPath();
   octx.moveTo(x1+hl,y1);octx.lineTo(x1,y1);octx.lineTo(x1,y1+hl);
   octx.moveTo(x2-hl,y1);octx.lineTo(x2,y1);octx.lineTo(x2,y1+hl);
   octx.moveTo(x1,y2-hl);octx.lineTo(x1,y2);octx.lineTo(x1+hl,y2);
   octx.moveTo(x2-hl,y2);octx.lineTo(x2,y2);octx.lineTo(x2,y2-hl);
   octx.stroke();
-  octx.fillStyle=kleur;octx.globalAlpha=0.85;octx.font='bold 9px monospace';
-  octx.fillText('STOPLICHT',x1,y1-4);
+
+  // Label met oriëntatie en score
+  octx.fillStyle=kleur; octx.globalAlpha=0.9; octx.font='bold 10px monospace';
+  const label=`${box.kleur?.toUpperCase()||'?'} ${horizontaal?'↔':'↕'} ${(score*100).toFixed(0)}%`;
+  octx.fillText(label, x1, y1-5);
 }
 
-// ── Bevestiging ───────────────────────────────────────────────
-function verwerkDetectie(kleur,betrouwbaarheid,box){
-  tekenOverlay(kleur?box:null);
-  if(!kleur){bevestigingsTeller=0;bevestigingsKleur=null;debugStatus.textContent='geen detectie';return;}
-  if(kleur===bevestigingsKleur)bevestigingsTeller++;
-  else{bevestigingsKleur=kleur;bevestigingsTeller=1;}
-  debugStatus.textContent=`${kleur} ${bevestigingsTeller}/${BEVESTIGINGS_DREMPEL}`;
-  if(bevestigingsTeller>=BEVESTIGINGS_DREMPEL)verwerkFase(kleur,'camera');
-}
+// ── BEVESTIGING + AUTO-RESET ──────────────────────────────────
+function verwerkDetectie(){
+  const r = laatsteAIResultaat;
 
-// ── Fasewissel ────────────────────────────────────────────────
-function verwerkFase(nieuw,bron){
-  if(nieuw===fase)return;
-  const nu=performance.now();
-  if(fase&&faseStart){
-    const dur=(nu-faseStart)/1000;
-    if(fase==='rood'&&dur>4){roodLijst.push(dur);if(roodLijst.length>8)roodLijst.shift();}
-    if(fase==='groen'&&dur>2){groenLijst.push(dur);if(groenLijst.length>8)groenLijst.shift();cycli++;slaKruispuntOp();bijwerkBlokken();}
+  if(!r || !r.kleur){
+    bevestigingsTeller=0; bevestigingsKleur=null;
+    tekenOverlay(null);
+    geenDetectieTeller++;
+
+    if(geenDetectieTeller>=GEEN_DETECTIE_RESET && fase!==null){
+      fase=null; faseStart=null;
+      faseBalk.className='';
+      faseLamp.className='';
+      faseWoord.textContent='—';
+      faseSub.textContent='Richt camera op stoplicht';
+      oriëntatieBadge.textContent='';
+      randGlow.className='';
+      stopCd();
+    }
+    dInfo.textContent=`geen (${geenDetectieTeller})`;
+    return;
   }
-  fase=nieuw;faseStart=nu;
-  updateUI(nieuw);
-  if(nieuw==='groen')speelGroenToon();
-  if(nieuw==='rood'&&roodLijst.length>=2)startCd();
-  else if(nieuw!=='rood')stopCd();
+
+  geenDetectieTeller=0;
+  tekenOverlay(r);
+
+  if(r.kleur===bevestigingsKleur) bevestigingsTeller++;
+  else{ bevestigingsKleur=r.kleur; bevestigingsTeller=1; }
+
+  dInfo.textContent=`${r.kleur} ${bevestigingsTeller}/${BEVESTIGINGS_DREMPEL}`;
+
+  if(bevestigingsTeller>=BEVESTIGINGS_DREMPEL)
+    verwerkFase(r.kleur, r.horizontaal);
 }
 
-// ── UI update ─────────────────────────────────────────────────
-function updateUI(f){
-  // Statusbalk
+// ── FASEWISSEL ────────────────────────────────────────────────
+function verwerkFase(nieuw, horizontaal){
+  if(nieuw===fase) return;
+  const nu=performance.now();
+  if(fase && faseStart){
+    const dur=(nu-faseStart)/1000;
+    if(fase==='rood'  && dur>4){ roodLijst.push(dur);  if(roodLijst.length>8)  roodLijst.shift(); }
+    if(fase==='groen' && dur>2){ groenLijst.push(dur); if(groenLijst.length>8) groenLijst.shift(); cycli++; slaKruispuntOp(); bijwerkBlokken(); }
+  }
+  fase=nieuw; faseStart=nu; geenDetectieTeller=0;
+  updateUI(nieuw, horizontaal);
+  if(nieuw==='groen') speelGroenToon();
+  if(nieuw==='rood' && roodLijst.length>=2) startCd();
+  else if(nieuw!=='rood') stopCd();
+}
+
+// ── UI UPDATE ─────────────────────────────────────────────────
+function updateUI(f, horizontaal){
   faseBalk.className=f||'';
-  faseLamp.className='';
-  if(f)faseLamp.classList.add(f);
+  faseLamp.className=f||'';
   const woorden={rood:'ROOD',groen:'GROEN',oranje:'ORANJE'};
   const subs={rood:'Stop — wachten op groen',groen:'Rijden!',oranje:'Afremmen'};
   faseWoord.textContent=woorden[f]||'—';
   faseSub.textContent=subs[f]||'Richt camera op stoplicht';
 
-  // Schermrand glow
-  randGlow.className=f?f:'';
+  // Toon oriëntatie in de balk
+  if(f){
+    oriëntatieBadge.textContent = horizontaal ? '↔ horizontaal stoplicht' : '↕ verticaal stoplicht';
+  } else {
+    oriëntatieBadge.textContent='';
+  }
 
-  // Countdown ring kleur
-  const ringKleur=f==='rood'?'var(--rood)':f==='groen'?'var(--groen)':f==='oranje'?'var(--oranje)':'rgba(255,255,255,.15)';
+  randGlow.className=f||'';
+  const ringKleur=f==='rood'?'var(--rood)':f==='groen'?'var(--groen)':
+                  f==='oranje'?'var(--oranje)':'rgba(255,255,255,.15)';
   cdRingVoor.style.stroke=ringKleur;
 
   if(f==='groen'){
@@ -601,19 +735,19 @@ function updateUI(f){
   }
 }
 
-// ── Countdown ─────────────────────────────────────────────────
-function gemRood(){return roodLijst.reduce((a,b)=>a+b,0)/roodLijst.length;}
-function startCd(){cdDoel=gemRood();cdStart=performance.now();cdLabel.textContent='Groen verwacht over';cdEenheid.textContent='seconden';cdRingVoor.style.stroke='var(--rood)';}
-function stopCd(){cdRingVoor.style.strokeDashoffset=OMTREK_CD.toFixed(1);}
+// ── COUNTDOWN ─────────────────────────────────────────────────
+function gemRood(){ return roodLijst.reduce((a,b)=>a+b,0)/roodLijst.length; }
+function startCd(){ cdDoel=gemRood(); cdStart=performance.now(); cdLabel.textContent='Groen verwacht over'; cdEenheid.textContent='seconden'; cdRingVoor.style.stroke='var(--rood)'; }
+function stopCd(){ cdStart=null; cdRingVoor.style.strokeDashoffset=OMTREK_CD.toFixed(1); }
 function tickCd(){
-  if(!fase||fase!=='rood'||!cdStart)return;
-  const ver=(performance.now()-cdStart)/1000,over=Math.max(0,cdDoel-ver),prog=Math.min(1,ver/cdDoel);
+  if(!fase||fase!=='rood'||!cdStart) return;
+  const ver=(performance.now()-cdStart)/1000, over=Math.max(0,cdDoel-ver), prog=Math.min(1,ver/cdDoel);
   cdGetal.textContent=over<1?'<1':Math.ceil(over).toString();
   cdGetal.className=over<=6?'nabij':'';
   cdRingVoor.style.strokeDashoffset=(OMTREK_CD*(1-prog)).toFixed(1);
 }
 
-// ── Leergeheugen ──────────────────────────────────────────────
+// ── LEERGEHEUGEN ──────────────────────────────────────────────
 function bijwerkBlokken(){
   blokkenRij.innerHTML='';
   for(let i=0;i<5;i++){
@@ -623,40 +757,41 @@ function bijwerkBlokken(){
     blokkenRij.appendChild(b);
   }
   leerBadge.className='leer-badge'+(roodLijst.length>=2?' zichtbaar':'');
-  if(cycli===0)leerInfo.textContent='Nog geen cycli gemeten.';
-  else if(cycli<2)leerInfo.textContent=`${cycli} cyclus — nog 1 nodig.`;
-  else leerInfo.textContent=`${cycli} cycli. Gem. rood: ${Math.round(gemRood())}s.`;
+  if(cycli===0)      leerInfo.textContent='Nog geen cycli gemeten.';
+  else if(cycli<2)   leerInfo.textContent=`${cycli} cyclus — nog 1 nodig.`;
+  else               leerInfo.textContent=`${cycli} cycli. Gem. rood: ${Math.round(gemRood())}s.`;
 }
 function slaKruispuntOp(){
-  if(!dichtstbijOSM)return;
+  if(!dichtstbijOSM) return;
   kruispuntGeheugen[dichtstbijOSM.id]={rood:[...roodLijst],groen:[...groenLijst],cycli};
 }
 
 // ── OSM ───────────────────────────────────────────────────────
 async function haalOSMStoplichten(lat,lon){
-  if(osmBezig)return osmStoplichten;
+  if(osmBezig) return osmStoplichten;
   osmBezig=true;
-  osmDot.className='pill-dot oranje-aan';
-  osmTekst.textContent='OSM...';
+  osmDot.className='pill-dot oranje-aan'; osmTekst.textContent='OSM...';
   const query=`[out:json][timeout:6];node["highway"="traffic_signals"](around:500,${lat},${lon});out body;`;
   try{
-    const controller=new AbortController();
-    const timer=setTimeout(()=>controller.abort(),7000);
-    const resp=await fetch('https://overpass-api.de/api/interpreter',{method:'POST',body:`data=${encodeURIComponent(query)}`,signal:controller.signal});
-    clearTimeout(timer);
-    if(!resp.ok)throw new Error();
+    const ctrl=new AbortController();
+    const t=setTimeout(()=>ctrl.abort(),7000);
+    const resp=await fetch('https://overpass-api.de/api/interpreter',{
+      method:'POST',body:`data=${encodeURIComponent(query)}`,signal:ctrl.signal
+    });
+    clearTimeout(t);
+    if(!resp.ok) throw new Error();
     const data=await resp.json();
-    osmDot.className='pill-dot groen-aan';
-    osmTekst.textContent='OSM';
-    return(data.elements||[]).map(el=>({
+    osmDot.className='pill-dot groen-aan'; osmTekst.textContent='OSM';
+    return (data.elements||[]).map(el=>({
       id:el.id,lat:el.lat,lon:el.lon,
       naam:el.tags?.name||el.tags?.ref||null,
       slim:!!(el.tags?.['traffic_signals:sound']||el.tags?.description?.toLowerCase().includes('ivri')),
       afstand:berekenAfstand(lat,lon,el.lat,el.lon)
     }));
   }catch(e){
-    osmDot.className='pill-dot';osmTekst.textContent='OSM';return[];
-  }finally{osmBezig=false;}
+    osmDot.className='pill-dot'; osmTekst.textContent='OSM';
+    return [];
+  }finally{ osmBezig=false; }
 }
 function berekenAfstand(la1,lo1,la2,lo2){
   const R=6371000,dL=(la2-la1)*Math.PI/180,dO=(lo2-lo1)*Math.PI/180;
@@ -665,24 +800,33 @@ function berekenAfstand(la1,lo1,la2,lo2){
 }
 
 async function onGpsUpdate(pos){
-  const lat=pos.coords.latitude,lon=pos.coords.longitude;
+  const lat=pos.coords.latitude, lon=pos.coords.longitude;
   huidigePositie={lat,lon};
-  gpsDot.classList.add('blauw-aan');gpsTekst.textContent='GPS';
+  gpsDot.classList.add('blauw-aan'); gpsTekst.textContent='GPS';
   osmStoplichten=await haalOSMStoplichten(lat,lon);
   if(osmStoplichten.length>0){
     osmStoplichten.sort((a,b)=>a.afstand-b.afstand);
-    dichtstbijOSM=osmStoplichten[0];
-    const af=Math.round(dichtstbijOSM.afstand);
-    kmNaam.textContent=dichtstbijOSM.naam||(dichtstbijOSM.slim?'⚡ Slim stoplicht':'Stoplicht');
+    const nieuw=osmStoplichten[0];
+    const af=Math.round(nieuw.afstand);
+    kmNaam.textContent=nieuw.naam||(nieuw.slim?'⚡ Slim stoplicht':'Stoplicht');
     kmAf.textContent=af<1000?`${af}m`:`${(af/1000).toFixed(1)}km`;
-    if(dichtstbijOSM.id!==vorigOsmId){
-      vorigOsmId=dichtstbijOSM.id;
-      if(kruispuntGeheugen[dichtstbijOSM.id]){
-        const m=kruispuntGeheugen[dichtstbijOSM.id];
-        roodLijst=[...m.rood];groenLijst=[...m.groen];cycli=m.cycli;
+
+    // FIX: alleen reset als het écht een ander kruispunt is
+    if(nieuw.id!==vorigOsmId){
+      vorigOsmId=nieuw.id;
+      dichtstbijOSM=nieuw;
+      if(kruispuntGeheugen[nieuw.id]){
+        const m=kruispuntGeheugen[nieuw.id];
+        roodLijst=[...m.rood]; groenLijst=[...m.groen]; cycli=m.cycli;
         leerInfo.textContent=`Kruispunt herkend — ${cycli} cycli geladen.`;
-      }else{roodLijst=[];groenLijst=[];cycli=0;stopCd();}
+      }else{
+        roodLijst=[]; groenLijst=[]; cycli=0; stopCd();
+        leerInfo.textContent='Nieuw kruispunt — leergeheugen gestart.';
+      }
       bijwerkBlokken();
+    } else {
+      // Zelfde kruispunt, update alleen afstand
+      dichtstbijOSM=nieuw;
     }
   }else{
     dichtstbijOSM=null;
@@ -691,36 +835,70 @@ async function onGpsUpdate(pos){
   }
 }
 
-// ── Animatielus ───────────────────────────────────────────────
-let frameT=0;
+// ── ANIMATIELUS ───────────────────────────────────────────────
 function lus(){
+  // Frame tekenen
   if(video.readyState>=2){
     canvas.width=video.videoWidth||window.innerWidth;
     canvas.height=video.videoHeight||window.innerHeight;
     ctx.drawImage(video,0,0,canvas.width,canvas.height);
-    const{kleur,betrouwbaarheid,box}=analyseFrame();
-    verwerkDetectie(kleur,betrouwbaarheid,box);
   }
+
+  // FIX: AI elke AI_INTERVAL_FRAMES frames (synchroon met renderlus)
+  frameT++;
+  if(frameT%AI_INTERVAL_FRAMES===0 && modelGeladen && !aiBezig){
+    voerAIUit(); // async, resultaat wordt volgende frames verwerkt
+  }
+
+  // Verwerk laatste AI resultaat
+  verwerkDetectie();
   tickCd();
-  frameT++;if(frameT%1800===0)checkNachtmodus();
+
+  if(frameT%1800===0) checkNachtmodus();
+
   requestAnimationFrame(lus);
 }
 
-// ── Start ─────────────────────────────────────────────────────
+// ── START ─────────────────────────────────────────────────────
 async function startApp(){
   initialiseerAudio();
   geluidDot.classList.toggle('groen-aan',geluidAan);
   geluidTekst.textContent=geluidAan?'Geluid':'Stil';
   document.getElementById('startscherm').classList.add('weg');
+
   try{
-    const stream=await navigator.mediaDevices.getUserMedia({video:{facingMode:{ideal:'environment'},width:{ideal:1280},height:{ideal:720}},audio:false});
-    video.srcObject=stream;await video.play();camDot.classList.add('groen-aan');
-  }catch(e){document.getElementById('startscherm').classList.remove('weg');return;}
+    const stream=await navigator.mediaDevices.getUserMedia({
+      video:{facingMode:{ideal:'environment'},width:{ideal:1280},height:{ideal:720}},
+      audio:false
+    });
+    video.srcObject=stream; await video.play();
+  }catch(e){
+    document.getElementById('startscherm').classList.remove('weg');
+    return;
+  }
+
   await activeerWakeLock();
   checkNachtmodus();
-  if(navigator.geolocation)navigator.geolocation.watchPosition(onGpsUpdate,()=>{gpsDot.className='pill-dot oranje-aan';},{enableHighAccuracy:true,maximumAge:8000,timeout:12000});
-  bijwerkBlokken();lus();
-  setInterval(async()=>{if(huidigePositie&&!osmBezig)osmStoplichten=await haalOSMStoplichten(huidigePositie.lat,huidigePositie.lon);},45000);
+
+  if(navigator.geolocation){
+    navigator.geolocation.watchPosition(
+      onGpsUpdate,
+      ()=>{ gpsDot.className='pill-dot oranje-aan'; },
+      {enableHighAccuracy:true,maximumAge:8000,timeout:12000}
+    );
+  }
+
+  // AI laden terwijl app al draait
+  laadAIModel();
+
+  bijwerkBlokken();
+  lus();
+
+  // OSM elke 45 seconden verversen
+  setInterval(async()=>{
+    if(huidigePositie&&!osmBezig)
+      osmStoplichten=await haalOSMStoplichten(huidigePositie.lat,huidigePositie.lon);
+  },45000);
 }
 
 bijwerkBlokken();
