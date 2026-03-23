@@ -281,7 +281,7 @@
 <div id="startscherm">
   <div id="s-icoon">🚦</div>
   <div id="s-titel">Stoplicht<span>IQ</span></div>
-  <div id="s-versie">v6.1 — YOLOv8 + Slim Selectie</div>
+  <div id="s-versie">v7.0 — YOLOv8 + Slim Selectie + KleurCheck</div>
   <div id="s-model-wrap">
     <div id="s-model-rij">
       <div id="s-model-label">🤖 YOLOv8 model laden…</div>
@@ -450,7 +450,7 @@
 
 <script>
 // ═══════════════════════════════════════════════════════════════
-//  StoplichtIQ v6.1 — YOLOv8 + Slim Selectie
+//  StoplichtIQ v7.0 — YOLOv8 + Slim Selectie + KleurCheck
 //  Model: ojaskandy/traffic-light-detection-yolo (YOLOv8s)
 //  Klassen: 0=rood, 1=groen, 2=uit, 3=oranje/geel
 //  © 2026 StoplichtIQ — Y. Lemaalem
@@ -816,6 +816,71 @@ function berekenIoU(a, b) {
   return inter / union;
 }
 
+// ── KLEURCHECK: kleurbevestiging binnen bounding box ─────────
+// ANDERS dan de oude HSL-analyse op het hele beeld!
+// We analyseren ALLEEN de pixels BINNEN de YOLO bounding box
+// om te bevestigen welk lampje (rood/groen/oranje) brandt.
+function kleurCheckInBox(det) {
+  if (!yoloCtx || !det) return null;
+
+  // Coördinaten in YOLO-ruimte (320x320)
+  const bx = Math.max(0, Math.round(det.x1));
+  const by = Math.max(0, Math.round(det.y1));
+  const bw = Math.min(YOLO_SIZE - bx, Math.round(det.w));
+  const bh = Math.min(YOLO_SIZE - by, Math.round(det.h));
+  if (bw < 3 || bh < 3) return null;
+
+  try {
+    const imgData = yoloCtx.getImageData(bx, by, bw, bh);
+    const px = imgData.data;
+
+    // Verdeel de box in 3 zones: boven (rood), midden (oranje), onder (groen)
+    const zoneH = Math.floor(bh / 3);
+
+    let roodScore = 0, oranjeScore = 0, groenScore = 0;
+    let roodPx = 0, oranjePx = 0, groenPx = 0;
+
+    for (let y = 0; y < bh; y++) {
+      for (let x = 0; x < bw; x++) {
+        const i = (y * bw + x) * 4;
+        const r = px[i], g = px[i+1], b = px[i+2];
+        const helderheid = (r + g + b) / 3;
+
+        // Alleen heldere pixels tellen (lampje dat brandt)
+        if (helderheid < 80) continue;
+
+        // Zone bepalen
+        const zone = y < zoneH ? 'boven' : (y < zoneH * 2 ? 'midden' : 'onder');
+
+        // Rood: veel R, weinig G en B
+        if (r > 150 && r > g * 1.8 && r > b * 1.8) {
+          roodScore += (zone === 'boven' ? 3 : 1) * (helderheid / 255);
+          roodPx++;
+        }
+        // Groen: veel G, weinig R
+        else if (g > 120 && g > r * 1.3 && g > b * 1.1) {
+          groenScore += (zone === 'onder' ? 3 : 1) * (helderheid / 255);
+          groenPx++;
+        }
+        // Oranje/geel: veel R en G, weinig B
+        else if (r > 150 && g > 100 && g < r * 0.95 && b < r * 0.5) {
+          oranjeScore += (zone === 'midden' ? 3 : 1) * (helderheid / 255);
+          oranjePx++;
+        }
+      }
+    }
+
+    const totaal = roodPx + groenPx + oranjePx;
+    if (totaal < 3) return null; // te weinig kleurpixels
+
+    // Normaliseer
+    const scores = { rood: roodScore, groen: groenScore, oranje: oranjeScore };
+    const winnaar = Object.entries(scores).reduce((a, b) => b[1] > a[1] ? b : a);
+
+    return { kleur: winnaar[0], zekerheid: winnaar[1] / (roodScore + groenScore + oranjeScore + 0.001) };
+  } catch(e) { return null; }
+}
+
 // ── SLIM SELECTIE SYSTEEM ─────────────────────────────────────
 // Selecteert het stoplicht van JOUW rijbaan op basis van 5 factoren
 function selecteerBesteDetectie(detecties) {
@@ -929,15 +994,31 @@ async function voerAIUit() {
       return;
     }
 
-    // 5. Bewaar voor tracking (volgende frame)
+    // 5. KLEURCHECK: bevestig kleur via pixel-analyse in de bounding box
+    let definitieveKleur = kleur;
+    let kleurBron = 'yolo';
+    const kcheck = kleurCheckInBox(beste);
+    if (kcheck && kcheck.zekerheid > 0.55) {
+      if (kcheck.kleur !== kleur) {
+        // KleurCheck zegt iets anders — alleen overrulen als zekerheid hoog is
+        // en YOLO confidence laag
+        if (kcheck.zekerheid > 0.70 && beste.score < 0.50) {
+          definitieveKleur = kcheck.kleur;
+          kleurBron = 'kcheck';
+        }
+      }
+      // Als beide het eens zijn: extra betrouwbaar
+    }
+
+    // 6. Bewaar voor tracking (volgende frame)
     vorigeDetectie = { cx: beste.cx, cy: beste.cy };
 
-    // 6. Schaal bounding box naar video-coördinaten (letterbox correctie)
+    // 7. Schaal bounding box naar video-coördinaten (letterbox correctie)
     const horizontaal = beste.w > beste.h * 1.3;
 
-    dAI.textContent = `ai:${kleur} ${(beste.score * 100).toFixed(0)}% [${detecties.length}]`;
+    dAI.textContent = `ai:${definitieveKleur} ${(beste.score * 100).toFixed(0)}%${kleurBron==='kcheck'?'K':''} [${detecties.length}]`;
     laatsteAI = {
-      kleur,
+      kleur: definitieveKleur,
       horizontaal,
       score: beste.score,
       box: {
@@ -945,7 +1026,7 @@ async function voerAIUit() {
         y: (beste.y1 - lbPadY) / lbScale,
         w: beste.w / lbScale,
         h: beste.h / lbScale,
-        kleur,
+        kleur: definitieveKleur,
       }
     };
     nieuwAIResultaat = true;
@@ -1060,7 +1141,7 @@ function updateUI(f, horizontaal) {
   const subs = { rood:'Stop — wachten op groen', groen:'Rijden!', oranje:'Afremmen' };
   faseWoord.textContent = woorden[f] || '—';
   faseSub.textContent = subs[f] || 'Richt camera op stoplicht';
-  faseBron.textContent = f ? `YOLOv8 Slim${horizontaal?' ↔':' ↕'}` : '';
+  faseBron.textContent = f ? `YOLOv8+KC${horizontaal?' ↔':' ↕'}` : '';
   const rk = f==='rood'?'var(--rood)':f==='groen'?'var(--groen)':f==='oranje'?'var(--oranje)':'rgba(255,255,255,.12)';
   cdRingVoor.style.stroke = rk;
   if (f === 'groen') {
