@@ -31,7 +31,7 @@
     #camera-canvas{position:fixed;top:0;left:0;width:100%;height:100%;
       object-fit:cover;z-index:0;opacity:0.92}
     #overlay-canvas{position:fixed;top:0;left:0;width:100%;height:100%;
-      z-index:2;pointer-events:none}
+      object-fit:cover;z-index:2;pointer-events:none}
     #video-hidden{position:fixed;top:-9999px}
     #geluid-flash{position:fixed;inset:0;z-index:50;pointer-events:none;
       opacity:0;transition:opacity .15s}
@@ -75,7 +75,7 @@
       padding:0 0 env(safe-area-inset-bottom,16px)}
 
     #fase-balk{display:flex;align-items:center;justify-content:space-between;
-      padding:6px 18px;border-top:1px solid rgba(255,255,255,0.06);transition:border-color .3s}
+      padding:8px 18px;border-top:1px solid rgba(255,255,255,0.06);transition:border-color .3s}
     #fase-balk.rood  {border-top-color:rgba(255,48,48,.45)}
     #fase-balk.groen {border-top-color:rgba(52,199,89,.45)}
     #fase-balk.oranje{border-top-color:rgba(255,159,10,.45)}
@@ -99,14 +99,14 @@
     #kruispunt-dd{font-size:9px;color:rgba(255,255,255,0.3);margin-top:1px}
 
     #cd-blok{display:flex;align-items:center;justify-content:space-between;
-      padding:6px 18px 4px}
+      padding:10px 18px 6px}
     #cd-links{display:flex;flex-direction:column;gap:2px}
     #cd-label{font-size:10px;font-weight:600;letter-spacing:0.18em;
       text-transform:uppercase;color:var(--dim)}
-    #cd-getal{font-family:'Share Tech Mono',monospace;font-size:52px;
+    #cd-getal{font-family:'Share Tech Mono',monospace;font-size:80px;
       font-weight:400;line-height:1;color:#fff;transition:color .3s,text-shadow .3s}
     #cd-getal.nabij{color:var(--groen);text-shadow:0 0 30px rgba(52,199,89,.5)}
-    #cd-getal.leeg{color:rgba(255,255,255,0.15);font-size:36px}
+    #cd-getal.leeg{color:rgba(255,255,255,0.15);font-size:48px}
     #cd-eenheid{font-size:11px;font-weight:600;letter-spacing:0.14em;
       text-transform:uppercase;color:var(--dim)}
     #cd-ring-wrap{position:relative;width:72px;height:72px;flex-shrink:0}
@@ -115,9 +115,9 @@
     #cd-ring-voor{fill:none;stroke:var(--groen);stroke-width:4;stroke-linecap:round;
       stroke-dasharray:201;stroke-dashoffset:201;transition:stroke-dashoffset 1s linear,stroke .4s}
 
-    #leer-kaart{margin:0 14px 4px;background:rgba(0,0,0,0.45);
-      border:1px solid var(--border);border-radius:14px;padding:7px 14px;
-      display:flex;flex-direction:column;gap:5px}
+    #leer-kaart{margin:0 14px 6px;background:rgba(0,0,0,0.45);
+      border:1px solid var(--border);border-radius:14px;padding:10px 14px;
+      display:flex;flex-direction:column;gap:8px}
     #leer-header{display:flex;align-items:center;justify-content:space-between}
     #leer-naam{font-size:11px;font-weight:600;color:#fff;
       white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:180px}
@@ -146,9 +146,9 @@
     .dd.actief .dd-cnt{color:rgba(52,199,89,.5)}
 
     #dashboard-knop{display:flex;align-items:center;justify-content:space-between;
-      margin:0 14px 2px;background:rgba(255,255,255,0.04);
+      margin:0 14px 4px;background:rgba(255,255,255,0.04);
       border:1px solid var(--border);border-radius:10px;
-      padding:5px 14px;cursor:pointer}
+      padding:7px 14px;cursor:pointer}
     #dashboard-knop-tekst{font-size:10px;color:var(--dim);
       letter-spacing:0.1em;text-transform:uppercase}
     #dashboard-knop-cnt{font-family:'Share Tech Mono',monospace;
@@ -281,7 +281,7 @@
 <div id="startscherm">
   <div id="s-icoon">🚦</div>
   <div id="s-titel">Stoplicht<span>IQ</span></div>
-  <div id="s-versie">v6.0 — YOLOv8 + Leer Dashboard</div>
+  <div id="s-versie">v6.1 — YOLOv8 + Slim Selectie</div>
   <div id="s-model-wrap">
     <div id="s-model-rij">
       <div id="s-model-label">🤖 YOLOv8 model laden…</div>
@@ -291,7 +291,7 @@
   </div>
   <div id="s-geh-info" style="color:var(--dim)">Geheugen laden…</div>
   <div id="s-features">
-    <div class="feat">🎯 YOLOv8 detectie</div>
+    <div class="feat">🎯 Slim selectie</div>
     <div class="feat">🔴🟠🟢 3 klassen</div>
     <div class="feat">📊 Leer dashboard</div>
     <div class="feat">📈 Leerpercentage</div>
@@ -312,10 +312,7 @@
 
 <div id="ui">
   <div id="topbalk">
-    <div style="display:flex;align-items:center;gap:8px">
-      <div onclick="naarStartscherm()" style="background:rgba(255,255,255,0.08);border:1px solid rgba(255,255,255,0.12);border-radius:20px;padding:3px 10px;font-size:11px;color:rgba(255,255,255,0.5);cursor:pointer;letter-spacing:0.05em">← Start</div>
-      <div id="app-naam" onclick="openDashboard()">Stoplicht<span>IQ</span></div>
-    </div>
+    <div id="app-naam" onclick="openDashboard()">Stoplicht<span>IQ</span></div>
     <div id="badges">
       <div class="pill" onclick="toggleGeluidInApp()">
         <div class="pill-dot" id="p-geluid"></div>
@@ -453,10 +450,10 @@
 
 <script>
 // ═══════════════════════════════════════════════════════════════
-//  StoplichtIQ v6.0 — YOLOv8 Traffic Light Detection
+//  StoplichtIQ v6.1 — YOLOv8 + Slim Selectie
 //  Model: ojaskandy/traffic-light-detection-yolo (YOLOv8s)
 //  Klassen: 0=rood, 1=groen, 2=uit, 3=oranje/geel
-//  © 2025 StoplichtIQ — Y. Lemaalem
+//  © 2026 StoplichtIQ — Y. Lemaalem
 // ═══════════════════════════════════════════════════════════════
 
 // ONNX Runtime WASM pad instellen (werkt via CDN)
@@ -474,7 +471,7 @@ const MAX_METINGEN = 50;
 const HALFWAARDETIJD = 60;
 const AFWIJKING_DREMPEL = 0.20;
 const AFWIJKING_REEKS   = 5;
-const AI_INTERVAL  = 8;      // frames tussen AI-inferentie
+const AI_INTERVAL  = 15;     // frames tussen AI-inferentie (was 8, nu 15 voor minder warmte)
 const GEEN_RESET   = 20;     // frames zonder detectie voor reset
 const AI_DREMPEL   = 3;      // bevestigde frames voor fasewissel
 const YOLO_SIZE    = 320;    // model input grootte
@@ -655,6 +652,11 @@ let audioCtx=null, wakeLock=null;
 let frameT=0;
 let aiBezig=false, laatsteAI=null;
 let nieuwAIResultaat=false;
+let vorigeDetectie=null; // tracking voor slim selectie
+// FPS throttle: max 30fps voor minder warmte
+const DOEL_FPS = 30;
+const FRAME_TIJD = 1000 / DOEL_FPS;
+let laatsteFrameTijd = 0;
 // Tijdelijk canvas voor YOLO preprocessing
 let yoloCanvas=null, yoloCtx=null;
 // Pre-allocated buffer voor YOLO (voorkom 1.2MB allocatie per frame)
@@ -677,7 +679,7 @@ const simInt = setInterval(() => {
 async function laadONNXModel() {
   try {
     sModelLabel.textContent = '🤖 YOLOv8 model laden…';
-    onnxSession = await ort.InferenceSession.create('model/model.onnx', {
+    onnxSession = await ort.InferenceSession.create('./model/model.onnx', {
       executionProviders: ['wasm'],
       graphOptimizationLevel: 'all',
     });
@@ -690,7 +692,7 @@ async function laadONNXModel() {
     sModelLabel.textContent = `✓ YOLOv8 klaar (${t}s)`;
     sModelLabel.style.color = 'var(--groen)';
     modelLijn.classList.add('weg');
-    pAI.className = 'pill-dot g';
+    pAI.className = 'pill-dot p';
     pAIT.textContent = 'YOLOv8';
     dAI.textContent = 'ai:klaar';
     // Init YOLO canvas
@@ -814,6 +816,78 @@ function berekenIoU(a, b) {
   return inter / union;
 }
 
+// ── SLIM SELECTIE SYSTEEM ─────────────────────────────────────
+// Selecteert het stoplicht van JOUW rijbaan op basis van 5 factoren
+function selecteerBesteDetectie(detecties) {
+  if (!detecties.length) return null;
+
+  // Filter bruikbare klassen (niet 'uit')
+  const bruikbaar = detecties.filter(d => KLASSE_MAP[d.klasse]);
+  if (!bruikbaar.length) return null;
+  if (bruikbaar.length === 1) return bruikbaar[0];
+
+  let besteScore = -Infinity;
+  let beste = null;
+
+  for (const det of bruikbaar) {
+    // ── DODE ZONE: negeer buitenste 12% links en rechts ──
+    const relX = det.cx / YOLO_SIZE;
+    if (relX < 0.12 || relX > 0.88) continue;
+
+    // ── Factor 1: Horizontaal centrum (40% gewicht) ──
+    // Jouw stoplicht staat bijna altijd recht vooruit = midden van beeld
+    const afstandVanCenter = Math.abs(relX - 0.5);
+    const centerScore = Math.max(0, 1 - afstandVanCenter * 2.5);
+
+    // ── Factor 2: Confidence score (25% gewicht) ──
+    const confScore = det.score;
+
+    // ── Factor 3: Grootte/afstand (15% gewicht) ──
+    // Te klein = te ver weg, te groot = je rijdt eronderdoor
+    // Sweet spot: 4-20% van beeldhoogte
+    const relH = det.h / YOLO_SIZE;
+    let sizeScore;
+    if (relH < 0.02) sizeScore = 0.1;       // te klein
+    else if (relH < 0.06) sizeScore = 0.3 + (relH - 0.02) / 0.04 * 0.7; // oplopend
+    else if (relH <= 0.22) sizeScore = 1.0;  // sweet spot
+    else if (relH <= 0.35) sizeScore = 0.5;  // groot maar ok
+    else sizeScore = 0.1;                    // te groot (eronderdoor)
+
+    // ── Factor 4: Verticale sweet spot (10% gewicht) ──
+    // Stoplichten zitten typisch in bovenste 15-55% van het beeld
+    const relY = det.cy / YOLO_SIZE;
+    let heightScore;
+    if (relY < 0.10) heightScore = 0.3;      // heel hoog = ver weg
+    else if (relY <= 0.50) heightScore = 1.0; // sweet spot
+    else if (relY <= 0.65) heightScore = 0.4; // vrij laag
+    else heightScore = 0.1;                   // te laag = niet relevant
+
+    // ── Factor 5: Tracking continuïteit (10% gewicht) ──
+    // Bonus als deze detectie dicht bij de vorige zit
+    let trackScore = 0.5; // neutraal als geen vorige
+    if (vorigeDetectie) {
+      const dx = Math.abs(det.cx - vorigeDetectie.cx) / YOLO_SIZE;
+      const dy = Math.abs(det.cy - vorigeDetectie.cy) / YOLO_SIZE;
+      const afstand = Math.sqrt(dx * dx + dy * dy);
+      trackScore = Math.max(0, 1 - afstand * 4);
+    }
+
+    // ── Totaalscore ──
+    const totaal = centerScore * 0.40
+                 + confScore * 0.25
+                 + sizeScore * 0.15
+                 + heightScore * 0.10
+                 + trackScore * 0.10;
+
+    if (totaal > besteScore) {
+      besteScore = totaal;
+      beste = det;
+    }
+  }
+
+  return beste;
+}
+
 // ── AI DETECTIE (YOLO) ────────────────────────────────────────
 async function voerAIUit() {
   if (!modelGeladen || !onnxSession || video.readyState < 2 || aiBezig) return;
@@ -828,7 +902,7 @@ async function voerAIUit() {
     const outputData = outputTensor.data;
     const dims = outputTensor.dims;
 
-    // 3. Post-processing
+    // 3. Post-processing: alle detecties
     const detecties = postprocessYOLO(outputData, dims);
 
     if (!detecties.length) {
@@ -838,8 +912,15 @@ async function voerAIUit() {
       return;
     }
 
-    // 4. Beste detectie (hoogste confidence, klasse niet 'uit')
-    const beste = detecties[0];
+    // 4. SLIM SELECTIE: kies het stoplicht van jouw rijbaan
+    const beste = selecteerBesteDetectie(detecties);
+    if (!beste) {
+      dAI.textContent = 'ai:zone';
+      laatsteAI = null;
+      nieuwAIResultaat = true;
+      return;
+    }
+
     const kleur = KLASSE_MAP[beste.klasse];
     if (!kleur) {
       dAI.textContent = 'ai:uit';
@@ -848,10 +929,13 @@ async function voerAIUit() {
       return;
     }
 
-    // 5. Schaal bounding box naar canvas-coördinaten (letterbox correctie)
+    // 5. Bewaar voor tracking (volgende frame)
+    vorigeDetectie = { cx: beste.cx, cy: beste.cy };
+
+    // 6. Schaal bounding box naar video-coördinaten (letterbox correctie)
     const horizontaal = beste.w > beste.h * 1.3;
 
-    dAI.textContent = `ai:${kleur} ${(beste.score * 100).toFixed(0)}%`;
+    dAI.textContent = `ai:${kleur} ${(beste.score * 100).toFixed(0)}% [${detecties.length}]`;
     laatsteAI = {
       kleur,
       horizontaal,
@@ -880,22 +964,22 @@ function tekenOverlay(box, score, horizontaal) {
   octx.clearRect(0, 0, overlCanvas.width, overlCanvas.height);
   if (!box) return;
 
-  const scX = window.innerWidth / canvas.width;
-  const scY = window.innerHeight / canvas.height;
-  const sx = box.x * scX, sy = box.y * scY;
-  const sw = box.w * scX, sh = box.h * scY;
+  // Box is al in video-coördinaten, canvas + overlay hebben zelfde interne resolutie
+  // object-fit:cover op beide canvassen zorgt voor correcte uitlijning
+  const sx = box.x, sy = box.y;
+  const sw = box.w, sh = box.h;
   const kCSS = box.kleur === 'rood' ? '#FF3030'
              : box.kleur === 'groen' ? '#34C759'
              : box.kleur === 'oranje' ? '#FF9F0A' : '#888';
 
-  const mg = 6, hl = Math.min(sw, sh) * 0.35 + 6;
+  const mg = 8, hl = Math.min(sw, sh) * 0.35 + 8;
   const x1 = sx - mg, y1 = sy - mg, x2 = sx + sw + mg, y2 = sy + sh + mg;
 
   octx.strokeStyle = kCSS;
-  octx.lineWidth = 2;
-  octx.globalAlpha = 0.90;
+  octx.lineWidth = 3;
+  octx.globalAlpha = 0.92;
   octx.shadowColor = kCSS;
-  octx.shadowBlur = 8;
+  octx.shadowBlur = 12;
   octx.beginPath();
   // Hoekmarkers
   octx.moveTo(x1+hl,y1); octx.lineTo(x1,y1); octx.lineTo(x1,y1+hl);
@@ -908,9 +992,9 @@ function tekenOverlay(box, score, horizontaal) {
   if (box.kleur) {
     octx.fillStyle = kCSS;
     octx.globalAlpha = 0.9;
-    octx.font = 'bold 9px monospace';
+    octx.font = 'bold 13px monospace';
     const label = `${box.kleur.toUpperCase()}${horizontaal?' ↔':' ↕'}${score ? ` ${(score*100).toFixed(0)}%` : ''}`;
-    octx.fillText(label, x1, y1 - 4);
+    octx.fillText(label, x1, y1 - 6);
   }
 }
 
@@ -942,6 +1026,7 @@ function resetNeutraal() {
   faseSub.textContent = 'Richt camera op stoplicht';
   faseBron.textContent = '';
   randGlow.className = '';
+  vorigeDetectie = null; // reset tracking
   stopCd();
 }
 
@@ -975,7 +1060,7 @@ function updateUI(f, horizontaal) {
   const subs = { rood:'Stop — wachten op groen', groen:'Rijden!', oranje:'Afremmen' };
   faseWoord.textContent = woorden[f] || '—';
   faseSub.textContent = subs[f] || 'Richt camera op stoplicht';
-  faseBron.textContent = f ? `YOLOv8${horizontaal?' ↔':' ↕'}` : '';
+  faseBron.textContent = f ? `YOLOv8 Slim${horizontaal?' ↔':' ↕'}` : '';
   const rk = f==='rood'?'var(--rood)':f==='groen'?'var(--groen)':f==='oranje'?'var(--oranje)':'rgba(255,255,255,.12)';
   cdRingVoor.style.stroke = rk;
   if (f === 'groen') {
@@ -1268,21 +1353,6 @@ function speelGroen() {
 function toggleGeluid() { geluidAan = !geluidAan; document.getElementById('geluid-toggle').classList.toggle('uit', !geluidAan); }
 function toggleGeluidInApp() { geluidAan = !geluidAan; pGeluid.className = 'pill-dot' + (geluidAan ? ' g' : ''); pGeluidT.textContent = geluidAan ? 'SND' : 'MUTE'; }
 
-function naarStartscherm() {
-  // Stop camera
-  if (video.srcObject) {
-    video.srcObject.getTracks().forEach(t => t.stop());
-    video.srcObject = null;
-  }
-  // Reset fase
-  fase = null; faseStart = null;
-  faseBalk.className = ''; faseLamp.className = '';
-  faseWoord.textContent = '—'; faseSub.textContent = 'Richt camera op stoplicht';
-  randGlow.className = ''; stopCd();
-  // Toon startscherm
-  document.getElementById('startscherm').classList.remove('weg');
-}
-
 async function activeerWakeLock() {
   try {
     if ('wakeLock' in navigator) {
@@ -1305,8 +1375,16 @@ function checkNacht() {
   }
 }
 
-// Animatielus
-function lus() {
+// Animatielus (30fps throttle)
+function lus(timestamp) {
+  if (!timestamp) timestamp = performance.now();
+  // Throttle tot 30fps
+  if (timestamp - laatsteFrameTijd < FRAME_TIJD) {
+    requestAnimationFrame(lus);
+    return;
+  }
+  laatsteFrameTijd = timestamp;
+
   if (video.readyState >= 2) {
     const vw = video.videoWidth || window.innerWidth;
     const vh = video.videoHeight || window.innerHeight;
@@ -1318,7 +1396,7 @@ function lus() {
   if (frameT % AI_INTERVAL === 0 && modelGeladen && !aiBezig) voerAIUit();
   verwerkDetecties();
   tickCd();
-  if (frameT % 1800 === 0) checkNacht();
+  if (frameT % 900 === 0) checkNacht();
   requestAnimationFrame(lus);
 }
 
@@ -1330,10 +1408,26 @@ async function startApp() {
   document.getElementById('startscherm').classList.add('weg');
   try {
     const stream = await navigator.mediaDevices.getUserMedia({
-      video: { facingMode: { ideal: 'environment' }, width: { ideal: 1280 }, height: { ideal: 720 } },
+      video: {
+        facingMode: { ideal: 'environment' },
+        width: { ideal: 1920 },
+        height: { ideal: 1080 },
+        focusMode: { ideal: 'continuous' },
+        exposureMode: { ideal: 'continuous' },
+        whiteBalanceMode: { ideal: 'continuous' }
+      },
       audio: false
     });
     video.srcObject = stream;
+    // Probeer continu autofocus te forceren via track constraints
+    try {
+      const track = stream.getVideoTracks()[0];
+      const caps = track.getCapabilities ? track.getCapabilities() : {};
+      const adv = {};
+      if (caps.focusMode && caps.focusMode.includes('continuous')) adv.focusMode = 'continuous';
+      if (caps.exposureMode && caps.exposureMode.includes('continuous')) adv.exposureMode = 'continuous';
+      if (Object.keys(adv).length) await track.applyConstraints({ advanced: [adv] });
+    } catch(e) { /* focus constraints niet ondersteund, geen probleem */ }
     await video.play();
   } catch(e) {
     document.getElementById('startscherm').classList.remove('weg');
