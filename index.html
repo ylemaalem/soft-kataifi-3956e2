@@ -692,7 +692,7 @@ async function laadONNXModel() {
     sModelLabel.textContent = `✓ YOLOv8 klaar (${t}s)`;
     sModelLabel.style.color = 'var(--groen)';
     modelLijn.classList.add('weg');
-    pAI.className = 'pill-dot p';
+    pAI.className = 'pill-dot g';
     pAIT.textContent = 'YOLOv8';
     dAI.textContent = 'ai:klaar';
     // Init YOLO canvas
@@ -994,21 +994,13 @@ async function voerAIUit() {
       return;
     }
 
-    // 5. KLEURCHECK: bevestig kleur via pixel-analyse in de bounding box
+    // 5. KLEURCHECK: alleen informatief in debug — YOLO bepaalt de kleur
+    // KleurCheck overrule is uitgeschakeld: de pixel-analyse op 320px YOLO canvas
+    // is te onbetrouwbaar om YOLO te corrigeren. Wacht op beter model (stap 3).
     let definitieveKleur = kleur;
     let kleurBron = 'yolo';
     const kcheck = kleurCheckInBox(beste);
-    if (kcheck && kcheck.zekerheid > 0.55) {
-      if (kcheck.kleur !== kleur) {
-        // KleurCheck zegt iets anders — alleen overrulen als zekerheid hoog is
-        // en YOLO confidence laag
-        if (kcheck.zekerheid > 0.70 && beste.score < 0.50) {
-          definitieveKleur = kcheck.kleur;
-          kleurBron = 'kcheck';
-        }
-      }
-      // Als beide het eens zijn: extra betrouwbaar
-    }
+    // Alleen loggen, niet overrulen
 
     // 6. Bewaar voor tracking (volgende frame)
     vorigeDetectie = { cx: beste.cx, cy: beste.cy };
@@ -1016,7 +1008,7 @@ async function voerAIUit() {
     // 7. Schaal bounding box naar video-coördinaten (letterbox correctie)
     const horizontaal = beste.w > beste.h * 1.3;
 
-    dAI.textContent = `ai:${definitieveKleur} ${(beste.score * 100).toFixed(0)}%${kleurBron==='kcheck'?'K':''} [${detecties.length}]`;
+    dAI.textContent = `ai:${definitieveKleur} ${(beste.score * 100).toFixed(0)}%${kcheck?' kc:'+kcheck.kleur:''} [${detecties.length}]`;
     laatsteAI = {
       kleur: definitieveKleur,
       horizontaal,
