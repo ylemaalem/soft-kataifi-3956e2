@@ -1,5 +1,4 @@
 <!DOCTYPE html>
-
 <html lang="nl">
 <head>
   <meta charset="UTF-8"/>
@@ -9,9 +8,8 @@
   <meta name="apple-mobile-web-app-title" content="StoplichtIQ"/>
   <title>StoplichtIQ</title>
 
-  <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@4.17.0/dist/tf.min.js"></script>
-
-  <script src="https://cdn.jsdelivr.net/npm/@tensorflow-models/coco-ssd@2.2.3/dist/coco-ssd.min.js"></script>
+  <!-- ONNX Runtime Web voor YOLOv8 inference (werkt offline na eerste download) -->
+  <script src="https://cdn.jsdelivr.net/npm/onnxruntime-web@1.17.1/dist/ort.min.js"></script>
 
   <link href="https://fonts.googleapis.com/css2?family=Rajdhani:wght@300;400;600;700&family=Share+Tech+Mono&display=swap" rel="stylesheet"/>
 
@@ -25,11 +23,9 @@
       font-family:'Rajdhani',sans-serif;color:#fff;
       -webkit-tap-highlight-color:transparent;-webkit-font-smoothing:antialiased}
 
-    /* ══ SCHERMEN ══ */
     .scherm{position:fixed;inset:0;z-index:100;transition:opacity .4s,transform .4s}
     .scherm.verborgen{opacity:0;pointer-events:none;transform:translateY(20px)}
 
-    /* ══ CAMERA SCHERM ══ */
     #camera-canvas{position:fixed;top:0;left:0;width:100%;height:100%;
       object-fit:cover;z-index:0;opacity:0.92}
     #overlay-canvas{position:fixed;top:0;left:0;width:100%;height:100%;
@@ -147,7 +143,6 @@
     .dd.actief .dd-val{color:var(--groen)}
     .dd.actief .dd-cnt{color:rgba(52,199,89,.5)}
 
-    /* Dashboard knop */
     #dashboard-knop{display:flex;align-items:center;justify-content:space-between;
       margin:0 14px 4px;background:rgba(255,255,255,0.04);
       border:1px solid var(--border);border-radius:10px;
@@ -164,7 +159,7 @@
     #d-ai{color:#BF5AF2}#d-pct{color:var(--groen)}
     #d-osm{color:#0A84FF}#d-info{color:rgba(255,255,255,0.35)}
 
-    /* ══ DASHBOARD SCHERM ══ */
+    /* DASHBOARD SCHERM */
     #dashboard{position:fixed;inset:0;z-index:200;background:#080A0C;
       display:flex;flex-direction:column;
       padding:env(safe-area-inset-top,48px) 0 env(safe-area-inset-bottom,20px);
@@ -198,13 +193,11 @@
     #dash-lijst{flex:1;overflow-y:auto;padding:8px 18px 16px;
       display:flex;flex-direction:column;gap:8px}
 
-    /* Stoplicht kaart in dashboard */
     .sl-kaart{background:rgba(255,255,255,0.04);border:1px solid var(--border);
       border-radius:14px;padding:12px 14px;display:flex;flex-direction:column;gap:8px}
     .sl-kaart-header{display:flex;align-items:center;justify-content:space-between}
     .sl-kaart-naam{font-size:13px;font-weight:600;color:#fff}
-    .sl-kaart-pct{font-family:'Share Tech Mono',monospace;font-size:16px;
-      font-weight:700}
+    .sl-kaart-pct{font-family:'Share Tech Mono',monospace;font-size:16px;font-weight:700}
     .sl-kaart-balk-bg{width:100%;height:5px;background:rgba(255,255,255,0.08);
       border-radius:3px;overflow:hidden}
     .sl-kaart-balk{height:100%;border-radius:3px;transition:width .6s}
@@ -221,7 +214,7 @@
     #dash-leeg-icoon{font-size:48px}
     #dash-leeg-tekst{font-size:14px;color:var(--dim);line-height:1.5}
 
-    /* ══ STARTSCHERM ══ */
+    /* STARTSCHERM */
     #startscherm{position:fixed;inset:0;background:#080A0C;z-index:300;
       display:flex;flex-direction:column;align-items:center;
       justify-content:center;gap:16px;padding:32px;transition:opacity .5s}
@@ -259,6 +252,8 @@
       font-weight:700;letter-spacing:0.14em;text-transform:uppercase;cursor:pointer;
       box-shadow:0 0 36px rgba(52,199,89,.4);transition:transform .15s}
     #s-knop:active{transform:scale(0.96)}
+    #s-copyright{font-size:10px;color:rgba(255,255,255,0.25);letter-spacing:0.06em;
+      text-align:center;margin-top:4px}
   </style>
 
 </head>
@@ -279,27 +274,26 @@
   <span id="d-info">—</span>
 </div>
 
-<!-- ══ STARTSCHERM ══ -->
-
+<!-- STARTSCHERM -->
 <div id="startscherm">
   <div id="s-icoon">🚦</div>
   <div id="s-titel">Stoplicht<span>IQ</span></div>
-  <div id="s-versie">v5.5 — Leer Dashboard</div>
+  <div id="s-versie">v6.0 — YOLOv8 + Leer Dashboard</div>
   <div id="s-model-wrap">
     <div id="s-model-rij">
-      <div id="s-model-label">🤖 AI model laden…</div>
+      <div id="s-model-label">🤖 YOLOv8 model laden…</div>
       <div id="s-model-pct">0%</div>
     </div>
     <div id="s-model-bg"><div id="s-model-balk"></div></div>
   </div>
   <div id="s-geh-info" style="color:var(--dim)">Geheugen laden…</div>
   <div id="s-features">
+    <div class="feat">🎯 YOLOv8 detectie</div>
+    <div class="feat">🔴🟠🟢 3 klassen</div>
     <div class="feat">📊 Leer dashboard</div>
     <div class="feat">📈 Leerpercentage</div>
     <div class="feat">⚡ Snelle reset</div>
-    <div class="feat">📏 Hoogtefilter</div>
-    <div class="feat">⚖️ Gewogen geheugen</div>
-    <div class="feat">🔄 Auto cyclus reset</div>
+    <div class="feat">🌙 Nacht + regen</div>
     <div class="feat">🗺 Lokale kaart 5km</div>
     <div class="feat">🔊 Geluid bij groen</div>
   </div>
@@ -308,10 +302,10 @@
     <button id="geluid-toggle" onclick="toggleGeluid()"></button>
   </div>
   <button id="s-knop" onclick="startApp()">Start detectie</button>
+  <div id="s-copyright">© 2025 StoplichtIQ — Y. Lemaalem</div>
 </div>
 
-<!-- ══ HOOFD UI ══ -->
-
+<!-- HOOFD UI -->
 <div id="ui">
   <div id="topbalk">
     <div id="app-naam" onclick="openDashboard()">Stoplicht<span>IQ</span></div>
@@ -358,74 +352,67 @@
       </div>
     </div>
 
-```
-<div id="cd-blok">
-  <div id="cd-links">
-    <div id="cd-label">Groen verwacht over</div>
-    <div id="cd-getal" class="leeg">—</div>
-    <div id="cd-eenheid">seconden</div>
-  </div>
-  <div id="cd-ring-wrap">
-    <svg id="cd-ring-svg" viewBox="0 0 72 72">
-      <circle id="cd-ring-achter" cx="36" cy="36" r="32"/>
-      <circle id="cd-ring-voor"   cx="36" cy="36" r="32"/>
-    </svg>
+    <div id="cd-blok">
+      <div id="cd-links">
+        <div id="cd-label">Groen verwacht over</div>
+        <div id="cd-getal" class="leeg">—</div>
+        <div id="cd-eenheid">seconden</div>
+      </div>
+      <div id="cd-ring-wrap">
+        <svg id="cd-ring-svg" viewBox="0 0 72 72">
+          <circle id="cd-ring-achter" cx="36" cy="36" r="32"/>
+          <circle id="cd-ring-voor"   cx="36" cy="36" r="32"/>
+        </svg>
+      </div>
+    </div>
+
+    <div id="leer-kaart">
+      <div id="leer-header">
+        <div id="leer-naam">Wacht op GPS…</div>
+        <div id="leer-nieuw-badge">Nieuw</div>
+      </div>
+      <div id="leer-pct-rij">
+        <div id="leer-pct-label">Geleerd</div>
+        <div id="leer-pct-balk-bg"><div id="leer-pct-balk"></div></div>
+        <div id="leer-pct-getal">0%</div>
+      </div>
+      <div id="dd-rij">
+        <div class="dd" id="dd-ochtend">
+          <div class="dd-ic">🌅</div>
+          <div class="dd-val" id="dv-ochtend">—</div>
+          <div class="dd-cnt" id="dc-ochtend">0x</div>
+        </div>
+        <div class="dd" id="dd-dag">
+          <div class="dd-ic">☀️</div>
+          <div class="dd-val" id="dv-dag">—</div>
+          <div class="dd-cnt" id="dc-dag">0x</div>
+        </div>
+        <div class="dd" id="dd-avond">
+          <div class="dd-ic">🌆</div>
+          <div class="dd-val" id="dv-avond">—</div>
+          <div class="dd-cnt" id="dc-avond">0x</div>
+        </div>
+        <div class="dd" id="dd-nacht">
+          <div class="dd-ic">🌙</div>
+          <div class="dd-val" id="dv-nacht">—</div>
+          <div class="dd-cnt" id="dc-nacht">0x</div>
+        </div>
+      </div>
+    </div>
+
+    <div id="dashboard-knop" onclick="openDashboard()">
+      <div id="dashboard-knop-tekst">📊 Bekijk alle geleerde stoplichten</div>
+      <div id="dashboard-knop-cnt">0 kruispunten →</div>
+    </div>
   </div>
 </div>
 
-<div id="leer-kaart">
-  <div id="leer-header">
-    <div id="leer-naam">Wacht op GPS…</div>
-    <div id="leer-nieuw-badge">Nieuw</div>
-  </div>
-  <div id="leer-pct-rij">
-    <div id="leer-pct-label">Geleerd</div>
-    <div id="leer-pct-balk-bg"><div id="leer-pct-balk"></div></div>
-    <div id="leer-pct-getal">0%</div>
-  </div>
-  <div id="dd-rij">
-    <div class="dd" id="dd-ochtend">
-      <div class="dd-ic">🌅</div>
-      <div class="dd-val" id="dv-ochtend">—</div>
-      <div class="dd-cnt" id="dc-ochtend">0x</div>
-    </div>
-    <div class="dd" id="dd-dag">
-      <div class="dd-ic">☀️</div>
-      <div class="dd-val" id="dv-dag">—</div>
-      <div class="dd-cnt" id="dc-dag">0x</div>
-    </div>
-    <div class="dd" id="dd-avond">
-      <div class="dd-ic">🌆</div>
-      <div class="dd-val" id="dv-avond">—</div>
-      <div class="dd-cnt" id="dc-avond">0x</div>
-    </div>
-    <div class="dd" id="dd-nacht">
-      <div class="dd-ic">🌙</div>
-      <div class="dd-val" id="dv-nacht">—</div>
-      <div class="dd-cnt" id="dc-nacht">0x</div>
-    </div>
-  </div>
-</div>
-
-<!-- Dashboard knop -->
-<div id="dashboard-knop" onclick="openDashboard()">
-  <div id="dashboard-knop-tekst">📊 Bekijk alle geleerde stoplichten</div>
-  <div id="dashboard-knop-cnt">0 kruispunten →</div>
-</div>
-```
-
-  </div>
-</div>
-
-<!-- ══ DASHBOARD ══ -->
-
+<!-- DASHBOARD -->
 <div id="dashboard" class="verborgen">
   <div id="dash-header">
     <div id="dash-titel">Stoplicht<span>IQ</span> — Geleerd</div>
     <div id="dash-sluiten" onclick="sluitDashboard()">✕ Sluiten</div>
   </div>
-
-  <!-- Statistieken balk -->
 
   <div id="dash-stats">
     <div class="dash-stat">
@@ -442,8 +429,6 @@
     </div>
   </div>
 
-  <!-- Filter knoppen -->
-
   <div id="dash-filter">
     <div class="filter-btn actief" onclick="filterDashboard('alle',this)">Alle</div>
     <div class="filter-btn" onclick="filterDashboard('hoog',this)">85%+ ⭐</div>
@@ -452,33 +437,45 @@
     <div class="filter-btn" onclick="filterDashboard('nacht',this)">🌙 Nacht</div>
   </div>
 
-  <!-- Lijst van stoplichten -->
-
   <div id="dash-lijst"></div>
 </div>
 
 <script>
 // ═══════════════════════════════════════════════════════════════
-//  StoplichtIQ v5.5
-//  Nieuwe naam + Leer Dashboard
+//  StoplichtIQ v6.0 — YOLOv8 Traffic Light Detection
+//  Model: ojaskandy/traffic-light-detection-yolo (YOLOv8s)
+//  Klassen: 0=rood, 1=groen, 2=uit, 3=oranje/geel
+//  © 2025 StoplichtIQ — Y. Lemaalem
 // ═══════════════════════════════════════════════════════════════
+
+// ONNX Runtime WASM pad instellen (werkt via CDN)
+if (typeof ort !== 'undefined') {
+  ort.env.wasm.wasmPaths = 'https://cdn.jsdelivr.net/npm/onnxruntime-web@1.17.1/dist/';
+}
 
 const OMTREK_CD    = 2 * Math.PI * 32;
 const OSM_RADIUS   = 5000;
 const OSM_REFRESH  = 3000;
 const OVERPASS_URL = 'https://overpass-api.de/api/interpreter';
-const LS_PREFIXEN  = ['sl_v4_','sl_v3_']; // beide prefixen lezen
-const LS_PREFIX    = 'sl_v4_';            // nieuwe data schrijven naar v4
+const LS_PREFIXEN  = ['sl_v4_','sl_v3_'];
+const LS_PREFIX    = 'sl_v4_';
 const MAX_METINGEN = 50;
 const HALFWAARDETIJD = 60;
 const AFWIJKING_DREMPEL = 0.20;
 const AFWIJKING_REEKS   = 5;
-const AI_INTERVAL  = 8;
-const GEEN_RESET   = 20;
-const AI_DREMPEL   = 3;
-const MAX_Y_RATIO  = 0.55;
-const MIN_BOX_H_PX = 12;
-const MAX_BOX_W_RATIO = 0.40;
+const AI_INTERVAL  = 8;      // frames tussen AI-inferentie
+const GEEN_RESET   = 20;     // frames zonder detectie voor reset
+const AI_DREMPEL   = 3;      // bevestigde frames voor fasewissel
+const YOLO_SIZE    = 320;    // model input grootte
+const CONF_DREMPEL = 0.15;   // minimale confidence voor detectie
+const IOU_DREMPEL  = 0.45;   // NMS IoU drempel
+const MAX_Y_RATIO  = 0.70;   // stoplicht mag niet te laag in beeld
+const MIN_H_PX     = 6;      // minimale hoogte bounding box in YOLO-pixels
+const MAX_BOX_W_RATIO = 0.60; // max breedte box t.o.v. YOLO_SIZE (tegen valse detecties)
+const MAX_WH_RATIO = 2.0;    // max w/h verhouding (filter remlichten/brede objecten)
+
+// YOLOv8 klassen: 0=red, 1=green, 2=off, 3=yellow
+const KLASSE_MAP = { 0: 'rood', 1: 'groen', 3: 'oranje' }; // 2 (uit) genegeerd
 
 const DD = {
   ochtend:{uren:[6,7,8],   ic:'🌅'},
@@ -492,7 +489,6 @@ function huidigDD(){
   return 'dag';
 }
 
-// Gewogen geheugen
 function gew(ts){return Math.exp(-(Date.now()-ts)/86400000/HALFWAARDETIJD);}
 function gewGem(m){
   if(!m.length)return null;
@@ -501,7 +497,6 @@ function gewGem(m){
   return wS>0?gS/wS:null;
 }
 
-// Leerpercentage
 function berekenLeerPct(osmId){
   const dd=huidigDD();
   const alleM=[];
@@ -535,7 +530,6 @@ function leerKleur(pct){
   return 'var(--rood)';
 }
 
-// Afwijkingsdetector
 let afwijkBuf=[];
 function checkAfwijking(duur,gem){
   if(!gem)return false;
@@ -545,7 +539,6 @@ function checkAfwijking(duur,gem){
   return false;
 }
 
-// LocalStorage — leest van beide prefixen
 function laadM(osmId,dd){
   try{
     const resultaten=[];
@@ -574,7 +567,6 @@ function slaOp(osmId,richting,duur){
   return gewijzigd;
 }
 
-// Haal alle opgeslagen stoplicht IDs op
 function haalAlleOsmIds(){
   const ids=new Set();
   for(let i=0;i<localStorage.length;i++){
@@ -596,7 +588,7 @@ function telKP(){return haalAlleOsmIds().length;}
 const video       = document.getElementById('video-hidden');
 const canvas      = document.getElementById('camera-canvas');
 const overlCanvas = document.getElementById('overlay-canvas');
-const ctx         = canvas.getContext('2d',{willReadFrequently:true});
+const ctx         = canvas.getContext('2d');
 const octx        = overlCanvas.getContext('2d');
 const faseBalk    = document.getElementById('fase-balk');
 const faseLamp    = document.getElementById('fase-lamp');
@@ -638,380 +630,488 @@ const dOSM=document.getElementById('d-osm');
 const dInfo=document.getElementById('d-info');
 
 // App staat
-let cocoModel=null,modelGeladen=false,modelLaadStart=null;
-let fase=null,faseStart=null;
+let onnxSession=null, modelGeladen=false, modelLaadStart=null;
+let fase=null, faseStart=null;
 let activeCdDoel=0;
 let cdStart=null;
-let geluidAan=true,isNacht=false;
-let huidigePos=null,huidigeRichting=0;
-let dichtstbijOSM=null,vorigOsmId=null;
-let osmCache=[],cacheCentrum=null,cacheGeladen=false,cacheBezig=false;
-let aiTeller=0,aiKleur=null;
+let geluidAan=true, isNacht=false;
+let huidigePos=null, huidigeRichting=0;
+let dichtstbijOSM=null, vorigOsmId=null;
+let osmCache=[], cacheCentrum=null, cacheGeladen=false, cacheBezig=false;
+let aiTeller=0, aiKleur=null;
 let geenTeller=0;
-let audioCtx=null,wakeLock=null;
+let audioCtx=null, wakeLock=null;
 let frameT=0;
-let aiBezig=false,laatsteAI=null;
+let aiBezig=false, laatsteAI=null;
+let nieuwAIResultaat=false;
+// Tijdelijk canvas voor YOLO preprocessing
+let yoloCanvas=null, yoloCtx=null;
+// Pre-allocated buffer voor YOLO (voorkom 1.2MB allocatie per frame)
+const yoloFloat32 = new Float32Array(3 * YOLO_SIZE * YOLO_SIZE);
+// Letterbox padding info
+let lbPadX=0, lbPadY=0, lbScale=1;
 
-// ── MODEL ─────────────────────────────────────────────────────
-modelLaadStart=performance.now();
-let simPct=0;
-const simInt=setInterval(()=>{
-  if(modelGeladen)return;
-  simPct=Math.min(90,simPct+Math.random()*7+2);
-  const p=Math.round(simPct);
-  sModelBalk.style.width=p+'%';sModelPct.textContent=p+'%';
-  modelBalk.style.width=p+'%';
-},350);
+// ── YOLO MODEL LADEN ──────────────────────────────────────────
+modelLaadStart = performance.now();
+let simPct = 0;
+const simInt = setInterval(() => {
+  if (modelGeladen) return;
+  simPct = Math.min(85, simPct + Math.random() * 5 + 1);
+  const p = Math.round(simPct);
+  sModelBalk.style.width = p + '%';
+  sModelPct.textContent = p + '%';
+  modelBalk.style.width = p + '%';
+}, 400);
 
-async function prelaadModel(){
-  try{
-    cocoModel=await cocoSsd.load({base:'lite_mobilenet_v2'});
-    modelGeladen=true;
-    clearInterval(simInt);
-    sModelBalk.style.width='100%';sModelBalk.style.background='var(--groen)';
-    sModelPct.textContent='100%';
-    const t=((performance.now()-modelLaadStart)/1000).toFixed(1);
-    sModelLabel.textContent=`✓ AI klaar (${t}s)`;
-    sModelLabel.style.color='var(--groen)';
-    modelLijn.classList.add('weg');
-    pAI.className='pill-dot p';pAIT.textContent='AI';
-    dAI.textContent='ai:klaar';
-  }catch(e){
-    clearInterval(simInt);
-    sModelLabel.textContent='⚠ AI fout';
-    sModelLabel.style.color='var(--oranje)';
-    modelLijn.classList.add('weg');
-    pAI.className='pill-dot o';
-    dAI.textContent='ai:fout';
-  }
-}
-prelaadModel();
-
-const aantalKP=telKP();
-const sGehInfo=document.getElementById('s-geh-info');
-if(aantalKP>0){
-  sGehInfo.textContent=`💾 ${aantalKP} kruispunten opgeslagen`;
-  sGehInfo.style.color='var(--groen)';
-}else{
-  sGehInfo.textContent='Eerste gebruik — leergeheugen wordt opgebouwd';
-  sGehInfo.style.color='var(--dim)';
-}
-
-// ── HSL ───────────────────────────────────────────────────────
-function rgbHsl(r,g,b){
-  r/=255;g/=255;b/=255;
-  const mx=Math.max(r,g,b),mn=Math.min(r,g,b);
-  let h,s,l=(mx+mn)/2;
-  if(mx===mn){h=s=0;}else{
-    const d=mx-mn;s=l>.5?d/(2-mx-mn):d/(mx+mn);
-    switch(mx){case r:h=((g-b)/d+(g<b?6:0))/6;break;case g:h=((b-r)/d+2)/6;break;default:h=((r-g)/d+4)/6;}
-    h*=360;
-  }
-  return{h,s,l};
-}
-
-// Kleuranalyse binnen box
-function kleurVanBox(bx,by,bw,bh){
-  let id;
-  try{
-    const x=Math.max(0,Math.floor(bx)),y=Math.max(0,Math.floor(by));
-    const w=Math.min(canvas.width-x,Math.floor(bw));
-    const h=Math.min(canvas.height-y,Math.floor(bh));
-    if(w<4||h<4)return null;
-    id=ctx.getImageData(x,y,w,h);
-  }catch(e){return null;}
-  const data=id.data,W=Math.floor(bw),H=Math.floor(bh);
-  const isH=W>H*1.3;
-  const cH=Math.floor(H/3),cW=Math.floor(W/3);
-  let rS=0,gS=0,oS=0;
-  for(let py=0;py<H;py+=2){for(let px=0;px<W;px+=2){
-    const i=(py*W+px)*4;if(i+3>=data.length)continue;
-    const r=data[i],g=data[i+1],b=data[i+2];
-    const hd=r*0.299+g*0.587+b*0.114;if(hd<60)continue;
-    const{h,s,l}=rgbHsl(r,g,b);if(s<0.30)continue;
-    const sec=isH?Math.min(2,Math.floor(px/cW)):Math.min(2,Math.floor(py/cH));
-    if(s>0.35&&(h<18||h>342))rS+=(sec===0?3:1);
-    else if(s>0.35&&h>88&&h<167)gS+=(sec===2?3:1);
-    else if(s>0.40&&h>=13&&h<=47)oS+=(sec===1?3:1);
-  }}
-  const max=Math.max(rS,gS,oS);
-  if(max<6)return null;
-  if(rS===max)return{kleur:'rood',horizontaal:isH};
-  if(gS===max)return{kleur:'groen',horizontaal:isH};
-  return{kleur:'oranje',horizontaal:isH};
-}
-
-// AI detectie met hoogtefilter
-async function voerAIUit(){
-  if(!modelGeladen||!cocoModel||video.readyState<2||aiBezig)return;
-  aiBezig=true;
-  try{
-    const detecties=await cocoModel.detect(video,6,0.35);
-    let sl=detecties.filter(d=>d.class==='traffic light'&&d.score>0.35);
-    if(!sl.length){laatsteAI=null;dAI.textContent='ai:weg';return;}
-    const geldig=sl.filter(d=>{
-      const[bx,by,bw,bh]=d.bbox;
-      const midY=(by+bh/2)/video.videoHeight;
-      if(midY>MAX_Y_RATIO)return false;
-      if(bh<MIN_BOX_H_PX)return false;
-      if(bw/video.videoWidth>MAX_BOX_W_RATIO)return false;
-      return true;
+async function laadONNXModel() {
+  try {
+    sModelLabel.textContent = '🤖 YOLOv8 model laden…';
+    onnxSession = await ort.InferenceSession.create('./model/model.onnx', {
+      executionProviders: ['wasm'],
+      graphOptimizationLevel: 'all',
     });
-    if(!geldig.length){dAI.textContent=`ai:gefilterd(${sl.length})`;return;}
-    const beste=geldig.reduce((a,b)=>a.score>b.score?a:b);
-    const[bx,by,bw,bh]=beste.bbox;
-    const scX=canvas.width/video.videoWidth,scY=canvas.height/video.videoHeight;
-    const kr=kleurVanBox(bx*scX,by*scY,bw*scX,bh*scY);
-    dAI.textContent=`ai:${kr?.kleur||'?'} ${(beste.score*100).toFixed(0)}%`;
-    laatsteAI={
-      kleur:kr?.kleur||null,horizontaal:kr?.horizontaal||false,
-      score:beste.score,
-      box:{x:bx*scX,y:by*scY,w:bw*scX,h:bh*scY,kleur:kr?.kleur||null}
-    };
-  }catch(e){dAI.textContent='ai:err';}
-  finally{aiBezig=false;}
+    modelGeladen = true;
+    clearInterval(simInt);
+    sModelBalk.style.width = '100%';
+    sModelBalk.style.background = 'var(--groen)';
+    sModelPct.textContent = '100%';
+    const t = ((performance.now() - modelLaadStart) / 1000).toFixed(1);
+    sModelLabel.textContent = `✓ YOLOv8 klaar (${t}s)`;
+    sModelLabel.style.color = 'var(--groen)';
+    modelLijn.classList.add('weg');
+    pAI.className = 'pill-dot p';
+    pAIT.textContent = 'YOLOv8';
+    dAI.textContent = 'ai:klaar';
+    // Init YOLO canvas
+    yoloCanvas = document.createElement('canvas');
+    yoloCanvas.width = YOLO_SIZE;
+    yoloCanvas.height = YOLO_SIZE;
+    yoloCtx = yoloCanvas.getContext('2d');
+  } catch (e) {
+    clearInterval(simInt);
+    sModelLabel.textContent = '⚠ Model niet gevonden — upload model/model.onnx';
+    sModelLabel.style.color = 'var(--oranje)';
+    modelLijn.classList.add('weg');
+    pAI.className = 'pill-dot o';
+    dAI.textContent = 'ai:fout';
+    console.error('ONNX model laden mislukt:', e);
+  }
+}
+laadONNXModel();
+
+const aantalKP = telKP();
+const sGehInfo = document.getElementById('s-geh-info');
+if (aantalKP > 0) {
+  sGehInfo.textContent = `💾 ${aantalKP} kruispunten opgeslagen`;
+  sGehInfo.style.color = 'var(--groen)';
+} else {
+  sGehInfo.textContent = 'Eerste gebruik — leergeheugen wordt opgebouwd';
+  sGehInfo.style.color = 'var(--dim)';
 }
 
-// Overlay
-function tekenOverlay(box,score,horizontaal){
-  if(overlCanvas.width!==canvas.width)overlCanvas.width=canvas.width;
-  if(overlCanvas.height!==canvas.height)overlCanvas.height=canvas.height;
-  octx.clearRect(0,0,overlCanvas.width,overlCanvas.height);
-  if(!box)return;
-  const scX=window.innerWidth/canvas.width,scY=window.innerHeight/canvas.height;
-  const sx=box.x*scX,sy=box.y*scY,sw=box.w*scX,sh=box.h*scY;
-  const kCSS=box.kleur==='rood'?'#FF3030':box.kleur==='groen'?'#34C759':box.kleur==='oranje'?'#FF9F0A':'#888';
-  const mg=6,hl=Math.min(sw,sh)*0.35+6;
-  const x1=sx-mg,y1=sy-mg,x2=sx+sw+mg,y2=sy+sh+mg;
-  octx.strokeStyle=kCSS;octx.lineWidth=2;octx.globalAlpha=0.85;
-  octx.shadowColor=kCSS;octx.shadowBlur=6;
-  octx.beginPath();
-  octx.moveTo(x1+hl,y1);octx.lineTo(x1,y1);octx.lineTo(x1,y1+hl);
-  octx.moveTo(x2-hl,y1);octx.lineTo(x2,y1);octx.lineTo(x2,y1+hl);
-  octx.moveTo(x1,y2-hl);octx.lineTo(x1,y2);octx.lineTo(x1+hl,y2);
-  octx.moveTo(x2-hl,y2);octx.lineTo(x2,y2);octx.lineTo(x2,y2-hl);
-  octx.stroke();octx.shadowBlur=0;
-  if(box.kleur){
-    octx.fillStyle=kCSS;octx.globalAlpha=0.9;octx.font='bold 9px monospace';
-    octx.fillText(`${box.kleur.toUpperCase()}${horizontaal?' ↔':' ↕'}${score?` ${(score*100).toFixed(0)}%`:''}`,x1,y1-4);
+// ── YOLO PRE-PROCESSING ───────────────────────────────────────
+function preprocessVoorYOLO() {
+  // Letterbox: behoud aspect ratio, pad met grijs (114)
+  const vW = video.videoWidth, vH = video.videoHeight;
+  lbScale = Math.min(YOLO_SIZE / vW, YOLO_SIZE / vH);
+  const newW = Math.round(vW * lbScale);
+  const newH = Math.round(vH * lbScale);
+  lbPadX = (YOLO_SIZE - newW) / 2;
+  lbPadY = (YOLO_SIZE - newH) / 2;
+
+  // Vul met grijs (114/255), teken geschaalde video gecentreerd
+  yoloCtx.fillStyle = 'rgb(114,114,114)';
+  yoloCtx.fillRect(0, 0, YOLO_SIZE, YOLO_SIZE);
+  yoloCtx.drawImage(video, lbPadX, lbPadY, newW, newH);
+
+  const imageData = yoloCtx.getImageData(0, 0, YOLO_SIZE, YOLO_SIZE);
+  const pixels = imageData.data; // RGBA
+
+  // Converteer naar CHW float32 [0,1], hergebruik pre-allocated buffer
+  const stride = YOLO_SIZE * YOLO_SIZE;
+  for (let i = 0; i < stride; i++) {
+    yoloFloat32[i]            = pixels[i * 4]     / 255.0; // R
+    yoloFloat32[stride + i]   = pixels[i * 4 + 1] / 255.0; // G
+    yoloFloat32[2 * stride + i] = pixels[i * 4 + 2] / 255.0; // B
+  }
+  return new ort.Tensor('float32', yoloFloat32, [1, 3, YOLO_SIZE, YOLO_SIZE]);
+}
+
+// ── YOLO POST-PROCESSING ──────────────────────────────────────
+function postprocessYOLO(outputData, dims) {
+  // outputData: Float32Array van [1, 8, numAnchors]
+  // dims: [1, 8, numAnchors]
+  const numAnchors = dims[2];
+  const detections = [];
+
+  for (let i = 0; i < numAnchors; i++) {
+    const cx = outputData[0 * numAnchors + i];
+    const cy = outputData[1 * numAnchors + i];
+    const w  = outputData[2 * numAnchors + i];
+    const h  = outputData[3 * numAnchors + i];
+
+    // Klasse scores (kanalen 4-7: red, green, off, yellow)
+    let maxScore = 0, maxKlasse = -1;
+    for (let c = 0; c < 4; c++) {
+      const score = outputData[(4 + c) * numAnchors + i];
+      if (score > maxScore) { maxScore = score; maxKlasse = c; }
+    }
+
+    // Filter: klasse 2 (uit), lage confidence, te laag in beeld, te klein, te breed, remlichten
+    if (maxKlasse === 2) continue;
+    if (maxScore < CONF_DREMPEL) continue;
+    if (cy / YOLO_SIZE > MAX_Y_RATIO) continue;
+    if (h < MIN_H_PX) continue;
+    if (w / YOLO_SIZE > MAX_BOX_W_RATIO) continue; // te brede box = vals positief
+    if (h > 0 && w / h > MAX_WH_RATIO) continue;   // te breed t.o.v. hoogte = remlicht/bord
+
+    const x1 = cx - w / 2;
+    const y1 = cy - h / 2;
+    const x2 = cx + w / 2;
+    const y2 = cy + h / 2;
+    detections.push({ klasse: maxKlasse, score: maxScore, x1, y1, x2, y2, w, h, cx, cy });
+  }
+
+  // Sorteer op confidence (hoog naar laag)
+  detections.sort((a, b) => b.score - a.score);
+  // NMS toepassen
+  return nmsFilter(detections);
+}
+
+function nmsFilter(dets) {
+  if (!dets.length) return [];
+  const result = [];
+  const onderdrukt = new Set();
+  for (let i = 0; i < dets.length; i++) {
+    if (onderdrukt.has(i)) continue;
+    result.push(dets[i]);
+    if (result.length >= 5) break;
+    for (let j = i + 1; j < dets.length; j++) {
+      if (onderdrukt.has(j)) continue;
+      if (berekenIoU(dets[i], dets[j]) > IOU_DREMPEL) onderdrukt.add(j);
+    }
+  }
+  return result;
+}
+
+function berekenIoU(a, b) {
+  const ix1 = Math.max(a.x1, b.x1), iy1 = Math.max(a.y1, b.y1);
+  const ix2 = Math.min(a.x2, b.x2), iy2 = Math.min(a.y2, b.y2);
+  if (ix2 <= ix1 || iy2 <= iy1) return 0;
+  const inter = (ix2 - ix1) * (iy2 - iy1);
+  const union = (a.x2-a.x1)*(a.y2-a.y1) + (b.x2-b.x1)*(b.y2-b.y1) - inter;
+  return inter / union;
+}
+
+// ── AI DETECTIE (YOLO) ────────────────────────────────────────
+async function voerAIUit() {
+  if (!modelGeladen || !onnxSession || video.readyState < 2 || aiBezig) return;
+  aiBezig = true;
+  try {
+    // 1. Preprocessing
+    const inputTensor = preprocessVoorYOLO();
+
+    // 2. Inferentie
+    const output = await onnxSession.run({ images: inputTensor });
+    const outputTensor = output['output0'];
+    const outputData = outputTensor.data;
+    const dims = outputTensor.dims;
+
+    // 3. Post-processing
+    const detecties = postprocessYOLO(outputData, dims);
+
+    if (!detecties.length) {
+      dAI.textContent = 'ai:weg';
+      laatsteAI = null;
+      nieuwAIResultaat = true;
+      return;
+    }
+
+    // 4. Beste detectie (hoogste confidence, klasse niet 'uit')
+    const beste = detecties[0];
+    const kleur = KLASSE_MAP[beste.klasse];
+    if (!kleur) {
+      dAI.textContent = 'ai:uit';
+      laatsteAI = null;
+      nieuwAIResultaat = true;
+      return;
+    }
+
+    // 5. Schaal bounding box naar canvas-coördinaten (letterbox correctie)
+    const horizontaal = beste.w > beste.h * 1.3;
+
+    dAI.textContent = `ai:${kleur} ${(beste.score * 100).toFixed(0)}%`;
+    laatsteAI = {
+      kleur,
+      horizontaal,
+      score: beste.score,
+      box: {
+        x: (beste.x1 - lbPadX) / lbScale,
+        y: (beste.y1 - lbPadY) / lbScale,
+        w: beste.w / lbScale,
+        h: beste.h / lbScale,
+        kleur,
+      }
+    };
+    nieuwAIResultaat = true;
+  } catch(e) {
+    dAI.textContent = 'ai:err';
+    console.error('YOLO inferentie fout:', e);
+  } finally {
+    aiBezig = false;
   }
 }
 
-// Bevestiging
-function verwerkDetecties(){
-  const aiR=laatsteAI;
-  if(aiR&&aiR.kleur){
-    if(aiR.kleur===aiKleur)aiTeller++;
-    else{aiKleur=aiR.kleur;aiTeller=1;}
-    tekenOverlay(aiR.box,aiR.score,aiR.horizontaal);
-    geenTeller=0;
-    dInfo.textContent=`${aiR.kleur} ${aiTeller}/${AI_DREMPEL}`;
-    if(aiTeller>=AI_DREMPEL)verwerkFase(aiR.kleur,aiR.horizontaal);
+// ── OVERLAY TEKENEN ───────────────────────────────────────────
+function tekenOverlay(box, score, horizontaal) {
+  if (overlCanvas.width !== canvas.width) overlCanvas.width = canvas.width;
+  if (overlCanvas.height !== canvas.height) overlCanvas.height = canvas.height;
+  octx.clearRect(0, 0, overlCanvas.width, overlCanvas.height);
+  if (!box) return;
+
+  const scX = window.innerWidth / canvas.width;
+  const scY = window.innerHeight / canvas.height;
+  const sx = box.x * scX, sy = box.y * scY;
+  const sw = box.w * scX, sh = box.h * scY;
+  const kCSS = box.kleur === 'rood' ? '#FF3030'
+             : box.kleur === 'groen' ? '#34C759'
+             : box.kleur === 'oranje' ? '#FF9F0A' : '#888';
+
+  const mg = 6, hl = Math.min(sw, sh) * 0.35 + 6;
+  const x1 = sx - mg, y1 = sy - mg, x2 = sx + sw + mg, y2 = sy + sh + mg;
+
+  octx.strokeStyle = kCSS;
+  octx.lineWidth = 2;
+  octx.globalAlpha = 0.90;
+  octx.shadowColor = kCSS;
+  octx.shadowBlur = 8;
+  octx.beginPath();
+  // Hoekmarkers
+  octx.moveTo(x1+hl,y1); octx.lineTo(x1,y1); octx.lineTo(x1,y1+hl);
+  octx.moveTo(x2-hl,y1); octx.lineTo(x2,y1); octx.lineTo(x2,y1+hl);
+  octx.moveTo(x1,y2-hl); octx.lineTo(x1,y2); octx.lineTo(x1+hl,y2);
+  octx.moveTo(x2-hl,y2); octx.lineTo(x2,y2); octx.lineTo(x2,y2-hl);
+  octx.stroke();
+  octx.shadowBlur = 0;
+
+  if (box.kleur) {
+    octx.fillStyle = kCSS;
+    octx.globalAlpha = 0.9;
+    octx.font = 'bold 9px monospace';
+    const label = `${box.kleur.toUpperCase()}${horizontaal?' ↔':' ↕'}${score ? ` ${(score*100).toFixed(0)}%` : ''}`;
+    octx.fillText(label, x1, y1 - 4);
+  }
+}
+
+// ── BEVESTIGING EN FASE-LOGICA ────────────────────────────────
+function verwerkDetecties() {
+  if (!nieuwAIResultaat) return; // alleen tellen op AI-frames
+  nieuwAIResultaat = false;
+  const aiR = laatsteAI;
+  if (aiR && aiR.kleur) {
+    if (aiR.kleur === aiKleur) aiTeller++;
+    else { aiKleur = aiR.kleur; aiTeller = 1; }
+    tekenOverlay(aiR.box, aiR.score, aiR.horizontaal);
+    geenTeller = 0;
+    dInfo.textContent = `${aiR.kleur} ${aiTeller}/${AI_DREMPEL}`;
+    if (aiTeller >= AI_DREMPEL) verwerkFase(aiR.kleur, aiR.horizontaal);
     return;
   }
-  if(aiR&&!aiR.kleur){
-    tekenOverlay(aiR.box,aiR.score,false);
-    geenTeller=0;dInfo.textContent='kleur?';return;
-  }
   tekenOverlay(null);
-  aiTeller=0;aiKleur=null;
+  aiTeller = 0; aiKleur = null;
   geenTeller++;
-  dInfo.textContent=`geen(${geenTeller}/${GEEN_RESET})`;
-  if(geenTeller>=GEEN_RESET&&fase!==null)resetNeutraal();
+  dInfo.textContent = `geen(${geenTeller}/${GEEN_RESET})`;
+  if (geenTeller >= GEEN_RESET && fase !== null) resetNeutraal();
 }
 
-function resetNeutraal(){
-  fase=null;faseStart=null;
-  faseBalk.className='';faseLamp.className='';
-  faseWoord.textContent='—';faseSub.textContent='Richt camera op stoplicht';
-  faseBron.textContent='';randGlow.className='';stopCd();
+function resetNeutraal() {
+  fase = null; faseStart = null;
+  faseBalk.className = ''; faseLamp.className = '';
+  faseWoord.textContent = '—';
+  faseSub.textContent = 'Richt camera op stoplicht';
+  faseBron.textContent = '';
+  randGlow.className = '';
+  stopCd();
 }
 
-// Fasewissel
-function verwerkFase(nieuw,horizontaal){
-  if(nieuw===fase)return;
-  const nu=performance.now();
-  if(fase&&faseStart){
-    const dur=(nu-faseStart)/1000;
-    if(fase==='rood'&&dur>4&&dur<300&&dichtstbijOSM){
-      slaOp(dichtstbijOSM.id,huidigeRichting,dur);
+function verwerkFase(nieuw, horizontaal) {
+  if (nieuw === fase) return;
+  const nu = performance.now();
+  if (fase && faseStart) {
+    const dur = (nu - faseStart) / 1000;
+    if (fase === 'rood' && dur > 4 && dur < 300 && dichtstbijOSM) {
+      slaOp(dichtstbijOSM.id, huidigeRichting, dur);
       bijwerkLeerkaart(dichtstbijOSM);
       bijwerkDashboardKnop();
     }
   }
-  fase=nieuw;faseStart=nu;geenTeller=0;
-  aiTeller=0;aiKleur=nieuw;
-  updateUI(nieuw,horizontaal);
-  if(nieuw==='groen')speelGroen();
-  if(nieuw==='rood'){
-    const m=dichtstbijOSM?laadM(dichtstbijOSM.id,huidigDD()):[];
-    const gem=gewGem(m);
-    if(gem>0){activeCdDoel=gem;startCd();}else stopCd();
-  }else stopCd();
+  fase = nieuw; faseStart = nu; geenTeller = 0;
+  aiTeller = 0; aiKleur = nieuw;
+  updateUI(nieuw, horizontaal);
+  if (nieuw === 'groen') speelGroen();
+  if (nieuw === 'rood') {
+    const m = dichtstbijOSM ? laadM(dichtstbijOSM.id, huidigDD()) : [];
+    const gem = gewGem(m);
+    if (gem > 0) { activeCdDoel = gem; startCd(); } else stopCd();
+  } else stopCd();
 }
 
-// Atomaire UI update
-function updateUI(f,horizontaal){
-  faseBalk.className=f||'';faseLamp.className=f||'';randGlow.className=f||'';
-  const woorden={rood:'ROOD',groen:'GROEN',oranje:'ORANJE'};
-  const subs={rood:'Stop — wachten op groen',groen:'Rijden!',oranje:'Afremmen'};
-  faseWoord.textContent=woorden[f]||'—';
-  faseSub.textContent=subs[f]||'Richt camera op stoplicht';
-  faseBron.textContent=f?`AI${horizontaal?' ↔':' ↕'}`:'';
-  const rk=f==='rood'?'var(--rood)':f==='groen'?'var(--groen)':f==='oranje'?'var(--oranje)':'rgba(255,255,255,.12)';
-  cdRingVoor.style.stroke=rk;
-  if(f==='groen'){
-    cdLabel.textContent='Groen actief';cdGetal.textContent='✓';
-    cdGetal.className='nabij';cdEenheid.textContent='';
-    cdRingVoor.style.strokeDashoffset='0';
-  }else if(f==='rood'){
-    cdGetal.className='';cdEenheid.textContent='seconden';
-    cdLabel.textContent='Groen verwacht over';
-    if(activeCdDoel===0){cdGetal.textContent='—';cdGetal.className='leeg';}
-  }else{
-    cdGetal.textContent='—';cdGetal.className='leeg';
-    cdEenheid.textContent='seconden';cdLabel.textContent='Groen verwacht over';
-    cdRingVoor.style.strokeDashoffset=OMTREK_CD.toFixed(1);
+function updateUI(f, horizontaal) {
+  faseBalk.className = f || '';
+  faseLamp.className = f || '';
+  randGlow.className = f || '';
+  const woorden = { rood:'ROOD', groen:'GROEN', oranje:'ORANJE' };
+  const subs = { rood:'Stop — wachten op groen', groen:'Rijden!', oranje:'Afremmen' };
+  faseWoord.textContent = woorden[f] || '—';
+  faseSub.textContent = subs[f] || 'Richt camera op stoplicht';
+  faseBron.textContent = f ? `YOLOv8${horizontaal?' ↔':' ↕'}` : '';
+  const rk = f==='rood'?'var(--rood)':f==='groen'?'var(--groen)':f==='oranje'?'var(--oranje)':'rgba(255,255,255,.12)';
+  cdRingVoor.style.stroke = rk;
+  if (f === 'groen') {
+    cdLabel.textContent = 'Groen actief';
+    cdGetal.textContent = '✓';
+    cdGetal.className = 'nabij';
+    cdEenheid.textContent = '';
+    cdRingVoor.style.strokeDashoffset = '0';
+  } else if (f === 'rood') {
+    cdGetal.className = '';
+    cdEenheid.textContent = 'seconden';
+    cdLabel.textContent = 'Groen verwacht over';
+    if (activeCdDoel === 0) { cdGetal.textContent = '—'; cdGetal.className = 'leeg'; }
+  } else {
+    cdGetal.textContent = '—'; cdGetal.className = 'leeg';
+    cdEenheid.textContent = 'seconden';
+    cdLabel.textContent = 'Groen verwacht over';
+    cdRingVoor.style.strokeDashoffset = OMTREK_CD.toFixed(1);
   }
 }
 
-// Countdown
-function startCd(){
-  cdStart=performance.now();
-  const pct=dichtstbijOSM?berekenLeerPct(dichtstbijOSM.id):0;
-  cdLabel.textContent=pct>60?`Groen over (${pct}% zeker)`:'Groen verwacht over';
-  cdEenheid.textContent='seconden';cdRingVoor.style.stroke='var(--rood)';
+function startCd() {
+  cdStart = performance.now();
+  const pct = dichtstbijOSM ? berekenLeerPct(dichtstbijOSM.id) : 0;
+  cdLabel.textContent = pct > 60 ? `Groen over (${pct}% zeker)` : 'Groen verwacht over';
+  cdEenheid.textContent = 'seconden';
+  cdRingVoor.style.stroke = 'var(--rood)';
 }
-function stopCd(){cdStart=null;cdRingVoor.style.strokeDashoffset=OMTREK_CD.toFixed(1);}
-function tickCd(){
-  if(!fase||fase!=='rood'||!cdStart||!activeCdDoel)return;
-  const ver=(performance.now()-cdStart)/1000,over=Math.max(0,activeCdDoel-ver);
-  const prog=Math.min(1,ver/activeCdDoel);
-  cdGetal.textContent=over<1?'<1':Math.ceil(over).toString();
-  cdGetal.className=over<=6?'nabij':'';
-  cdRingVoor.style.strokeDashoffset=(OMTREK_CD*(1-prog)).toFixed(1);
+function stopCd() { cdStart = null; cdRingVoor.style.strokeDashoffset = OMTREK_CD.toFixed(1); }
+function tickCd() {
+  if (!fase || fase !== 'rood' || !cdStart || !activeCdDoel) return;
+  const ver = (performance.now() - cdStart) / 1000;
+  const over = Math.max(0, activeCdDoel - ver);
+  const prog = Math.min(1, ver / activeCdDoel);
+  cdGetal.textContent = over < 1 ? '<1' : Math.ceil(over).toString();
+  cdGetal.className = over <= 6 ? 'nabij' : '';
+  cdRingVoor.style.strokeDashoffset = (OMTREK_CD * (1 - prog)).toFixed(1);
 }
 
-// Leerkaart
-function bijwerkLeerkaart(osm){
-  if(!osm){
-    leerNaam.textContent='Wacht op GPS…';
-    leerBadge.textContent='—';leerBadge.className='leer-nieuw-badge';
-    leerPctBalk.style.width='0%';leerPctGetal.textContent='0%';
+function bijwerkLeerkaart(osm) {
+  if (!osm) {
+    leerNaam.textContent = 'Wacht op GPS…';
+    leerBadge.textContent = '—'; leerBadge.className = 'leer-nieuw-badge';
+    leerPctBalk.style.width = '0%'; leerPctGetal.textContent = '0%';
     return;
   }
-  const pct=berekenLeerPct(osm.id);
-  const kleur=leerKleur(pct);
-  const dd=huidigDD();
-  leerNaam.textContent=osm.naam||`Stoplicht ${osm.id}`;
-  const totM=Object.keys(DD).reduce((s,d)=>s+laadM(osm.id,d).length,0);
-  if(totM>0){
-    leerBadge.textContent=`${totM}x gezien`;
-    leerBadge.className='leer-nieuw-badge bekend';
-  }else{
-    leerBadge.textContent='Nieuw';leerBadge.className='leer-nieuw-badge';
+  const pct = berekenLeerPct(osm.id);
+  const kleur = leerKleur(pct);
+  const dd = huidigDD();
+  leerNaam.textContent = osm.naam || `Stoplicht ${osm.id}`;
+  const totM = Object.keys(DD).reduce((s,d) => s + laadM(osm.id, d).length, 0);
+  if (totM > 0) {
+    leerBadge.textContent = `${totM}x gezien`;
+    leerBadge.className = 'leer-nieuw-badge bekend';
+  } else {
+    leerBadge.textContent = 'Nieuw'; leerBadge.className = 'leer-nieuw-badge';
   }
-  leerPctBalk.style.width=pct+'%';leerPctBalk.style.background=kleur;
-  leerPctGetal.textContent=pct+'%';leerPctGetal.style.color=kleur;
-  dPct.textContent=`leer:${pct}%`;
-  Object.keys(DD).forEach(d=>{
-    const m=laadM(osm.id,d);
-    const gem=gewGem(m);
-    document.getElementById(`dv-${d}`).textContent=gem?Math.round(gem)+'s':'—';
-    document.getElementById(`dc-${d}`).textContent=m.length+'x';
-    document.getElementById(`dd-${d}`).classList.toggle('actief',d===dd);
+  leerPctBalk.style.width = pct + '%'; leerPctBalk.style.background = kleur;
+  leerPctGetal.textContent = pct + '%'; leerPctGetal.style.color = kleur;
+  dPct.textContent = `leer:${pct}%`;
+  Object.keys(DD).forEach(d => {
+    const m = laadM(osm.id, d);
+    const gem = gewGem(m);
+    document.getElementById(`dv-${d}`).textContent = gem ? Math.round(gem) + 's' : '—';
+    document.getElementById(`dc-${d}`).textContent = m.length + 'x';
+    document.getElementById(`dd-${d}`).classList.toggle('actief', d === dd);
   });
 }
 
-function bijwerkDashboardKnop(){
-  const n=telKP();
-  dashKnopCnt.textContent=`${n} kruispunten →`;
+function bijwerkDashboardKnop() {
+  const n = telKP();
+  dashKnopCnt.textContent = `${n} kruispunten →`;
 }
 
-// ══ DASHBOARD FUNCTIES ══════════════════════════════════════════
-let huidigFilter='alle';
+// ── DASHBOARD ─────────────────────────────────────────────────
+let huidigFilter = 'alle';
 
-function openDashboard(){
+function openDashboard() {
   laadDashboard();
   document.getElementById('dashboard').classList.remove('verborgen');
 }
-
-function sluitDashboard(){
+function sluitDashboard() {
   document.getElementById('dashboard').classList.add('verborgen');
 }
-
-function filterDashboard(filter, el){
-  huidigFilter=filter;
-  document.querySelectorAll('.filter-btn').forEach(b=>b.classList.remove('actief'));
+function filterDashboard(filter, el) {
+  huidigFilter = filter;
+  document.querySelectorAll('.filter-btn').forEach(b => b.classList.remove('actief'));
   el.classList.add('actief');
   laadDashboard();
 }
 
-function laadDashboard(){
-  const ids=haalAlleOsmIds();
-  const lijst=document.getElementById('dash-lijst');
+function laadDashboard() {
+  const ids = haalAlleOsmIds();
+  const lijst = document.getElementById('dash-lijst');
 
-  if(ids.length===0){
-    lijst.innerHTML=`
+  if (ids.length === 0) {
+    lijst.innerHTML = `
       <div id="dash-leeg">
         <div id="dash-leeg-icoon">🗺</div>
         <div id="dash-leeg-tekst">Nog geen stoplichten geleerd.<br/>Rij langs stoplichten om data op te bouwen.</div>
       </div>`;
-    document.getElementById('ds-kruispunten').textContent='0';
-    document.getElementById('ds-metingen').textContent='0';
-    document.getElementById('ds-gem-pct').textContent='0%';
+    document.getElementById('ds-kruispunten').textContent = '0';
+    document.getElementById('ds-metingen').textContent = '0';
+    document.getElementById('ds-gem-pct').textContent = '0%';
     return;
   }
 
-  // Bouw data op voor elk stoplicht
-  const data=ids.map(id=>{
-    const pct=berekenLeerPctVoorDashboard(id);
-    const alleM=Object.keys(DD).flatMap(d=>laadM(id,d));
-    const totM=alleM.length;
-    const laatste=alleM.length>0?Math.max(...alleM.map(m=>m.tijd)):0;
-    const naam=vindNaamVoorId(id);
-    return{id,pct,totM,laatste,naam};
-  }).filter(d=>d.totM>0);
+  const data = ids.map(id => {
+    const pct = berekenLeerPct(id);
+    const alleM = Object.keys(DD).flatMap(d => laadM(id, d));
+    const totM = alleM.length;
+    const laatste = alleM.length > 0 ? Math.max(...alleM.map(m => m.tijd)) : 0;
+    const naam = vindNaamVoorId(id);
+    return { id, pct, totM, laatste, naam };
+  }).filter(d => d.totM > 0);
 
-  // Filter toepassen
-  const gefilterd=data.filter(d=>{
-    if(huidigFilter==='hoog')return d.pct>=85;
-    if(huidigFilter==='goed')return d.pct>=60&&d.pct<85;
-    if(huidigFilter==='laag')return d.pct<60;
-    if(huidigFilter==='nacht')return laadM(d.id,'nacht').length>0;
+  const gefilterd = data.filter(d => {
+    if (huidigFilter === 'hoog') return d.pct >= 85;
+    if (huidigFilter === 'goed') return d.pct >= 60 && d.pct < 85;
+    if (huidigFilter === 'laag') return d.pct < 60;
+    if (huidigFilter === 'nacht') return laadM(d.id, 'nacht').length > 0;
     return true;
   });
 
-  // Sorteer op percentage hoog naar laag
-  gefilterd.sort((a,b)=>b.pct-a.pct);
+  gefilterd.sort((a, b) => b.pct - a.pct);
 
-  // Statistieken
-  const totMetingen=data.reduce((s,d)=>s+d.totM,0);
-  const gemPct=data.length>0?Math.round(data.reduce((s,d)=>s+d.pct,0)/data.length):0;
-  document.getElementById('ds-kruispunten').textContent=data.length;
-  document.getElementById('ds-metingen').textContent=totMetingen;
-  document.getElementById('ds-gem-pct').textContent=gemPct+'%';
+  const totMetingen = data.reduce((s, d) => s + d.totM, 0);
+  const gemPct = data.length > 0 ? Math.round(data.reduce((s, d) => s + d.pct, 0) / data.length) : 0;
+  document.getElementById('ds-kruispunten').textContent = data.length;
+  document.getElementById('ds-metingen').textContent = totMetingen;
+  document.getElementById('ds-gem-pct').textContent = gemPct + '%';
 
-  // Render lijst
-  if(gefilterd.length===0){
-    lijst.innerHTML=`<div style="text-align:center;padding:30px;color:var(--dim);font-size:13px">Geen stoplichten gevonden voor dit filter</div>`;
+  if (gefilterd.length === 0) {
+    lijst.innerHTML = `<div style="text-align:center;padding:30px;color:var(--dim);font-size:13px">Geen stoplichten gevonden voor dit filter</div>`;
     return;
   }
 
-  lijst.innerHTML=gefilterd.map(d=>{
-    const kleur=leerKleur(d.pct);
-    const kleurCSS=d.pct>=85?'#34C759':d.pct>=60?'#0A84FF':d.pct>=30?'#FF9F0A':'#FF3030';
-    const leeftijd=tijdGeleden(d.laatste);
-
-    // Dagdeel indicators
-    const ddHTML=Object.keys(DD).map(dd=>{
-      const m=laadM(d.id,dd);
-      const gem=gewGem(m);
-      const heeftData=m.length>0;
-      return`<div class="sl-dd-item${heeftData?' heeft-data':''}">${DD[dd].ic}${gem?' '+Math.round(gem)+'s':''}</div>`;
+  lijst.innerHTML = gefilterd.map(d => {
+    const kleurCSS = d.pct>=85?'#34C759':d.pct>=60?'#0A84FF':d.pct>=30?'#FF9F0A':'#FF3030';
+    const leeftijd = tijdGeleden(d.laatste);
+    const ddHTML = Object.keys(DD).map(dd => {
+      const m = laadM(d.id, dd);
+      const gem = gewGem(m);
+      const heeftData = m.length > 0;
+      return `<div class="sl-dd-item${heeftData?' heeft-data':''}">${DD[dd].ic}${gem?' '+Math.round(gem)+'s':''}</div>`;
     }).join('');
-
-    return`
+    return `
       <div class="sl-kaart">
         <div class="sl-kaart-header">
           <div class="sl-kaart-naam">${d.naam}</div>
@@ -1028,185 +1128,198 @@ function laadDashboard(){
   }).join('');
 }
 
-function berekenLeerPctVoorDashboard(osmId){
-  // Gebruik huidig dagdeel voor consistentie berekening
-  return berekenLeerPct(osmId);
+function escapeHTML(s) {
+  return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
 }
 
-function vindNaamVoorId(id){
-  // Zoek in OSM cache
-  const gevonden=osmCache.find(sl=>sl.id.toString()===id.toString());
-  if(gevonden?.naam)return gevonden.naam;
-  return`Stoplicht ${id}`;
+function vindNaamVoorId(id) {
+  const gevonden = osmCache.find(sl => sl.id.toString() === id.toString());
+  if (gevonden?.naam) return escapeHTML(gevonden.naam);
+  return `Stoplicht ${id}`;
 }
 
-function tijdGeleden(ts){
-  if(!ts)return'Onbekend';
-  const sec=Math.floor((Date.now()-ts)/1000);
-  if(sec<60)return'Zojuist';
-  if(sec<3600)return`${Math.floor(sec/60)}min geleden`;
-  if(sec<86400)return`${Math.floor(sec/3600)}u geleden`;
-  return`${Math.floor(sec/86400)}d geleden`;
+function tijdGeleden(ts) {
+  if (!ts) return 'Onbekend';
+  const sec = Math.floor((Date.now() - ts) / 1000);
+  if (sec < 60) return 'Zojuist';
+  if (sec < 3600) return `${Math.floor(sec/60)}min geleden`;
+  if (sec < 86400) return `${Math.floor(sec/3600)}u geleden`;
+  return `${Math.floor(sec/86400)}d geleden`;
 }
 
 // ── OSM ───────────────────────────────────────────────────────
-async function downloadOSM(lat,lon){
-  if(cacheBezig)return;
-  cacheBezig=true;
-  pOSM.className='pill-dot o';pOSMT.textContent='laden';dOSM.textContent='osm:laden';
-  const q=`[out:json][timeout:15];node["highway"="traffic_signals"](around:${OSM_RADIUS},${lat},${lon});out body;`;
-  try{
-    const ctrl=new AbortController();
-    const t=setTimeout(()=>ctrl.abort(),18000);
-    const r=await fetch(OVERPASS_URL,{method:'POST',body:`data=${encodeURIComponent(q)}`,signal:ctrl.signal});
-    clearTimeout(t);if(!r.ok)throw new Error();
-    const d=await r.json();
-    osmCache=(d.elements||[]).map(el=>({
-      id:el.id,lat:el.lat,lon:el.lon,
-      naam:el.tags?.name||el.tags?.ref||null,
-      slim:!!(el.tags?.['traffic_signals:sound']||el.tags?.description?.toLowerCase().includes('ivri')),
+async function downloadOSM(lat, lon) {
+  if (cacheBezig) return;
+  cacheBezig = true;
+  pOSM.className = 'pill-dot o'; pOSMT.textContent = 'laden'; dOSM.textContent = 'osm:laden';
+  const q = `[out:json][timeout:15];node["highway"="traffic_signals"](around:${OSM_RADIUS},${lat},${lon});out body;`;
+  try {
+    const ctrl = new AbortController();
+    const t = setTimeout(() => ctrl.abort(), 18000);
+    const r = await fetch(OVERPASS_URL, { method:'POST', body:`data=${encodeURIComponent(q)}`, signal:ctrl.signal });
+    clearTimeout(t);
+    if (!r.ok) throw new Error();
+    const d = await r.json();
+    osmCache = (d.elements || []).map(el => ({
+      id: el.id, lat: el.lat, lon: el.lon,
+      naam: el.tags?.name || el.tags?.ref || null,
+      slim: !!(el.tags?.['traffic_signals:sound'] || el.tags?.description?.toLowerCase().includes('ivri')),
     }));
-    cacheCentrum={lat,lon};cacheGeladen=true;
-    pOSM.className='pill-dot g';pOSMT.textContent='Kaart';
-    dOSM.textContent=`osm:${osmCache.length}`;
-    updateDichtbij(lat,lon);
-  }catch(e){
-    pOSM.className='pill-dot o';pOSMT.textContent='Fout';dOSM.textContent='osm:fout';
-    setTimeout(()=>{cacheBezig=false;if(huidigePos)downloadOSM(huidigePos.lat,huidigePos.lon);},30000);
-  }finally{cacheBezig=false;}
+    cacheCentrum = { lat, lon }; cacheGeladen = true;
+    pOSM.className = 'pill-dot g'; pOSMT.textContent = 'Kaart';
+    dOSM.textContent = `osm:${osmCache.length}`;
+    updateDichtbij(lat, lon);
+  } catch(e) {
+    pOSM.className = 'pill-dot o'; pOSMT.textContent = 'Fout'; dOSM.textContent = 'osm:fout';
+    setTimeout(() => { cacheBezig = false; if (huidigePos) downloadOSM(huidigePos.lat, huidigePos.lon); }, 30000);
+  } finally {
+    cacheBezig = false;
+  }
 }
 
-function vindDichtbij(lat,lon,heading){
-  if(!osmCache.length)return null;
-  let beste=null,bestS=-Infinity;
-  for(const sl of osmCache){
-    const af=afstand(lat,lon,sl.lat,sl.lon);
-    if(af>400)continue;
-    const dLon=(sl.lon-lon)*Math.PI/180;
-    const y2=Math.sin(dLon)*Math.cos(sl.lat*Math.PI/180);
-    const x2=Math.cos(lat*Math.PI/180)*Math.sin(sl.lat*Math.PI/180)-
-              Math.sin(lat*Math.PI/180)*Math.cos(sl.lat*Math.PI/180)*Math.cos(dLon);
-    const hoek=(Math.atan2(y2,x2)*180/Math.PI+360)%360;
-    let rv=Math.abs(heading-hoek);if(rv>180)rv=360-rv;
-    const s=(1/(af*af+1))*0.5+Math.cos(rv*Math.PI/180)*0.5;
-    if(s>bestS){bestS=s;beste={...sl,afstand:af};}
+function vindDichtbij(lat, lon, heading) {
+  if (!osmCache.length) return null;
+  let beste = null, bestS = -Infinity;
+  for (const sl of osmCache) {
+    const af = afstand(lat, lon, sl.lat, sl.lon);
+    if (af > 400) continue;
+    const dLon = (sl.lon - lon) * Math.PI / 180;
+    const y2 = Math.sin(dLon) * Math.cos(sl.lat * Math.PI / 180);
+    const x2 = Math.cos(lat*Math.PI/180)*Math.sin(sl.lat*Math.PI/180) -
+                Math.sin(lat*Math.PI/180)*Math.cos(sl.lat*Math.PI/180)*Math.cos(dLon);
+    const hoek = (Math.atan2(y2,x2)*180/Math.PI+360)%360;
+    let rv = Math.abs(heading - hoek); if (rv > 180) rv = 360 - rv;
+    const s = (1/(af*af+1))*0.5 + Math.cos(rv*Math.PI/180)*0.5;
+    if (s > bestS) { bestS = s; beste = { ...sl, afstand: af }; }
   }
-  if(!beste){
-    let minA=Infinity;
-    for(const sl of osmCache){const a=afstand(lat,lon,sl.lat,sl.lon);if(a<minA){minA=a;beste={...sl,afstand:a};}}
+  if (!beste) {
+    let minA = Infinity;
+    for (const sl of osmCache) { const a = afstand(lat,lon,sl.lat,sl.lon); if (a<minA) { minA=a; beste={...sl,afstand:a}; } }
   }
   return beste;
 }
 
-function afstand(la1,lo1,la2,lo2){
-  const R=6371000,dL=(la2-la1)*Math.PI/180,dO=(lo2-lo1)*Math.PI/180;
-  const a=Math.sin(dL/2)**2+Math.cos(la1*Math.PI/180)*Math.cos(la2*Math.PI/180)*Math.sin(dO/2)**2;
-  return R*2*Math.atan2(Math.sqrt(a),Math.sqrt(1-a));
+function afstand(la1, lo1, la2, lo2) {
+  const R=6371000, dL=(la2-la1)*Math.PI/180, dO=(lo2-lo1)*Math.PI/180;
+  const a = Math.sin(dL/2)**2 + Math.cos(la1*Math.PI/180)*Math.cos(la2*Math.PI/180)*Math.sin(dO/2)**2;
+  return R*2*Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
 }
 
-function updateDichtbij(lat,lon){
-  if(!osmCache.length){kNaam.textContent='Geen kaartdata';kAf.textContent='—';return;}
-  const nieuw=vindDichtbij(lat,lon,huidigeRichting);
-  if(!nieuw)return;
-  const a=Math.round(nieuw.afstand);
-  kNaam.textContent=nieuw.naam||(nieuw.slim?'⚡ Slim':'Stoplicht');
-  kAf.textContent=a<1000?`${a}m`:`${(a/1000).toFixed(1)}km`;
-  kDD.textContent=`${DD[huidigDD()].ic} ${huidigDD()}`;
-  if(nieuw.id!==vorigOsmId){
-    vorigOsmId=nieuw.id;dichtstbijOSM=nieuw;
-    afwijkBuf=[];
-    const m=laadM(nieuw.id,huidigDD());
-    activeCdDoel=gewGem(m)||0;
+function updateDichtbij(lat, lon) {
+  if (!osmCache.length) { kNaam.textContent = 'Geen kaartdata'; kAf.textContent = '—'; return; }
+  const nieuw = vindDichtbij(lat, lon, huidigeRichting);
+  if (!nieuw) return;
+  const a = Math.round(nieuw.afstand);
+  kNaam.textContent = nieuw.naam || (nieuw.slim ? '⚡ Slim' : 'Stoplicht');
+  kAf.textContent = a < 1000 ? `${a}m` : `${(a/1000).toFixed(1)}km`;
+  kDD.textContent = `${DD[huidigDD()].ic} ${huidigDD()}`;
+  if (nieuw.id !== vorigOsmId) {
+    vorigOsmId = nieuw.id; dichtstbijOSM = nieuw;
+    afwijkBuf = [];
+    const m = laadM(nieuw.id, huidigDD());
+    activeCdDoel = gewGem(m) || 0;
     bijwerkLeerkaart(nieuw);
     bijwerkDashboardKnop();
-  }else{dichtstbijOSM=nieuw;}
-  if(cacheCentrum&&afstand(lat,lon,cacheCentrum.lat,cacheCentrum.lon)>OSM_REFRESH&&!cacheBezig)
-    downloadOSM(lat,lon);
+  } else { dichtstbijOSM = nieuw; }
+  if (cacheCentrum && afstand(lat,lon,cacheCentrum.lat,cacheCentrum.lon) > OSM_REFRESH && !cacheBezig)
+    downloadOSM(lat, lon);
 }
 
 // GPS
-async function onGPS(pos){
-  const lat=pos.coords.latitude,lon=pos.coords.longitude;
-  huidigePos={lat,lon};
-  if(pos.coords.heading!==null&&!isNaN(pos.coords.heading))huidigeRichting=pos.coords.heading;
-  pGPS.className='pill-dot b';pGPST.textContent='GPS';
-  if(!cacheGeladen&&!cacheBezig)downloadOSM(lat,lon);
-  else if(cacheGeladen)updateDichtbij(lat,lon);
+async function onGPS(pos) {
+  const lat = pos.coords.latitude, lon = pos.coords.longitude;
+  huidigePos = { lat, lon };
+  if (pos.coords.heading !== null && !isNaN(pos.coords.heading)) huidigeRichting = pos.coords.heading;
+  pGPS.className = 'pill-dot b'; pGPST.textContent = 'GPS';
+  if (!cacheGeladen && !cacheBezig) downloadOSM(lat, lon);
+  else if (cacheGeladen) updateDichtbij(lat, lon);
 }
 
 // Geluid
-function initialiseerAudio(){if(audioCtx)return;audioCtx=new(window.AudioContext||window.webkitAudioContext)();}
-function speelGroen(){
-  if(!geluidAan||!audioCtx)return;
-  try{
-    [[0,880],[0.15,1108]].forEach(([t,f])=>{
-      const o=audioCtx.createOscillator(),g=audioCtx.createGain();
-      o.connect(g);g.connect(audioCtx.destination);
-      o.type='sine';o.frequency.value=f;
-      g.gain.setValueAtTime(0,audioCtx.currentTime+t);
-      g.gain.linearRampToValueAtTime(0.5,audioCtx.currentTime+t+0.02);
-      g.gain.exponentialRampToValueAtTime(0.001,audioCtx.currentTime+t+0.22);
-      o.start(audioCtx.currentTime+t);o.stop(audioCtx.currentTime+t+0.25);
+function initialiseerAudio() { if (audioCtx) return; audioCtx = new (window.AudioContext || window.webkitAudioContext)(); }
+function speelGroen() {
+  if (!geluidAan || !audioCtx) return;
+  try {
+    [[0,880],[0.15,1108]].forEach(([t,f]) => {
+      const o = audioCtx.createOscillator(), g = audioCtx.createGain();
+      o.connect(g); g.connect(audioCtx.destination);
+      o.type = 'sine'; o.frequency.value = f;
+      g.gain.setValueAtTime(0, audioCtx.currentTime + t);
+      g.gain.linearRampToValueAtTime(0.5, audioCtx.currentTime + t + 0.02);
+      g.gain.exponentialRampToValueAtTime(0.001, audioCtx.currentTime + t + 0.22);
+      o.start(audioCtx.currentTime + t); o.stop(audioCtx.currentTime + t + 0.25);
     });
-    geluidFlash.style.background='rgba(52,199,89,0.2)';
-    geluidFlash.style.opacity='1';
-    setTimeout(()=>geluidFlash.style.opacity='0',350);
-  }catch(e){}
+    geluidFlash.style.background = 'rgba(52,199,89,0.2)';
+    geluidFlash.style.opacity = '1';
+    setTimeout(() => geluidFlash.style.opacity = '0', 350);
+  } catch(e) {}
 }
-function toggleGeluid(){geluidAan=!geluidAan;document.getElementById('geluid-toggle').classList.toggle('uit',!geluidAan);}
-function toggleGeluidInApp(){geluidAan=!geluidAan;pGeluid.className='pill-dot'+(geluidAan?' g':'');pGeluidT.textContent=geluidAan?'SND':'MUTE';}
+function toggleGeluid() { geluidAan = !geluidAan; document.getElementById('geluid-toggle').classList.toggle('uit', !geluidAan); }
+function toggleGeluidInApp() { geluidAan = !geluidAan; pGeluid.className = 'pill-dot' + (geluidAan ? ' g' : ''); pGeluidT.textContent = geluidAan ? 'SND' : 'MUTE'; }
 
-async function activeerWakeLock(){
-  try{if('wakeLock'in navigator){wakeLock=await navigator.wakeLock.request('screen');
-    document.addEventListener('visibilitychange',async()=>{
-      if(document.visibilityState==='visible'&&wakeLock===null)
-        wakeLock=await navigator.wakeLock.request('screen');
-    });}}catch(e){}
+async function activeerWakeLock() {
+  try {
+    if ('wakeLock' in navigator) {
+      wakeLock = await navigator.wakeLock.request('screen');
+      document.addEventListener('visibilitychange', async () => {
+        if (document.visibilityState === 'visible' && (!wakeLock || wakeLock.released))
+          wakeLock = await navigator.wakeLock.request('screen');
+      });
+    }
+  } catch(e) {}
 }
 
-function checkNacht(){
-  const u=new Date().getHours(),n=u>=20||u<7;
-  if(n!==isNacht){
-    isNacht=n;canvas.style.opacity=n?'0.85':'0.92';
-    pNacht.className='pill-dot'+(n?' o':'');pNachtT.textContent=n?'Nacht':'Dag';
+function checkNacht() {
+  const u = new Date().getHours(), n = u >= 20 || u < 7;
+  if (n !== isNacht) {
+    isNacht = n;
+    canvas.style.opacity = n ? '0.85' : '0.92';
+    pNacht.className = 'pill-dot' + (n ? ' o' : '');
+    pNachtT.textContent = n ? 'Nacht' : 'Dag';
   }
 }
 
 // Animatielus
-function lus(){
-  if(video.readyState>=2){
-    canvas.width=video.videoWidth||window.innerWidth;
-    canvas.height=video.videoHeight||window.innerHeight;
-    ctx.drawImage(video,0,0,canvas.width,canvas.height);
+function lus() {
+  if (video.readyState >= 2) {
+    const vw = video.videoWidth || window.innerWidth;
+    const vh = video.videoHeight || window.innerHeight;
+    if (canvas.width !== vw) canvas.width = vw;
+    if (canvas.height !== vh) canvas.height = vh;
+    ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
   }
   frameT++;
-  if(frameT%AI_INTERVAL===0&&modelGeladen&&!aiBezig)voerAIUit();
+  if (frameT % AI_INTERVAL === 0 && modelGeladen && !aiBezig) voerAIUit();
   verwerkDetecties();
   tickCd();
-  if(frameT%1800===0)checkNacht();
+  if (frameT % 1800 === 0) checkNacht();
   requestAnimationFrame(lus);
 }
 
 // Start
-async function startApp(){
+async function startApp() {
   initialiseerAudio();
-  pGeluid.className='pill-dot'+(geluidAan?' g':'');
-  pGeluidT.textContent=geluidAan?'SND':'MUTE';
+  pGeluid.className = 'pill-dot' + (geluidAan ? ' g' : '');
+  pGeluidT.textContent = geluidAan ? 'SND' : 'MUTE';
   document.getElementById('startscherm').classList.add('weg');
-  try{
-    const stream=await navigator.mediaDevices.getUserMedia({
-      video:{facingMode:{ideal:'environment'},width:{ideal:1280},height:{ideal:720}},
-      audio:false
+  try {
+    const stream = await navigator.mediaDevices.getUserMedia({
+      video: { facingMode: { ideal: 'environment' }, width: { ideal: 1280 }, height: { ideal: 720 } },
+      audio: false
     });
-    video.srcObject=stream;await video.play();
-  }catch(e){document.getElementById('startscherm').classList.remove('weg');return;}
+    video.srcObject = stream;
+    await video.play();
+  } catch(e) {
+    document.getElementById('startscherm').classList.remove('weg');
+    return;
+  }
   await activeerWakeLock();
   checkNacht();
-  if(navigator.geolocation){
+  if (navigator.geolocation) {
     navigator.geolocation.watchPosition(
       onGPS,
-      ()=>{pGPS.className='pill-dot o';},
-      {enableHighAccuracy:true,maximumAge:5000,timeout:12000}
+      () => { pGPS.className = 'pill-dot o'; },
+      { enableHighAccuracy: true, maximumAge: 5000, timeout: 12000 }
     );
   }
   bijwerkLeerkaart(null);
@@ -1217,6 +1330,14 @@ async function startApp(){
 document.getElementById('geluid-toggle').classList.remove('uit');
 bijwerkDashboardKnop();
 </script>
+
+<!-- Footer copyright -->
+<div style="position:fixed;bottom:0;left:0;right:0;z-index:5;
+  text-align:center;font-size:9px;color:rgba(255,255,255,0.18);
+  padding-bottom:env(safe-area-inset-bottom,8px);pointer-events:none;
+  font-family:'Rajdhani',sans-serif;letter-spacing:0.08em">
+  © 2025 StoplichtIQ — Y. Lemaalem
+</div>
 
 </body>
 </html>
