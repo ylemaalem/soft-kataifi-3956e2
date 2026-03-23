@@ -1,4 +1,5 @@
 <!DOCTYPE html>
+
 <html lang="nl">
 <head>
   <meta charset="UTF-8"/>
@@ -9,6 +10,7 @@
   <title>StoplichtIQ</title>
 
   <!-- ONNX Runtime Web voor YOLOv8 inference (werkt offline na eerste download) -->
+
   <script src="https://cdn.jsdelivr.net/npm/onnxruntime-web@1.17.1/dist/ort.min.js"></script>
 
   <link href="https://fonts.googleapis.com/css2?family=Rajdhani:wght@300;400;600;700&family=Share+Tech+Mono&display=swap" rel="stylesheet"/>
@@ -73,7 +75,7 @@
       padding:0 0 env(safe-area-inset-bottom,16px)}
 
     #fase-balk{display:flex;align-items:center;justify-content:space-between;
-      padding:8px 18px;border-top:1px solid rgba(255,255,255,0.06);transition:border-color .3s}
+      padding:6px 18px;border-top:1px solid rgba(255,255,255,0.06);transition:border-color .3s}
     #fase-balk.rood  {border-top-color:rgba(255,48,48,.45)}
     #fase-balk.groen {border-top-color:rgba(52,199,89,.45)}
     #fase-balk.oranje{border-top-color:rgba(255,159,10,.45)}
@@ -97,14 +99,14 @@
     #kruispunt-dd{font-size:9px;color:rgba(255,255,255,0.3);margin-top:1px}
 
     #cd-blok{display:flex;align-items:center;justify-content:space-between;
-      padding:10px 18px 6px}
+      padding:6px 18px 4px}
     #cd-links{display:flex;flex-direction:column;gap:2px}
     #cd-label{font-size:10px;font-weight:600;letter-spacing:0.18em;
       text-transform:uppercase;color:var(--dim)}
-    #cd-getal{font-family:'Share Tech Mono',monospace;font-size:80px;
+    #cd-getal{font-family:'Share Tech Mono',monospace;font-size:52px;
       font-weight:400;line-height:1;color:#fff;transition:color .3s,text-shadow .3s}
     #cd-getal.nabij{color:var(--groen);text-shadow:0 0 30px rgba(52,199,89,.5)}
-    #cd-getal.leeg{color:rgba(255,255,255,0.15);font-size:48px}
+    #cd-getal.leeg{color:rgba(255,255,255,0.15);font-size:36px}
     #cd-eenheid{font-size:11px;font-weight:600;letter-spacing:0.14em;
       text-transform:uppercase;color:var(--dim)}
     #cd-ring-wrap{position:relative;width:72px;height:72px;flex-shrink:0}
@@ -113,9 +115,9 @@
     #cd-ring-voor{fill:none;stroke:var(--groen);stroke-width:4;stroke-linecap:round;
       stroke-dasharray:201;stroke-dashoffset:201;transition:stroke-dashoffset 1s linear,stroke .4s}
 
-    #leer-kaart{margin:0 14px 6px;background:rgba(0,0,0,0.45);
-      border:1px solid var(--border);border-radius:14px;padding:10px 14px;
-      display:flex;flex-direction:column;gap:8px}
+    #leer-kaart{margin:0 14px 4px;background:rgba(0,0,0,0.45);
+      border:1px solid var(--border);border-radius:14px;padding:7px 14px;
+      display:flex;flex-direction:column;gap:5px}
     #leer-header{display:flex;align-items:center;justify-content:space-between}
     #leer-naam{font-size:11px;font-weight:600;color:#fff;
       white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:180px}
@@ -144,9 +146,9 @@
     .dd.actief .dd-cnt{color:rgba(52,199,89,.5)}
 
     #dashboard-knop{display:flex;align-items:center;justify-content:space-between;
-      margin:0 14px 4px;background:rgba(255,255,255,0.04);
+      margin:0 14px 2px;background:rgba(255,255,255,0.04);
       border:1px solid var(--border);border-radius:10px;
-      padding:7px 14px;cursor:pointer}
+      padding:5px 14px;cursor:pointer}
     #dashboard-knop-tekst{font-size:10px;color:var(--dim);
       letter-spacing:0.1em;text-transform:uppercase}
     #dashboard-knop-cnt{font-family:'Share Tech Mono',monospace;
@@ -275,6 +277,7 @@
 </div>
 
 <!-- STARTSCHERM -->
+
 <div id="startscherm">
   <div id="s-icoon">🚦</div>
   <div id="s-titel">Stoplicht<span>IQ</span></div>
@@ -302,13 +305,17 @@
     <button id="geluid-toggle" onclick="toggleGeluid()"></button>
   </div>
   <button id="s-knop" onclick="startApp()">Start detectie</button>
-  <div id="s-copyright">© 2025 StoplichtIQ — Y. Lemaalem</div>
+  <div id="s-copyright">© 2026 StoplichtIQ — Y. Lemaalem</div>
 </div>
 
 <!-- HOOFD UI -->
+
 <div id="ui">
   <div id="topbalk">
-    <div id="app-naam" onclick="openDashboard()">Stoplicht<span>IQ</span></div>
+    <div style="display:flex;align-items:center;gap:8px">
+      <div onclick="naarStartscherm()" style="background:rgba(255,255,255,0.08);border:1px solid rgba(255,255,255,0.12);border-radius:20px;padding:3px 10px;font-size:11px;color:rgba(255,255,255,0.5);cursor:pointer;letter-spacing:0.05em">← Start</div>
+      <div id="app-naam" onclick="openDashboard()">Stoplicht<span>IQ</span></div>
+    </div>
     <div id="badges">
       <div class="pill" onclick="toggleGeluidInApp()">
         <div class="pill-dot" id="p-geluid"></div>
@@ -352,62 +359,66 @@
       </div>
     </div>
 
-    <div id="cd-blok">
-      <div id="cd-links">
-        <div id="cd-label">Groen verwacht over</div>
-        <div id="cd-getal" class="leeg">—</div>
-        <div id="cd-eenheid">seconden</div>
-      </div>
-      <div id="cd-ring-wrap">
-        <svg id="cd-ring-svg" viewBox="0 0 72 72">
-          <circle id="cd-ring-achter" cx="36" cy="36" r="32"/>
-          <circle id="cd-ring-voor"   cx="36" cy="36" r="32"/>
-        </svg>
-      </div>
-    </div>
+```
+<div id="cd-blok">
+  <div id="cd-links">
+    <div id="cd-label">Groen verwacht over</div>
+    <div id="cd-getal" class="leeg">—</div>
+    <div id="cd-eenheid">seconden</div>
+  </div>
+  <div id="cd-ring-wrap">
+    <svg id="cd-ring-svg" viewBox="0 0 72 72">
+      <circle id="cd-ring-achter" cx="36" cy="36" r="32"/>
+      <circle id="cd-ring-voor"   cx="36" cy="36" r="32"/>
+    </svg>
+  </div>
+</div>
 
-    <div id="leer-kaart">
-      <div id="leer-header">
-        <div id="leer-naam">Wacht op GPS…</div>
-        <div id="leer-nieuw-badge">Nieuw</div>
-      </div>
-      <div id="leer-pct-rij">
-        <div id="leer-pct-label">Geleerd</div>
-        <div id="leer-pct-balk-bg"><div id="leer-pct-balk"></div></div>
-        <div id="leer-pct-getal">0%</div>
-      </div>
-      <div id="dd-rij">
-        <div class="dd" id="dd-ochtend">
-          <div class="dd-ic">🌅</div>
-          <div class="dd-val" id="dv-ochtend">—</div>
-          <div class="dd-cnt" id="dc-ochtend">0x</div>
-        </div>
-        <div class="dd" id="dd-dag">
-          <div class="dd-ic">☀️</div>
-          <div class="dd-val" id="dv-dag">—</div>
-          <div class="dd-cnt" id="dc-dag">0x</div>
-        </div>
-        <div class="dd" id="dd-avond">
-          <div class="dd-ic">🌆</div>
-          <div class="dd-val" id="dv-avond">—</div>
-          <div class="dd-cnt" id="dc-avond">0x</div>
-        </div>
-        <div class="dd" id="dd-nacht">
-          <div class="dd-ic">🌙</div>
-          <div class="dd-val" id="dv-nacht">—</div>
-          <div class="dd-cnt" id="dc-nacht">0x</div>
-        </div>
-      </div>
+<div id="leer-kaart">
+  <div id="leer-header">
+    <div id="leer-naam">Wacht op GPS…</div>
+    <div id="leer-nieuw-badge">Nieuw</div>
+  </div>
+  <div id="leer-pct-rij">
+    <div id="leer-pct-label">Geleerd</div>
+    <div id="leer-pct-balk-bg"><div id="leer-pct-balk"></div></div>
+    <div id="leer-pct-getal">0%</div>
+  </div>
+  <div id="dd-rij">
+    <div class="dd" id="dd-ochtend">
+      <div class="dd-ic">🌅</div>
+      <div class="dd-val" id="dv-ochtend">—</div>
+      <div class="dd-cnt" id="dc-ochtend">0x</div>
     </div>
-
-    <div id="dashboard-knop" onclick="openDashboard()">
-      <div id="dashboard-knop-tekst">📊 Bekijk alle geleerde stoplichten</div>
-      <div id="dashboard-knop-cnt">0 kruispunten →</div>
+    <div class="dd" id="dd-dag">
+      <div class="dd-ic">☀️</div>
+      <div class="dd-val" id="dv-dag">—</div>
+      <div class="dd-cnt" id="dc-dag">0x</div>
+    </div>
+    <div class="dd" id="dd-avond">
+      <div class="dd-ic">🌆</div>
+      <div class="dd-val" id="dv-avond">—</div>
+      <div class="dd-cnt" id="dc-avond">0x</div>
+    </div>
+    <div class="dd" id="dd-nacht">
+      <div class="dd-ic">🌙</div>
+      <div class="dd-val" id="dv-nacht">—</div>
+      <div class="dd-cnt" id="dc-nacht">0x</div>
     </div>
   </div>
 </div>
 
+<div id="dashboard-knop" onclick="openDashboard()">
+  <div id="dashboard-knop-tekst">📊 Bekijk alle geleerde stoplichten</div>
+  <div id="dashboard-knop-cnt">0 kruispunten →</div>
+</div>
+```
+
+  </div>
+</div>
+
 <!-- DASHBOARD -->
+
 <div id="dashboard" class="verborgen">
   <div id="dash-header">
     <div id="dash-titel">Stoplicht<span>IQ</span> — Geleerd</div>
@@ -666,7 +677,7 @@ const simInt = setInterval(() => {
 async function laadONNXModel() {
   try {
     sModelLabel.textContent = '🤖 YOLOv8 model laden…';
-    onnxSession = await ort.InferenceSession.create('./model/model.onnx', {
+    onnxSession = await ort.InferenceSession.create('model/model.onnx', {
       executionProviders: ['wasm'],
       graphOptimizationLevel: 'all',
     });
@@ -679,7 +690,7 @@ async function laadONNXModel() {
     sModelLabel.textContent = `✓ YOLOv8 klaar (${t}s)`;
     sModelLabel.style.color = 'var(--groen)';
     modelLijn.classList.add('weg');
-    pAI.className = 'pill-dot p';
+    pAI.className = 'pill-dot g';
     pAIT.textContent = 'YOLOv8';
     dAI.textContent = 'ai:klaar';
     // Init YOLO canvas
@@ -1257,6 +1268,21 @@ function speelGroen() {
 function toggleGeluid() { geluidAan = !geluidAan; document.getElementById('geluid-toggle').classList.toggle('uit', !geluidAan); }
 function toggleGeluidInApp() { geluidAan = !geluidAan; pGeluid.className = 'pill-dot' + (geluidAan ? ' g' : ''); pGeluidT.textContent = geluidAan ? 'SND' : 'MUTE'; }
 
+function naarStartscherm() {
+  // Stop camera
+  if (video.srcObject) {
+    video.srcObject.getTracks().forEach(t => t.stop());
+    video.srcObject = null;
+  }
+  // Reset fase
+  fase = null; faseStart = null;
+  faseBalk.className = ''; faseLamp.className = '';
+  faseWoord.textContent = '—'; faseSub.textContent = 'Richt camera op stoplicht';
+  randGlow.className = ''; stopCd();
+  // Toon startscherm
+  document.getElementById('startscherm').classList.remove('weg');
+}
+
 async function activeerWakeLock() {
   try {
     if ('wakeLock' in navigator) {
@@ -1332,11 +1358,12 @@ bijwerkDashboardKnop();
 </script>
 
 <!-- Footer copyright -->
+
 <div style="position:fixed;bottom:0;left:0;right:0;z-index:5;
   text-align:center;font-size:9px;color:rgba(255,255,255,0.18);
   padding-bottom:env(safe-area-inset-bottom,8px);pointer-events:none;
   font-family:'Rajdhani',sans-serif;letter-spacing:0.08em">
-  © 2025 StoplichtIQ — Y. Lemaalem
+  © 2026 StoplichtIQ — Y. Lemaalem
 </div>
 
 </body>
