@@ -47,6 +47,11 @@
     #topbalk{padding:0 14px 8px;display:flex;align-items:center;
       justify-content:space-between;
       background:linear-gradient(to bottom,rgba(0,0,0,0.55) 0%,transparent 100%)}
+    #top-links{display:flex;align-items:center;gap:8px}
+    #terug-knop{background:rgba(255,255,255,0.08);border:1px solid var(--border);
+      border-radius:20px;padding:4px 10px;font-size:10px;font-weight:600;
+      letter-spacing:0.08em;color:var(--dim);cursor:pointer;
+      font-family:'Rajdhani',sans-serif;text-transform:uppercase}
     #app-naam{font-size:13px;font-weight:700;letter-spacing:0.12em;
       text-transform:uppercase;color:#fff;cursor:pointer}
     #app-naam span{color:var(--groen)}
@@ -281,7 +286,7 @@
 <div id="startscherm">
   <div id="s-icoon">🚦</div>
   <div id="s-titel">Stoplicht<span>IQ</span></div>
-  <div id="s-versie">v7.0 — YOLOv8 + Slim Selectie + KleurCheck</div>
+  <div id="s-versie">v7.1 — YOLOv8 + Slim Selectie + Zoom</div>
   <div id="s-model-wrap">
     <div id="s-model-rij">
       <div id="s-model-label">🤖 YOLOv8 model laden…</div>
@@ -312,7 +317,10 @@
 
 <div id="ui">
   <div id="topbalk">
-    <div id="app-naam" onclick="openDashboard()">Stoplicht<span>IQ</span></div>
+    <div id="top-links">
+      <div id="terug-knop" onclick="naarStartscherm()">← Start</div>
+      <div id="app-naam" onclick="openDashboard()">Stoplicht<span>IQ</span></div>
+    </div>
     <div id="badges">
       <div class="pill" onclick="toggleGeluidInApp()">
         <div class="pill-dot" id="p-geluid"></div>
@@ -450,7 +458,7 @@
 
 <script>
 // ═══════════════════════════════════════════════════════════════
-//  StoplichtIQ v7.0 — YOLOv8 + Slim Selectie + KleurCheck
+//  StoplichtIQ v7.1 — YOLOv8 + Slim Selectie + Zoom + Straatnamen
 //  Model: ojaskandy/traffic-light-detection-yolo (YOLOv8s)
 //  Klassen: 0=rood, 1=groen, 2=uit, 3=oranje/geel
 //  © 2026 StoplichtIQ — Y. Lemaalem
@@ -471,7 +479,7 @@ const MAX_METINGEN = 50;
 const HALFWAARDETIJD = 60;
 const AFWIJKING_DREMPEL = 0.20;
 const AFWIJKING_REEKS   = 5;
-const AI_INTERVAL  = 15;     // frames tussen AI-inferentie (was 8, nu 15 voor minder warmte)
+const AI_INTERVAL  = 8;      // frames tussen AI-inferentie (terug naar 8 voor snelle reactie)
 const GEEN_RESET   = 20;     // frames zonder detectie voor reset
 const AI_DREMPEL   = 3;      // bevestigde frames voor fasewissel
 const YOLO_SIZE    = 320;    // model input grootte
@@ -650,12 +658,10 @@ let aiTeller=0, aiKleur=null;
 let geenTeller=0;
 let audioCtx=null, wakeLock=null;
 let frameT=0;
+let cameraTrack=null, zoomOndersteund=false, huidigeZoom=1.0;
 let aiBezig=false, laatsteAI=null;
 let nieuwAIResultaat=false;
 let vorigeDetectie=null; // tracking voor slim selectie
-// FPS throttle: max 30fps voor minder warmte
-const DOEL_FPS = 30;
-const FRAME_TIJD = 1000 / DOEL_FPS;
 let laatsteFrameTijd = 0;
 // Tijdelijk canvas voor YOLO preprocessing
 let yoloCanvas=null, yoloCtx=null;
@@ -679,10 +685,20 @@ const simInt = setInterval(() => {
 async function laadONNXModel() {
   try {
     sModelLabel.textContent = '🤖 YOLOv8 model laden…';
-    onnxSession = await ort.InferenceSession.create('./model/model.onnx', {
-      executionProviders: ['wasm'],
-      graphOptimizationLevel: 'all',
-    });
+    // Probeer eerst model/ map, dan root
+    let modelPad = './model/model.onnx';
+    try {
+      onnxSession = await ort.InferenceSession.create(modelPad, {
+        executionProviders: ['wasm'],
+        graphOptimizationLevel: 'all',
+      });
+    } catch(e1) {
+      modelPad = './model.onnx';
+      onnxSession = await ort.InferenceSession.create(modelPad, {
+        executionProviders: ['wasm'],
+        graphOptimizationLevel: 'all',
+      });
+    }
     modelGeladen = true;
     clearInterval(simInt);
     sModelBalk.style.width = '100%';
@@ -1108,7 +1124,9 @@ function verwerkFase(nieuw, horizontaal) {
   const nu = performance.now();
   if (fase && faseStart) {
     const dur = (nu - faseStart) / 1000;
-    if (fase === 'rood' && dur > 4 && dur < 300 && dichtstbijOSM) {
+    if (fase === 'rood' && dur > 8 && dur < 300 && dichtstbijOSM) {
+      // Minimaal 8 seconden rood (was 4) — voorkomt foute registraties
+      // van verkeerde stoplichten of korte foutdetecties
       slaOp(dichtstbijOSM.id, huidigeRichting, dur);
       bijwerkLeerkaart(dichtstbijOSM);
       bijwerkDashboardKnop();
@@ -1316,6 +1334,23 @@ function tijdGeleden(ts) {
   return `${Math.floor(sec/86400)}d geleden`;
 }
 
+// ── TERUG NAAR STARTSCHERM ───────────────────────────────────
+function naarStartscherm() {
+  // Stop camera
+  try {
+    const stream = video.srcObject;
+    if (stream) stream.getTracks().forEach(t => t.stop());
+    video.srcObject = null;
+  } catch(e) {}
+  // Reset UI
+  resetNeutraal();
+  document.getElementById('startscherm').classList.remove('weg');
+  // Update geheugen info
+  const n = telKP();
+  const sGeh = document.getElementById('s-geh-info');
+  if (n > 0) { sGeh.textContent = `💾 ${n} kruispunten opgeslagen`; sGeh.style.color = 'var(--groen)'; }
+}
+
 // ── OSM ───────────────────────────────────────────────────────
 async function downloadOSM(lat, lon) {
   if (cacheBezig) return;
@@ -1332,17 +1367,56 @@ async function downloadOSM(lat, lon) {
     osmCache = (d.elements || []).map(el => ({
       id: el.id, lat: el.lat, lon: el.lon,
       naam: el.tags?.name || el.tags?.ref || null,
+      straat: null, // wordt via reverse geocoding ingevuld
       slim: !!(el.tags?.['traffic_signals:sound'] || el.tags?.description?.toLowerCase().includes('ivri')),
     }));
     cacheCentrum = { lat, lon }; cacheGeladen = true;
     pOSM.className = 'pill-dot g'; pOSMT.textContent = 'Kaart';
     dOSM.textContent = `osm:${osmCache.length}`;
     updateDichtbij(lat, lon);
+    // Reverse geocoding voor dichtbijzijnde stoplichten (async, niet blokkerend)
+    haalStraatnamenOp();
   } catch(e) {
     pOSM.className = 'pill-dot o'; pOSMT.textContent = 'Fout'; dOSM.textContent = 'osm:fout';
     setTimeout(() => { cacheBezig = false; if (huidigePos) downloadOSM(huidigePos.lat, huidigePos.lon); }, 30000);
   } finally {
     cacheBezig = false;
+  }
+}
+
+// ── REVERSE GEOCODING ─────────────────────────────────────────
+// Haal straatnamen op voor stoplichten via Nominatim (gratis, max 1 req/sec)
+async function haalStraatnamenOp() {
+  // Sorteer op afstand tot gebruiker, dichtbijzijnste eerst
+  const gesorteerd = [...osmCache]
+    .filter(sl => !sl.straat && huidigePos)
+    .sort((a, b) => {
+      const aA = afstand(huidigePos.lat, huidigePos.lon, a.lat, a.lon);
+      const bA = afstand(huidigePos.lat, huidigePos.lon, b.lat, b.lon);
+      return aA - bA;
+    })
+    .slice(0, 20); // max 20 per keer
+
+  for (const sl of gesorteerd) {
+    try {
+      await new Promise(r => setTimeout(r, 1100)); // 1 req/sec limiet
+      const url = `https://nominatim.openstreetmap.org/reverse?lat=${sl.lat}&lon=${sl.lon}&format=json&zoom=18`;
+      const r = await fetch(url, { headers: { 'User-Agent': 'StoplichtIQ/7.1' } });
+      if (!r.ok) continue;
+      const d = await r.json();
+      const straat = d.address?.road || d.address?.pedestrian || '';
+      const stad = d.address?.city || d.address?.town || d.address?.village || '';
+      if (straat || stad) {
+        sl.straat = straat;
+        sl.stad = stad;
+        sl.naam = straat ? (stad ? `${straat}, ${stad}` : straat) : stad;
+        // Update UI als dit het huidige stoplicht is
+        if (dichtstbijOSM && dichtstbijOSM.id === sl.id) {
+          kNaam.textContent = sl.naam;
+          leerNaam.textContent = sl.naam;
+        }
+      }
+    } catch(e) { /* Nominatim fout, ga door */ }
   }
 }
 
@@ -1374,6 +1448,28 @@ function afstand(la1, lo1, la2, lo2) {
   return R*2*Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
 }
 
+// ── DYNAMISCHE ZOOM ──────────────────────────────────────────
+// Zoom in op afstand, zoom uit als je dichtbij bent
+function pasZoomAan(afstandMeter) {
+  if (!zoomOndersteund || !cameraTrack) return;
+  let doelZoom;
+  if (afstandMeter > 200) doelZoom = 2.5;
+  else if (afstandMeter > 100) doelZoom = 2.0;
+  else if (afstandMeter > 50) doelZoom = 1.5;
+  else doelZoom = 1.0;
+  // Alleen aanpassen als verschil groot genoeg is (voorkom constant wisselen)
+  if (Math.abs(doelZoom - huidigeZoom) < 0.3) return;
+  try {
+    const caps = cameraTrack.getCapabilities ? cameraTrack.getCapabilities() : {};
+    if (caps.zoom) {
+      doelZoom = Math.min(doelZoom, caps.zoom.max);
+      doelZoom = Math.max(doelZoom, caps.zoom.min);
+      cameraTrack.applyConstraints({ advanced: [{ zoom: doelZoom }] });
+      huidigeZoom = doelZoom;
+    }
+  } catch(e) {}
+}
+
 function updateDichtbij(lat, lon) {
   if (!osmCache.length) { kNaam.textContent = 'Geen kaartdata'; kAf.textContent = '—'; return; }
   const nieuw = vindDichtbij(lat, lon, huidigeRichting);
@@ -1382,6 +1478,8 @@ function updateDichtbij(lat, lon) {
   kNaam.textContent = nieuw.naam || (nieuw.slim ? '⚡ Slim' : 'Stoplicht');
   kAf.textContent = a < 1000 ? `${a}m` : `${(a/1000).toFixed(1)}km`;
   kDD.textContent = `${DD[huidigDD()].ic} ${huidigDD()}`;
+  // Dynamische zoom op basis van afstand
+  pasZoomAan(a);
   if (nieuw.id !== vorigOsmId) {
     vorigOsmId = nieuw.id; dichtstbijOSM = nieuw;
     afwijkBuf = [];
@@ -1448,16 +1546,8 @@ function checkNacht() {
   }
 }
 
-// Animatielus (30fps throttle)
-function lus(timestamp) {
-  if (!timestamp) timestamp = performance.now();
-  // Throttle tot 30fps
-  if (timestamp - laatsteFrameTijd < FRAME_TIJD) {
-    requestAnimationFrame(lus);
-    return;
-  }
-  laatsteFrameTijd = timestamp;
-
+// Animatielus
+function lus() {
   if (video.readyState >= 2) {
     const vw = video.videoWidth || window.innerWidth;
     const vh = video.videoHeight || window.innerHeight;
@@ -1469,7 +1559,7 @@ function lus(timestamp) {
   if (frameT % AI_INTERVAL === 0 && modelGeladen && !aiBezig) voerAIUit();
   verwerkDetecties();
   tickCd();
-  if (frameT % 900 === 0) checkNacht();
+  if (frameT % 1800 === 0) checkNacht();
   requestAnimationFrame(lus);
 }
 
@@ -1492,15 +1582,26 @@ async function startApp() {
       audio: false
     });
     video.srcObject = stream;
-    // Probeer continu autofocus te forceren via track constraints
+    // Probeer focus op ver + zoom via track constraints
     try {
       const track = stream.getVideoTracks()[0];
       const caps = track.getCapabilities ? track.getCapabilities() : {};
       const adv = {};
       if (caps.focusMode && caps.focusMode.includes('continuous')) adv.focusMode = 'continuous';
       if (caps.exposureMode && caps.exposureMode.includes('continuous')) adv.exposureMode = 'continuous';
+      // Focus op ver voor stoplichten in de verte
+      if (caps.focusDistance) {
+        adv.focusDistance = caps.focusDistance.max || 10;
+        cameraTrack = track; // bewaar voor dynamische zoom
+      }
+      // Start met 2x zoom als ondersteund
+      if (caps.zoom && caps.zoom.max >= 2) {
+        adv.zoom = Math.min(2.0, caps.zoom.max);
+        zoomOndersteund = true;
+        huidigeZoom = 2.0;
+      }
       if (Object.keys(adv).length) await track.applyConstraints({ advanced: [adv] });
-    } catch(e) { /* focus constraints niet ondersteund, geen probleem */ }
+    } catch(e) { /* constraints niet ondersteund */ }
     await video.play();
   } catch(e) {
     document.getElementById('startscherm').classList.remove('weg');
