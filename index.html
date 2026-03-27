@@ -1631,13 +1631,14 @@ async function downloadOSM(lat, lon) {
   cacheBezig = true;
   pOSM.className = 'pill-dot o'; pOSMT.textContent = 'laden'; debugWaarden.osm = 'osm:laden';
   // Wijziging 5: uitgebreide query met way geometry voor straatnamen
-  const q = `[out:json][timeout:25];node["highway"="traffic_signals"](around:${OSM_RADIUS},${lat},${lon});out body;way(bn)["name"];out geom;`;
+  // Stap 1: nodes ophalen, in set bewaren. Stap 2: ways via recurse (bn). Stap 3: alles outputten.
+  const q = `[out:json][timeout:25];node["highway"="traffic_signals"](around:${OSM_RADIUS},${lat},${lon})->.tl;.tl out body;way(bn.tl)["name"];out geom;`;
   try {
     const ctrl = new AbortController();
     const t = setTimeout(() => ctrl.abort(), 25000);
     const r = await fetch(OVERPASS_URL, { method:'POST', body:`data=${encodeURIComponent(q)}`, signal:ctrl.signal });
     clearTimeout(t);
-    if (!r.ok) throw new Error();
+    if (!r.ok) throw new Error(`HTTP ${r.status}`);
     const d = await r.json();
     const nodes = (d.elements || []).filter(el => el.type === 'node');
     const ways = (d.elements || []).filter(el => el.type === 'way');
@@ -1675,7 +1676,9 @@ async function downloadOSM(lat, lon) {
     // Reverse geocoding voor dichtbijzijnde stoplichten (async, niet blokkerend)
     haalStraatnamenOp();
   } catch(e) {
-    pOSM.className = 'pill-dot o'; pOSMT.textContent = 'Fout'; debugWaarden.osm = 'osm:fout';
+    console.error('OSM download fout:', e);
+    pOSM.className = 'pill-dot o'; pOSMT.textContent = 'Fout';
+    debugWaarden.osm = `osm:fout ${e.name||''}`;
     setTimeout(() => { cacheBezig = false; if (huidigePos) downloadOSM(huidigePos.lat, huidigePos.lon); }, 30000);
   } finally {
     cacheBezig = false;
