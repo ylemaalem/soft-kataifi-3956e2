@@ -150,21 +150,22 @@
     .dd.actief .dd-val{color:var(--groen)}
     .dd.actief .dd-cnt{color:rgba(52,199,89,.5)}
 
-    #dashboard-knop{display:flex;align-items:center;justify-content:space-between;
-      margin:0 14px 4px;background:rgba(255,255,255,0.04);
-      border:1px solid var(--border);border-radius:10px;
-      padding:7px 14px;cursor:pointer}
-    #dashboard-knop-tekst{font-size:10px;color:var(--dim);
-      letter-spacing:0.1em;text-transform:uppercase}
-    #dashboard-knop-cnt{font-family:'Share Tech Mono',monospace;
-      font-size:11px;color:var(--groen)}
-
-    #debug{position:fixed;bottom:0;left:0;right:0;z-index:40;pointer-events:none;
-      background:rgba(0,0,0,0.7);padding:3px 10px;
-      font-family:'Share Tech Mono',monospace;font-size:9px;
-      display:flex;gap:8px;justify-content:center;opacity:0.7;flex-wrap:wrap}
+    #bodem-balk{position:fixed;bottom:0;left:0;right:0;z-index:40;
+      background:rgba(0,0,0,0.80);
+      display:flex;align-items:center;min-height:36px;
+      padding:4px 10px;gap:10px;
+      padding-bottom:env(safe-area-inset-bottom,4px)}
+    #debug{flex:1;min-width:0;pointer-events:none;
+      font-family:'Share Tech Mono',monospace;font-size:10px;
+      display:flex;gap:6px;flex-wrap:wrap;opacity:0.8;
+      overflow:hidden}
     #d-ai{color:#BF5AF2}#d-pct{color:var(--groen)}
     #d-osm{color:#0A84FF}#d-info{color:rgba(255,255,255,0.35)}
+    #dashboard-knop{flex-shrink:0;display:flex;align-items:center;
+      background:rgba(255,255,255,0.06);border:1px solid var(--border);
+      border-radius:8px;padding:5px 12px;cursor:pointer;pointer-events:auto}
+    #dashboard-knop-cnt{font-family:'Share Tech Mono',monospace;
+      font-size:11px;color:var(--groen);white-space:nowrap}
 
     /* DASHBOARD SCHERM */
     #dashboard{position:fixed;inset:0;z-index:200;background:#080A0C;
@@ -274,11 +275,16 @@
 <div id="geluid-flash"></div>
 <div id="model-lijn"><div id="model-lijn-balk"></div></div>
 
-<div id="debug">
-  <span id="d-ai">ai:—</span>
-  <span id="d-pct">leer:—</span>
-  <span id="d-osm">osm:—</span>
-  <span id="d-info">—</span>
+<div id="bodem-balk">
+  <div id="debug">
+    <span id="d-ai">ai:—</span>
+    <span id="d-pct">leer:—</span>
+    <span id="d-osm">osm:—</span>
+    <span id="d-info">—</span>
+  </div>
+  <div id="dashboard-knop" onclick="openDashboard()">
+    <div id="dashboard-knop-cnt">0 kruispunten →</div>
+  </div>
 </div>
 
 <!-- STARTSCHERM -->
@@ -412,10 +418,6 @@
   </div>
 </div>
 
-<div id="dashboard-knop" onclick="openDashboard()">
-  <div id="dashboard-knop-tekst">📊 Bekijk alle geleerde stoplichten</div>
-  <div id="dashboard-knop-cnt">0 kruispunten →</div>
-</div>
   </div>
 </div>
 
