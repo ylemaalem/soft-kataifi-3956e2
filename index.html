@@ -482,7 +482,7 @@ const AFWIJKING_REEKS   = 5;
 const AI_INTERVAL  = 8;      // frames tussen AI-inferentie (terug naar 8 voor snelle reactie)
 const GEEN_RESET   = 20;     // frames zonder detectie voor reset
 const AI_DREMPEL   = 3;      // bevestigde frames voor fasewissel
-const YOLO_SIZE    = 320;    // model input grootte
+const YOLO_SIZE    = 640;    // model input grootte
 const CONF_DREMPEL = 0.15;   // minimale confidence voor detectie
 const IOU_DREMPEL  = 0.45;   // NMS IoU drempel
 const MAX_Y_RATIO  = 0.70;   // stoplicht mag niet te laag in beeld
@@ -685,15 +685,15 @@ const simInt = setInterval(() => {
 async function laadONNXModel() {
   try {
     sModelLabel.textContent = '🤖 YOLOv8 model laden…';
-    // Probeer eerst model/ map, dan root
-    let modelPad = './model/model.onnx';
+    // Probeer eerst root, dan model/ map
+    let modelPad = './model.onnx';
     try {
       onnxSession = await ort.InferenceSession.create(modelPad, {
         executionProviders: ['wasm'],
         graphOptimizationLevel: 'all',
       });
     } catch(e1) {
-      modelPad = './model.onnx';
+      modelPad = './model/model.onnx';
       onnxSession = await ort.InferenceSession.create(modelPad, {
         executionProviders: ['wasm'],
         graphOptimizationLevel: 'all',
