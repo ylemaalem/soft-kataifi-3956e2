@@ -1514,10 +1514,19 @@ function escapeHTML(s) {
 }
 
 function vindNaamVoorId(id) {
+  // 1. Zoek in actieve osmCache (meest actueel)
   const gevonden = osmCache.find(sl => sl.id.toString() === id.toString());
-  if (gevonden?.naam) return escapeHTML(gevonden.naam);
-  // Wijziging 5: nooit raw OSM node ID tonen
+  if (gevonden?.naam) {
+    // Naam cachen in localStorage voor gebruik als osmCache leeg is
+    try { localStorage.setItem('sl_naam_' + id, gevonden.naam); } catch(e) {}
+    return escapeHTML(gevonden.naam);
+  }
   if (gevonden) return `${gevonden.lat.toFixed(4)}, ${gevonden.lon.toFixed(4)}`;
+  // 2. Fallback: gecachte naam uit localStorage
+  try {
+    const cached = localStorage.getItem('sl_naam_' + id);
+    if (cached) return escapeHTML(cached);
+  } catch(e) {}
   return 'Onbekend stoplicht';
 }
 
@@ -1541,7 +1550,8 @@ function exporteerData() {
     };
     for (const key of Object.keys(localStorage)) {
       if (key.startsWith('sl_v4_') || key.startsWith('sl_v3_') ||
-          key.startsWith('sl_tag_') || key === 'sl_stad_cache') {
+          key.startsWith('sl_tag_') || key.startsWith('sl_naam_') ||
+        key === 'sl_stad_cache') {
         try { exportData.data[key] = JSON.parse(localStorage.getItem(key)); }
         catch (e) { exportData.data[key] = localStorage.getItem(key); }
       }
@@ -1593,7 +1603,8 @@ function importeerData(bestand) {
       let toegevoegd = 0, overgeslagen = 0;
       for (const [key, waarde] of Object.entries(importData.data)) {
         if (!key.startsWith('sl_v4_') && !key.startsWith('sl_v3_') &&
-            !key.startsWith('sl_tag_') && key !== 'sl_stad_cache') { overgeslagen++; continue; }
+            !key.startsWith('sl_tag_') && !key.startsWith('sl_naam_') &&
+            key !== 'sl_stad_cache') { overgeslagen++; continue; }
         if (localStorage.getItem(key) !== null) { overgeslagen++; continue; }
         try { localStorage.setItem(key, JSON.stringify(waarde)); toegevoegd++; }
         catch (e) { console.warn('Import key mislukt:', key, e.message); overgeslagen++; }
@@ -1713,6 +1724,8 @@ async function haalStraatnamenOp() {
         sl.straat = straat;
         sl.stad = stad;
         sl.naam = straat ? (stad ? `${straat}, ${stad}` : straat) : stad;
+        // Naam cachen voor dashboard gebruik als osmCache leeg is
+        try { localStorage.setItem('sl_naam_' + sl.id, sl.naam); } catch(e) {}
         // Update UI als dit het huidige stoplicht is
         if (dichtstbijOSM && dichtstbijOSM.id === sl.id) {
           kNaam.textContent = sl.naam;
