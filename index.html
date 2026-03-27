@@ -286,7 +286,7 @@
 <div id="startscherm">
   <div id="s-icoon">🚦</div>
   <div id="s-titel">Stoplicht<span>IQ</span></div>
-  <div id="s-versie">v7.1 — YOLOv8 + Slim Selectie + Zoom</div>
+  <div id="s-versie">V8.0 — YOLOv8 640px + DUAL-SYSTEEM + ZOOM</div>
   <div id="s-model-wrap">
     <div id="s-model-rij">
       <div id="s-model-label">🤖 YOLOv8 model laden…</div>
@@ -364,7 +364,6 @@
       </div>
     </div>
 
-```
 <div id="cd-blok">
   <div id="cd-links">
     <div id="cd-label">Groen verwacht over</div>
@@ -417,12 +416,45 @@
   <div id="dashboard-knop-tekst">📊 Bekijk alle geleerde stoplichten</div>
   <div id="dashboard-knop-cnt">0 kruispunten →</div>
 </div>
-```
-
   </div>
 </div>
 
 <!-- DASHBOARD -->
+
+<!-- Tag overlay — zichtbaar tijdens detectie -->
+<div id="sl-tag-overlay"
+  style="display:none; position:fixed; bottom:220px; left:50%;
+  transform:translateX(-50%); background:rgba(0,0,0,0.88);
+  border-radius:14px; padding:14px 16px; z-index:9999; width:260px;
+  box-shadow:0 4px 20px rgba(0,0,0,0.5);">
+  <p style="color:rgba(255,255,255,0.7); text-align:center;
+    margin:0 0 10px; font-size:12px;">Wat voor stoplicht is dit?</p>
+  <div style="display:flex; flex-direction:column; gap:8px;">
+    <button onclick="voerTagUit('voetganger')"
+      style="padding:10px; background:rgba(255,255,255,0.12); color:white;
+      border:none; border-radius:8px; font-size:14px; cursor:pointer;">
+      🚶 Voetganger (drukknop)
+    </button>
+    <button onclick="voerTagUit('normaal')"
+      style="padding:10px; background:rgba(255,255,255,0.12); color:white;
+      border:none; border-radius:8px; font-size:14px; cursor:pointer;">
+      🔄 Normaal stoplicht
+    </button>
+    <button onclick="voerTagUit('groene_golf')"
+      style="padding:10px; background:rgba(255,255,255,0.12); color:white;
+      border:none; border-radius:8px; font-size:14px; cursor:pointer;">
+      🟢 Groene golf
+    </button>
+  </div>
+</div>
+
+<!-- Tag-knop naast stoplicht-info -->
+<button id="sl-tag-btn"
+  style="display:none; font-size:11px; padding:4px 10px;
+  background:rgba(255,255,255,0.15); color:white; border:none;
+  border-radius:6px; cursor:pointer; margin-top:6px;">
+  🏷️ Tag
+</button>
 
 <div id="dashboard" class="verborgen">
   <div id="dash-header">
@@ -458,7 +490,7 @@
 
 <script>
 // ═══════════════════════════════════════════════════════════════
-//  StoplichtIQ v7.1 — YOLOv8 + Slim Selectie + Zoom + Straatnamen
+//  StoplichtIQ V8.0 — YOLOv8 640px + DUAL-SYSTEEM + ZOOM
 //  Model: ojaskandy/traffic-light-detection-yolo (YOLOv8s)
 //  Klassen: 0=rood, 1=groen, 2=uit, 3=oranje/geel
 //  © 2026 StoplichtIQ — Y. Lemaalem
@@ -479,7 +511,7 @@ const MAX_METINGEN = 50;
 const HALFWAARDETIJD = 60;
 const AFWIJKING_DREMPEL = 0.20;
 const AFWIJKING_REEKS   = 5;
-const AI_INTERVAL  = 8;      // frames tussen AI-inferentie (terug naar 8 voor snelle reactie)
+const AI_INTERVAL_BASE = 8;  // minimum frames tussen AI-inferentie
 const GEEN_RESET   = 20;     // frames zonder detectie voor reset
 const AI_DREMPEL   = 3;      // bevestigde frames voor fasewissel
 const YOLO_SIZE    = 640;    // model input grootte
@@ -575,11 +607,16 @@ function slaOp(osmId,richting,duur){
   if(!osmId||duur<4||duur>300)return false;
   const dd=huidigDD();
   let m=laadM(osmId,dd);
+  // Historische bevestiging (Wijziging 8) — weiger extreme uitschieters
+  if(!isMetingBetrouwbaar(duur, m)) return false;
   const gewijzigd=checkAfwijking(duur,gewGem(m));
   if(gewijzigd)m=[];
-  m.push({duur:Math.round(duur),tijd:Date.now(),richting:Math.round(richting||0)});
+  // Spreiding bijhouden (Wijziging 7)
+  const nieuwM={duur:Math.round(duur),tijd:Date.now(),richting:Math.round(richting||0)};
+  m.push(nieuwM);
   if(m.length>MAX_METINGEN){m.sort((a,b)=>gew(b.tijd)-gew(a.tijd));m=m.slice(0,MAX_METINGEN);}
   try{localStorage.setItem(`${LS_PREFIX}${osmId}_${dd}`,JSON.stringify(m));}catch(e){}
+  checkLocalStorageRuimte();
   return gewijzigd;
 }
 
@@ -658,7 +695,39 @@ let aiTeller=0, aiKleur=null;
 let geenTeller=0;
 let audioCtx=null, wakeLock=null;
 let frameT=0;
-let cameraTrack=null, zoomOndersteund=false, huidigeZoom=1.0;
+let cameraTrack=null, zoomOndersteund=false;
+// Zoom variabelen (Wijziging 1)
+let huidigeZoom=1.0;
+let vorigeZoom=1.0;
+let zoomTransitieActief=false;
+let zoomVergrendeld=false;
+let vergrendeldZoomNiveau=1.0;
+let zoomVergrendelTijdstip=null;
+let huidigActiefStoplichtPositie=null;
+const headingBuffer=[];
+let gpsBuffer=10;
+let snelheidKmh=0;
+let gecorrigeerdeAfstand=0;
+// Dynamisch AI interval (Wijziging 2)
+let gemiddeldeInferentieTijd=200;
+let dynamischInterval=15;
+// TODO: TIJDELIJK - verwijderen voor productie
+let modelLaadPogingenRoot=0;
+let modelLaadPogingenFallback=0;
+let modelLaadMislukt=0;
+// Dual-systeem S2 (Wijziging 4)
+const s2BboxTeller=new Map();
+const s1GebruikteNodesDezeRun=new Set();
+let s2SessieTeller=0;
+let s2ActieveBboxen=0;
+// Stad via Nominatim (Wijziging 5)
+let huidigeStad=null;
+let stadLaatstRefreshed=0;
+let stadLaatsteLat=null;
+let stadLaatsteLon=null;
+// Stoplicht-type tagging (Wijziging 9)
+let huidigBevestigdOsmNodeId=null;
+let tagAutoSluitTimer=null;
 let aiBezig=false, laatsteAI=null;
 let nieuwAIResultaat=false;
 let vorigeDetectie=null; // tracking voor slim selectie
@@ -692,12 +761,14 @@ async function laadONNXModel() {
         executionProviders: ['wasm'],
         graphOptimizationLevel: 'all',
       });
+      modelLaadPogingenRoot++; // TODO: TIJDELIJK - verwijderen voor productie
     } catch(e1) {
       modelPad = './model/model.onnx';
       onnxSession = await ort.InferenceSession.create(modelPad, {
         executionProviders: ['wasm'],
         graphOptimizationLevel: 'all',
       });
+      modelLaadPogingenFallback++; // TODO: TIJDELIJK - verwijderen voor productie
     }
     modelGeladen = true;
     clearInterval(simInt);
@@ -717,6 +788,7 @@ async function laadONNXModel() {
     yoloCanvas.height = YOLO_SIZE;
     yoloCtx = yoloCanvas.getContext('2d');
   } catch (e) {
+    modelLaadMislukt++; // TODO: TIJDELIJK - verwijderen voor productie
     clearInterval(simInt);
     sModelLabel.textContent = '⚠ Model niet gevonden — upload model/model.onnx';
     sModelLabel.style.color = 'var(--oranje)';
@@ -897,82 +969,74 @@ function kleurCheckInBox(det) {
   } catch(e) { return null; }
 }
 
-// ── SLIM SELECTIE SYSTEEM ─────────────────────────────────────
-// Selecteert het stoplicht van JOUW rijbaan op basis van 5 factoren
+// ── S1 SCORING (Wijziging 4) ─────────────────────────────────
+function berekenS1Score(bboxCenterX, canvasBreedte, gpsAfstand, confidence) {
+  const horizontaleAfwijking = Math.abs(bboxCenterX - (canvasBreedte / 2)) / (canvasBreedte / 2);
+  const centerScore = (1 - horizontaleAfwijking) * 60;
+  const afstandScore = Math.max(0, (1 - (gpsAfstand || 0) / 250)) * 30;
+  const confidenceScore = confidence * 10;
+  return centerScore + afstandScore + confidenceScore;
+}
+
+// ── SLIM SELECTIE SYSTEEM + DUAL-SYSTEEM ─────────────────────
+// Retourneert { s1: beste detectie of null, s2Rest: overige geldige detecties }
 function selecteerBesteDetectie(detecties) {
-  if (!detecties.length) return null;
+  if (!detecties.length) return { s1: null, s2Rest: [] };
 
   // Filter bruikbare klassen (niet 'uit')
   const bruikbaar = detecties.filter(d => KLASSE_MAP[d.klasse]);
-  if (!bruikbaar.length) return null;
-  if (bruikbaar.length === 1) return bruikbaar[0];
+  if (!bruikbaar.length) return { s1: null, s2Rest: [] };
+
+  const gpsAf = dichtstbijOSM ? dichtstbijOSM.afstand : 999;
+
+  // Harde filters (Wijziging 4)
+  const geldig = bruikbaar.filter(det => {
+    if (det.w < 20 || det.h < 20) return false;
+    if (det.cy / YOLO_SIZE > MAX_Y_RATIO) return false;
+    if (det.h < det.w) return false; // bbox_hoogte < bbox_breedte
+    if (det.score < 0.35) return false;
+    return true;
+  });
+
+  if (!geldig.length) return { s1: null, s2Rest: [] };
 
   let besteScore = -Infinity;
   let beste = null;
 
-  for (const det of bruikbaar) {
-    // ── DODE ZONE: negeer buitenste 12% links en rechts ──
+  for (const det of geldig) {
     const relX = det.cx / YOLO_SIZE;
     if (relX < 0.12 || relX > 0.88) continue;
 
-    // ── Factor 1: Horizontaal centrum (40% gewicht) ──
-    // Jouw stoplicht staat bijna altijd recht vooruit = midden van beeld
-    const afstandVanCenter = Math.abs(relX - 0.5);
-    const centerScore = Math.max(0, 1 - afstandVanCenter * 2.5);
+    // S1 scoring
+    const s1Score = berekenS1Score(det.cx, YOLO_SIZE, gpsAf, det.score);
 
-    // ── Factor 2: Confidence score (25% gewicht) ──
-    const confScore = det.score;
-
-    // ── Factor 3: Grootte/afstand (15% gewicht) ──
-    // Te klein = te ver weg, te groot = je rijdt eronderdoor
-    // Sweet spot: 4-20% van beeldhoogte
-    const relH = det.h / YOLO_SIZE;
-    let sizeScore;
-    if (relH < 0.02) sizeScore = 0.1;       // te klein
-    else if (relH < 0.06) sizeScore = 0.3 + (relH - 0.02) / 0.04 * 0.7; // oplopend
-    else if (relH <= 0.22) sizeScore = 1.0;  // sweet spot
-    else if (relH <= 0.35) sizeScore = 0.5;  // groot maar ok
-    else sizeScore = 0.1;                    // te groot (eronderdoor)
-
-    // ── Factor 4: Verticale sweet spot (10% gewicht) ──
-    // Stoplichten zitten typisch in bovenste 15-55% van het beeld
-    const relY = det.cy / YOLO_SIZE;
-    let heightScore;
-    if (relY < 0.10) heightScore = 0.3;      // heel hoog = ver weg
-    else if (relY <= 0.50) heightScore = 1.0; // sweet spot
-    else if (relY <= 0.65) heightScore = 0.4; // vrij laag
-    else heightScore = 0.1;                   // te laag = niet relevant
-
-    // ── Factor 5: Tracking continuïteit (10% gewicht) ──
-    // Bonus als deze detectie dicht bij de vorige zit
-    let trackScore = 0.5; // neutraal als geen vorige
+    // Tracking bonus
+    let trackScore = 0;
     if (vorigeDetectie) {
       const dx = Math.abs(det.cx - vorigeDetectie.cx) / YOLO_SIZE;
       const dy = Math.abs(det.cy - vorigeDetectie.cy) / YOLO_SIZE;
-      const afstand = Math.sqrt(dx * dx + dy * dy);
-      trackScore = Math.max(0, 1 - afstand * 4);
+      const dist = Math.sqrt(dx * dx + dy * dy);
+      trackScore = Math.max(0, 1 - dist * 4) * 5;
     }
 
-    // ── Totaalscore ──
-    const totaal = centerScore * 0.40
-                 + confScore * 0.25
-                 + sizeScore * 0.15
-                 + heightScore * 0.10
-                 + trackScore * 0.10;
-
-    if (totaal > besteScore) {
+    const totaal = s1Score + trackScore;
+    if (totaal > besteScore && totaal >= 30) {
       besteScore = totaal;
       beste = det;
     }
   }
 
-  return beste;
+  // S2 rest: alle geldige detecties behalve S1
+  const s2Rest = geldig.filter(d => d !== beste);
+
+  return { s1: beste, s2Rest };
 }
 
 // ── AI DETECTIE (YOLO) ────────────────────────────────────────
 async function voerAIUit() {
   if (!modelGeladen || !onnxSession || video.readyState < 2 || aiBezig) return;
   aiBezig = true;
+  const inferentieStart = Date.now(); // Wijziging 2: dynamisch interval
   try {
     // 1. Preprocessing
     const inputTensor = preprocessVoorYOLO();
@@ -983,6 +1047,11 @@ async function voerAIUit() {
     const outputData = outputTensor.data;
     const dims = outputTensor.dims;
 
+    // Wijziging 2: dynamisch AI interval
+    const inferentieTijd = Date.now() - inferentieStart;
+    gemiddeldeInferentieTijd = (gemiddeldeInferentieTijd * 0.9) + (inferentieTijd * 0.1);
+    dynamischInterval = Math.max(8, Math.ceil(gemiddeldeInferentieTijd / 16));
+
     // 3. Post-processing: alle detecties
     const detecties = postprocessYOLO(outputData, dims);
 
@@ -990,15 +1059,25 @@ async function voerAIUit() {
       dAI.textContent = 'ai:weg';
       laatsteAI = null;
       nieuwAIResultaat = true;
+      s1GebruikteNodesDezeRun.clear();
       return;
     }
 
-    // 4. SLIM SELECTIE: kies het stoplicht van jouw rijbaan
-    const beste = selecteerBesteDetectie(detecties);
+    // 4. SLIM SELECTIE + DUAL-SYSTEEM
+    const { s1: beste, s2Rest } = selecteerBesteDetectie(detecties);
+
+    // S1 node registratie
+    if (beste && dichtstbijOSM) {
+      s1GebruikteNodesDezeRun.add(String(dichtstbijOSM.id));
+    }
+
     if (!beste) {
       dAI.textContent = 'ai:zone';
       laatsteAI = null;
       nieuwAIResultaat = true;
+      // S2 verwerking ook bij geen S1
+      verwerkS2(s2Rest);
+      s1GebruikteNodesDezeRun.clear();
       return;
     }
 
@@ -1007,21 +1086,19 @@ async function voerAIUit() {
       dAI.textContent = 'ai:uit';
       laatsteAI = null;
       nieuwAIResultaat = true;
+      verwerkS2(s2Rest);
+      s1GebruikteNodesDezeRun.clear();
       return;
     }
 
-    // 5. KLEURCHECK: alleen informatief in debug — YOLO bepaalt de kleur
-    // KleurCheck overrule is uitgeschakeld: de pixel-analyse op 320px YOLO canvas
-    // is te onbetrouwbaar om YOLO te corrigeren. Wacht op beter model (stap 3).
+    // 5. KLEURCHECK: alleen informatief in debug
     let definitieveKleur = kleur;
-    let kleurBron = 'yolo';
     const kcheck = kleurCheckInBox(beste);
-    // Alleen loggen, niet overrulen
 
-    // 6. Bewaar voor tracking (volgende frame)
+    // 6. Bewaar voor tracking
     vorigeDetectie = { cx: beste.cx, cy: beste.cy };
 
-    // 7. Schaal bounding box naar video-coördinaten (letterbox correctie)
+    // 7. Schaal bounding box naar video-coördinaten
     const horizontaal = beste.w > beste.h * 1.3;
 
     dAI.textContent = `ai:${definitieveKleur} ${(beste.score * 100).toFixed(0)}%${kcheck?' kc:'+kcheck.kleur:''} [${detecties.length}]`;
@@ -1038,11 +1115,43 @@ async function voerAIUit() {
       }
     };
     nieuwAIResultaat = true;
+
+    // S2 verwerking (Wijziging 4)
+    verwerkS2(s2Rest);
+    s1GebruikteNodesDezeRun.clear();
   } catch(e) {
     dAI.textContent = 'ai:err';
     console.error('YOLO inferentie fout:', e);
   } finally {
     aiBezig = false;
+  }
+}
+
+// ── S2 STILLE OBSERVATOR (Wijziging 4) ──────────────────────
+function verwerkS2(overigeBboxen) {
+  const smoothedHeading = getSmoothedHeading();
+  if (smoothedHeading === null || !overigeBboxen || !overigeBboxen.length) return;
+  s2ActieveBboxen = 0;
+  const zichtbareS2Nodes = new Set();
+  for (const bbox of overigeBboxen) {
+    const horizontaleOffset = (bbox.cx - (YOLO_SIZE / 2)) / YOLO_SIZE;
+    const hoekOffset = horizontaleOffset * 77; // iPhone 14/15 wide camera FOV
+    const absoluteRichting = (smoothedHeading + hoekOffset + 360) % 360;
+    const match = vindOsmMatchOpRichting(absoluteRichting, 20, 150);
+    if (!match) continue;
+    if (s1GebruikteNodesDezeRun.has(match.nodeId)) continue;
+    if (bbox.score < 0.5) continue;
+    zichtbareS2Nodes.add(match.nodeId);
+    const huidigeTeller = s2BboxTeller.get(match.nodeId) || 0;
+    s2BboxTeller.set(match.nodeId, huidigeTeller + 1);
+    s2ActieveBboxen++;
+    if (s2BboxTeller.get(match.nodeId) < 2) continue;
+    const kleur = KLASSE_MAP[bbox.klasse];
+    if (kleur) slaLeergeheugenOpS2(match.nodeId, kleur);
+    s2SessieTeller++;
+  }
+  for (const [nodeId] of s2BboxTeller.entries()) {
+    if (!zichtbareS2Nodes.has(nodeId)) s2BboxTeller.set(nodeId, 0);
   }
 }
 
@@ -1089,7 +1198,7 @@ function tekenOverlay(box, score, horizontaal) {
 
 // ── BEVESTIGING EN FASE-LOGICA ────────────────────────────────
 function verwerkDetecties() {
-  if (!nieuwAIResultaat) return; // alleen tellen op AI-frames
+  if (!nieuwAIResultaat) return;
   nieuwAIResultaat = false;
   const aiR = laatsteAI;
   if (aiR && aiR.kleur) {
@@ -1098,14 +1207,37 @@ function verwerkDetecties() {
     tekenOverlay(aiR.box, aiR.score, aiR.horizontaal);
     geenTeller = 0;
     dInfo.textContent = `${aiR.kleur} ${aiTeller}/${AI_DREMPEL}`;
-    if (aiTeller >= AI_DREMPEL) verwerkFase(aiR.kleur, aiR.horizontaal);
+    if (aiTeller >= AI_DREMPEL) {
+      // Zoom vergrendelen bij detectiebevestiging (Wijziging 1F)
+      if (!zoomVergrendeld) {
+        zoomVergrendeld = true;
+        vergrendeldZoomNiveau = huidigeZoom;
+        zoomVergrendelTijdstip = Date.now();
+        if (dichtstbijOSM) {
+          huidigActiefStoplichtPositie = { lat: dichtstbijOSM.lat, lon: dichtstbijOSM.lon };
+        }
+      }
+      // Stoplicht-type tagging (Wijziging 9)
+      if (dichtstbijOSM) {
+        huidigBevestigdOsmNodeId = String(dichtstbijOSM.id);
+        toonTagKnop(huidigBevestigdOsmNodeId);
+      }
+      verwerkFase(aiR.kleur, aiR.horizontaal);
+    }
     return;
   }
   tekenOverlay(null);
-  aiTeller = 0; aiKleur = null;
+  // Teller alleen verlagen als zoom stabiel is (Wijziging 1H)
+  if (!zoomTransitieActief) {
+    aiTeller = 0; aiKleur = null;
+  }
   geenTeller++;
   dInfo.textContent = `geen(${geenTeller}/${GEEN_RESET})`;
-  if (geenTeller >= GEEN_RESET && fase !== null) resetNeutraal();
+  if (geenTeller >= GEEN_RESET && fase !== null) {
+    huidigBevestigdOsmNodeId = null;
+    verbergTagUI();
+    resetNeutraal();
+  }
 }
 
 function resetNeutraal() {
@@ -1176,7 +1308,22 @@ function updateUI(f, horizontaal) {
 function startCd() {
   cdStart = performance.now();
   const pct = dichtstbijOSM ? berekenLeerPct(dichtstbijOSM.id) : 0;
-  cdLabel.textContent = pct > 60 ? `Groen over (${pct}% zeker)` : 'Groen verwacht over';
+  // Wijziging 7: spreiding tonen als variabel
+  if (dichtstbijOSM) {
+    const dd = huidigDD();
+    const m = laadM(dichtstbijOSM.id, dd);
+    const duurs = m.filter(x => x.duur > 0).map(x => x.duur);
+    const minT = duurs.length ? Math.min(...duurs) : null;
+    const maxT = duurs.length ? Math.max(...duurs) : null;
+    const gem = gewGem(m);
+    if (gem && minT != null && maxT != null && (maxT - minT) >= 15) {
+      cdLabel.textContent = `Groen over ~${formateerCyclustijd(gem, minT, maxT)}`;
+    } else {
+      cdLabel.textContent = pct > 60 ? `Groen over (${pct}% zeker)` : 'Groen verwacht over';
+    }
+  } else {
+    cdLabel.textContent = 'Groen verwacht over';
+  }
   cdEenheid.textContent = 'seconden';
   cdRingVoor.style.stroke = 'var(--rood)';
 }
@@ -1298,10 +1445,23 @@ function laadDashboard() {
       const heeftData = m.length > 0;
       return `<div class="sl-dd-item${heeftData?' heeft-data':''}">${DD[dd].ic}${gem?' '+Math.round(gem)+'s':''}</div>`;
     }).join('');
+    // Tag en spreiding info (Wijziging 7 + 9)
+    const tagHTML = renderTagInDashboard(d.id);
+    const tagLabel = tagHTML ? `<span style="font-size:9px;padding:2px 6px;border-radius:6px;background:rgba(52,199,89,.1);color:rgba(52,199,89,.8);margin-left:4px">${tagHTML}</span>` : '';
+    // Spreiding per dagdeel
+    const spreidHTML = Object.keys(DD).map(dd => {
+      const m = laadM(d.id, dd);
+      if (!m.length) return '';
+      const gem = gewGem(m);
+      const duurs = m.filter(x => x.duur > 0).map(x => x.duur);
+      const minT = duurs.length ? Math.min(...duurs) : null;
+      const maxT = duurs.length ? Math.max(...duurs) : null;
+      return gem ? formateerCyclustijd(gem, minT, maxT) : '';
+    }).filter(Boolean).join(' ');
     return `
       <div class="sl-kaart">
         <div class="sl-kaart-header">
-          <div class="sl-kaart-naam">${d.naam}</div>
+          <div class="sl-kaart-naam">${d.naam}${tagLabel}</div>
           <div class="sl-kaart-pct" style="color:${kleurCSS}">${d.pct}%</div>
         </div>
         <div class="sl-kaart-balk-bg">
@@ -1309,7 +1469,16 @@ function laadDashboard() {
         </div>
         <div class="sl-kaart-info">
           <div class="sl-kaart-dd">${ddHTML}</div>
-          <div class="sl-kaart-laatste">${leeftijd} · ${d.totM}x gemeten</div>
+          <div class="sl-kaart-laatste">${leeftijd} · ${d.totM}x gemeten${spreidHTML?' · '+spreidHTML:''}</div>
+        </div>
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-top:4px">
+          <select onchange="slaStoplichtTagOp('${d.id}',this.value);laadDashboard()" style="font-size:10px;padding:2px 6px;background:rgba(255,255,255,0.08);color:var(--dim);border:1px solid var(--border);border-radius:6px;cursor:pointer">
+            <option value="" ${!tagHTML?'selected':''}>+ Tag</option>
+            <option value="voetganger" ${tagHTML&&tagHTML.includes('Voetganger')?'selected':''}>🚶 Voetganger</option>
+            <option value="normaal" ${tagHTML&&tagHTML.includes('Normaal')?'selected':''}>🔄 Normaal</option>
+            <option value="groene_golf" ${tagHTML&&tagHTML.includes('Groene golf')?'selected':''}>🟢 Groene golf</option>
+            <option value="vri" ${tagHTML&&tagHTML.includes('VRI')?'selected':''}>⚡ VRI</option>
+          </select>
         </div>
       </div>`;
   }).join('');
@@ -1322,7 +1491,9 @@ function escapeHTML(s) {
 function vindNaamVoorId(id) {
   const gevonden = osmCache.find(sl => sl.id.toString() === id.toString());
   if (gevonden?.naam) return escapeHTML(gevonden.naam);
-  return `Stoplicht ${id}`;
+  // Wijziging 5: nooit raw OSM node ID tonen
+  if (gevonden) return `${gevonden.lat.toFixed(4)}, ${gevonden.lon.toFixed(4)}`;
+  return 'Onbekend stoplicht';
 }
 
 function tijdGeleden(ts) {
@@ -1356,24 +1527,48 @@ async function downloadOSM(lat, lon) {
   if (cacheBezig) return;
   cacheBezig = true;
   pOSM.className = 'pill-dot o'; pOSMT.textContent = 'laden'; dOSM.textContent = 'osm:laden';
-  const q = `[out:json][timeout:15];node["highway"="traffic_signals"](around:${OSM_RADIUS},${lat},${lon});out body;`;
+  // Wijziging 5: uitgebreide query met way geometry voor straatnamen
+  const q = `[out:json][timeout:25];node["highway"="traffic_signals"](around:${OSM_RADIUS},${lat},${lon});out body;way(bn)["name"];out geom;`;
   try {
     const ctrl = new AbortController();
-    const t = setTimeout(() => ctrl.abort(), 18000);
+    const t = setTimeout(() => ctrl.abort(), 25000);
     const r = await fetch(OVERPASS_URL, { method:'POST', body:`data=${encodeURIComponent(q)}`, signal:ctrl.signal });
     clearTimeout(t);
     if (!r.ok) throw new Error();
     const d = await r.json();
-    osmCache = (d.elements || []).map(el => ({
-      id: el.id, lat: el.lat, lon: el.lon,
-      naam: el.tags?.name || el.tags?.ref || null,
-      straat: null, // wordt via reverse geocoding ingevuld
-      slim: !!(el.tags?.['traffic_signals:sound'] || el.tags?.description?.toLowerCase().includes('ivri')),
-    }));
+    const nodes = (d.elements || []).filter(el => el.type === 'node');
+    const ways = (d.elements || []).filter(el => el.type === 'way');
+    // Koppel wegen aan nodes
+    const nodeWegen = new Map();
+    for (const way of ways) {
+      if (!way.nodes) continue;
+      for (const nid of way.nodes) {
+        if (!nodeWegen.has(nid)) nodeWegen.set(nid, []);
+        nodeWegen.get(nid).push(way);
+      }
+    }
+    osmCache = nodes.map(el => {
+      const wegenVoorNode = nodeWegen.get(el.id) || [];
+      const besteWeg = kiesBesteWeg(wegenVoorNode, huidigeRichting);
+      const straat = besteWeg?.tags?.name || null;
+      const stad = huidigeStad;
+      let naam;
+      if (straat && stad) naam = `${straat}, ${stad}`;
+      else if (straat) naam = straat;
+      else if (stad) naam = stad;
+      else naam = `${el.lat.toFixed(4)}, ${el.lon.toFixed(4)}`;
+      return {
+        id: el.id, lat: el.lat, lon: el.lon, naam,
+        straat, stad,
+        slim: !!(el.tags?.['traffic_signals:sound'] || el.tags?.description?.toLowerCase().includes('ivri')),
+      };
+    });
     cacheCentrum = { lat, lon }; cacheGeladen = true;
     pOSM.className = 'pill-dot g'; pOSMT.textContent = 'Kaart';
     dOSM.textContent = `osm:${osmCache.length}`;
     updateDichtbij(lat, lon);
+    // S2 cleanup bij OSM refresh
+    for (const [key, value] of s2BboxTeller.entries()) { if (value === 0) s2BboxTeller.delete(key); }
     // Reverse geocoding voor dichtbijzijnde stoplichten (async, niet blokkerend)
     haalStraatnamenOp();
   } catch(e) {
@@ -1401,7 +1596,7 @@ async function haalStraatnamenOp() {
     try {
       await new Promise(r => setTimeout(r, 1100)); // 1 req/sec limiet
       const url = `https://nominatim.openstreetmap.org/reverse?lat=${sl.lat}&lon=${sl.lon}&format=json&zoom=18`;
-      const r = await fetch(url, { headers: { 'User-Agent': 'StoplichtIQ/7.1' } });
+      const r = await fetch(url, { headers: { 'User-Agent': 'StoplichtIQ/8.0' } });
       if (!r.ok) continue;
       const d = await r.json();
       const straat = d.address?.road || d.address?.pedestrian || '';
@@ -1448,26 +1643,249 @@ function afstand(la1, lo1, la2, lo2) {
   return R*2*Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
 }
 
-// ── DYNAMISCHE ZOOM ──────────────────────────────────────────
-// Zoom in op afstand, zoom uit als je dichtbij bent
-function pasZoomAan(afstandMeter) {
-  if (!zoomOndersteund || !cameraTrack) return;
-  let doelZoom;
-  if (afstandMeter > 200) doelZoom = 2.5;
-  else if (afstandMeter > 100) doelZoom = 2.0;
-  else if (afstandMeter > 50) doelZoom = 1.5;
-  else doelZoom = 1.0;
-  // Alleen aanpassen als verschil groot genoeg is (voorkom constant wisselen)
-  if (Math.abs(doelZoom - huidigeZoom) < 0.3) return;
-  try {
-    const caps = cameraTrack.getCapabilities ? cameraTrack.getCapabilities() : {};
-    if (caps.zoom) {
-      doelZoom = Math.min(doelZoom, caps.zoom.max);
-      doelZoom = Math.max(doelZoom, caps.zoom.min);
-      cameraTrack.applyConstraints({ advanced: [{ zoom: doelZoom }] });
-      huidigeZoom = doelZoom;
+// ── HEADING SMOOTHING (Wijziging 1C) ─────────────────────────
+function voegHeadingToe(nieuweHeading) {
+  if (nieuweHeading == null || isNaN(nieuweHeading)) return;
+  headingBuffer.push(nieuweHeading);
+  if (headingBuffer.length > 3) headingBuffer.shift();
+}
+// Circulair gemiddelde — correct bij grenswaarde 0°/360°
+function getSmoothedHeading() {
+  if (headingBuffer.length === 0) return null;
+  const sinGem = headingBuffer.reduce((s, h) => s + Math.sin(h * Math.PI / 180), 0) / headingBuffer.length;
+  const cosGem = headingBuffer.reduce((s, h) => s + Math.cos(h * Math.PI / 180), 0) / headingBuffer.length;
+  return (Math.atan2(sinGem, cosGem) * 180 / Math.PI + 360) % 360;
+}
+
+// ── ZOOM LOGICA (Wijziging 1D-1E) ───────────────────────────
+function berekenDoelZoom(afst) {
+  if (afst == null || isNaN(afst) || afst < 0) return 1.0;
+  if (afst > 200) return 3.0;
+  if (afst > 100) return 2.5;
+  if (afst > 60) return 2.0;
+  if (afst > 30) return 1.5;
+  return 1.0;
+}
+// Stoplicht voorbij detectie
+function isStoplichtVoorbij(stoplichtPos, hPos, rijrichting) {
+  if (!rijrichting || !stoplichtPos || !hPos) return false;
+  const dLat = stoplichtPos.lat - hPos.lat;
+  const dLon = stoplichtPos.lon - hPos.lon;
+  const hoekNaarStoplicht = Math.atan2(dLon, dLat) * 180 / Math.PI;
+  const normRijrichting = (rijrichting + 360) % 360;
+  const normHoek = (hoekNaarStoplicht + 360) % 360;
+  let verschil = Math.abs(normRijrichting - normHoek);
+  if (verschil > 180) verschil = 360 - verschil;
+  return verschil > 90;
+}
+
+// ── OVERPASS WEG KOPPELING (Wijziging 5) ─────────────────────
+function kiesBesteWeg(wegen, gpsHeading) {
+  if (!wegen || wegen.length === 0) return null;
+  if (!gpsHeading) return wegen.find(w => w.tags && w.tags.name) || null;
+  let besteWeg = null;
+  let kleinsteHoekVerschil = Infinity;
+  for (const weg of wegen) {
+    if (!weg.tags || !weg.tags.name) continue;
+    if (!weg.geometry || weg.geometry.length < 2) continue;
+    const dLat = weg.geometry[1].lat - weg.geometry[0].lat;
+    const dLon = weg.geometry[1].lon - weg.geometry[0].lon;
+    const wegHoek = (Math.atan2(dLon, dLat) * 180 / Math.PI + 360) % 360;
+    let verschil = Math.abs(gpsHeading - wegHoek);
+    if (verschil > 180) verschil = 360 - verschil;
+    const verschilTegen = Math.abs(180 - verschil);
+    const effectiefVerschil = Math.min(verschil, verschilTegen);
+    if (effectiefVerschil < kleinsteHoekVerschil) {
+      kleinsteHoekVerschil = effectiefVerschil;
+      besteWeg = weg;
     }
-  } catch(e) {}
+  }
+  return besteWeg || wegen.find(w => w.tags && w.tags.name) || null;
+}
+
+// ── LOCALSTORAGE BEWAKING (Wijziging 6) ──────────────────────
+function checkLocalStorageRuimte() {
+  try {
+    let totaal = 0;
+    for (const key of Object.keys(localStorage)) {
+      totaal += (localStorage.getItem(key) || '').length * 2;
+    }
+    const mb = totaal / (1024 * 1024);
+    if (mb > 4.0) {
+      const s2Entries = Object.keys(localStorage)
+        .filter(k => k.startsWith('sl_v4_'))
+        .map(k => {
+          try { return { key: k, data: JSON.parse(localStorage.getItem(k) || '[]') }; }
+          catch (e) { return null; }
+        })
+        .filter(item => item && Array.isArray(item.data) && item.data.some(m => m.s2 === true))
+        .sort((a, b) => {
+          const getTijd = m => m.tijd || 0;
+          const oudsteA = Math.min(...a.data.map(getTijd));
+          const oudsteB = Math.min(...b.data.map(getTijd));
+          return oudsteA - oudsteB;
+        });
+      s2Entries.slice(0, 10).forEach(item => {
+        const cleaned = item.data.filter(m => m.s2 !== true);
+        if (cleaned.length === 0) localStorage.removeItem(item.key);
+        else localStorage.setItem(item.key, JSON.stringify(cleaned));
+      });
+    }
+    if (mb > 4.5) console.warn('localStorage bijna vol: ' + mb.toFixed(1) + 'MB');
+  } catch (e) { console.error('localStorage check mislukt:', e); }
+}
+
+// ── CYCLUSTIJD SPREIDING (Wijziging 7) ───────────────────────
+function formateerCyclustijd(gemiddelde, minTijd, maxTijd) {
+  if (minTijd == null || maxTijd == null) return `~${Math.round(gemiddelde)}s`;
+  if (maxTijd < minTijd) return `~${Math.round(gemiddelde)}s`;
+  const spreiding = maxTijd - minTijd;
+  if (spreiding < 15) return `~${Math.round(gemiddelde)}s`;
+  return `${Math.round(minTijd)}-${Math.round(maxTijd)}s`;
+}
+
+// ── HISTORISCHE BEVESTIGING (Wijziging 8) ────────────────────
+function isMetingBetrouwbaar(nieuweDuur, bestaandeMetingen) {
+  if (!nieuweDuur || nieuweDuur === 0) return false;
+  if (!bestaandeMetingen || bestaandeMetingen.length < 3) return true;
+  const gem = gewGem(bestaandeMetingen);
+  if (!gem || gem === 0) return true;
+  const afwijking = Math.abs(nieuweDuur - gem) / gem;
+  if (afwijking > 0.50 && bestaandeMetingen.length >= 5) {
+    console.log(`Meting geweigerd: ${nieuweDuur}s wijkt ${(afwijking*100).toFixed(0)}% af van gemiddelde ${gem.toFixed(0)}s`);
+    return false;
+  }
+  return true;
+}
+
+// ── S2 OSM-KOPPELING OP RICHTING (Wijziging 4) ──────────────
+function vindOsmMatchOpRichting(absoluteRichting, maxHoekGraden, maxAfstandMeter) {
+  if (!huidigePos || !osmCache.length) return null;
+  let bestMatch = null;
+  let besteScore = Infinity;
+  for (const sl of osmCache) {
+    const af = afstand(huidigePos.lat, huidigePos.lon, sl.lat, sl.lon);
+    if (af > maxAfstandMeter) continue;
+    const dLat = sl.lat - huidigePos.lat;
+    const dLon = sl.lon - huidigePos.lon;
+    const hoekNaarSl = (Math.atan2(dLon, dLat) * 180 / Math.PI + 360) % 360;
+    let hoekVerschil = Math.abs(absoluteRichting - hoekNaarSl);
+    if (hoekVerschil > 180) hoekVerschil = 360 - hoekVerschil;
+    if (hoekVerschil > maxHoekGraden) continue;
+    const score = hoekVerschil * af;
+    if (score < besteScore) { besteScore = score; bestMatch = { nodeId: String(sl.id), lat: sl.lat, lon: sl.lon }; }
+  }
+  return bestMatch;
+}
+
+// ── S2 LEERGEHEUGEN OPSLAAN (Wijziging 4) ───────────────────
+function slaLeergeheugenOpS2(nodeId, kleur) {
+  if (!nodeId) return;
+  const dd = huidigDD();
+  let m = laadM(nodeId, dd);
+  // Historische bevestiging geldt ook voor S2
+  // S2 heeft geen duur, sla kleur-observatie op met gewicht 0.3
+  m.push({ duur: 0, tijd: Date.now(), richting: Math.round(huidigeRichting || 0), s2: true, gewicht: 0.3, kleur: kleur });
+  if (m.length > MAX_METINGEN) { m.sort((a,b) => gew(b.tijd) - gew(a.tijd)); m = m.slice(0, MAX_METINGEN); }
+  try { localStorage.setItem(`${LS_PREFIX}${nodeId}_${dd}`, JSON.stringify(m)); } catch(e) {}
+  checkLocalStorageRuimte();
+}
+
+// ── STOPLICHT-TYPE TAGGING (Wijziging 9) ─────────────────────
+function slaStoplichtTagOp(nodeId, type) {
+  const geldigeTypes = ['voetganger', 'normaal', 'groene_golf', 'vri'];
+  if (!nodeId || !geldigeTypes.includes(type)) return;
+  try {
+    localStorage.setItem('sl_tag_' + nodeId, JSON.stringify({ type: type, tijdstip: Date.now(), versie: 1 }));
+  } catch (e) { console.warn('Tag opslaan mislukt:', e.message); }
+}
+function laadStoplichtTag(nodeId) {
+  if (!nodeId) return null;
+  try { const raw = localStorage.getItem('sl_tag_' + nodeId); return raw ? JSON.parse(raw) : null; }
+  catch (e) { return null; }
+}
+// Toon tag-knop zodra S1 bevestigd is
+function toonTagKnop(nodeId) {
+  const btn = document.getElementById('sl-tag-btn');
+  if (!btn) return;
+  const bestaandeTag = laadStoplichtTag(nodeId);
+  if (bestaandeTag) { btn.style.display = 'none'; return; }
+  btn.style.display = 'inline-block';
+  btn.textContent = '🏷️ Tag';
+  btn.onclick = () => toonTagOverlay(nodeId);
+}
+// Verberg tag-knop en overlay als S1 wegvalt
+function verbergTagUI() {
+  const btn = document.getElementById('sl-tag-btn');
+  const overlay = document.getElementById('sl-tag-overlay');
+  if (btn) btn.style.display = 'none';
+  if (overlay) overlay.style.display = 'none';
+  if (tagAutoSluitTimer) { clearTimeout(tagAutoSluitTimer); tagAutoSluitTimer = null; }
+}
+// Toon overlay met drie keuzes
+function toonTagOverlay(nodeId) {
+  const overlay = document.getElementById('sl-tag-overlay');
+  if (!overlay || !nodeId) return;
+  overlay.style.display = 'block';
+  overlay.dataset.nodeId = nodeId;
+  if (tagAutoSluitTimer) clearTimeout(tagAutoSluitTimer);
+  tagAutoSluitTimer = setTimeout(() => { overlay.style.display = 'none'; tagAutoSluitTimer = null; }, 5000);
+}
+// Voer de tag uit na keuze
+function voerTagUit(type) {
+  const overlay = document.getElementById('sl-tag-overlay');
+  const nodeId = overlay ? overlay.dataset.nodeId : null;
+  if (!nodeId) return;
+  slaStoplichtTagOp(nodeId, type);
+  if (tagAutoSluitTimer) clearTimeout(tagAutoSluitTimer);
+  overlay.style.display = 'none';
+  const btn = document.getElementById('sl-tag-btn');
+  if (btn) { btn.textContent = '✅ Opgeslagen'; setTimeout(() => { btn.style.display = 'none'; }, 2000); }
+}
+// Tag renderen in dashboard
+function renderTagInDashboard(nodeId) {
+  const tag = laadStoplichtTag(nodeId);
+  const labels = { voetganger: '🚶 Voetganger', normaal: '🔄 Normaal', groene_golf: '🟢 Groene golf', vri: '⚡ VRI-gestuurd' };
+  return tag ? labels[tag.type] || tag.type : '';
+}
+
+// ── STAD VIA NOMINATIM (Wijziging 5) ─────────────────────────
+try { const cache = JSON.parse(localStorage.getItem('sl_stad_cache') || 'null'); if (cache) huidigeStad = cache.stad; } catch(e) {}
+async function refreshStadIndienNodig(lat, lon) {
+  const nu = Date.now();
+  const tijdSindsRefresh = nu - stadLaatstRefreshed;
+  const afstandSindsRefresh = (stadLaatsteLat != null) ? afstand(lat, lon, stadLaatsteLat, stadLaatsteLon) : Infinity;
+  if (stadLaatstRefreshed === 0 || tijdSindsRefresh > 120000 || afstandSindsRefresh > 1000) {
+    stadLaatstRefreshed = nu;
+    stadLaatsteLat = lat;
+    stadLaatsteLon = lon;
+    try {
+      const url = `https://nominatim.openstreetmap.org/reverse?lat=${lat}&lon=${lon}&zoom=10&format=json`;
+      const r = await fetch(url, { headers: { 'User-Agent': 'StoplichtIQ/8.0' } });
+      const d = await r.json();
+      const stad = d.address?.city || d.address?.town || d.address?.municipality || null;
+      if (stad) { huidigeStad = stad; localStorage.setItem('sl_stad_cache', JSON.stringify({ stad, lat, lon, timestamp: nu })); }
+    } catch (e) { console.warn('Stad refresh mislukt, gecachte waarde gebruikt'); }
+  }
+}
+
+// ── FOCUS OP ONEINDIG (Wijziging 1I) ─────────────────────────
+async function forceerVerreFocus(stream) {
+  try {
+    const track = stream.getVideoTracks()[0];
+    if (!track) return;
+    const capabilities = track.getCapabilities();
+    if (capabilities.focusMode && capabilities.focusMode.includes('manual')) {
+      await track.applyConstraints({ advanced: [{ focusMode: 'manual', focusDistance: capabilities.focusDistance ? capabilities.focusDistance.max : 1.0 }] });
+    } else if (capabilities.focusMode && capabilities.focusMode.includes('continuous')) {
+      await track.applyConstraints({ advanced: [{ focusMode: 'continuous' }] });
+    }
+    const settings = track.getSettings();
+    if (settings.width && settings.height) {
+      const ratio = settings.width / settings.height;
+      if (Math.abs(ratio - 1.78) > 0.2) console.warn('Mogelijke telelens actief, ratio: ' + ratio.toFixed(2));
+    }
+  } catch (e) { console.warn('Focus forceren niet ondersteund op dit apparaat:', e.message); }
 }
 
 function updateDichtbij(lat, lon) {
@@ -1478,8 +1896,6 @@ function updateDichtbij(lat, lon) {
   kNaam.textContent = nieuw.naam || (nieuw.slim ? '⚡ Slim' : 'Stoplicht');
   kAf.textContent = a < 1000 ? `${a}m` : `${(a/1000).toFixed(1)}km`;
   kDD.textContent = `${DD[huidigDD()].ic} ${huidigDD()}`;
-  // Dynamische zoom op basis van afstand
-  pasZoomAan(a);
   if (nieuw.id !== vorigOsmId) {
     vorigOsmId = nieuw.id; dichtstbijOSM = nieuw;
     afwijkBuf = [];
@@ -1496,10 +1912,27 @@ function updateDichtbij(lat, lon) {
 async function onGPS(pos) {
   const lat = pos.coords.latitude, lon = pos.coords.longitude;
   huidigePos = { lat, lon };
-  if (pos.coords.heading !== null && !isNaN(pos.coords.heading)) huidigeRichting = pos.coords.heading;
+  if (pos.coords.heading !== null && !isNaN(pos.coords.heading)) {
+    huidigeRichting = pos.coords.heading;
+    voegHeadingToe(pos.coords.heading);
+  }
+  // Snelheid en GPS buffer (Wijziging 1B)
+  const snelheidMs = (pos.coords.speed != null && !isNaN(pos.coords.speed)) ? pos.coords.speed : 0;
+  snelheidKmh = snelheidMs * 3.6;
+  gpsBuffer = Math.min(10 + (snelheidKmh * 0.4), 40);
+  // Zoom ontgrendelen via GPS-voorbij (Wijziging 1B)
+  const minimumVergrendelTijd = 3000;
+  if (zoomVergrendeld && huidigActiefStoplichtPositie &&
+      isStoplichtVoorbij(huidigActiefStoplichtPositie, { lat, lon }, getSmoothedHeading()) &&
+      (Date.now() - zoomVergrendelTijdstip) > minimumVergrendelTijd) {
+    zoomVergrendeld = false;
+    huidigActiefStoplichtPositie = null;
+  }
   pGPS.className = 'pill-dot b'; pGPST.textContent = 'GPS';
   if (!cacheGeladen && !cacheBezig) downloadOSM(lat, lon);
   else if (cacheGeladen) updateDichtbij(lat, lon);
+  // Stad refreshen (Wijziging 5) — eigen cyclus, los van OSM
+  refreshStadIndienNodig(lat, lon);
 }
 
 // Geluid
@@ -1553,13 +1986,39 @@ function lus() {
     const vh = video.videoHeight || window.innerHeight;
     if (canvas.width !== vw) canvas.width = vw;
     if (canvas.height !== vh) canvas.height = vh;
+    // YOLO gebruikt altijd het originele niet-ingezoomde beeld
     ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+
+    // Vloeiende zoominterpolatie (Wijziging 1G)
+    const ruwAfstand = dichtstbijOSM ? dichtstbijOSM.afstand : 999;
+    gecorrigeerdeAfstand = Math.max(0, ruwAfstand - gpsBuffer);
+    const doelZoom = zoomVergrendeld ? vergrendeldZoomNiveau : berekenDoelZoom(gecorrigeerdeAfstand);
+    vorigeZoom = huidigeZoom;
+    huidigeZoom += (doelZoom - huidigeZoom) * 0.06;
+    zoomTransitieActief = Math.abs(huidigeZoom - doelZoom) > 0.005;
+    // CSS zoom op visuele canvassen — YOLO canvas niet beïnvloed
+    const zoomCSS = `scale(${huidigeZoom.toFixed(3)})`;
+    canvas.style.transform = zoomCSS;
+    canvas.style.transformOrigin = 'center center';
+    overlCanvas.style.transform = zoomCSS;
+    overlCanvas.style.transformOrigin = 'center center';
   }
   frameT++;
-  if (frameT % AI_INTERVAL === 0 && modelGeladen && !aiBezig) voerAIUit();
+  // Wijziging 2: dynamisch AI interval
+  if (frameT % dynamischInterval === 0 && modelGeladen && !aiBezig) voerAIUit();
   verwerkDetecties();
   tickCd();
   if (frameT % 1800 === 0) checkNacht();
+
+  // TODO: TIJDELIJK - verwijderen voor productie
+  if (frameT % 30 === 0) {
+    const tag = huidigBevestigdOsmNodeId ? laadStoplichtTag(huidigBevestigdOsmNodeId) : null;
+    dInfo.textContent += ` | spd:${snelheidKmh.toFixed(0)}km/u buf:${gpsBuffer.toFixed(0)}m`;
+    dPct.textContent += ` | zm:${huidigeZoom.toFixed(2)}x${zoomVergrendeld?'🔒':''}`;
+    dAI.textContent += ` | int:${dynamischInterval}(${gemiddeldeInferentieTijd.toFixed(0)}ms)`;
+    dOSM.textContent += ` | S2:${s2SessieTeller} act:${s2ActieveBboxen}${tag?' tag:'+tag.type:''}`;
+  }
+
   requestAnimationFrame(lus);
 }
 
@@ -1570,38 +2029,19 @@ async function startApp() {
   pGeluidT.textContent = geluidAan ? 'SND' : 'MUTE';
   document.getElementById('startscherm').classList.add('weg');
   try {
+    // Wijziging 1I: wide camera forceren + geen hardware zoom
     const stream = await navigator.mediaDevices.getUserMedia({
       video: {
-        facingMode: { ideal: 'environment' },
+        facingMode: { exact: 'environment' },
         width: { ideal: 1920 },
-        height: { ideal: 1080 },
-        focusMode: { ideal: 'continuous' },
-        exposureMode: { ideal: 'continuous' },
-        whiteBalanceMode: { ideal: 'continuous' }
+        height: { ideal: 1080 }
       },
       audio: false
     });
     video.srcObject = stream;
-    // Probeer focus op ver + zoom via track constraints
-    try {
-      const track = stream.getVideoTracks()[0];
-      const caps = track.getCapabilities ? track.getCapabilities() : {};
-      const adv = {};
-      if (caps.focusMode && caps.focusMode.includes('continuous')) adv.focusMode = 'continuous';
-      if (caps.exposureMode && caps.exposureMode.includes('continuous')) adv.exposureMode = 'continuous';
-      // Focus op ver voor stoplichten in de verte
-      if (caps.focusDistance) {
-        adv.focusDistance = caps.focusDistance.max || 10;
-        cameraTrack = track; // bewaar voor dynamische zoom
-      }
-      // Start met 2x zoom als ondersteund
-      if (caps.zoom && caps.zoom.max >= 2) {
-        adv.zoom = Math.min(2.0, caps.zoom.max);
-        zoomOndersteund = true;
-        huidigeZoom = 2.0;
-      }
-      if (Object.keys(adv).length) await track.applyConstraints({ advanced: [adv] });
-    } catch(e) { /* constraints niet ondersteund */ }
+    cameraTrack = stream.getVideoTracks()[0] || null;
+    // Focus forceren op maximale afstand (Wijziging 1I)
+    await forceerVerreFocus(stream);
     await video.play();
   } catch(e) {
     document.getElementById('startscherm').classList.remove('weg');
