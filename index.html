@@ -477,6 +477,27 @@
     </div>
   </div>
 
+  <!-- Export/Import sectie in dashboard -->
+  <div id="sl-data-sectie"
+    style="display:flex; gap:10px; padding:12px 16px; background:rgba(255,255,255,0.05);
+    border-radius:10px; margin:0 18px 12px; align-items:center; flex-wrap:wrap;">
+    <button onclick="exporteerData()"
+      style="flex:1; padding:10px 14px; background:rgba(99,199,99,0.2);
+      color:#63c763; border:1px solid rgba(99,199,99,0.4); border-radius:8px;
+      font-size:13px; cursor:pointer; min-width:120px;">
+      📤 Exporteer backup
+    </button>
+    <label style="flex:1; min-width:120px;">
+      <input type="file" accept=".json" style="display:none;"
+        onchange="importeerData(this.files[0]); this.value=''">
+      <span style="display:block; padding:10px 14px; background:rgba(99,99,199,0.2);
+        color:#6363c7; border:1px solid rgba(99,99,199,0.4); border-radius:8px;
+        font-size:13px; cursor:pointer; text-align:center;">
+        📥 Importeer backup
+      </span>
+    </label>
+  </div>
+
   <div id="dash-filter">
     <div class="filter-btn actief" onclick="filterDashboard('alle',this)">Alle</div>
     <div class="filter-btn" onclick="filterDashboard('hoog',this)">85%+ ⭐</div>
@@ -728,6 +749,8 @@ let stadLaatsteLon=null;
 // Stoplicht-type tagging (Wijziging 9)
 let huidigBevestigdOsmNodeId=null;
 let tagAutoSluitTimer=null;
+// Debug overlay throttled (Fix 1 — v8.1)
+let debugWaarden={};
 let aiBezig=false, laatsteAI=null;
 let nieuwAIResultaat=false;
 let vorigeDetectie=null; // tracking voor slim selectie
@@ -781,7 +804,7 @@ async function laadONNXModel() {
     modelLijn.classList.add('weg');
     pAI.className = 'pill-dot g';
     pAIT.textContent = 'YOLOv8';
-    dAI.textContent = 'ai:klaar';
+    debugWaarden.ai = 'ai:klaar';
     // Init YOLO canvas
     yoloCanvas = document.createElement('canvas');
     yoloCanvas.width = YOLO_SIZE;
@@ -794,7 +817,7 @@ async function laadONNXModel() {
     sModelLabel.style.color = 'var(--oranje)';
     modelLijn.classList.add('weg');
     pAI.className = 'pill-dot o';
-    dAI.textContent = 'ai:fout';
+    debugWaarden.ai = 'ai:fout';
     console.error('ONNX model laden mislukt:', e);
   }
 }
@@ -1056,7 +1079,7 @@ async function voerAIUit() {
     const detecties = postprocessYOLO(outputData, dims);
 
     if (!detecties.length) {
-      dAI.textContent = 'ai:weg';
+      debugWaarden.ai = 'ai:weg';
       laatsteAI = null;
       nieuwAIResultaat = true;
       s1GebruikteNodesDezeRun.clear();
@@ -1072,7 +1095,7 @@ async function voerAIUit() {
     }
 
     if (!beste) {
-      dAI.textContent = 'ai:zone';
+      debugWaarden.ai = 'ai:zone';
       laatsteAI = null;
       nieuwAIResultaat = true;
       // S2 verwerking ook bij geen S1
@@ -1083,7 +1106,7 @@ async function voerAIUit() {
 
     const kleur = KLASSE_MAP[beste.klasse];
     if (!kleur) {
-      dAI.textContent = 'ai:uit';
+      debugWaarden.ai = 'ai:uit';
       laatsteAI = null;
       nieuwAIResultaat = true;
       verwerkS2(s2Rest);
@@ -1101,7 +1124,7 @@ async function voerAIUit() {
     // 7. Schaal bounding box naar video-coördinaten
     const horizontaal = beste.w > beste.h * 1.3;
 
-    dAI.textContent = `ai:${definitieveKleur} ${(beste.score * 100).toFixed(0)}%${kcheck?' kc:'+kcheck.kleur:''} [${detecties.length}]`;
+    debugWaarden.ai = `ai:${definitieveKleur} ${(beste.score * 100).toFixed(0)}%${kcheck?' kc:'+kcheck.kleur:''} [${detecties.length}]`;
     laatsteAI = {
       kleur: definitieveKleur,
       horizontaal,
@@ -1120,7 +1143,7 @@ async function voerAIUit() {
     verwerkS2(s2Rest);
     s1GebruikteNodesDezeRun.clear();
   } catch(e) {
-    dAI.textContent = 'ai:err';
+    debugWaarden.ai = 'ai:err';
     console.error('YOLO inferentie fout:', e);
   } finally {
     aiBezig = false;
@@ -1206,7 +1229,7 @@ function verwerkDetecties() {
     else { aiKleur = aiR.kleur; aiTeller = 1; }
     tekenOverlay(aiR.box, aiR.score, aiR.horizontaal);
     geenTeller = 0;
-    dInfo.textContent = `${aiR.kleur} ${aiTeller}/${AI_DREMPEL}`;
+    debugWaarden.info = `${aiR.kleur} ${aiTeller}/${AI_DREMPEL}`;
     if (aiTeller >= AI_DREMPEL) {
       // Zoom vergrendelen bij detectiebevestiging (Wijziging 1F)
       if (!zoomVergrendeld) {
@@ -1232,7 +1255,7 @@ function verwerkDetecties() {
     aiTeller = 0; aiKleur = null;
   }
   geenTeller++;
-  dInfo.textContent = `geen(${geenTeller}/${GEEN_RESET})`;
+  debugWaarden.info = `geen(${geenTeller}/${GEEN_RESET})`;
   if (geenTeller >= GEEN_RESET && fase !== null) {
     huidigBevestigdOsmNodeId = null;
     verbergTagUI();
@@ -1358,7 +1381,7 @@ function bijwerkLeerkaart(osm) {
   }
   leerPctBalk.style.width = pct + '%'; leerPctBalk.style.background = kleur;
   leerPctGetal.textContent = pct + '%'; leerPctGetal.style.color = kleur;
-  dPct.textContent = `leer:${pct}%`;
+  debugWaarden.leer = `leer:${pct}%`;
   Object.keys(DD).forEach(d => {
     const m = laadM(osm.id, d);
     const gem = gewGem(m);
@@ -1505,6 +1528,86 @@ function tijdGeleden(ts) {
   return `${Math.floor(sec/86400)}d geleden`;
 }
 
+// ── DATA EXPORT EN IMPORT (Fix 2 — v8.1) ────────────────────
+function exporteerData() {
+  try {
+    const exportData = {
+      versie: '8.0',
+      exportDatum: new Date().toISOString(),
+      app: 'StoplichtIQ',
+      data: {}
+    };
+    for (const key of Object.keys(localStorage)) {
+      if (key.startsWith('sl_v4_') || key.startsWith('sl_v3_') ||
+          key.startsWith('sl_tag_') || key === 'sl_stad_cache') {
+        try { exportData.data[key] = JSON.parse(localStorage.getItem(key)); }
+        catch (e) { exportData.data[key] = localStorage.getItem(key); }
+      }
+    }
+    const aantalItems = Object.keys(exportData.data).length;
+    if (aantalItems === 0) { alert('Geen data om te exporteren.'); return; }
+    const jsonString = JSON.stringify(exportData, null, 2);
+    const bestandsnaam = `stoplichtiq-backup-${new Date().toISOString().slice(0,10)}.json`;
+    // iOS Safari: Web Share API
+    if (navigator.share && navigator.canShare) {
+      const bestand = new File([jsonString], bestandsnaam, { type: 'application/json' });
+      if (navigator.canShare({ files: [bestand] })) {
+        navigator.share({
+          files: [bestand],
+          title: 'StoplichtIQ Backup',
+          text: `Backup van ${aantalItems} stoplichten — ${new Date().toLocaleDateString('nl-NL')}`
+        }).catch(e => { if (e.name !== 'AbortError') console.warn('Delen mislukt:', e.message); });
+        return;
+      }
+    }
+    // Fallback: blob download
+    const blob = new Blob([jsonString], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url; link.download = bestandsnaam;
+    document.body.appendChild(link); link.click(); document.body.removeChild(link);
+    setTimeout(() => URL.revokeObjectURL(url), 1000);
+  } catch (e) { alert('Export mislukt: ' + e.message); console.error('Export fout:', e); }
+}
+
+function importeerData(bestand) {
+  if (!bestand) return;
+  const reader = new FileReader();
+  reader.onload = function(e) {
+    try {
+      const importData = JSON.parse(e.target.result);
+      if (!importData.app || importData.app !== 'StoplichtIQ') {
+        alert('Dit is geen geldig StoplichtIQ backup bestand.'); return;
+      }
+      if (!importData.data || typeof importData.data !== 'object') {
+        alert('Backup bestand is leeg of beschadigd.'); return;
+      }
+      const aantalItems = Object.keys(importData.data).length;
+      if (aantalItems === 0) { alert('Geen data gevonden in backup bestand.'); return; }
+      const bevestigd = confirm(
+        `Wil je ${aantalItems} stoplichten importeren uit backup van ${importData.exportDatum?.slice(0,10) || 'onbekende datum'}?\n\nBestaande data wordt NIET overschreven — import voegt toe aan bestaande data.`
+      );
+      if (!bevestigd) return;
+      let toegevoegd = 0, overgeslagen = 0;
+      for (const [key, waarde] of Object.entries(importData.data)) {
+        if (!key.startsWith('sl_v4_') && !key.startsWith('sl_v3_') &&
+            !key.startsWith('sl_tag_') && key !== 'sl_stad_cache') { overgeslagen++; continue; }
+        if (localStorage.getItem(key) !== null) { overgeslagen++; continue; }
+        try { localStorage.setItem(key, JSON.stringify(waarde)); toegevoegd++; }
+        catch (e) { console.warn('Import key mislukt:', key, e.message); overgeslagen++; }
+      }
+      alert(`Import klaar!\n✅ ${toegevoegd} stoplichten toegevoegd\n⏭️ ${overgeslagen} overgeslagen (al aanwezig)`);
+      // Dashboard herladen als het open is
+      try { laadDashboard(); } catch(e) {}
+    } catch (e) {
+      alert('Import mislukt: bestand is beschadigd of geen geldig JSON.\n' + e.message);
+      console.error('Import fout:', e);
+    }
+  };
+  reader.onerror = function() { alert('Bestand lezen mislukt.'); };
+  reader.readAsText(bestand);
+}
+
 // ── TERUG NAAR STARTSCHERM ───────────────────────────────────
 function naarStartscherm() {
   // Stop camera
@@ -1526,7 +1629,7 @@ function naarStartscherm() {
 async function downloadOSM(lat, lon) {
   if (cacheBezig) return;
   cacheBezig = true;
-  pOSM.className = 'pill-dot o'; pOSMT.textContent = 'laden'; dOSM.textContent = 'osm:laden';
+  pOSM.className = 'pill-dot o'; pOSMT.textContent = 'laden'; debugWaarden.osm = 'osm:laden';
   // Wijziging 5: uitgebreide query met way geometry voor straatnamen
   const q = `[out:json][timeout:25];node["highway"="traffic_signals"](around:${OSM_RADIUS},${lat},${lon});out body;way(bn)["name"];out geom;`;
   try {
@@ -1565,14 +1668,14 @@ async function downloadOSM(lat, lon) {
     });
     cacheCentrum = { lat, lon }; cacheGeladen = true;
     pOSM.className = 'pill-dot g'; pOSMT.textContent = 'Kaart';
-    dOSM.textContent = `osm:${osmCache.length}`;
+    debugWaarden.osm = `osm:${osmCache.length}`;
     updateDichtbij(lat, lon);
     // S2 cleanup bij OSM refresh
     for (const [key, value] of s2BboxTeller.entries()) { if (value === 0) s2BboxTeller.delete(key); }
     // Reverse geocoding voor dichtbijzijnde stoplichten (async, niet blokkerend)
     haalStraatnamenOp();
   } catch(e) {
-    pOSM.className = 'pill-dot o'; pOSMT.textContent = 'Fout'; dOSM.textContent = 'osm:fout';
+    pOSM.className = 'pill-dot o'; pOSMT.textContent = 'Fout'; debugWaarden.osm = 'osm:fout';
     setTimeout(() => { cacheBezig = false; if (huidigePos) downloadOSM(huidigePos.lat, huidigePos.lon); }, 30000);
   } finally {
     cacheBezig = false;
@@ -1979,6 +2082,17 @@ function checkNacht() {
   }
 }
 
+// ── DEBUG OVERLAY THROTTLED (Fix 1 — v8.1) ──────────────────
+function updateDebugOverlay() {
+  if (!dAI || !dPct || !dOSM || !dInfo) return;
+  const tag = huidigBevestigdOsmNodeId ? laadStoplichtTag(huidigBevestigdOsmNodeId) : null;
+  dAI.textContent = [debugWaarden.ai || 'ai:—', debugWaarden.interval || ''].filter(Boolean).join(' | ');
+  dPct.textContent = [debugWaarden.leer || 'leer:—', debugWaarden.zoom || ''].filter(Boolean).join(' | ');
+  dOSM.textContent = [debugWaarden.osm || 'osm:—', debugWaarden.s2 || '', tag ? 'tag:'+tag.type : ''].filter(Boolean).join(' | ');
+  dInfo.textContent = [debugWaarden.info || '—', debugWaarden.snelheid || '', debugWaarden.model || ''].filter(Boolean).join(' | ');
+}
+setInterval(updateDebugOverlay, 500); // 2x per seconde, niet 60x
+
 // Animatielus
 function lus() {
   if (video.readyState >= 2) {
@@ -2010,14 +2124,13 @@ function lus() {
   tickCd();
   if (frameT % 1800 === 0) checkNacht();
 
+  // Debug waarden bijwerken (geschreven door throttled updateDebugOverlay)
   // TODO: TIJDELIJK - verwijderen voor productie
-  if (frameT % 30 === 0) {
-    const tag = huidigBevestigdOsmNodeId ? laadStoplichtTag(huidigBevestigdOsmNodeId) : null;
-    dInfo.textContent += ` | spd:${snelheidKmh.toFixed(0)}km/u buf:${gpsBuffer.toFixed(0)}m`;
-    dPct.textContent += ` | zm:${huidigeZoom.toFixed(2)}x${zoomVergrendeld?'🔒':''}`;
-    dAI.textContent += ` | int:${dynamischInterval}(${gemiddeldeInferentieTijd.toFixed(0)}ms)`;
-    dOSM.textContent += ` | S2:${s2SessieTeller} act:${s2ActieveBboxen}${tag?' tag:'+tag.type:''}`;
-  }
+  debugWaarden.snelheid = `spd:${snelheidKmh.toFixed(0)}km/u buf:${gpsBuffer.toFixed(0)}m`;
+  debugWaarden.zoom = `zm:${huidigeZoom.toFixed(2)}x${zoomVergrendeld?' 🔒':''}`;
+  debugWaarden.interval = `int:${dynamischInterval}(${gemiddeldeInferentieTijd.toFixed(0)}ms)`;
+  debugWaarden.s2 = `S2:${s2SessieTeller} act:${s2ActieveBboxen}`;
+  debugWaarden.model = `mdl:root=${modelLaadPogingenRoot} fb=${modelLaadPogingenFallback} fail=${modelLaadMislukt}`;
 
   requestAnimationFrame(lus);
 }
