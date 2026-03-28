@@ -292,7 +292,7 @@
 <div id="startscherm">
   <div id="s-icoon">🚦</div>
   <div id="s-titel">Stoplicht<span>IQ</span></div>
-  <div id="s-versie">V8.0 — YOLOv8 640px + DUAL-SYSTEEM + ZOOM</div>
+  <div id="s-versie">V8.1 — YOLOv8 640px + DUAL-SYSTEEM + ZOOM</div>
   <div id="s-model-wrap">
     <div id="s-model-rij">
       <div id="s-model-label">🤖 YOLOv8 model laden…</div>
@@ -513,7 +513,7 @@
 
 <script>
 // ═══════════════════════════════════════════════════════════════
-//  StoplichtIQ V8.0 — YOLOv8 640px + DUAL-SYSTEEM + ZOOM
+//  StoplichtIQ V8.1 — YOLOv8 640px + DUAL-SYSTEEM + ZOOM
 //  Model: ojaskandy/traffic-light-detection-yolo (YOLOv8s)
 //  Klassen: 0=rood, 1=groen, 2=uit, 3=oranje/geel
 //  © 2026 StoplichtIQ — Y. Lemaalem
@@ -535,7 +535,7 @@ const HALFWAARDETIJD = 60;
 const AFWIJKING_DREMPEL = 0.20;
 const AFWIJKING_REEKS   = 5;
 const AI_INTERVAL_BASE = 8;  // minimum frames tussen AI-inferentie
-const GEEN_RESET   = 20;     // frames zonder detectie voor reset
+const GEEN_RESET   = 8;      // frames zonder detectie voor reset
 const AI_DREMPEL   = 3;      // bevestigde frames voor fasewissel
 const YOLO_SIZE    = 640;    // model input grootte
 const CONF_DREMPEL = 0.15;   // minimale confidence voor detectie
@@ -1003,23 +1003,25 @@ function berekenS1Score(bboxCenterX, canvasBreedte, gpsAfstand, confidence) {
   return centerScore + afstandScore + confidenceScore;
 }
 
-// ── SLIM SELECTIE SYSTEEM + DUAL-SYSTEEM ─────────────────────
-// Retourneert { s1: beste detectie of null, s2Rest: overige geldige detecties }
+// Selecteer het beste stoplicht voor S1 (tonen aan gebruiker)
+// Gefixte filters: portaalstoplichten, lagere confidence drempel, ruimere edge filter
 function selecteerBesteDetectie(detecties) {
   if (!detecties.length) return { s1: null, s2Rest: [] };
-
-  // Filter bruikbare klassen (niet 'uit')
   const bruikbaar = detecties.filter(d => KLASSE_MAP[d.klasse]);
   if (!bruikbaar.length) return { s1: null, s2Rest: [] };
-
   const gpsAf = dichtstbijOSM ? dichtstbijOSM.afstand : 999;
 
-  // Harde filters (Wijziging 4)
   const geldig = bruikbaar.filter(det => {
-    if (det.w < 20 || det.h < 20) return false;
+    // Minimale pixelgrootte
+    if (det.w < 15 || det.h < 15) return false;
+    // Niet te laag in beeld
     if (det.cy / YOLO_SIZE > MAX_Y_RATIO) return false;
-    if (det.h < det.w) return false; // bbox_hoogte < bbox_breedte
-    if (det.score < 0.35) return false;
+    // Soepelere aspect ratio — portaalstoplichten zijn soms breder dan hoog
+    // Oud: det.h < det.w (te strict). Nieuw: alleen wegfilteren als duidelijk breder
+    if (det.w > 0 && det.h / det.w < 0.55) return false;
+    // Confidence drempel verlaagd van 0.35 naar 0.20
+    // 0.35 gooide te veel geldige detecties weg bij tegenlicht en portalen
+    if (det.score < 0.20) return false;
     return true;
   });
 
@@ -1030,12 +1032,11 @@ function selecteerBesteDetectie(detecties) {
 
   for (const det of geldig) {
     const relX = det.cx / YOLO_SIZE;
-    if (relX < 0.12 || relX > 0.88) continue;
+    // Ruimere edge filter: was 0.12/0.88, portaalstoplichten zitten soms aan rand
+    if (relX < 0.08 || relX > 0.92) continue;
 
-    // S1 scoring
     const s1Score = berekenS1Score(det.cx, YOLO_SIZE, gpsAf, det.score);
 
-    // Tracking bonus
     let trackScore = 0;
     if (vorigeDetectie) {
       const dx = Math.abs(det.cx - vorigeDetectie.cx) / YOLO_SIZE;
@@ -1045,15 +1046,14 @@ function selecteerBesteDetectie(detecties) {
     }
 
     const totaal = s1Score + trackScore;
-    if (totaal > besteScore && totaal >= 30) {
+    // Minimum score verlaagd van 30 naar 20 — anders falen we bij geen OSM-data
+    if (totaal > besteScore && totaal >= 20) {
       besteScore = totaal;
       beste = det;
     }
   }
 
-  // S2 rest: alle geldige detecties behalve S1
   const s2Rest = geldig.filter(d => d !== beste);
-
   return { s1: beste, s2Rest };
 }
 
@@ -1221,19 +1221,20 @@ function tekenOverlay(box, score, horizontaal) {
   }
 }
 
-// ── BEVESTIGING EN FASE-LOGICA ────────────────────────────────
+// Verwerk nieuw AI resultaat — geenTeller werkt nu correct bij geen detectie
 function verwerkDetecties() {
   if (!nieuwAIResultaat) return;
   nieuwAIResultaat = false;
   const aiR = laatsteAI;
+
   if (aiR && aiR.kleur) {
     if (aiR.kleur === aiKleur) aiTeller++;
     else { aiKleur = aiR.kleur; aiTeller = 1; }
     tekenOverlay(aiR.box, aiR.score, aiR.horizontaal);
     geenTeller = 0;
     debugWaarden.info = `${aiR.kleur} ${aiTeller}/${AI_DREMPEL}`;
+
     if (aiTeller >= AI_DREMPEL) {
-      // Zoom vergrendelen bij detectiebevestiging (Wijziging 1F)
       if (!zoomVergrendeld) {
         zoomVergrendeld = true;
         vergrendeldZoomNiveau = huidigeZoom;
@@ -1242,7 +1243,6 @@ function verwerkDetecties() {
           huidigActiefStoplichtPositie = { lat: dichtstbijOSM.lat, lon: dichtstbijOSM.lon };
         }
       }
-      // Stoplicht-type tagging (Wijziging 9)
       if (dichtstbijOSM) {
         huidigBevestigdOsmNodeId = String(dichtstbijOSM.id);
         toonTagKnop(huidigBevestigdOsmNodeId);
@@ -1251,8 +1251,9 @@ function verwerkDetecties() {
     }
     return;
   }
+
+  // Geen detectie in dit AI-resultaat — direct teller ophogen en overlay wissen
   tekenOverlay(null);
-  // Teller alleen verlagen als zoom stabiel is (Wijziging 1H)
   if (!zoomTransitieActief) {
     aiTeller = 0; aiKleur = null;
   }
