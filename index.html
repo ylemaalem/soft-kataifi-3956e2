@@ -265,7 +265,7 @@
 <div id="startscherm">
   <div id="s-icoon">🚦</div>
   <div id="s-titel">Stoplicht<span>IQ</span></div>
-  <div id="s-versie">V8.2 — YOLOv8 640px + DUAL-SYSTEEM + ZOOM</div>
+  <div id="s-versie">V8.3 — Web Worker + Confidence Smoothing</div>
   <div id="s-model-wrap">
     <div id="s-model-rij">
       <div id="s-model-label">🤖 YOLOv8 model laden…</div>
@@ -420,7 +420,7 @@
 
 <script>
 // ═══════════════════════════════════════════════════════════════
-//  StoplichtIQ V8.2 — YOLOv8 640px + DUAL-SYSTEEM + ZOOM
+//  StoplichtIQ V8.3 — Web Worker + Confidence Smoothing
 //  Fix: portaalstoplicht detectie, camera dagdeel, smooth zoom
 //  © 2026 StoplichtIQ — Y. Lemaalem
 // ═══════════════════════════════════════════════════════════════
@@ -708,6 +708,55 @@ let yoloCanvas=null, yoloCtx=null;
 const yoloFloat32 = new Float32Array(3 * YOLO_SIZE * YOLO_SIZE);
 let lbPadX=0, lbPadY=0, lbScale=1;
 
+// V8.3: Web Worker voor YOLO inferentie
+let yoloWorker = null;
+let workerKlaar = false;
+let workerFoutTeller = 0;
+const WORKER_MAX_FOUTEN = 3;
+
+// V8.3: Confidence smoothing
+const confidenceBuffer = new Map();
+const SMOOTH_WINDOW = 5;
+const SMOOTH_GEWICHT = 1.5;
+const SMOOTH_MIN_RUNS = 3;
+
+// Web Worker code als string — werkt in Safari PWA via Blob URL
+const YOLO_WORKER_CODE = `
+importScripts('https://cdn.jsdelivr.net/npm/onnxruntime-web@1.17.1/dist/ort.min.js');
+let sessie = null;
+let klaar = false;
+async function initialiseer(modelBuffer) {
+  try {
+    ort.env.wasm.wasmPaths = 'https://cdn.jsdelivr.net/npm/onnxruntime-web@1.17.1/dist/';
+    sessie = await ort.InferenceSession.create(modelBuffer, {
+      executionProviders: ['wasm'], graphOptimizationLevel: 'all',
+    });
+    klaar = true;
+    self.postMessage({ type: 'klaar' });
+  } catch(e) { self.postMessage({ type: 'fout', bericht: e.message }); }
+}
+async function voerUit(pixelData, breedte, hoogte, frameId) {
+  if (!klaar || !sessie) {
+    self.postMessage({ type: 'fout', bericht: 'sessie niet klaar', frameId });
+    return;
+  }
+  try {
+    const tensor = new ort.Tensor('float32', pixelData, [1, 3, breedte, hoogte]);
+    const output = await sessie.run({ images: tensor });
+    const outputTensor = output['output0'];
+    self.postMessage({
+      type: 'resultaat', frameId,
+      data: outputTensor.data, dims: outputTensor.dims
+    }, [outputTensor.data.buffer]);
+  } catch(e) { self.postMessage({ type: 'fout', bericht: e.message, frameId }); }
+}
+self.onmessage = function(e) {
+  const msg = e.data;
+  if (msg.type === 'initialiseer') initialiseer(msg.modelBuffer);
+  else if (msg.type === 'inferentie') voerUit(msg.pixelData, msg.breedte, msg.hoogte, msg.frameId);
+};
+`;
+
 // ── MODEL LADEN ───────────────────────────────────────────────
 modelLaadStart = performance.now();
 let simPct = 0;
@@ -723,11 +772,13 @@ const simInt = setInterval(() => {
 async function laadONNXModel() {
   try {
     sModelLabel.textContent = '🤖 YOLOv8 model laden…';
+    let modelPad = './model.onnx';
     try {
-      onnxSession = await ort.InferenceSession.create('./model.onnx', { executionProviders: ['wasm'], graphOptimizationLevel: 'all' });
+      onnxSession = await ort.InferenceSession.create(modelPad, { executionProviders: ['wasm'], graphOptimizationLevel: 'all' });
       modelLaadPogingenRoot++;
     } catch(e1) {
-      onnxSession = await ort.InferenceSession.create('./model/model.onnx', { executionProviders: ['wasm'], graphOptimizationLevel: 'all' });
+      modelPad = './model/model.onnx';
+      onnxSession = await ort.InferenceSession.create(modelPad, { executionProviders: ['wasm'], graphOptimizationLevel: 'all' });
       modelLaadPogingenFallback++;
     }
     modelGeladen = true;
@@ -743,6 +794,46 @@ async function laadONNXModel() {
     yoloCanvas = document.createElement('canvas');
     yoloCanvas.width = YOLO_SIZE; yoloCanvas.height = YOLO_SIZE;
     yoloCtx = yoloCanvas.getContext('2d');
+
+    // V8.3: Probeer Web Worker te starten
+    try {
+      const modelArrayBuffer = await fetch(modelPad).then(r => r.arrayBuffer());
+      const blob = new Blob([YOLO_WORKER_CODE], { type: 'application/javascript' });
+      const workerUrl = URL.createObjectURL(blob);
+      yoloWorker = new Worker(workerUrl);
+      yoloWorker.onmessage = function(e) {
+        const msg = e.data;
+        if (msg.type === 'klaar') {
+          workerKlaar = true; workerFoutTeller = 0;
+          console.log('YOLO Web Worker klaar');
+        } else if (msg.type === 'resultaat') {
+          const inferentieTijd = Date.now() - (yoloWorker._startTijd || Date.now());
+          gemiddeldeInferentieTijd = (gemiddeldeInferentieTijd*0.9) + (inferentieTijd*0.1);
+          dynamischInterval = Math.max(8, Math.ceil(gemiddeldeInferentieTijd/16));
+          bepaalDagdeelFinaal();
+          const detecties = postprocessYOLO(msg.data, msg.dims);
+          _verwerkWorkerResultaat(detecties);
+          aiBezig = false;
+        } else if (msg.type === 'fout') {
+          console.warn('Worker fout:', msg.bericht);
+          workerFoutTeller++; aiBezig = false;
+          if (workerFoutTeller >= WORKER_MAX_FOUTEN) {
+            console.warn('Worker te veel fouten — fallback naar synchrone YOLO');
+            yoloWorker.terminate(); yoloWorker = null; workerKlaar = false;
+          }
+        }
+      };
+      yoloWorker.onerror = function(e) {
+        console.warn('Worker error — fallback naar synchrone YOLO:', e.message);
+        yoloWorker = null; workerKlaar = false; aiBezig = false;
+      };
+      yoloWorker.postMessage({ type: 'initialiseer', modelBuffer: modelArrayBuffer }, [modelArrayBuffer]);
+      URL.revokeObjectURL(workerUrl);
+    } catch(e) {
+      console.warn('Web Worker aanmaken mislukt — synchrone fallback actief:', e.message);
+      yoloWorker = null; workerKlaar = false;
+    }
+
   } catch (e) {
     modelLaadMislukt++;
     clearInterval(simInt);
@@ -930,72 +1021,120 @@ function selecteerBesteDetectie(detecties) {
   return { s1: beste, s2Rest };
 }
 
+// ── V8.3: CONFIDENCE SMOOTHING ────────────────────────────────
+function pasConfidenceSmoothingToe(klasse, nieuweScore) {
+  if (!confidenceBuffer.has(klasse)) confidenceBuffer.set(klasse, []);
+  const buf = confidenceBuffer.get(klasse);
+  buf.push(nieuweScore);
+  if (buf.length > SMOOTH_WINDOW) buf.shift();
+  if (buf.length < SMOOTH_MIN_RUNS) return nieuweScore;
+  let gewogenSom = 0, gewichtSom = 0;
+  for (let i = 0; i < buf.length; i++) {
+    const gewicht = Math.pow(SMOOTH_GEWICHT, i);
+    gewogenSom += buf[i] * gewicht;
+    gewichtSom += gewicht;
+  }
+  return gewogenSom / gewichtSom;
+}
+
+function resetConfidenceBuffer(zichtbareKlassen) {
+  for (const [klasse] of confidenceBuffer) {
+    if (!zichtbareKlassen.has(klasse)) confidenceBuffer.delete(klasse);
+  }
+}
+
+// ── V8.3: WORKER RESULTAAT VERWERKING ─────────────────────────
+function _verwerkWorkerResultaat(detecties) {
+  const zichtbareKlassen = new Set(detecties.map(d => d.klasse));
+  resetConfidenceBuffer(zichtbareKlassen);
+
+  if (!detecties.length) {
+    debugWaarden.ai = 'ai:weg';
+    laatsteAI = null; nieuwAIResultaat = true;
+    s1GebruikteNodesDezeRun.clear();
+    return;
+  }
+
+  const { s1: beste, s2Rest } = selecteerBesteDetectie(detecties);
+  if (beste && dichtstbijOSM) s1GebruikteNodesDezeRun.add(String(dichtstbijOSM.id));
+
+  if (!beste) {
+    debugWaarden.ai = 'ai:filter';
+    laatsteAI = null; nieuwAIResultaat = true;
+    verwerkS2(s2Rest);
+    s1GebruikteNodesDezeRun.clear();
+    return;
+  }
+
+  const kleur = KLASSE_MAP[beste.klasse];
+  if (!kleur) {
+    debugWaarden.ai = 'ai:uit';
+    laatsteAI = null; nieuwAIResultaat = true;
+    verwerkS2(s2Rest);
+    s1GebruikteNodesDezeRun.clear();
+    return;
+  }
+
+  const gesmoothedScore = pasConfidenceSmoothingToe(beste.klasse, beste.score);
+  const kcheck = kleurCheckInBox(beste);
+  const definitieveKleur = kleur;
+  vorigeDetectie = { cx: beste.cx, cy: beste.cy };
+  const horizontaal = beste.w > beste.h * 1.3;
+  debugWaarden.ai = `ai:${definitieveKleur} ${(gesmoothedScore*100).toFixed(0)}%${kcheck?' kc:'+kcheck.kleur:''} [${detecties.length}]`;
+  laatsteAI = {
+    kleur: definitieveKleur, horizontaal, score: gesmoothedScore,
+    box: { x:(beste.x1-lbPadX)/lbScale, y:(beste.y1-lbPadY)/lbScale, w:beste.w/lbScale, h:beste.h/lbScale, kleur:definitieveKleur }
+  };
+  nieuwAIResultaat = true;
+  verwerkS2(s2Rest);
+  s1GebruikteNodesDezeRun.clear();
+}
+
 // ── AI DETECTIE ───────────────────────────────────────────────
 async function voerAIUit() {
   if (!modelGeladen || !onnxSession || video.readyState < 2 || aiBezig) return;
   aiBezig = true;
-  const inferentieStart = Date.now();
+
+  // Veiligheidsnet: reset aiBezig na 3 seconden als worker vastloopt
+  const aiTimeout = setTimeout(() => {
+    if (aiBezig) { console.warn('aiBezig timeout — geforceerd reset'); aiBezig = false; }
+  }, 3000);
+
   try {
-    // Meet camerahelderheid voor dagdeel (V8.3) — op YOLO canvas
+    // Meet camerahelderheid voor dagdeel — op YOLO canvas
     if (yoloCanvas) meetCameraHelderheid(yoloCanvas);
 
     const inputTensor = preprocessVoorYOLO();
+
+    if (yoloWorker && workerKlaar) {
+      // Worker pad: stuur pixels als transferable (zero-copy)
+      const pixelKopie = new Float32Array(yoloFloat32);
+      yoloWorker._startTijd = Date.now();
+      yoloWorker.postMessage({
+        type: 'inferentie', pixelData: pixelKopie,
+        breedte: YOLO_SIZE, hoogte: YOLO_SIZE, frameId: frameT
+      }, [pixelKopie.buffer]);
+      clearTimeout(aiTimeout);
+      return; // aiBezig wordt gereset in worker onmessage
+    }
+
+    // Synchrone fallback (geen worker beschikbaar)
+    const inferentieStart = Date.now();
     const output = await onnxSession.run({ images: inputTensor });
     const outputTensor = output['output0'];
     const inferentieTijd = Date.now() - inferentieStart;
     gemiddeldeInferentieTijd = (gemiddeldeInferentieTijd*0.9)+(inferentieTijd*0.1);
     dynamischInterval = Math.max(8, Math.ceil(gemiddeldeInferentieTijd/16));
-
-    // Update camera dagdeel na meting
     bepaalDagdeelFinaal();
-
     const detecties = postprocessYOLO(outputTensor.data, outputTensor.dims);
+    _verwerkWorkerResultaat(detecties);
 
-    if (!detecties.length) {
-      debugWaarden.ai = 'ai:weg';
-      laatsteAI = null; nieuwAIResultaat = true;
-      s1GebruikteNodesDezeRun.clear();
-      return;
-    }
-
-    const { s1: beste, s2Rest } = selecteerBesteDetectie(detecties);
-
-    if (beste && dichtstbijOSM) s1GebruikteNodesDezeRun.add(String(dichtstbijOSM.id));
-
-    if (!beste) {
-      debugWaarden.ai = 'ai:filter';
-      laatsteAI = null; nieuwAIResultaat = true;
-      verwerkS2(s2Rest);
-      s1GebruikteNodesDezeRun.clear();
-      return;
-    }
-
-    const kleur = KLASSE_MAP[beste.klasse];
-    if (!kleur) {
-      debugWaarden.ai = 'ai:uit';
-      laatsteAI = null; nieuwAIResultaat = true;
-      verwerkS2(s2Rest);
-      s1GebruikteNodesDezeRun.clear();
-      return;
-    }
-
-    const kcheck = kleurCheckInBox(beste);
-    const definitieveKleur = kleur;
-    vorigeDetectie = { cx: beste.cx, cy: beste.cy };
-    const horizontaal = beste.w > beste.h * 1.3;
-    debugWaarden.ai = `ai:${definitieveKleur} ${(beste.score*100).toFixed(0)}%${kcheck?' kc:'+kcheck.kleur:''} [${detecties.length}]`;
-    laatsteAI = {
-      kleur: definitieveKleur, horizontaal, score: beste.score,
-      box: { x:(beste.x1-lbPadX)/lbScale, y:(beste.y1-lbPadY)/lbScale, w:beste.w/lbScale, h:beste.h/lbScale, kleur:definitieveKleur }
-    };
-    nieuwAIResultaat = true;
-    verwerkS2(s2Rest);
-    s1GebruikteNodesDezeRun.clear();
   } catch(e) {
     debugWaarden.ai = 'ai:err';
     console.error('YOLO fout:', e);
   } finally {
-    aiBezig = false;
+    clearTimeout(aiTimeout);
+    if (!yoloWorker || !workerKlaar) aiBezig = false;
   }
 }
 
