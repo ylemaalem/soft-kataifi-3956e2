@@ -277,7 +277,7 @@
 <div id="startscherm">
   <div id="s-icoon">🚦</div>
   <div id="s-titel">Stoplicht<span>IQ</span></div>
-  <div id="s-versie">V8.7b — Nacht + Meer Trainframes</div>
+  <div id="s-versie">V8.7c — Tolerantie + Meer Trainframes</div>
   <div id="s-model-wrap">
     <div id="s-model-rij">
       <div id="s-model-label">🤖 YOLOv8 model laden…</div>
@@ -482,6 +482,11 @@ const S1_MIN_SCORE     = 10;
 
 // V8.7: AI_DREMPEL verlaagd van 3 naar 2 — snellere bevestiging bij trage inferentie
 const AI_DREMPEL       = 2;
+
+// V8.7c: Tolerantie voor korte detectiegaten (lantaarn flare, regen, motion blur)
+// aiMissRuns werkt op YOLO-run niveau (~1400ms per run)
+// staleFaseFrameTeller werkt op frame niveau (60fps) — ze zijn volledig onafhankelijk
+const TOLERANTIE_RUNS  = 2;
 
 // V8.7: Stale fase timer — dynamisch berekend in updateStaleMax()
 // Minimaal 5 seconden, of 4x de gemeten inferentie tijd
@@ -721,6 +726,7 @@ let debugWaarden={};
 
 // AI staat
 let aiBezig=false, laatsteAI=null, nieuwAIResultaat=false, vorigeDetectie=null;
+let aiMissRuns=0; // teller opeenvolgende YOLO-runs zonder detectie — voor tolerantiesysteem
 
 // V8.4: Cyclustijd + GLOSA + OSM voorspelling
 let groenStart=null, groenDuur=0;
@@ -1166,8 +1172,15 @@ function verwerkDetecties() {
   const aiR = laatsteAI;
 
   if (aiR && aiR.kleur) {
-    if (aiR.kleur === aiKleur) aiTeller++;
-    else { aiKleur = aiR.kleur; aiTeller = 1; }
+    // Detectie aanwezig — miss teller resetten
+    aiMissRuns = 0;
+    if (aiR.kleur === aiKleur) {
+      aiTeller++;
+    } else {
+      // Kleurwissel: altijd hard resetten — voorkomt dat oude rood-teller naar groen doorloopt
+      aiKleur = aiR.kleur;
+      aiTeller = 1;
+    }
     tekenOverlay(aiR.box, aiR.score, aiR.horizontaal);
     geenTeller = 0;
     debugWaarden.info = `${aiR.kleur} ${aiTeller}/${AI_DREMPEL}`;
@@ -1209,11 +1222,17 @@ function verwerkDetecties() {
     return;
   }
 
-  // Geen detectie
+  // Geen detectie — tolerantiesysteem voorkomt reset bij korte uitval
   tekenOverlay(null);
-  if (!zoomTransitieActief) { aiTeller = 0; aiKleur = null; }
+  aiMissRuns++;
+  // Reset aiTeller pas na TOLERANTIE_RUNS opeenvolgende gemiste runs
+  // Uitzondering: zoomTransitieActief geeft extra tolerantie tijdens zoom
+  if (aiMissRuns > TOLERANTIE_RUNS && !zoomTransitieActief) {
+    aiTeller = 0;
+    aiKleur  = null;
+  }
   geenTeller++;
-  debugWaarden.info = `geen(${geenTeller}/${GEEN_RESET})`;
+  debugWaarden.info = `geen(${geenTeller}/${GEEN_RESET}) miss:${aiMissRuns}`;
   if (geenTeller >= GEEN_RESET && fase !== null) {
     huidigBevestigdOsmNodeId = null;
     verbergTagUI();
@@ -1230,6 +1249,8 @@ function resetNeutraal() {
   zoomVergrendeld=false; huidigActiefStoplichtPositie=null;
   // Stale teller resetten
   staleFaseFrameTeller=0;
+  // Tolerantie teller resetten
+  aiMissRuns=0;
   // GLOSA verbergen
   const glosaBalk = document.getElementById('glosa-balk');
   if (glosaBalk) glosaBalk.style.display='none';
