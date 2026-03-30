@@ -277,7 +277,7 @@
 <div id="startscherm">
   <div id="s-icoon">🚦</div>
   <div id="s-titel">Stoplicht<span>IQ</span></div>
-  <div id="s-versie">V8.7d — Detectie Filter Fix</div>
+  <div id="s-versie">V8.7e — Bbox Stabiliteit Fix</div>
   <div id="s-model-wrap">
     <div id="s-model-rij">
       <div id="s-model-label">🤖 YOLOv8 model laden…</div>
@@ -483,10 +483,12 @@ const S1_MIN_SCORE     = 10;
 // V8.7: AI_DREMPEL verlaagd van 3 naar 2 — snellere bevestiging bij trage inferentie
 const AI_DREMPEL       = 2;
 
-// V8.7c: Tolerantie voor korte detectiegaten (lantaarn flare, regen, motion blur)
-// aiMissRuns werkt op YOLO-run niveau (~1400ms per run)
-// staleFaseFrameTeller werkt op frame niveau (60fps) — ze zijn volledig onafhankelijk
-const TOLERANTIE_RUNS  = 2;
+// V8.7c: Tolerantie voor korte detectiegaten (camera beweging, regen, tegenlicht)
+// aiMissRuns werkt op YOLO-run niveau (~850ms per run)
+// staleFaseFrameTeller werkt op frame niveau (60fps) — volledig onafhankelijk
+// TOLERANTIE_RUNS=3: bij 850ms inferentie = 2.5s buffer voor reset
+// Veilig: staleFaseFrameTeller reset alsnog na max 5s als YOLO niet herbevestigt
+const TOLERANTIE_RUNS  = 3;
 
 // V8.7: Stale fase timer — dynamisch berekend in updateStaleMax()
 // Minimaal 5 seconden, of 4x de gemeten inferentie tijd
@@ -1248,14 +1250,17 @@ function verwerkDetecties() {
   }
 
   // Geen detectie — tolerantiesysteem voorkomt reset bij korte uitval
-  tekenOverlay(null);
   aiMissRuns++;
-  // Reset aiTeller pas na TOLERANTIE_RUNS opeenvolgende gemiste runs
-  // Uitzondering: zoomTransitieActief geeft extra tolerantie tijdens zoom
-  if (aiMissRuns > TOLERANTIE_RUNS && !zoomTransitieActief) {
-    aiTeller = 0;
-    aiKleur  = null;
+
+  // V8.7e FIX: Bbox pas wissen als tolerantie overschreden is
+  // Bij camera beweging: bbox blijft zichtbaar tijdens de tolerantieperiode
+  // Dit voorkomt knipperen zonder valse positieven te introduceren
+  if (aiMissRuns > TOLERANTIE_RUNS) {
+    tekenOverlay(null);
+    if (!zoomTransitieActief) { aiTeller=0; aiKleur=null; }
   }
+  // Binnen tolerantie: laatste bbox blijven tonen (geen tekenOverlay aanroepen)
+
   geenTeller++;
   debugWaarden.info = `geen(${geenTeller}/${GEEN_RESET}) miss:${aiMissRuns}`;
   if (geenTeller >= GEEN_RESET && fase !== null) {
