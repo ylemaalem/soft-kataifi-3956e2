@@ -277,7 +277,7 @@
 <div id="startscherm">
   <div id="s-icoon">🚦</div>
   <div id="s-titel">Stoplicht<span>IQ</span></div>
-  <div id="s-versie">V8.7e — Bbox Stabiliteit Fix</div>
+  <div id="s-versie">V8.7f — Directe Kleur Feedback</div>
   <div id="s-model-wrap">
     <div id="s-model-rij">
       <div id="s-model-label">🤖 YOLOv8 model laden…</div>
@@ -1193,18 +1193,21 @@ function tekenOverlay(box, score, horizontaal) {
 }
 
 // ── DETECTIES VERWERKEN ───────────────────────────────────────
+// V8.7f: Dual drempel systeem
+// UI_DREMPEL=1: directe bbox + kleur in HUD bij eerste detectie — geen wachttijd
+// AI_DREMPEL=2: officiële fase, leergeheugen, countdown — betrouwbaarheid bewaard
+// Resultaat: gebruiker ziet kleur direct, systeem is pas zeker na bevestiging
 function verwerkDetecties() {
   if (!nieuwAIResultaat) return;
   nieuwAIResultaat = false;
   const aiR = laatsteAI;
 
   if (aiR && aiR.kleur) {
-    // Detectie aanwezig — miss teller resetten
     aiMissRuns = 0;
     if (aiR.kleur === aiKleur) {
       aiTeller++;
     } else {
-      // Kleurwissel: altijd hard resetten — voorkomt dat oude rood-teller naar groen doorloopt
+      // Kleurwissel: hard resetten — voorkomt dat rood-teller naar groen doorloopt
       aiKleur = aiR.kleur;
       aiTeller = 1;
     }
@@ -1212,13 +1215,17 @@ function verwerkDetecties() {
     geenTeller = 0;
     debugWaarden.info = `${aiR.kleur} ${aiTeller}/${AI_DREMPEL}`;
 
-    // V8.7 FIX: Reset stale teller ook als YOLO de HUIDIGE fase bevestigt
-    if (fase !== null && aiR.kleur === fase) {
-      staleFaseFrameTeller = 0;
+    // Stale teller resetten als YOLO huidige fase bevestigt
+    if (fase !== null && aiR.kleur === fase) staleFaseFrameTeller = 0;
+
+    // UI_DREMPEL=1: directe visuele feedback zonder wachten op tweede bevestiging
+    // Toont kleur in HUD maar slaat NIETS op en start GEEN countdown
+    // Veilig: fase wordt pas officieel bij AI_DREMPEL=2
+    if (aiTeller === 1 && aiR.kleur !== fase) {
+      updateUIKleur(aiR.kleur, aiR.horizontaal);
     }
 
-    // V8.7b: Twijfelframe opslaan bij eerste detectie (aiTeller === 1)
-    // Confidence 0.35-0.60 — precies de situaties waar het model van moet leren (nacht/regen)
+    // Twijfelframe bij eerste detectie voor trainingsdata
     if (aiTeller === 1 && trainframesAan && aiR.box && aiR.score < 0.60) {
       const kNr = aiR.kleur==='rood'?0:aiR.kleur==='groen'?1:3;
       const yx=aiR.box.x*lbScale+lbPadX, yy=aiR.box.y*lbScale+lbPadY;
@@ -1226,6 +1233,7 @@ function verwerkDetecties() {
       slaTrainframeOp('s1', kNr, (yx+yw/2)/YOLO_SIZE, (yy+yh/2)/YOLO_SIZE, yw/YOLO_SIZE, yh/YOLO_SIZE, true);
     }
 
+    // AI_DREMPEL=2: officieel — fase, leergeheugen, countdown, zoom vergrendeling
     if (aiTeller >= AI_DREMPEL) {
       staleFaseFrameTeller = 0;
       if (!zoomVergrendeld) {
@@ -1237,7 +1245,6 @@ function verwerkDetecties() {
         huidigBevestigdOsmNodeId = String(dichtstbijOSM.id);
         toonTagKnop(huidigBevestigdOsmNodeId);
       }
-      // Zekere trainframe opslaan bij volledige bevestiging
       if (trainframesAan && aiR.box) {
         const kNr = aiR.kleur==='rood'?0:aiR.kleur==='groen'?1:3;
         const yx=aiR.box.x*lbScale+lbPadX, yy=aiR.box.y*lbScale+lbPadY;
@@ -1249,17 +1256,14 @@ function verwerkDetecties() {
     return;
   }
 
-  // Geen detectie — tolerantiesysteem voorkomt reset bij korte uitval
+  // Geen detectie
   aiMissRuns++;
-
-  // V8.7e FIX: Bbox pas wissen als tolerantie overschreden is
-  // Bij camera beweging: bbox blijft zichtbaar tijdens de tolerantieperiode
-  // Dit voorkomt knipperen zonder valse positieven te introduceren
   if (aiMissRuns > TOLERANTIE_RUNS) {
     tekenOverlay(null);
     if (!zoomTransitieActief) { aiTeller=0; aiKleur=null; }
+    // UI ook resetten als tolerantie overschreden en nog geen officiële fase
+    if (fase === null) resetUIKleur();
   }
-  // Binnen tolerantie: laatste bbox blijven tonen (geen tekenOverlay aanroepen)
 
   geenTeller++;
   debugWaarden.info = `geen(${geenTeller}/${GEEN_RESET}) miss:${aiMissRuns}`;
@@ -1268,6 +1272,28 @@ function verwerkDetecties() {
     verbergTagUI();
     resetNeutraal();
   }
+}
+
+// V8.7f: Directe UI kleur update bij eerste detectie (UI_DREMPEL=1)
+// Toont kleur direct zonder officiële fase te zetten
+// Geen leergeheugen, geen countdown, geen zoom vergrendeling
+// Enkel visuele feedback: lamp kleur, woord, balk kleur, rand glow
+function updateUIKleur(kleur, horizontaal) {
+  faseBalk.className = kleur||'';
+  faseLamp.className = kleur||'';
+  randGlow.className = kleur||'';
+  const woorden = { rood:'ROOD', groen:'GROEN', oranje:'ORANJE' };
+  const subs    = { rood:'Stop — wachten op groen', groen:'Rijden!', oranje:'Afremmen' };
+  faseWoord.textContent = woorden[kleur]||'—';
+  faseSub.textContent   = subs[kleur]||'Richt camera op stoplicht';
+  faseBron.textContent  = `YOLOv8${horizontaal?' ↔':' ↕'} ·`;
+}
+
+// Reset UI terug naar neutraal als tolerantie overschreden maar nog geen officiële fase
+function resetUIKleur() {
+  faseBalk.className=''; faseLamp.className=''; randGlow.className='';
+  faseWoord.textContent='—'; faseSub.textContent='Richt camera op stoplicht';
+  faseBron.textContent='';
 }
 
 function resetNeutraal() {
