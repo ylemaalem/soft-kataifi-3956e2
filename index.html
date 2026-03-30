@@ -1849,12 +1849,12 @@ function getSmoothedHeading() {
   return (Math.atan2(sinGem,cosGem)*180/Math.PI+360)%360;
 }
 
-// V8.7i: Langer ingezoomd blijven — pas uitzoomen bij dichtbij
 function berekenDoelZoom(afst) {
   if (afst==null||isNaN(afst)||afst<0) return 1.0;
-  if (afst > 70) return 3.0;   // tot 70m ingezoomd blijven op 3.0x
-  if (afst > 30) return 2.0;   // 70-30m → 2.0x
-  return 1.0;                   // <30m → 1.0x
+  if (afst > 70) return 3.0;
+  if (afst > 30) return 2.5;
+  if (afst > 15) return 1.5;
+  return 1.0;
 }
 
 function isStoplichtVoorbij(stoplichtPos, hPos, rijrichting) {
