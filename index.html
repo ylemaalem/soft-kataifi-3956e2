@@ -277,7 +277,7 @@
 <div id="startscherm">
   <div id="s-icoon">🚦</div>
   <div id="s-titel">Stoplicht<span>IQ</span></div>
-  <div id="s-versie">V8.7f — Directe Kleur Feedback</div>
+  <div id="s-versie">V8.7g — Maximale YOLO Frequentie</div>
   <div id="s-model-wrap">
     <div id="s-model-rij">
       <div id="s-model-label">🤖 YOLOv8 model laden…</div>
@@ -2267,7 +2267,13 @@ function lus() {
   }
 
   frameT++;
-  if (frameT % dynamischInterval === 0 && modelGeladen && !aiBezig) voerAIUit();
+  // V8.7g: YOLO zo snel mogelijk opnieuw starten zodra worker klaar is
+  // Web Worker draait los van camera — geen reden om te wachten op frame interval
+  // aiBezig=false betekent worker klaar → direct nieuwe run starten
+  // Minimaal 8 frames (~133ms) als veiligheidsnet voor synchrone fallback
+  if (modelGeladen && !aiBezig) {
+    if (workerKlaar || frameT % 8 === 0) voerAIUit();
+  }
   verwerkDetecties();
 
   // V8.7 FIX: Stale fase reset — dynamische grens op basis van inferentietijd
