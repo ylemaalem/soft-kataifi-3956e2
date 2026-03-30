@@ -277,7 +277,7 @@
 <div id="startscherm">
   <div id="s-icoon">🚦</div>
   <div id="s-titel">Stoplicht<span>IQ</span></div>
-  <div id="s-versie">V8.7h — Rijbaan Selectie Fix</div>
+  <div id="s-versie">V8.7i — Zoom Stabiel + Later Uitzoomen</div>
   <div id="s-model-wrap">
     <div id="s-model-rij">
       <div id="s-model-label">🤖 YOLOv8 model laden…</div>
@@ -1240,6 +1240,14 @@ function verwerkDetecties() {
     // Veilig: fase wordt pas officieel bij AI_DREMPEL=2
     if (aiTeller === 1 && aiR.kleur !== fase) {
       updateUIKleur(aiR.kleur, aiR.horizontaal);
+      // V8.7i: Vroege zoom vergrendeling bij eerste detectie
+      // Voorkomt uitzoomen terwijl YOLO bezig is te bevestigen
+      // Ontgrendelt automatisch na TOLERANTIE_RUNS misses via aiMissRuns systeem
+      if (!zoomVergrendeld) {
+        vergrendeldZoomNiveau = huidigeZoom;
+        zoomVergrendeld = true;
+        zoomVergrendelTijdstip = Date.now();
+      }
     }
 
     // Twijfelframe bij eerste detectie voor trainingsdata
@@ -1278,7 +1286,12 @@ function verwerkDetecties() {
   if (aiMissRuns > TOLERANTIE_RUNS) {
     tekenOverlay(null);
     if (!zoomTransitieActief) { aiTeller=0; aiKleur=null; }
-    // UI ook resetten als tolerantie overschreden en nog geen officiële fase
+    // V8.7i: Zoom ontgrendelen als tolerantie overschreden en geen officiële fase
+    // Voorkomt dat vroege vergrendeling te lang vasthoudt bij false positive
+    if (fase === null && zoomVergrendeld) {
+      zoomVergrendeld = false;
+      huidigActiefStoplichtPositie = null;
+    }
     if (fase === null) resetUIKleur();
   }
 
@@ -1836,14 +1849,12 @@ function getSmoothedHeading() {
   return (Math.atan2(sinGem,cosGem)*180/Math.PI+360)%360;
 }
 
+// V8.7i: Langer ingezoomd blijven — pas uitzoomen bij dichtbij
 function berekenDoelZoom(afst) {
   if (afst==null||isNaN(afst)||afst<0) return 1.0;
-  // Grenzen zijn inclusief (>=) niet exclusief (>) — fix voor stuck op 1x bij exact 30m
-  if (afst > 200) return 3.0;
-  if (afst > 100) return 2.5;
-  if (afst > 60)  return 2.0;
-  if (afst >= 30) return 1.5;  // was: afst > 30 → miste exact 30m
-  return 1.0;
+  if (afst > 70) return 3.0;   // tot 70m ingezoomd blijven op 3.0x
+  if (afst > 30) return 2.0;   // 70-30m → 2.0x
+  return 1.0;                   // <30m → 1.0x
 }
 
 function isStoplichtVoorbij(stoplichtPos, hPos, rijrichting) {
@@ -2273,7 +2284,7 @@ function lus() {
     gecorrigeerdeAfstand = Math.max(0, ruwAfstand-gpsBuffer);
     const doelZoom = zoomVergrendeld ? vergrendeldZoomNiveau : berekenDoelZoom(gecorrigeerdeAfstand);
     vorigeZoom   = huidigeZoom;
-    huidigeZoom += (doelZoom-huidigeZoom) * 0.06;
+    huidigeZoom += (doelZoom-huidigeZoom) * 0.12; // was 0.06 — 2x sneller voor stabielere YOLO
     zoomTransitieActief = Math.abs(huidigeZoom-doelZoom) > 0.005;
     const nieuweZoomCSS = `scale(${huidigeZoom.toFixed(2)})`;
     if (nieuweZoomCSS !== laatsteZoomCSS) {
