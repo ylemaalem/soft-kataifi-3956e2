@@ -277,7 +277,7 @@
 <div id="startscherm">
   <div id="s-icoon">🚦</div>
   <div id="s-titel">Stoplicht<span>IQ</span></div>
-  <div id="s-versie">V8.7c — Tolerantie + Meer Trainframes</div>
+  <div id="s-versie">V8.7d — Detectie Filter Fix</div>
   <div id="s-model-wrap">
     <div id="s-model-rij">
       <div id="s-model-label">🤖 YOLOv8 model laden…</div>
@@ -977,43 +977,68 @@ function kleurCheckInBox(det) {
   } catch(e) { return null; }
 }
 
-// ── S1 SCORING ────────────────────────────────────────────────
-function berekenS1Score(bboxCenterX, canvasBreedte, gpsAfstand, confidence) {
-  const horAfwijking = Math.abs(bboxCenterX-(canvasBreedte/2))/(canvasBreedte/2);
-  return (1-horAfwijking)*60 + Math.max(0,(1-(gpsAfstand||0)/250))*30 + confidence*10;
-}
+// ── S1 SELECTIE — FILOSOFIE ───────────────────────────────────
+// Harde filters: alleen detecties die NOOIT een stoplicht kunnen zijn
+// Zachte filters: verlagen de score maar blokkeren nooit
+// Confidence is een scorefactor, GEEN poortwachter
+// Dit voorkomt ai:filter bij legitieme detecties met lage confidence (tegenlicht, nacht)
 
-// ── SLIM SELECTIE ─────────────────────────────────────────────
 function selecteerBesteDetectie(detecties) {
   if (!detecties.length) return { s1:null, s2Rest:[] };
   const bruikbaar = detecties.filter(d => KLASSE_MAP[d.klasse]);
   if (!bruikbaar.length) return { s1:null, s2Rest:[] };
   const gpsAf = dichtstbijOSM ? dichtstbijOSM.afstand : 999;
-  const geldig = bruikbaar.filter(det => {
-    if (det.w < S1_MIN_BOX_PX || det.h < S1_MIN_BOX_PX) return false;
-    if (det.cy/YOLO_SIZE > MAX_Y_RATIO) return false;
-    if (det.w > 0 && det.h/det.w < S1_MIN_RATIO) return false;
-    if (det.score < S1_CONF_DREMPEL) return false;
-    return true;
-  });
-  if (!geldig.length) return { s1:null, s2Rest:[] };
+
   let besteScore=-Infinity, beste=null;
-  for (const det of geldig) {
+
+  for (const det of bruikbaar) {
+    // ── HARDE FILTERS — alleen absolute onmogelijkheden ──────────
+    // Kleiner dan 4px: altijd ruis, nooit een herkenbaar stoplicht
+    if (det.w < 4 || det.h < 4) continue;
+    // Te laag in beeld: onder de horizon, geen stoplicht
+    if (det.cy/YOLO_SIZE > MAX_Y_RATIO) continue;
+    // Te breed voor het beeld: bord, reclame, geen stoplicht
+    if (det.w/YOLO_SIZE > MAX_BOX_W_RATIO) continue;
+    // Ver buiten beeld: waarschijnlijk artefact
     const relX = det.cx/YOLO_SIZE;
     if (relX < S1_EDGE_MIN || relX > S1_EDGE_MAX) continue;
-    const s1Score = berekenS1Score(det.cx, YOLO_SIZE, gpsAf, det.score);
+
+    // ── SCORE BEREKENING — alles is een factor, niets is een poort ──
+
+    // Centrering: stoplicht voor eigen rijbaan staat centraal
+    const horAfwijking = Math.abs(det.cx-(YOLO_SIZE/2))/(YOLO_SIZE/2);
+    const centerScore = (1-horAfwijking) * 60;
+
+    // Afstand via GPS: dichter bij = meer zekerheid over rijbaan
+    const afstandScore = Math.max(0, (1-(gpsAf||0)/250)) * 25;
+
+    // Confidence: hogere confidence = betere score
+    // Geen minimum — ook 0.10 confidence mag winnen als het de beste is
+    const confScore = det.score * 40;
+
+    // Aspect ratio: stoplichten zijn hoger dan breed
+    // Portaalstoplichten ver weg kunnen bijna vierkant zijn — penalty, geen hard filter
+    const aspectPenalty = (det.w > 0 && det.h/det.w < S1_MIN_RATIO) ? 0.6 : 1.0;
+
+    // Grootte bonus: grotere bbox = dichterbij = betrouwbaarder
+    const grootteScore = Math.min(det.h/YOLO_SIZE, 0.15) * 30;
+
+    // Tracking: continuïteit met vorige detectie — voorkomt springen
     let trackScore = 0;
     if (vorigeDetectie) {
-      const dx=Math.abs(det.cx-vorigeDetectie.cx)/YOLO_SIZE;
-      const dy=Math.abs(det.cy-vorigeDetectie.cy)/YOLO_SIZE;
-      trackScore = Math.max(0, 1-Math.sqrt(dx*dx+dy*dy)*4)*5;
+      const dx = Math.abs(det.cx-vorigeDetectie.cx)/YOLO_SIZE;
+      const dy = Math.abs(det.cy-vorigeDetectie.cy)/YOLO_SIZE;
+      trackScore = Math.max(0, 1-Math.sqrt(dx*dx+dy*dy)*4) * 15;
     }
-    const totaal = s1Score + trackScore;
-    if (totaal > besteScore && totaal >= S1_MIN_SCORE) { besteScore=totaal; beste=det; }
+
+    const totaal = (centerScore + afstandScore + confScore + grootteScore + trackScore) * aspectPenalty;
+
+    if (totaal > besteScore) { besteScore=totaal; beste=det; }
   }
-  // Fallback: hoogste confidence als niets door score filter
-  if (!beste && geldig.length > 0) beste = geldig.reduce((a,b)=>b.score>a.score?b:a);
-  return { s1:beste, s2Rest:geldig.filter(d=>d!==beste) };
+
+  // s2Rest: alle bruikbare detecties behalve de gekozen beste
+  // Gebruikt bruikbaar (niet geldig) — zo mist S2 geen stoplichten
+  return { s1:beste, s2Rest:bruikbaar.filter(d=>d!==beste) };
 }
 
 // ── CONFIDENCE SMOOTHING ──────────────────────────────────────
@@ -1765,10 +1790,11 @@ function getSmoothedHeading() {
 
 function berekenDoelZoom(afst) {
   if (afst==null||isNaN(afst)||afst<0) return 1.0;
-  if (afst>200) return 3.0;
-  if (afst>100) return 2.5;
-  if (afst>60)  return 2.0;
-  if (afst>30)  return 1.5;
+  // Grenzen zijn inclusief (>=) niet exclusief (>) — fix voor stuck op 1x bij exact 30m
+  if (afst > 200) return 3.0;
+  if (afst > 100) return 2.5;
+  if (afst > 60)  return 2.0;
+  if (afst >= 30) return 1.5;  // was: afst > 30 → miste exact 30m
   return 1.0;
 }
 
