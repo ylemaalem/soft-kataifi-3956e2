@@ -135,10 +135,11 @@
     .dd.actief .dd-cnt{color:rgba(52,199,89,.5)}
     /* Tag knop: fixed boven bodem-balk, zichtbaar tijdens rijden */
     #sl-tag-btn{position:fixed;bottom:50px;left:50%;transform:translateX(-50%);
-      display:none;z-index:45;padding:7px 18px;
+      display:none;z-index:45;padding:12px 24px;
+      min-width:120px;min-height:56px;
       background:rgba(0,0,0,0.75);color:rgba(255,255,255,0.85);
       border:1px solid rgba(255,255,255,0.25);border-radius:20px;
-      font-size:11px;font-weight:600;letter-spacing:0.08em;
+      font-size:16px;font-weight:600;letter-spacing:0.08em;
       font-family:'Rajdhani',sans-serif;cursor:pointer;
       backdrop-filter:blur(8px);}
     #bodem-balk{position:fixed;bottom:0;left:0;right:0;z-index:40;
@@ -194,6 +195,47 @@
     .sl-dd-item{font-size:9px;padding:2px 6px;border-radius:6px;
       background:rgba(255,255,255,0.05);color:rgba(255,255,255,0.35)}
     .sl-dd-item.heeft-data{background:rgba(52,199,89,.1);color:rgba(52,199,89,.8)}
+    .sl-dd-item:not(.dd-actief){opacity:0.4}
+    .sl-dd-item.dd-actief{opacity:1}
+    .sl-dd-item.dd-ochtend.dd-actief{background:rgba(255,214,10,.15);color:#FFD60A;border:1px solid rgba(255,214,10,.3)}
+    .sl-dd-item.dd-dag.dd-actief{background:rgba(255,255,255,.12);color:#fff;border:1px solid rgba(255,255,255,.3)}
+    .sl-dd-item.dd-avond.dd-actief{background:rgba(255,159,10,.15);color:#FF9F0A;border:1px solid rgba(255,159,10,.3)}
+    .sl-dd-item.dd-nacht.dd-actief{background:rgba(10,132,255,.15);color:#0A84FF;border:1px solid rgba(10,132,255,.3)}
+    .sl-dd-item{cursor:pointer;transition:transform .15s}
+    .sl-dd-item:active{transform:scale(0.92)}
+    .sl-dd-detail{background:rgba(255,255,255,0.04);border:1px solid var(--border);
+      border-radius:8px;padding:10px 12px;margin-top:6px;
+      display:flex;flex-direction:column;gap:4px;font-size:11px;
+      animation:ddDetailIn .2s ease}
+    @keyframes ddDetailIn{from{opacity:0;transform:translateY(-4px)}to{opacity:1;transform:translateY(0)}}
+    .sl-dd-detail-rij{display:flex;justify-content:space-between;align-items:center;
+      color:rgba(255,255,255,0.6)}
+    .sl-dd-detail-rij span:last-child{font-family:'Share Tech Mono',monospace;color:#fff}
+    .vri-badge{font-size:9px;padding:2px 7px;border-radius:6px;font-weight:600;
+      letter-spacing:0.06em;white-space:nowrap;display:inline-block;margin-left:4px}
+    .vri-blauw{background:rgba(10,132,255,.15);color:#0A84FF;border:1px solid rgba(10,132,255,.3)}
+    .vri-grijs{background:rgba(255,255,255,.08);color:rgba(255,255,255,.5);border:1px solid rgba(255,255,255,.15)}
+    .vri-geel{background:rgba(255,214,10,.12);color:#FFD60A;border:1px solid rgba(255,214,10,.25)}
+    .vri-onbekend{background:rgba(255,255,255,.04);color:rgba(255,255,255,.3);border:1px solid rgba(255,255,255,.08)}
+    #richting-knoppen{position:fixed;bottom:100px;left:10px;right:10px;z-index:46;
+      display:none;flex-direction:column;align-items:center;gap:6px;pointer-events:auto}
+    #richting-label{font-size:11px;color:rgba(255,255,255,0.6);letter-spacing:0.06em;text-align:center}
+    #richting-rij{display:flex;width:100%;gap:4px}
+    .richting-btn{flex:1;height:90px;border:1px solid rgba(255,255,255,0.2);border-radius:12px;
+      font-family:'Rajdhani',sans-serif;font-size:14px;font-weight:700;
+      letter-spacing:0.06em;cursor:pointer;display:flex;flex-direction:column;
+      align-items:center;justify-content:center;gap:4px;
+      backdrop-filter:blur(8px);transition:background .15s}
+    .richting-btn:active{transform:scale(0.96)}
+    .richting-btn.links{background:rgba(56,189,248,0.2);color:#38bdf8}
+    .richting-btn.rechtdoor{background:rgba(255,255,255,0.12);color:#fff}
+    .richting-btn.rechts{background:rgba(56,189,248,0.2);color:#38bdf8}
+    .richting-btn.gekozen{background:rgba(74,222,128,0.3);color:#4ade80;border-color:rgba(74,222,128,0.5)}
+    .richting-pijl{font-size:24px}
+    .sl-richting-badge{font-size:9px;padding:1px 5px;border-radius:4px;
+      background:rgba(255,255,255,0.06);color:rgba(255,255,255,0.35);margin-left:4px}
+    .sl-richting-badge.actief{color:rgba(255,255,255,0.7)}
+    .sl-richting-badge.goud{color:#FFD60A}
     #dash-leeg{display:flex;flex-direction:column;align-items:center;
       justify-content:center;gap:12px;padding:40px;text-align:center;flex:1}
     #startscherm{position:fixed;inset:0;background:#080A0C;z-index:300;
@@ -260,6 +302,16 @@
   </div>
 </div>
 
+<!-- V8.8: Rijrichting tikinterface -->
+<div id="richting-knoppen">
+  <div id="richting-label">Welke kant ga jij op?</div>
+  <div id="richting-rij">
+    <button class="richting-btn links" onclick="tikRichting('links')"><span class="richting-pijl">↖</span>LINKS</button>
+    <button class="richting-btn rechtdoor" onclick="tikRichting('rechtdoor')"><span class="richting-pijl">↑</span>RECHTDOOR</button>
+    <button class="richting-btn rechts" onclick="tikRichting('rechts')"><span class="richting-pijl">↗</span>RECHTS</button>
+  </div>
+</div>
+
 <div id="bodem-balk">
   <div id="debug">
     <span id="d-ai">ai:—</span>
@@ -277,7 +329,7 @@
 <div id="startscherm">
   <div id="s-icoon">🚦</div>
   <div id="s-titel">Stoplicht<span>IQ</span></div>
-  <div id="s-versie">V8.7i — Zoom Stabiel + Later Uitzoomen</div>
+  <div id="s-versie">V8.8 — VRI Detectie + Dashboard Upgrade</div>
   <div id="s-model-wrap">
     <div id="s-model-rij">
       <div id="s-model-label">🤖 YOLOv8 model laden…</div>
@@ -426,6 +478,13 @@
     </div>
     <div style="font-size:9px;color:rgba(255,255,255,0.3);line-height:1.4">Verzamelt 640x640 frames met YOLO labels tijdens detectie.</div>
   </div>
+  <div id="dash-zoek-wrap" style="padding:8px 18px 0">
+    <input id="dash-zoek" type="text" placeholder="Zoek kruispunt of tagtype…" oninput="zoekDashboard(this.value)"
+      style="width:100%;padding:9px 14px;background:rgba(255,255,255,0.06);color:#fff;
+      border:1px solid var(--border);border-radius:10px;font-size:13px;font-family:'Rajdhani',sans-serif;
+      letter-spacing:0.04em;outline:none">
+    <div id="dash-zoek-resultaat" style="font-size:10px;color:var(--dim);padding:4px 2px 0;letter-spacing:0.06em"></div>
+  </div>
   <div id="dash-filter">
     <div class="filter-btn actief" onclick="filterDashboard('alle',this)">Alle</div>
     <div class="filter-btn" onclick="filterDashboard('hoog',this)">85%+ ⭐</div>
@@ -441,10 +500,10 @@
 
 <script>
 // ═══════════════════════════════════════════════════════════════
-//  StoplichtIQ V8.7
-//  Fixes: stale fase timer, tickCd bij OSM voorspelling, tag knop
-//  positie, exposure compensatie, AI drempel verlaagd, dead code
-//  verwijderd, detectiedrempels nacht verlaagd
+//  StoplichtIQ V8.8
+//  VRI Detectie + Dashboard Upgrade + Rijrichtingdata
+//  Wijzigingen: dagdeel highlight, klikbare dagdelen, zoekfunctie,
+//  grotere tag knop, automatische VRI detectie, rijrichtingdata
 //  © 2026 StoplichtIQ — Y. Lemaalem
 // ═══════════════════════════════════════════════════════════════
 
@@ -499,6 +558,12 @@ function updateStaleMax() {
   // We geven 3x AI_DREMPEL ruimte: 3*2*dynamischInterval
   STALE_FASE_MAX_FRAMES = Math.max(300, dynamischInterval * AI_DREMPEL * 3);
 }
+
+// V8.8: VRI detectie constanten
+const VRI_MIN_METINGEN = 10;
+const VRI_MIN_SPREIDING = 20; // seconden
+const VRI_BETROUWBAARHEID_GLOSA = 70; // percentage
+const VRI_BETROUWBAARHEID_SUGGESTIE = 85; // percentage
 
 const KLASSE_MAP = { 0:'rood', 1:'groen', 3:'oranje' };
 
@@ -1269,6 +1334,16 @@ function verwerkDetecties() {
       if (dichtstbijOSM) {
         huidigBevestigdOsmNodeId = String(dichtstbijOSM.id);
         toonTagKnop(huidigBevestigdOsmNodeId);
+        checkVRISuggestie(huidigBevestigdOsmNodeId);
+        // V8.8: Passief rijrichtingdata opslaan
+        if (aiR.box) {
+          const normCx = (aiR.box.x * lbScale + lbPadX + aiR.box.w * lbScale / 2) / YOLO_SIZE;
+          slaRichtingOp(huidigBevestigdOsmNodeId, normCx, getSmoothedHeading());
+        }
+        // V8.8: Tikinterface tonen als <10 bevestigingen en >50m afstand
+        if (dichtstbijOSM.afstand > 50) {
+          toonRichtingKnoppen(huidigBevestigdOsmNodeId);
+        }
       }
       if (trainframesAan && aiR.box) {
         const kNr = aiR.kleur==='rood'?0:aiR.kleur==='groen'?1:3;
@@ -1333,6 +1408,8 @@ function resetNeutraal() {
   faseBron.textContent=''; randGlow.className=''; vorigeDetectie=null;
   // Zoom ontgrendelen
   zoomVergrendeld=false; huidigActiefStoplichtPositie=null;
+  // V8.8: Tikinterface verbergen
+  verbergRichtingKnoppen();
   // Stale teller resetten
   staleFaseFrameTeller=0;
   // Tolerantie teller resetten
@@ -1468,6 +1545,9 @@ function berekenGlosa() {
   if (snelheidKmh < 5 || snelheidKmh > 80) return null;
   const pct = berekenLeerPct(dichtstbijOSM.id);
   if (pct < 40) return null;
+  // V8.8: GLOSA alleen als VRI betrouwbaarheid >= 70%
+  const vri = berekenVRIScore(dichtstbijOSM.id);
+  if (vri.totaalMetingen >= VRI_MIN_METINGEN && vri.score < VRI_BETROUWBAARHEID_GLOSA) return null;
   if (!cdStart || !activeCdDoel || activeCdDoel <= 0) return null;
   const resterend = activeCdDoel - (performance.now()-cdStart)/1000;
   if (resterend <= 3 || resterend > 120) return null;
@@ -1555,8 +1635,16 @@ function bijwerkDashboardKnop() {
 
 // ── DASHBOARD ─────────────────────────────────────────────────
 let huidigFilter = 'alle';
+let dashboardLaatsteDD = null;
+let uitgeklapteDD = null; // { nodeId, dagdeel } of null
+let dashboardZoekterm = '';
 
 function openDashboard() {
+  dashboardLaatsteDD = huidigDDActief();
+  dashboardZoekterm = '';
+  uitgeklapteDD = null;
+  const zoekInput = document.getElementById('dash-zoek');
+  if (zoekInput) zoekInput.value = '';
   laadDashboard();
   updateTrainframesTeller();
   document.getElementById('dashboard').classList.remove('verborgen');
@@ -1564,12 +1652,62 @@ function openDashboard() {
 
 function sluitDashboard() {
   document.getElementById('dashboard').classList.add('verborgen');
+  uitgeklapteDD = null;
+}
+
+function toggleDagdeelDetail(nodeId, dd) {
+  const detailId = `dd-detail-${nodeId}`;
+  const bestaand = document.getElementById(detailId);
+  // Sluit alle bestaande detail panels
+  document.querySelectorAll('.sl-dd-detail').forEach(el => el.remove());
+  // Als zelfde was uitgeklapt → dichtklappen (al verwijderd)
+  if (uitgeklapteDD && uitgeklapteDD.nodeId === nodeId && uitgeklapteDD.dagdeel === dd) {
+    uitgeklapteDD = null;
+    return;
+  }
+  // Nieuw uitklappen
+  uitgeklapteDD = { nodeId, dagdeel: dd };
+  const container = document.getElementById(`dd-container-${nodeId}`);
+  if (!container) return;
+  const m = laadM(nodeId, dd);
+  const gem = gewGem(m);
+  const duurs = m.filter(x => x.duur > 0).map(x => x.duur);
+  const minT = duurs.length ? Math.min(...duurs) : null;
+  const maxT = duurs.length ? Math.max(...duurs) : null;
+  const spreiding = (minT != null && maxT != null) ? maxT - minT : 0;
+  const ddPct = m.length > 0 ? Math.min(100, Math.round((m.length / 20) * 100)) : 0;
+  const tag = laadStoplichtTag(nodeId);
+  const tagLabels = { voetganger:'🚶 Voetganger', normaal:'🔄 Normaal', groene_golf:'🟢 Groene golf', vri:'⚡ VRI' };
+  const ddNamen = { ochtend:'Ochtend', dag:'Dag', avond:'Avond', nacht:'Nacht' };
+  let html = `<div class="sl-dd-detail" id="${detailId}">`;
+  html += `<div style="font-size:10px;font-weight:600;color:var(--dim);letter-spacing:0.08em;text-transform:uppercase;margin-bottom:2px">${DD[dd].ic} ${ddNamen[dd] || dd}</div>`;
+  html += `<div class="sl-dd-detail-rij"><span>Gemiddelde</span><span>${gem ? Math.round(gem) + 's' : '—'}</span></div>`;
+  html += `<div class="sl-dd-detail-rij"><span>Metingen</span><span>${m.length}</span></div>`;
+  if (spreiding >= 15) {
+    html += `<div class="sl-dd-detail-rij"><span>Bereik</span><span>${Math.round(minT)}s – ${Math.round(maxT)}s</span></div>`;
+  }
+  html += `<div class="sl-dd-detail-rij"><span>Geleerd</span><span>${ddPct}%</span></div>`;
+  if (tag && tagLabels[tag.type]) {
+    html += `<div class="sl-dd-detail-rij"><span>Type</span><span>${tagLabels[tag.type]}</span></div>`;
+  }
+  if (!m.length) {
+    html = `<div class="sl-dd-detail" id="${detailId}">`;
+    html += `<div style="font-size:10px;font-weight:600;color:var(--dim);letter-spacing:0.08em;text-transform:uppercase;margin-bottom:2px">${DD[dd].ic} ${ddNamen[dd] || dd}</div>`;
+    html += `<div style="color:rgba(255,255,255,0.35);font-size:10px">Geen metingen voor dit dagdeel</div>`;
+  }
+  html += '</div>';
+  container.insertAdjacentHTML('beforeend', html);
 }
 
 function filterDashboard(filter, el) {
   huidigFilter = filter;
   document.querySelectorAll('.filter-btn').forEach(b=>b.classList.remove('actief'));
   el.classList.add('actief');
+  laadDashboard();
+}
+
+function zoekDashboard(term) {
+  dashboardZoekterm = (term || '').trim();
   laadDashboard();
 }
 
@@ -1589,7 +1727,7 @@ function laadDashboard() {
     return { id, pct, totM:alleM.length, laatste:alleM.length>0?Math.max(...alleM.map(m=>m.tijd)):0, naam:vindNaamVoorId(id) };
   }).filter(d=>d.totM>0);
 
-  const gefilterd = data.filter(d => {
+  let gefilterd = data.filter(d => {
     if (huidigFilter==='hoog')    return d.pct >= 85;
     if (huidigFilter==='goed')    return d.pct >= 60 && d.pct < 85;
     if (huidigFilter==='laag')    return d.pct < 60;
@@ -1599,7 +1737,28 @@ function laadDashboard() {
     if (huidigFilter==='nacht')   return laadM(d.id,'nacht').length > 0;
     return true;
   });
+  // V8.8: Zoekfilter
+  if (dashboardZoekterm) {
+    const zoek = dashboardZoekterm.toLowerCase().replace(/[.*+?^${}()|[\]\\]/g,'\\$&');
+    gefilterd = gefilterd.filter(d => {
+      const naamMatch = d.naam.toLowerCase().includes(zoek);
+      const tag = laadStoplichtTag(d.id);
+      const tagMatch = tag ? tag.type.toLowerCase().includes(zoek) : false;
+      return naamMatch || tagMatch;
+    });
+  }
   gefilterd.sort((a,b) => b.pct-a.pct);
+  // V8.8: Zoekresultaat teller
+  const zoekEl = document.getElementById('dash-zoek-resultaat');
+  if (zoekEl) {
+    if (dashboardZoekterm) {
+      zoekEl.textContent = gefilterd.length > 0
+        ? `${gefilterd.length} van ${data.length} kruispunten`
+        : 'Geen kruispunten gevonden';
+    } else {
+      zoekEl.textContent = '';
+    }
+  }
 
   const totMetingen = data.reduce((s,d)=>s+d.totM, 0);
   const gemPct      = data.length > 0 ? Math.round(data.reduce((s,d)=>s+d.pct,0)/data.length) : 0;
@@ -1614,12 +1773,16 @@ function laadDashboard() {
 
   lijst.innerHTML = gefilterd.map(d => {
     const kleurCSS = d.pct>=85?'#34C759':d.pct>=60?'#0A84FF':d.pct>=30?'#FF9F0A':'#FF3030';
+    const actiefDD = huidigDDActief();
     const ddHTML = Object.keys(DD).map(dd => {
       const m=laadM(d.id,dd), gem=gewGem(m);
-      return `<div class="sl-dd-item${m.length>0?' heeft-data':''}">${DD[dd].ic}${gem?' '+Math.round(gem)+'s':''}</div>`;
+      const isActief = dd === actiefDD;
+      return `<div class="sl-dd-item dd-${dd}${m.length>0?' heeft-data':''}${isActief?' dd-actief':''}" onclick="toggleDagdeelDetail('${d.id}','${dd}')">${DD[dd].ic}${gem?' '+Math.round(gem)+'s':''}</div>`;
     }).join('');
     const tagHTML   = renderTagInDashboard(d.id);
     const tagLabel  = tagHTML ? `<span style="font-size:9px;padding:2px 6px;border-radius:6px;background:rgba(52,199,89,.1);color:rgba(52,199,89,.8);margin-left:4px">${tagHTML}</span>` : '';
+    const vriLabel  = renderVRILabel(d.id);
+    const richtingBadge = renderRichtingBadge(d.id);
     const spreidHTML = Object.keys(DD).map(dd => {
       const m=laadM(d.id,dd); if(!m.length) return '';
       const gem=gewGem(m), duurs=m.filter(x=>x.duur>0).map(x=>x.duur);
@@ -1627,7 +1790,7 @@ function laadDashboard() {
     }).filter(Boolean).join(' ');
     return `<div class="sl-kaart">
       <div class="sl-kaart-header">
-        <div class="sl-kaart-naam">${d.naam}${tagLabel}</div>
+        <div class="sl-kaart-naam">${d.naam}${tagLabel}${vriLabel}${richtingBadge}</div>
         <div class="sl-kaart-pct" style="color:${kleurCSS}">${d.pct}%</div>
       </div>
       <div class="sl-kaart-balk-bg"><div class="sl-kaart-balk" style="width:${d.pct}%;background:${kleurCSS}"></div></div>
@@ -1635,6 +1798,7 @@ function laadDashboard() {
         <div style="display:flex;gap:4px">${ddHTML}</div>
         <div style="font-size:9px;color:rgba(255,255,255,0.25)">${tijdGeleden(d.laatste)} · ${d.totM}x${spreidHTML?' · '+spreidHTML:''}</div>
       </div>
+      <div id="dd-container-${d.id}"></div>
       <div style="display:flex;justify-content:space-between;align-items:center;margin-top:4px">
         <select onchange="slaStoplichtTagOp('${d.id}',this.value);laadDashboard()" style="font-size:10px;padding:2px 6px;background:rgba(255,255,255,0.08);color:var(--dim);border:1px solid var(--border);border-radius:6px;cursor:pointer">
           <option value="" ${!tagHTML?'selected':''}>+ Tag</option>
@@ -1677,9 +1841,9 @@ function tijdGeleden(ts) {
 // ── DATA EXPORT/IMPORT ────────────────────────────────────────
 function exporteerData() {
   try {
-    const exportData = { versie:'8.7', exportDatum:new Date().toISOString(), app:'StoplichtIQ', data:{} };
+    const exportData = { versie:'8.8', exportDatum:new Date().toISOString(), app:'StoplichtIQ', data:{} };
     for (const key of Object.keys(localStorage)) {
-      if (key.startsWith('sl_v4_')||key.startsWith('sl_v3_')||key.startsWith('sl_tag_')||key.startsWith('sl_naam_')||key==='sl_stad_cache') {
+      if (key.startsWith('sl_v4_')||key.startsWith('sl_v3_')||key.startsWith('sl_tag_')||key.startsWith('sl_naam_')||key.startsWith('sl_richting_')||key==='sl_stad_cache') {
         try { exportData.data[key] = JSON.parse(localStorage.getItem(key)); }
         catch(e) { exportData.data[key] = localStorage.getItem(key); }
       }
@@ -1717,7 +1881,7 @@ function importeerData(bestand) {
       if (!bevestigd) return;
       let toegevoegd=0, overgeslagen=0;
       for (const [key, waarde] of Object.entries(importData.data)) {
-        if (!key.startsWith('sl_v4_')&&!key.startsWith('sl_v3_')&&!key.startsWith('sl_tag_')&&!key.startsWith('sl_naam_')&&key!=='sl_stad_cache') { overgeslagen++; continue; }
+        if (!key.startsWith('sl_v4_')&&!key.startsWith('sl_v3_')&&!key.startsWith('sl_tag_')&&!key.startsWith('sl_naam_')&&!key.startsWith('sl_richting_')&&key!=='sl_stad_cache') { overgeslagen++; continue; }
         if (localStorage.getItem(key) !== null) { overgeslagen++; continue; }
         try { localStorage.setItem(key, JSON.stringify(waarde)); toegevoegd++; } catch(e) { overgeslagen++; }
       }
@@ -1789,7 +1953,7 @@ async function haalStraatnamenOp() {
   for (const sl of gesorteerd) {
     try {
       await new Promise(r=>setTimeout(r, 1100));
-      const r = await fetch(`https://nominatim.openstreetmap.org/reverse?lat=${sl.lat}&lon=${sl.lon}&format=json&zoom=18`, { headers:{'User-Agent':'StoplichtIQ/8.7'} });
+      const r = await fetch(`https://nominatim.openstreetmap.org/reverse?lat=${sl.lat}&lon=${sl.lon}&format=json&zoom=18`, { headers:{'User-Agent':'StoplichtIQ/8.8'} });
       if (!r.ok) continue;
       const d = await r.json();
       const straat = d.address?.road||d.address?.pedestrian||'';
@@ -1910,6 +2074,184 @@ function isMetingBetrouwbaar(nieuweDuur, bestaandeMetingen) {
   const gem=gewGem(bestaandeMetingen); if(!gem||gem===0) return true;
   if (Math.abs(nieuweDuur-gem)/gem>0.50 && bestaandeMetingen.length>=5) return false;
   return true;
+}
+
+// V8.8: VRI betrouwbaarheidsscore per kruispunt
+// Combineert aantal metingen, spreiding min/max, en auto-reset frequentie
+function berekenVRIScore(nodeId) {
+  let totaalMetingen = 0, totaalSpreiding = 0, dagdelenMetData = 0;
+  for (const dd of Object.keys(DD)) {
+    const m = laadM(nodeId, dd);
+    if (!m.length) continue;
+    dagdelenMetData++;
+    totaalMetingen += m.length;
+    const duurs = m.filter(x => x.duur > 0).map(x => x.duur);
+    if (duurs.length >= 2) {
+      totaalSpreiding = Math.max(totaalSpreiding, Math.max(...duurs) - Math.min(...duurs));
+    }
+  }
+  if (totaalMetingen < VRI_MIN_METINGEN) return { score: 0, label: 'onbekend', totaalMetingen, spreiding: totaalSpreiding };
+  // Score berekening: metingen (40%) + spreiding (40%) + dagdeel dekking (20%)
+  const metingenScore = Math.min(100, (totaalMetingen / 30) * 100);
+  const spreidingScore = totaalSpreiding >= 30 ? 100 : totaalSpreiding >= VRI_MIN_SPREIDING ? 70 : totaalSpreiding >= 10 ? 40 : 10;
+  const dekkingScore = Math.min(100, (dagdelenMetData / 3) * 100);
+  const score = Math.round(metingenScore * 0.4 + spreidingScore * 0.4 + dekkingScore * 0.2);
+  // Label bepaling
+  let label = 'onbekend';
+  if (score >= VRI_BETROUWBAARHEID_SUGGESTIE && totaalSpreiding > 30) label = 'vri';
+  else if (score >= VRI_BETROUWBAARHEID_SUGGESTIE && totaalSpreiding < 10) label = 'vast';
+  else if (score >= VRI_BETROUWBAARHEID_GLOSA) label = 'twijfel';
+  return { score, label, totaalMetingen, spreiding: totaalSpreiding };
+}
+
+// V8.8: VRI label rendering voor dashboard
+function renderVRILabel(nodeId) {
+  const vri = berekenVRIScore(nodeId);
+  if (vri.label === 'onbekend') return `<span class="vri-badge vri-onbekend" title="Onbekend — minder dan ${VRI_MIN_METINGEN} metingen">❓</span>`;
+  if (vri.label === 'vri') return `<span class="vri-badge vri-blauw" title="VRI — spreiding: ${Math.round(vri.spreiding)}s over ${vri.totaalMetingen} metingen">🔵 VRI</span>`;
+  if (vri.label === 'vast') return `<span class="vri-badge vri-grijs" title="Vaste cyclus — spreiding: ${Math.round(vri.spreiding)}s over ${vri.totaalMetingen} metingen">⚪ Vast</span>`;
+  if (vri.label === 'twijfel') return `<span class="vri-badge vri-geel" title="Twijfel — score ${vri.score}%, spreiding: ${Math.round(vri.spreiding)}s">🟡 Twijfel</span>`;
+  return '';
+}
+
+// V8.8: Check of VRI suggestie getoond moet worden
+let vriSuggestieGenegeerd = new Set();
+function checkVRISuggestie(nodeId) {
+  if (!nodeId) return;
+  if (vriSuggestieGenegeerd.has(nodeId)) return;
+  const tag = laadStoplichtTag(nodeId);
+  if (tag && tag.type === 'vri') return; // al getagd als VRI
+  const vri = berekenVRIScore(nodeId);
+  if (vri.score < VRI_BETROUWBAARHEID_SUGGESTIE || vri.spreiding <= 30) return;
+  if (tag && tag.type === 'normaal') {
+    // Gebruiker heeft bewust "normaal" getagd maar data zegt VRI
+    // Toon suggestie via de tag knop
+    const btn = document.getElementById('sl-tag-btn');
+    if (btn && btn.style.display !== 'none') return; // al zichtbaar
+    if (btn) {
+      btn.textContent = '⚡ VRI gedetecteerd — tag aanpassen?';
+      btn.style.display = 'block';
+      btn.onclick = () => {
+        if (confirm('Dit kruispunt gedraagt zich als VRI (dynamisch geregeld).\n\nTag aanpassen naar VRI?')) {
+          slaStoplichtTagOp(nodeId, 'vri');
+          btn.textContent = '✅ VRI opgeslagen';
+          setTimeout(() => { btn.style.display = 'none'; btn.textContent = '🏷️ Tag dit stoplicht'; }, 2000);
+        } else {
+          vriSuggestieGenegeerd.add(nodeId);
+          btn.style.display = 'none';
+          btn.textContent = '🏷️ Tag dit stoplicht';
+        }
+      };
+      if (tagAutoSluitTimer) clearTimeout(tagAutoSluitTimer);
+      tagAutoSluitTimer = setTimeout(() => { btn.style.display = 'none'; btn.textContent = '🏷️ Tag dit stoplicht'; tagAutoSluitTimer = null; }, 10000);
+    }
+  }
+}
+
+// V8.8: Rijrichtingdata opslaan (passief bij bevestigde detectie)
+// RONDE 3 TODO: bestaande frames her-labelen met pijlklassen
+// Claude Code filtert frames: confidence>0.60 EN bbox h/w ratio>1.8
+// Nieuwe klassen: rood_rond, rood_pijl_links, rood_pijl_rechts,
+//                 groen_rond, groen_pijl_links, groen_pijl_rechts, oranje_rond
+// Rechtdoor = ronde bal = geen pijlklasse nodig
+// Pijlherkenning maakt rijrichtingdetectie triviaal zonder GPS of tikken
+
+function slaRichtingOp(nodeId, cx, heading) {
+  if (!nodeId) return;
+  const sleutel = `sl_richting_${nodeId}`;
+  let data;
+  try { data = JSON.parse(localStorage.getItem(sleutel)); } catch(e) { data = null; }
+  if (!data || typeof data !== 'object') {
+    data = {
+      cx_zones: [{ zone:'links', count:0 }, { zone:'midden', count:0 }, { zone:'rechts', count:0 }],
+      headings: [], laatste_update: Date.now(), bevestigingen: 0
+    };
+  }
+  // Zone bepaling op origineel YOLO canvas (cx is 0-1 genormaliseerd)
+  const normCx = (typeof cx === 'number' && !isNaN(cx)) ? cx : 0.5;
+  let zone = 'midden';
+  if (normCx < 0.33) zone = 'links';
+  else if (normCx > 0.67) zone = 'rechts';
+  const zoneObj = data.cx_zones.find(z => z.zone === zone);
+  if (zoneObj) zoneObj.count++;
+  // Heading opslaan (max 20)
+  if (typeof heading === 'number' && !isNaN(heading)) {
+    data.headings.push(Math.round(heading));
+    if (data.headings.length > 20) data.headings.shift();
+  }
+  data.laatste_update = Date.now();
+  data.bevestigingen = (data.bevestigingen || 0) + 1;
+  try { localStorage.setItem(sleutel, JSON.stringify(data)); } catch(e) {}
+}
+
+function laadRichtingData(nodeId) {
+  if (!nodeId) return null;
+  try {
+    const raw = localStorage.getItem(`sl_richting_${nodeId}`);
+    return raw ? JSON.parse(raw) : null;
+  } catch(e) { return null; }
+}
+
+// V8.8: Tikinterface functies
+let richtingKnoppenNodeId = null;
+let richtingKnoppenTimer = null;
+
+function toonRichtingKnoppen(nodeId) {
+  if (!nodeId) return;
+  const data = laadRichtingData(nodeId);
+  if (data && data.bevestigingen >= 10) return; // genoeg data
+  richtingKnoppenNodeId = nodeId;
+  const el = document.getElementById('richting-knoppen');
+  if (el) el.style.display = 'flex';
+  // Auto-verberg na 8 seconden
+  if (richtingKnoppenTimer) clearTimeout(richtingKnoppenTimer);
+  richtingKnoppenTimer = setTimeout(verbergRichtingKnoppen, 8000);
+}
+
+function verbergRichtingKnoppen() {
+  const el = document.getElementById('richting-knoppen');
+  if (el) el.style.display = 'none';
+  richtingKnoppenNodeId = null;
+  if (richtingKnoppenTimer) { clearTimeout(richtingKnoppenTimer); richtingKnoppenTimer = null; }
+}
+
+function tikRichting(richting) {
+  if (!richtingKnoppenNodeId) return;
+  const nodeId = richtingKnoppenNodeId;
+  const sleutel = `sl_richting_${nodeId}`;
+  let data;
+  try { data = JSON.parse(localStorage.getItem(sleutel)); } catch(e) { data = null; }
+  if (!data || typeof data !== 'object') {
+    data = { cx_zones: [{ zone:'links', count:0 }, { zone:'midden', count:0 }, { zone:'rechts', count:0 }],
+             headings: [], laatste_update: Date.now(), bevestigingen: 0 };
+  }
+  data.tikrichting = richting;
+  data.tik_bevestigingen = (data.tik_bevestigingen || 0) + 1;
+  // Map tikrichting naar cx zone
+  const zoneMap = { links:'links', rechtdoor:'midden', rechts:'rechts' };
+  data.tik_cx_zone = zoneMap[richting] || 'midden';
+  data.laatste_update = Date.now();
+  try { localStorage.setItem(sleutel, JSON.stringify(data)); } catch(e) {}
+  // Visuele bevestiging
+  const knoppen = document.querySelectorAll('.richting-btn');
+  knoppen.forEach(btn => {
+    if (btn.textContent.toLowerCase().includes(richting)) btn.classList.add('gekozen');
+  });
+  setTimeout(verbergRichtingKnoppen, 1200);
+}
+
+function renderRichtingBadge(nodeId) {
+  const data = laadRichtingData(nodeId);
+  if (!data) return '';
+  const totaal = data.bevestigingen || 0;
+  if (totaal === 0) return '';
+  // Bepaal dominante zone
+  const zones = data.cx_zones || [];
+  let maxZone = 'midden', maxCount = 0;
+  for (const z of zones) { if (z.count > maxCount) { maxCount = z.count; maxZone = z.zone; } }
+  const pijlen = { links:'←', midden:'↑', rechts:'→' };
+  const kleurClass = totaal >= 10 ? 'goud' : totaal >= 5 ? 'actief' : '';
+  return `<span class="sl-richting-badge ${kleurClass}">${pijlen[maxZone]||'↑'} ${totaal}x</span>`;
 }
 
 function vindOsmMatchOpRichting(absoluteRichting, maxHoekGraden, maxAfstandMeter) {
@@ -2111,7 +2453,7 @@ async function refreshStadIndienNodig(lat, lon) {
   if (stadLaatstRefreshed===0 || (nu-stadLaatstRefreshed)>120000 || (stadLaatsteLat!=null&&afstand(lat,lon,stadLaatsteLat,stadLaatsteLon)>1000)) {
     stadLaatstRefreshed=nu; stadLaatsteLat=lat; stadLaatsteLon=lon;
     try {
-      const r = await fetch(`https://nominatim.openstreetmap.org/reverse?lat=${lat}&lon=${lon}&zoom=10&format=json`, { headers:{'User-Agent':'StoplichtIQ/8.7'} });
+      const r = await fetch(`https://nominatim.openstreetmap.org/reverse?lat=${lat}&lon=${lon}&zoom=10&format=json`, { headers:{'User-Agent':'StoplichtIQ/8.8'} });
       const d = await r.json();
       const stad = d.address?.city||d.address?.town||d.address?.municipality||null;
       if (stad) { huidigeStad=stad; localStorage.setItem('sl_stad_cache', JSON.stringify({ stad, lat, lon, timestamp:nu })); }
@@ -2192,6 +2534,10 @@ async function onGPS(pos) {
       (Date.now()-zoomVergrendelTijdstip) > 3000) {
     zoomVergrendeld=false; huidigActiefStoplichtPositie=null;
   }
+  // V8.8: Tikinterface verbergen bij <30m
+  if (richtingKnoppenNodeId && dichtstbijOSM && dichtstbijOSM.afstand < 30) {
+    verbergRichtingKnoppen();
+  }
   // Zoom unlock bij zeer kleine afstand (<20m)
   if (zoomVergrendeld && dichtstbijOSM && dichtstbijOSM.afstand < 20) {
     zoomVergrendeld=false; huidigActiefStoplichtPositie=null;
@@ -2271,6 +2617,18 @@ function updateDebugOverlay() {
   dInfo.textContent = debugWaarden.info || '—';
 }
 setInterval(updateDebugOverlay, 500);
+
+// V8.8: Auto-update dashboard als dagdeel wisselt terwijl open
+setInterval(() => {
+  const dash = document.getElementById('dashboard');
+  if (dash && !dash.classList.contains('verborgen')) {
+    const huidigeDD = huidigDDActief();
+    if (huidigeDD !== dashboardLaatsteDD) {
+      dashboardLaatsteDD = huidigeDD;
+      laadDashboard();
+    }
+  }
+}, 30000);
 
 // ── ANIMATIELUS ───────────────────────────────────────────────
 function lus() {
