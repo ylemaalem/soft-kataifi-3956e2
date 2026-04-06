@@ -329,7 +329,7 @@
 <div id="startscherm">
   <div id="s-icoon">🚦</div>
   <div id="s-titel">Stoplicht<span>IQ</span></div>
-  <div id="s-versie">V8.8 — VRI Detectie + Dashboard Upgrade</div>
+  <div id="s-versie">V8.8.1 — Kleurcheck + Sneller Leren + Zonsondergang</div>
   <div id="s-model-wrap">
     <div id="s-model-rij">
       <div id="s-model-label">🤖 YOLOv8 model laden…</div>
@@ -500,10 +500,9 @@
 
 <script>
 // ═══════════════════════════════════════════════════════════════
-//  StoplichtIQ V8.8
-//  VRI Detectie + Dashboard Upgrade + Rijrichtingdata
-//  Wijzigingen: dagdeel highlight, klikbare dagdelen, zoekfunctie,
-//  grotere tag knop, automatische VRI detectie, rijrichtingdata
+//  StoplichtIQ V8.8.1
+//  Kleurcheck pre-filter, directe YOLO run bij kleurwissel,
+//  rijrichtingknop fixes, zonsondergang dagdeel, sneller leren
 //  © 2026 StoplichtIQ — Y. Lemaalem
 // ═══════════════════════════════════════════════════════════════
 
@@ -559,6 +558,14 @@ function updateStaleMax() {
   STALE_FASE_MAX_FRAMES = Math.max(300, dynamischInterval * AI_DREMPEL * 3);
 }
 
+// V8.8.1: Kleurcheck pre-filter constanten
+const KLEURCHECK_ACTIEF = true;
+const KLEURCHECK_MIN_PIXELS = 3;
+const KLEURCHECK_GRID = 8;
+
+// V8.8.1: Nieuw kruispunt drempel — soepeler filter voor eerste metingen
+const NIEUW_KRUISPUNT_DREMPEL = 5;
+
 // V8.8: VRI detectie constanten
 const VRI_MIN_METINGEN = 10;
 const VRI_MIN_SPREIDING = 20; // seconden
@@ -577,10 +584,62 @@ const DD = {
 // ── DAGDEEL VIA CAMERA ─────────────────────────────────────────
 let huidigDagdeelFinaal = null;
 let dagdeelCameraBuffer = [];
+let laatsteZonsondergang = null;
+let zonsondergangDatum = null;
+
+// V8.8.1: Astronomische zonsondergang berekening (geen internet nodig)
+function berekenZonsondergang(lat, lon, datum) {
+  if (!datum) datum = new Date();
+  const dagVanJaar = Math.floor((datum - new Date(datum.getFullYear(), 0, 0)) / 86400000);
+  const B = (360 / 365) * (dagVanJaar - 81) * (Math.PI / 180);
+  const ET = 9.87 * Math.sin(2 * B) - 7.53 * Math.cos(B) - 1.5 * Math.sin(B);
+  const latRad = lat * Math.PI / 180;
+  const declinatie = 23.45 * Math.sin(B) * (Math.PI / 180);
+  const cosUrenhoek = -Math.tan(latRad) * Math.tan(declinatie);
+  // Poolgebied: zon gaat niet onder/op → fallback
+  if (cosUrenhoek < -1 || cosUrenhoek > 1) return null;
+  const urenhoek = Math.acos(cosUrenhoek) * 180 / Math.PI;
+  // Tijdzone offset: JavaScript Date geeft lokale tijd
+  const tzOffset = datum.getTimezoneOffset() / -60;
+  const zonsmiddag = 12 - (lon / 15) - (ET / 60) + tzOffset;
+  return zonsmiddag + (urenhoek / 15); // decimale uren
+}
+
+function updateZonsondergang() {
+  if (!huidigePos) return;
+  const nu = new Date();
+  const vandaag = nu.toDateString();
+  if (zonsondergangDatum === vandaag) return; // al berekend voor vandaag
+  const zg = berekenZonsondergang(huidigePos.lat, huidigePos.lon, nu);
+  if (zg !== null) {
+    laatsteZonsondergang = zg;
+    zonsondergangDatum = vandaag;
+  }
+}
 
 function updateDagdeelViaCamera(helderheid) {
   const uur = new Date().getHours();
+  const uurDecimaal = uur + new Date().getMinutes() / 60;
+  // Harde grenzen: 22:00-06:00 altijd nacht
   if (uur >= 22 || uur < 6)  { huidigDagdeelFinaal = 'nacht'; return; }
+  // V8.8.1: Dynamische dag/avond grens op basis van zonsondergang
+  updateZonsondergang();
+  const zg = laatsteZonsondergang;
+  if (zg !== null) {
+    // 08:00 tot zonsondergang: nooit nacht via camera (tunnel scenario)
+    if (uur >= 8 && uurDecimaal < zg) { huidigDagdeelFinaal = huidigDD(); return; }
+    // Zonsondergang tot 22:00: camera beslist
+    if (uurDecimaal >= zg && uur < 22) {
+      if (typeof helderheid === 'number' && !isNaN(helderheid)) {
+        dagdeelCameraBuffer.push(helderheid < 40);
+        if (dagdeelCameraBuffer.length > 10) dagdeelCameraBuffer.shift();
+        huidigDagdeelFinaal = dagdeelCameraBuffer.filter(Boolean).length >= 7
+          ? 'nacht' : huidigDD();
+      }
+      return;
+    }
+  }
+  // Fallback: oude vaste logica als GPS niet beschikbaar
   if (uur >= 8  && uur < 17) { huidigDagdeelFinaal = huidigDD(); return; }
   if (typeof helderheid === 'number' && !isNaN(helderheid)) {
     dagdeelCameraBuffer.push(helderheid < 40);
@@ -787,6 +846,12 @@ let huidigeStad=null, stadLaatstRefreshed=0, stadLaatsteLat=null, stadLaatsteLon
 
 // Tagging
 let huidigBevestigdOsmNodeId=null, tagAutoSluitTimer=null;
+
+// V8.8.1: Directe YOLO run bij kleurwissel
+let directeRunNodig = false;
+// V8.8.1: Rijrichting knop reset
+let geselecteerdeRichting = null;
+let richtingResetDebounce = null;
 
 // Debug
 let debugWaarden={};
@@ -1183,11 +1248,42 @@ function _verwerkWorkerResultaat(detecties) {
   };
   nieuwAIResultaat = true;
   verwerkS2(s2Rest); s1GebruikteNodesDezeRun.clear();
+  // V8.8.1: Directe YOLO run bij kleurwissel — max 1 per wissel
+  if (directeRunNodig && !aiBezig) {
+    directeRunNodig = false;
+    setTimeout(() => { if (!aiBezig) voerAIUit(); }, 0);
+  }
+}
+
+// V8.8.1: Kleurcheck pre-filter — skip YOLO als geen stoplichtkleur zichtbaar
+function kleurcheckPreFilter() {
+  if (!KLEURCHECK_ACTIEF) return true;
+  // Uitzonderingen: altijd YOLO draaien
+  if (huidigDDActief() === 'nacht') return true;
+  if (fase !== null) return true;
+  if (aiMissRuns > 0) return true;
+  if (dichtstbijOSM && dichtstbijOSM.afstand < 100) return true;
+  if (!ctx || canvas.width === 0 || canvas.height === 0) return true;
+  try {
+    const h60 = Math.floor(canvas.height * 0.6);
+    const sample = ctx.getImageData(0, 0, canvas.width, h60);
+    const px = sample.data;
+    let roodPx = 0, groenPx = 0;
+    for (let i = 0; i < px.length; i += KLEURCHECK_GRID * 4) {
+      const r = px[i], g = px[i+1], b = px[i+2];
+      if (r > 120 && g < 100 && b < 100) roodPx++;
+      if (g > 120 && r < 100 && b < 100) groenPx++;
+      if (roodPx + groenPx >= KLEURCHECK_MIN_PIXELS) return true;
+    }
+    return false;
+  } catch(e) { return true; }
 }
 
 // ── AI DETECTIE ───────────────────────────────────────────────
 async function voerAIUit() {
   if (!modelGeladen || !onnxSession || video.readyState < 2 || aiBezig) return;
+  // V8.8.1: Kleurcheck pre-filter
+  if (!kleurcheckPreFilter()) { debugWaarden.ai = 'ai:skip(kleur)'; return; }
   aiBezig = true;
   const aiTimeout = setTimeout(() => { if (aiBezig) aiBezig=false; }, 3000);
   try {
@@ -1305,6 +1401,8 @@ function verwerkDetecties() {
     // Veilig: fase wordt pas officieel bij AI_DREMPEL=2
     if (aiTeller === 1 && aiR.kleur !== fase) {
       updateUIKleur(aiR.kleur, aiR.horizontaal);
+      // V8.8.1: Directe YOLO run aanvragen voor snellere bevestiging
+      if (fase !== null || aiKleur !== null) directeRunNodig = true;
       // V8.7i: Vroege zoom vergrendeling bij eerste detectie
       // Voorkomt uitzoomen terwijl YOLO bezig is te bevestigen
       // Ontgrendelt automatisch na TOLERANTIE_RUNS misses via aiMissRuns systeem
@@ -1340,9 +1438,11 @@ function verwerkDetecties() {
           const normCx = (aiR.box.x * lbScale + lbPadX + aiR.box.w * lbScale / 2) / YOLO_SIZE;
           slaRichtingOp(huidigBevestigdOsmNodeId, normCx, getSmoothedHeading());
         }
-        // V8.8: Tikinterface tonen als <10 bevestigingen en >50m afstand
-        if (dichtstbijOSM.afstand > 50) {
+        // V8.8.1: Tikinterface tonen bij rood detectie (geen afstands/bevestigingslimiet)
+        if (aiR.kleur === 'rood') {
           toonRichtingKnoppen(huidigBevestigdOsmNodeId);
+        } else if (aiR.kleur === 'groen') {
+          verbergRichtingKnoppen();
         }
       }
       if (trainframesAan && aiR.box) {
@@ -1410,6 +1510,8 @@ function resetNeutraal() {
   zoomVergrendeld=false; huidigActiefStoplichtPositie=null;
   // V8.8: Tikinterface verbergen
   verbergRichtingKnoppen();
+  // V8.8.1: Directe run reset
+  directeRunNodig = false;
   // Stale teller resetten
   staleFaseFrameTeller=0;
   // Tolerantie teller resetten
@@ -1841,7 +1943,7 @@ function tijdGeleden(ts) {
 // ── DATA EXPORT/IMPORT ────────────────────────────────────────
 function exporteerData() {
   try {
-    const exportData = { versie:'8.8', exportDatum:new Date().toISOString(), app:'StoplichtIQ', data:{} };
+    const exportData = { versie:'8.8.1', exportDatum:new Date().toISOString(), app:'StoplichtIQ', data:{} };
     for (const key of Object.keys(localStorage)) {
       if (key.startsWith('sl_v4_')||key.startsWith('sl_v3_')||key.startsWith('sl_tag_')||key.startsWith('sl_naam_')||key.startsWith('sl_richting_')||key==='sl_stad_cache') {
         try { exportData.data[key] = JSON.parse(localStorage.getItem(key)); }
@@ -2068,9 +2170,10 @@ function formateerCyclustijd(gemiddelde, minTijd, maxTijd) {
   return `${Math.round(minTijd)}-${Math.round(maxTijd)}s`;
 }
 
+// V8.8.1: Soepeler filter voor nieuwe kruispunten (<5 metingen)
 function isMetingBetrouwbaar(nieuweDuur, bestaandeMetingen) {
   if (!nieuweDuur||nieuweDuur===0) return false;
-  if (!bestaandeMetingen||bestaandeMetingen.length<3) return true;
+  if (!bestaandeMetingen||bestaandeMetingen.length<NIEUW_KRUISPUNT_DREMPEL) return true;
   const gem=gewGem(bestaandeMetingen); if(!gem||gem===0) return true;
   if (Math.abs(nieuweDuur-gem)/gem>0.50 && bestaandeMetingen.length>=5) return false;
   return true;
@@ -2196,16 +2299,22 @@ function laadRichtingData(nodeId) {
 let richtingKnoppenNodeId = null;
 let richtingKnoppenTimer = null;
 
+// V8.8.1: Toon bij rood fase of eerste rood detectie, geen bevestigingslimiet
 function toonRichtingKnoppen(nodeId) {
   if (!nodeId) return;
-  const data = laadRichtingData(nodeId);
-  if (data && data.bevestigingen >= 10) return; // genoeg data
   richtingKnoppenNodeId = nodeId;
+  // Reset visuele staat
+  document.querySelectorAll('.richting-btn').forEach(b => b.classList.remove('gekozen'));
   const el = document.getElementById('richting-knoppen');
   if (el) el.style.display = 'flex';
-  // Auto-verberg na 8 seconden
+  // Auto-verberg na 45 seconden (subtiel)
   if (richtingKnoppenTimer) clearTimeout(richtingKnoppenTimer);
-  richtingKnoppenTimer = setTimeout(verbergRichtingKnoppen, 8000);
+  richtingKnoppenTimer = setTimeout(() => {
+    const el = document.getElementById('richting-knoppen');
+    if (el) el.style.opacity = '0';
+    setTimeout(() => { if (el) { el.style.display = 'none'; el.style.opacity = '1'; } richtingKnoppenNodeId = null; }, 400);
+    richtingKnoppenTimer = null;
+  }, 45000);
 }
 
 function verbergRichtingKnoppen() {
@@ -2509,6 +2618,14 @@ function updateDichtbij(lat, lon) {
     vorigOsmId=nieuw.id; dichtstbijOSM=nieuw; afwijkBuf=[];
     activeCdDoel = gewGem(laadM(nieuw.id, huidigDDActief())) || 0;
     bijwerkLeerkaart(nieuw); bijwerkDashboardKnop();
+    // V8.8.1: Reset richtingknoppen bij kruispuntwissel (met debounce 2s)
+    if (richtingResetDebounce) clearTimeout(richtingResetDebounce);
+    richtingResetDebounce = setTimeout(() => {
+      geselecteerdeRichting = null;
+      document.querySelectorAll('.richting-btn').forEach(b => b.classList.remove('gekozen'));
+      if (richtingKnoppenNodeId && richtingKnoppenNodeId !== String(nieuw.id)) verbergRichtingKnoppen();
+      richtingResetDebounce = null;
+    }, 2000);
   } else {
     dichtstbijOSM = nieuw;
   }
@@ -2534,8 +2651,12 @@ async function onGPS(pos) {
       (Date.now()-zoomVergrendelTijdstip) > 3000) {
     zoomVergrendeld=false; huidigActiefStoplichtPositie=null;
   }
-  // V8.8: Tikinterface verbergen bij <30m
-  if (richtingKnoppenNodeId && dichtstbijOSM && dichtstbijOSM.afstand < 30) {
+  // V8.8.1: Tikinterface verbergen als kruispunt voorbij of snelheid >30 na passeren
+  if (richtingKnoppenNodeId && huidigActiefStoplichtPositie &&
+      isStoplichtVoorbij(huidigActiefStoplichtPositie, {lat,lon}, getSmoothedHeading())) {
+    verbergRichtingKnoppen();
+  }
+  if (richtingKnoppenNodeId && dichtstbijOSM && dichtstbijOSM.afstand < 15 && snelheidKmh > 30) {
     verbergRichtingKnoppen();
   }
   // Zoom unlock bij zeer kleine afstand (<20m)
