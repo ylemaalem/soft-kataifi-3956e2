@@ -329,7 +329,7 @@
 <div id="startscherm">
   <div id="s-icoon">🚦</div>
   <div id="s-titel">Stoplicht<span>IQ</span></div>
-  <div id="s-versie">V8.8.1 — Kleurcheck + Sneller Leren + Zonsondergang</div>
+  <div id="s-versie">V8.8.2 — Dagdeel Fix + Bbox Zoom + Richtingknop</div>
   <div id="s-model-wrap">
     <div id="s-model-rij">
       <div id="s-model-label">🤖 YOLOv8 model laden…</div>
@@ -500,9 +500,8 @@
 
 <script>
 // ═══════════════════════════════════════════════════════════════
-//  StoplichtIQ V8.8.1
-//  Kleurcheck pre-filter, directe YOLO run bij kleurwissel,
-//  rijrichtingknop fixes, zonsondergang dagdeel, sneller leren
+//  StoplichtIQ V8.8.2
+//  Bugfixes: kleurcheck uit, dagdeel classificatie, bbox zoom, richtingknop
 //  © 2026 StoplichtIQ — Y. Lemaalem
 // ═══════════════════════════════════════════════════════════════
 
@@ -559,7 +558,7 @@ function updateStaleMax() {
 }
 
 // V8.8.1: Kleurcheck pre-filter constanten
-const KLEURCHECK_ACTIEF = true;
+const KLEURCHECK_ACTIEF = false; // V8.8.2: uitgeschakeld — werkt averechts bij avond/nacht
 const KLEURCHECK_MIN_PIXELS = 3;
 const KLEURCHECK_GRID = 8;
 
@@ -610,42 +609,41 @@ function updateZonsondergang() {
   const nu = new Date();
   const vandaag = nu.toDateString();
   if (zonsondergangDatum === vandaag) return; // al berekend voor vandaag
-  const zg = berekenZonsondergang(huidigePos.lat, huidigePos.lon, nu);
+  let zg = berekenZonsondergang(huidigePos.lat, huidigePos.lon, nu);
+  // V8.8.2: Veiligheidslimieten op zonsondergang
   if (zg !== null) {
+    if (zg > 21.75) zg = 21.75; // cap op 21:45
+    if (zg < 17.0) zg = 17.0;   // cap op 17:00
     laatsteZonsondergang = zg;
     zonsondergangDatum = vandaag;
   }
 }
 
+// V8.8.2: Correcte dagdeel logica — nacht pas vanaf 22:00 (harde regel)
+// Zonsondergang bepaalt alleen dag→avond grens, NOOIT avond→nacht
 function updateDagdeelViaCamera(helderheid) {
   const uur = new Date().getHours();
   const uurDecimaal = uur + new Date().getMinutes() / 60;
-  // Harde grenzen: 22:00-06:00 altijd nacht
+  // 1. Tijd 22:00-06:00 → ALTIJD nacht (harde regel, eerste check)
   if (uur >= 22 || uur < 6)  { huidigDagdeelFinaal = 'nacht'; return; }
-  // V8.8.1: Dynamische dag/avond grens op basis van zonsondergang
+  // 2. Zonsondergang berekenen
   updateZonsondergang();
   const zg = laatsteZonsondergang;
   if (zg !== null) {
-    // 08:00 tot zonsondergang: nooit nacht via camera (tunnel scenario)
-    if (uur >= 8 && uurDecimaal < zg) { huidigDagdeelFinaal = huidigDD(); return; }
-    // Zonsondergang tot 22:00: camera beslist
-    if (uurDecimaal >= zg && uur < 22) {
-      if (typeof helderheid === 'number' && !isNaN(helderheid)) {
-        dagdeelCameraBuffer.push(helderheid < 40);
-        if (dagdeelCameraBuffer.length > 10) dagdeelCameraBuffer.shift();
-        huidigDagdeelFinaal = dagdeelCameraBuffer.filter(Boolean).length >= 7
-          ? 'nacht' : huidigDD();
-      }
-      return;
-    }
+    // 06:00 tot zonsondergang → dag/ochtend via huidigDD()
+    if (uurDecimaal < zg) { huidigDagdeelFinaal = huidigDD(); return; }
+    // Zonsondergang tot 22:00 → altijd avond (nooit nacht via camera)
+    huidigDagdeelFinaal = 'avond';
+    return;
   }
-  // Fallback: oude vaste logica als GPS niet beschikbaar
-  if (uur >= 8  && uur < 17) { huidigDagdeelFinaal = huidigDD(); return; }
+  // 4. Fallback: GPS null → oude vaste tijden (17:00 grens)
+  if (uur >= 8 && uur < 17) { huidigDagdeelFinaal = huidigDD(); return; }
+  // 17:00-22:00 zonder GPS → camera beslist dag of avond (maar nooit nacht)
   if (typeof helderheid === 'number' && !isNaN(helderheid)) {
     dagdeelCameraBuffer.push(helderheid < 40);
     if (dagdeelCameraBuffer.length > 10) dagdeelCameraBuffer.shift();
     huidigDagdeelFinaal = dagdeelCameraBuffer.filter(Boolean).length >= 7
-      ? 'nacht' : huidigDD();
+      ? 'avond' : huidigDD();
   }
 }
 
@@ -852,6 +850,10 @@ let directeRunNodig = false;
 // V8.8.1: Rijrichting knop reset
 let geselecteerdeRichting = null;
 let richtingResetDebounce = null;
+// V8.8.2: Bbox-grootte zoom override
+let bboxDichtbij = false;
+// V8.8.2: Richtingknop éénmalig per rode fase
+let richtingGedruktVoorNode = null;
 
 // Debug
 let debugWaarden={};
@@ -1218,6 +1220,7 @@ function _verwerkWorkerResultaat(detecties) {
   if (!detecties.length) {
     debugWaarden.ai = 'ai:weg';
     laatsteAI = null; nieuwAIResultaat = true;
+    bboxDichtbij = false; // V8.8.2
     s1GebruikteNodesDezeRun.clear();
     return;
   }
@@ -1236,6 +1239,8 @@ function _verwerkWorkerResultaat(detecties) {
     verwerkS2(s2Rest); s1GebruikteNodesDezeRun.clear();
     return;
   }
+  // V8.8.2: Bbox-grootte zoom override — groot stoplicht = dichtbij
+  bboxDichtbij = (beste.h > 96);
   const gesmoothedScore = pasConfidenceSmoothingToe(beste.klasse, beste.score);
   vorigeDetectie = { cx:beste.cx, cy:beste.cy };
   debugWaarden.ai = `ai:${kleur} ${(gesmoothedScore*100).toFixed(0)}% [${detecties.length}]`;
@@ -1512,6 +1517,9 @@ function resetNeutraal() {
   verbergRichtingKnoppen();
   // V8.8.1: Directe run reset
   directeRunNodig = false;
+  // V8.8.2: Bbox zoom + richtingknop reset
+  bboxDichtbij = false;
+  richtingGedruktVoorNode = null;
   // Stale teller resetten
   staleFaseFrameTeller=0;
   // Tolerantie teller resetten
@@ -1943,7 +1951,7 @@ function tijdGeleden(ts) {
 // ── DATA EXPORT/IMPORT ────────────────────────────────────────
 function exporteerData() {
   try {
-    const exportData = { versie:'8.8.1', exportDatum:new Date().toISOString(), app:'StoplichtIQ', data:{} };
+    const exportData = { versie:'8.8.2', exportDatum:new Date().toISOString(), app:'StoplichtIQ', data:{} };
     for (const key of Object.keys(localStorage)) {
       if (key.startsWith('sl_v4_')||key.startsWith('sl_v3_')||key.startsWith('sl_tag_')||key.startsWith('sl_naam_')||key.startsWith('sl_richting_')||key==='sl_stad_cache') {
         try { exportData.data[key] = JSON.parse(localStorage.getItem(key)); }
@@ -2116,6 +2124,8 @@ function getSmoothedHeading() {
 }
 
 function berekenDoelZoom(afst) {
+  // V8.8.2: Bbox >96px = stoplicht dichtbij → forceer 1.0x ongeacht GPS
+  if (bboxDichtbij) return 1.0;
   if (afst==null||isNaN(afst)||afst<0) return 1.0;
   if (afst > 70) return 3.0;
   if (afst > 30) return 2.5;
@@ -2302,6 +2312,8 @@ let richtingKnoppenTimer = null;
 // V8.8.1: Toon bij rood fase of eerste rood detectie, geen bevestigingslimiet
 function toonRichtingKnoppen(nodeId) {
   if (!nodeId) return;
+  // V8.8.2: Al gedrukt voor dit kruispunt in deze rode fase → niet opnieuw tonen
+  if (richtingGedruktVoorNode === nodeId) return;
   richtingKnoppenNodeId = nodeId;
   // Reset visuele staat
   document.querySelectorAll('.richting-btn').forEach(b => b.classList.remove('gekozen'));
@@ -2341,6 +2353,8 @@ function tikRichting(richting) {
   data.tik_cx_zone = zoneMap[richting] || 'midden';
   data.laatste_update = Date.now();
   try { localStorage.setItem(sleutel, JSON.stringify(data)); } catch(e) {}
+  // V8.8.2: Markeer als gedrukt voor dit kruispunt
+  richtingGedruktVoorNode = nodeId;
   // Visuele bevestiging
   const knoppen = document.querySelectorAll('.richting-btn');
   knoppen.forEach(btn => {
@@ -2622,6 +2636,7 @@ function updateDichtbij(lat, lon) {
     if (richtingResetDebounce) clearTimeout(richtingResetDebounce);
     richtingResetDebounce = setTimeout(() => {
       geselecteerdeRichting = null;
+      richtingGedruktVoorNode = null; // V8.8.2: reset éénmalig-per-fase lock
       document.querySelectorAll('.richting-btn').forEach(b => b.classList.remove('gekozen'));
       if (richtingKnoppenNodeId && richtingKnoppenNodeId !== String(nieuw.id)) verbergRichtingKnoppen();
       richtingResetDebounce = null;
