@@ -329,7 +329,7 @@
 <div id="startscherm">
   <div id="s-icoon">🚦</div>
   <div id="s-titel">Stoplicht<span>IQ</span></div>
-  <div id="s-versie">V8.8.4 — Stilstand Proxy + Leerbonus</div>
+  <div id="s-versie">V8.8.3 — Zonsondergang + GPS Smooth + Leerbonus</div>
   <div id="s-model-wrap">
     <div id="s-model-rij">
       <div id="s-model-label">🤖 YOLOv8 model laden…</div>
@@ -500,8 +500,8 @@
 
 <script>
 // ═══════════════════════════════════════════════════════════════
-//  StoplichtIQ V8.8.4
-//  Nieuw: stilstand proxy metingen, leerbonus, GPS smoothing
+//  StoplichtIQ V8.8.3
+//  Fixes: zonsondergang dynamisch, GPS smoothing, afstand bevriezen, voorbij 15m, leerbonus
 //  © 2026 StoplichtIQ — Y. Lemaalem
 // ═══════════════════════════════════════════════════════════════
 
@@ -744,18 +744,14 @@ function laadM(osmId, dd) {
   } catch(e) { return []; }
 }
 
-function slaOp(osmId, richting, duur, opties) {
+function slaOp(osmId, richting, duur) {
   if (!osmId || duur < 4 || duur > 300) return false;
   const dd = (huidigDagdeelFinaal) ? huidigDagdeelFinaal : huidigDD();
   let m = laadM(osmId, dd);
   if (!isMetingBetrouwbaar(duur, m)) return false;
   const gewijzigd = checkAfwijking(duur, gewGem(m));
   if (gewijzigd) m = [];
-  // V8.8.4: optionele gewicht en bron velden (default gewicht=1.0)
-  const entry = { duur:Math.round(duur), tijd:Date.now(), richting:Math.round(richting||0) };
-  if (opties && opties.gewicht != null) entry.gewicht = opties.gewicht;
-  if (opties && opties.bron) entry.bron = opties.bron;
-  m.push(entry);
+  m.push({ duur:Math.round(duur), tijd:Date.now(), richting:Math.round(richting||0) });
   if (m.length > MAX_METINGEN) { m.sort((a,b)=>gew(b.tijd)-gew(a.tijd)); m=m.slice(0,MAX_METINGEN); }
   try { localStorage.setItem(`${LS_PREFIX}${osmId}_${dd}`, JSON.stringify(m)); } catch(e) {}
   checkLocalStorageRuimte();
@@ -1551,8 +1547,6 @@ function resetNeutraal() {
   richtingGedruktVoorNode = null;
   // V8.8.3: Afstand bevriezing reset
   bevrorenAfstandM = null;
-  // V8.8.4: Proxy reset
-  resetProxy();
   // Stale teller resetten
   staleFaseFrameTeller=0;
   // Tolerantie teller resetten
@@ -1987,7 +1981,7 @@ function tijdGeleden(ts) {
 // ── DATA EXPORT/IMPORT ────────────────────────────────────────
 function exporteerData() {
   try {
-    const exportData = { versie:'8.8.4', exportDatum:new Date().toISOString(), app:'StoplichtIQ', data:{} };
+    const exportData = { versie:'8.8.3', exportDatum:new Date().toISOString(), app:'StoplichtIQ', data:{} };
     for (const key of Object.keys(localStorage)) {
       if (key.startsWith('sl_v4_')||key.startsWith('sl_v3_')||key.startsWith('sl_tag_')||key.startsWith('sl_naam_')||key.startsWith('sl_richting_')||key==='sl_stad_cache') {
         try { exportData.data[key] = JSON.parse(localStorage.getItem(key)); }
@@ -2699,13 +2693,6 @@ function updateDichtbij(lat, lon) {
 let gpsVorigePositie = null;
 let gpsVorigeTijdstip = null;
 
-// V8.8.4: Stilstand proxy — meet wachttijd bij stilstand zonder S1 detectie
-let proxyTimerStart = null;
-let proxyNodeId = null;
-let proxyFaseActief = false;
-let proxyLaatsteMeting = null;
-let proxySavedFeedback = null;
-
 // ── GPS ───────────────────────────────────────────────────────
 async function onGPS(pos) {
   const lat=pos.coords.latitude, lon=pos.coords.longitude;
@@ -2749,69 +2736,10 @@ async function onGPS(pos) {
   if (zoomVergrendeld && dichtstbijOSM && dichtstbijOSM.afstand < 20) {
     zoomVergrendeld=false; huidigActiefStoplichtPositie=null;
   }
-  // V8.8.4: Stilstand proxy logica
-  verwerkStilstandProxy();
-
   pGPS.className='pill-dot b'; pGPST.textContent='GPS';
   if (!cacheGeladen && !cacheBezig) downloadOSM(lat, lon);
   else if (cacheGeladen) updateDichtbij(lat, lon);
   refreshStadIndienNodig(lat, lon);
-}
-
-// ── V8.8.4: STILSTAND PROXY ──────────────────────────────────
-function verwerkStilstandProxy() {
-  // STAP B: Maximum check — parkeren of extreme file
-  if (proxyTimerStart !== null) {
-    const wachttijdB = (Date.now() - proxyTimerStart) / 1000;
-    if (wachttijdB > 180) { resetProxy(); return; }
-  }
-
-  // STAP A: Stilstand detectie — start proxy timer
-  // Hysteresis: start bij <3 km/u, stop bij >8 km/u
-  if (snelheidKmh < 3 && dichtstbijOSM && dichtstbijOSM.afstand < 80 && proxyTimerStart === null) {
-    proxyTimerStart = Date.now();
-    proxyNodeId = String(dichtstbijOSM.id);
-    proxyFaseActief = true;
-    return;
-  }
-
-  // Node wissel tijdens stilstand — reset proxy
-  if (proxyFaseActief && dichtstbijOSM && String(dichtstbijOSM.id) !== proxyNodeId) {
-    resetProxy();
-    return;
-  }
-
-  // STAP C: Rijden hervat (hysteresis: >8 km/u)
-  if (snelheidKmh > 8 && proxyFaseActief) {
-    const wachttijd = (Date.now() - proxyTimerStart) / 1000;
-    if (wachttijd < 8) {
-      resetProxy(); // Te kort — negeren
-      return;
-    }
-    if (wachttijd >= 8 && wachttijd <= 180) {
-      // STAP D: Overlap check — geen proxy als S1 recent al opsloeg
-      const dd = huidigDagdeelFinaal || huidigDD();
-      const bestaandeM = laadM(proxyNodeId, dd);
-      const nuMs = Date.now();
-      const heeftRecenteS1 = bestaandeM.some(m => m.bron !== 'proxy' && (nuMs - m.tijd) < 60000);
-      if (!heeftRecenteS1) {
-        // STAP E: Proxy meting opslaan
-        slaOp(proxyNodeId, huidigeRichting, wachttijd, { gewicht: 0.3, bron: 'proxy' });
-        bijwerkLeerkaart(dichtstbijOSM); bijwerkDashboardKnop();
-        proxyLaatsteMeting = Date.now();
-        // Debug feedback
-        proxySavedFeedback = Date.now();
-        setTimeout(() => { proxySavedFeedback = null; }, 2000);
-      }
-    }
-    resetProxy();
-  }
-}
-
-function resetProxy() {
-  proxyTimerStart = null;
-  proxyNodeId = null;
-  proxyFaseActief = false;
 }
 
 // ── GELUID ────────────────────────────────────────────────────
@@ -2880,11 +2808,7 @@ function updateDebugOverlay() {
   dAI.textContent  = [debugWaarden.ai||'ai:—', `int:${dynamischInterval}(${Math.round(gemiddeldeInferentieTijd)}ms)`].join(' | ');
   dPct.textContent = [debugWaarden.leer||'leer:—', debugWaarden.zoom||''].filter(Boolean).join(' | ');
   dOSM.textContent = [debugWaarden.osm||'osm:—', s2SessieTeller>0?`S2:${s2SessieTeller}`:'', tag?'tag:'+tag.type:''].filter(Boolean).join(' | ');
-  // V8.8.4: Proxy status in debug
-  let proxyDbg = '';
-  if (proxySavedFeedback) proxyDbg = 'prx:✓';
-  else if (proxyTimerStart) proxyDbg = `prx:${Math.round((Date.now()-proxyTimerStart)/1000)}s`;
-  dInfo.textContent = [debugWaarden.info||'—', proxyDbg].filter(Boolean).join(' ');
+  dInfo.textContent = debugWaarden.info || '—';
 }
 setInterval(updateDebugOverlay, 500);
 
