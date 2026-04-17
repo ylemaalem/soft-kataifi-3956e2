@@ -329,7 +329,7 @@
 <div id="startscherm">
   <div id="s-icoon">🚦</div>
   <div id="s-titel">Stoplicht<span>IQ</span></div>
-  <div id="s-versie">V8.8.3 — Zonsondergang + GPS Smooth + Leerbonus</div>
+  <div id="s-versie">V8.8.2 — Dagdeel Fix + Bbox Zoom + Richtingknop</div>
   <div id="s-model-wrap">
     <div id="s-model-rij">
       <div id="s-model-label">🤖 YOLOv8 model laden…</div>
@@ -500,8 +500,8 @@
 
 <script>
 // ═══════════════════════════════════════════════════════════════
-//  StoplichtIQ V8.8.3
-//  Fixes: zonsondergang dynamisch, GPS smoothing, afstand bevriezen, voorbij 15m, leerbonus
+//  StoplichtIQ V8.8.2
+//  Bugfixes: kleurcheck uit, dagdeel classificatie, bbox zoom, richtingknop
 //  © 2026 StoplichtIQ — Y. Lemaalem
 // ═══════════════════════════════════════════════════════════════
 
@@ -585,7 +585,6 @@ let huidigDagdeelFinaal = null;
 let dagdeelCameraBuffer = [];
 let laatsteZonsondergang = null;
 let zonsondergangDatum = null;
-let zoekZonsondergangCache = null; // V8.8.3: cache voor herberekening bij locatiewissel
 
 // V8.8.1: Astronomische zonsondergang berekening (geen internet nodig)
 function berekenZonsondergang(lat, lon, datum) {
@@ -605,12 +604,11 @@ function berekenZonsondergang(lat, lon, datum) {
   return zonsmiddag + (urenhoek / 15); // decimale uren
 }
 
-function updateZonsondergang(forceHerbereken) {
+function updateZonsondergang() {
   if (!huidigePos) return;
   const nu = new Date();
   const vandaag = nu.toDateString();
-  // V8.8.3: Herbereken als datum wisselt OF als forceHerbereken=true (locatiewissel)
-  if (zonsondergangDatum === vandaag && !forceHerbereken) return;
+  if (zonsondergangDatum === vandaag) return; // al berekend voor vandaag
   let zg = berekenZonsondergang(huidigePos.lat, huidigePos.lon, nu);
   // V8.8.2: Veiligheidslimieten op zonsondergang
   if (zg !== null) {
@@ -618,7 +616,6 @@ function updateZonsondergang(forceHerbereken) {
     if (zg < 17.0) zg = 17.0;   // cap op 17:00
     laatsteZonsondergang = zg;
     zonsondergangDatum = vandaag;
-    zoekZonsondergangCache = zg; // V8.8.3: cache opslaan
   }
 }
 
@@ -639,9 +636,9 @@ function updateDagdeelViaCamera(helderheid) {
     huidigDagdeelFinaal = 'avond';
     return;
   }
-  // 4. Fallback: GPS null → vaste tijden (19:00 grens — V8.8.3: was 17:00)
-  if (uur >= 8 && uurDecimaal < 19) { huidigDagdeelFinaal = huidigDD(); return; }
-  // 19:00-22:00 zonder GPS → camera beslist dag of avond (maar nooit nacht)
+  // 4. Fallback: GPS null → oude vaste tijden (17:00 grens)
+  if (uur >= 8 && uur < 17) { huidigDagdeelFinaal = huidigDD(); return; }
+  // 17:00-22:00 zonder GPS → camera beslist dag of avond (maar nooit nacht)
   if (typeof helderheid === 'number' && !isNaN(helderheid)) {
     dagdeelCameraBuffer.push(helderheid < 40);
     if (dagdeelCameraBuffer.length > 10) dagdeelCameraBuffer.shift();
@@ -692,25 +689,7 @@ function berekenLeerPct(osmId) {
       consistScore = Math.max(0, 100 - (sp/gem*200));
     }
   }
-  let basisPct = Math.min(100, Math.round(aantalScore*0.5 + consistScore*0.5));
-  // V8.8.3: Consistentiebonus — als >=8 metingen en spreiding <20%, minimum 70%
-  // Uitzondering: voetgangersstoplichten (variabele cyclustijden via drukknop)
-  const tagVoorBonus = laadStoplichtTag(osmId);
-  if (!(tagVoorBonus && tagVoorBonus.type === 'voetganger')) {
-    if (huidigM.length >= 8) {
-      const bonusDuurs = huidigM.filter(x => x.duur > 0).map(x => x.duur);
-      if (bonusDuurs.length >= 8) {
-        const bonusMin = Math.min(...bonusDuurs);
-        const bonusMax = Math.max(...bonusDuurs);
-        const bonusGem = bonusDuurs.reduce((s,v) => s+v, 0) / bonusDuurs.length;
-        if (bonusGem > 0) {
-          const bonusSpreiding = ((bonusMax - bonusMin) / bonusGem) * 100;
-          if (bonusSpreiding < 20) basisPct = Math.max(basisPct, 70);
-        }
-      }
-    }
-  }
-  return basisPct;
+  return Math.min(100, Math.round(aantalScore*0.5 + consistScore*0.5));
 }
 
 function leerKleur(pct) {
@@ -873,8 +852,6 @@ let geselecteerdeRichting = null;
 let richtingResetDebounce = null;
 // V8.8.2: Bbox-grootte zoom override
 let bboxDichtbij = false;
-// V8.8.3: Afstandsweergave bevriezen bij stilstand rood
-let bevrorenAfstandM = null;
 // V8.8.2: Richtingknop éénmalig per rode fase
 let richtingGedruktVoorNode = null;
 
@@ -1543,8 +1520,6 @@ function resetNeutraal() {
   // V8.8.2: Bbox zoom + richtingknop reset
   bboxDichtbij = false;
   richtingGedruktVoorNode = null;
-  // V8.8.3: Afstand bevriezing reset
-  bevrorenAfstandM = null;
   // Stale teller resetten
   staleFaseFrameTeller=0;
   // Tolerantie teller resetten
@@ -1571,8 +1546,6 @@ function verwerkFase(nieuw, horizontaal) {
       slaGroenOp(dichtstbijOSM.id, huidigeRichting, groenDuur);
     }
     groenStart=null; groenDuur=0;
-    // V8.8.3: Bevries afstandsweergave bij rood
-    if (dichtstbijOSM) bevrorenAfstandM = dichtstbijOSM.afstand;
   }
   // Rode fase opslaan
   if (fase && faseStart) {
@@ -1978,7 +1951,7 @@ function tijdGeleden(ts) {
 // ── DATA EXPORT/IMPORT ────────────────────────────────────────
 function exporteerData() {
   try {
-    const exportData = { versie:'8.8.3', exportDatum:new Date().toISOString(), app:'StoplichtIQ', data:{} };
+    const exportData = { versie:'8.8.2', exportDatum:new Date().toISOString(), app:'StoplichtIQ', data:{} };
     for (const key of Object.keys(localStorage)) {
       if (key.startsWith('sl_v4_')||key.startsWith('sl_v3_')||key.startsWith('sl_tag_')||key.startsWith('sl_naam_')||key.startsWith('sl_richting_')||key==='sl_stad_cache') {
         try { exportData.data[key] = JSON.parse(localStorage.getItem(key)); }
@@ -2165,13 +2138,7 @@ function isStoplichtVoorbij(stoplichtPos, hPos, rijrichting) {
   const hoek = Math.atan2(stoplichtPos.lon-hPos.lon, stoplichtPos.lat-hPos.lat)*180/Math.PI;
   let verschil = Math.abs(((rijrichting+360)%360) - ((hoek+360)%360));
   if (verschil>180) verschil=360-verschil;
-  if (verschil <= 90) return false;
-  // V8.8.3: Projectie >15m in rijrichting vereist
-  const dLat = (hPos.lat - stoplichtPos.lat) * 111320; // meters noord
-  const dLon = (hPos.lon - stoplichtPos.lon) * 111320 * Math.cos(stoplichtPos.lat * Math.PI / 180); // meters oost
-  const rijRad = rijrichting * Math.PI / 180;
-  const voorbijProjectieM = dLat * Math.cos(rijRad) + dLon * Math.sin(rijRad);
-  return voorbijProjectieM > 15;
+  return verschil>90;
 }
 
 function kiesBesteWeg(wegen, gpsHeading) {
@@ -2608,8 +2575,6 @@ async function refreshStadIndienNodig(lat, lon) {
   const nu = Date.now();
   if (stadLaatstRefreshed===0 || (nu-stadLaatstRefreshed)>120000 || (stadLaatsteLat!=null&&afstand(lat,lon,stadLaatsteLat,stadLaatsteLon)>1000)) {
     stadLaatstRefreshed=nu; stadLaatsteLat=lat; stadLaatsteLon=lon;
-    // V8.8.3: Herbereken zonsondergang bij locatiewissel
-    updateZonsondergang(true);
     try {
       const r = await fetch(`https://nominatim.openstreetmap.org/reverse?lat=${lat}&lon=${lon}&zoom=10&format=json`, { headers:{'User-Agent':'StoplichtIQ/8.8'} });
       const d = await r.json();
@@ -2661,9 +2626,7 @@ function updateDichtbij(lat, lon) {
   const nieuw = vindDichtbij(lat, lon, huidigeRichting);
   if (!nieuw) return;
   kNaam.textContent = nieuw.naam || (nieuw.slim?'⚡ Slim':'Stoplicht');
-  // V8.8.3: Afstandsweergave bevriezen bij stilstand rood
-  const toonAfstandM = (snelheidKmh < 5 && fase === 'rood' && bevrorenAfstandM !== null) ? bevrorenAfstandM : nieuw.afstand;
-  kAf.textContent   = toonAfstandM<1000 ? `${Math.round(toonAfstandM)}m` : `${(toonAfstandM/1000).toFixed(1)}km`;
+  kAf.textContent   = nieuw.afstand<1000 ? `${Math.round(nieuw.afstand)}m` : `${(nieuw.afstand/1000).toFixed(1)}km`;
   kDD.textContent   = `${DD[huidigDDActief()].ic} ${huidigDDActief()}`;
   if (nieuw.id !== vorigOsmId) {
     vorigOsmId=nieuw.id; dichtstbijOSM=nieuw; afwijkBuf=[];
@@ -2686,27 +2649,9 @@ function updateDichtbij(lat, lon) {
   }
 }
 
-// V8.8.3: GPS smoothing bij stilstand — voorkomt valse sprongen
-let gpsVorigePositie = null;
-let gpsVorigeTijdstip = null;
-
 // ── GPS ───────────────────────────────────────────────────────
 async function onGPS(pos) {
   const lat=pos.coords.latitude, lon=pos.coords.longitude;
-  // V8.8.3: GPS sprongdetectie bij lage snelheid
-  const gpsTijdNu = Date.now();
-  const gpsSnelheidMs = (pos.coords.speed!=null && !isNaN(pos.coords.speed)) ? pos.coords.speed : 0;
-  const gpsSnelheidKmhNu = gpsSnelheidMs * 3.6;
-  if (gpsVorigePositie !== null && gpsVorigeTijdstip !== null) {
-    const gpsDeltaM = afstand(gpsVorigePositie.lat, gpsVorigePositie.lon, lat, lon);
-    const gpsDeltaS = (gpsTijdNu - gpsVorigeTijdstip) / 1000;
-    if (gpsSnelheidKmhNu < 5 && gpsDeltaM > 20 && gpsDeltaS < 1) {
-      debugWaarden.info = 'GPS:skip';
-      return; // Negeer onrealistische sprong
-    }
-  }
-  gpsVorigePositie = { lat, lon };
-  gpsVorigeTijdstip = gpsTijdNu;
   huidigePos = { lat, lon };
   if (pos.coords.heading!=null && !isNaN(pos.coords.heading)) {
     huidigeRichting = pos.coords.heading;
