@@ -329,7 +329,7 @@
 <div id="startscherm">
   <div id="s-icoon">🚦</div>
   <div id="s-titel">Stoplicht<span>IQ</span></div>
-  <div id="s-versie">V8.8.5 — Overpass Roulering + Node Voorbij Lock</div>
+  <div id="s-versie">V8.8.4 — Stilstand Proxy + Leerbonus</div>
   <div id="s-model-wrap">
     <div id="s-model-rij">
       <div id="s-model-label">🤖 YOLOv8 model laden…</div>
@@ -500,8 +500,8 @@
 
 <script>
 // ═══════════════════════════════════════════════════════════════
-//  StoplichtIQ V8.8.5
-//  Nieuw: Overpass endpoint roulering (4 mirrors), node-voorbij lock
+//  StoplichtIQ V8.8.4
+//  Nieuw: stilstand proxy metingen, leerbonus, GPS smoothing
 //  © 2026 StoplichtIQ — Y. Lemaalem
 // ═══════════════════════════════════════════════════════════════
 
@@ -513,25 +513,7 @@ if (typeof ort !== 'undefined') {
 const OMTREK_CD        = 2 * Math.PI * 32;
 const OSM_RADIUS       = 5000;
 const OSM_REFRESH      = 3000;
-const OVERPASS_ENDPOINTS = [
-  'https://overpass.private.coffee/api/interpreter',
-  'https://lz4.overpass-api.de/api/interpreter',
-  'https://z.overpass-api.de/api/interpreter',
-  'https://overpass-api.de/api/interpreter'
-];
-const OVERPASS_TIMEOUT_MS   = 8000;
-const OVERPASS_VOORKEUR_TTL = 3600000; // 1 uur
-
-// V8.8.5: Overpass endpoint roulering — volgt volgorde in OVERPASS_ENDPOINTS
-let overpassVoorkeurIndex   = 0;
-let overpassVoorkeurTijdstip = null;
-
-// V8.8.5: Recent gepasseerde nodes — voorkomt terugspringen naar hetzelfde kruispunt
-// Elk element: { nodeId:String, lat:Number, lon:Number, tijdstip:Number }
-let recentGepasseerdeNodes = [];
-const GEPASSEERD_MAX_LEEFTIJD_MS = 90000; // 90s
-const GEPASSEERD_MIN_AFSTAND_M   = 60;     // binnen 60m van gepasseerde node blijft filter actief
-
+const OVERPASS_URL     = 'https://overpass-api.de/api/interpreter';
 const LS_PREFIXEN      = ['sl_v4_','sl_v3_'];
 const LS_PREFIX        = 'sl_v4_';
 const MAX_METINGEN     = 50;
@@ -1571,8 +1553,6 @@ function resetNeutraal() {
   bevrorenAfstandM = null;
   // V8.8.4: Proxy reset
   resetProxy();
-  // V8.8.5: Gepasseerde nodes lijst leegmaken
-  resetRecentGepasseerd();
   // Stale teller resetten
   staleFaseFrameTeller=0;
   // Tolerantie teller resetten
@@ -2007,7 +1987,7 @@ function tijdGeleden(ts) {
 // ── DATA EXPORT/IMPORT ────────────────────────────────────────
 function exporteerData() {
   try {
-    const exportData = { versie:'8.8.5', exportDatum:new Date().toISOString(), app:'StoplichtIQ', data:{} };
+    const exportData = { versie:'8.8.4', exportDatum:new Date().toISOString(), app:'StoplichtIQ', data:{} };
     for (const key of Object.keys(localStorage)) {
       if (key.startsWith('sl_v4_')||key.startsWith('sl_v3_')||key.startsWith('sl_tag_')||key.startsWith('sl_naam_')||key.startsWith('sl_richting_')||key==='sl_stad_cache') {
         try { exportData.data[key] = JSON.parse(localStorage.getItem(key)); }
@@ -2069,52 +2049,18 @@ function naarStartscherm() {
 }
 
 // ── OSM ───────────────────────────────────────────────────────
-// V8.8.5: Overpass endpoint roulering
-// Probeert endpoints in volgorde vanaf overpassVoorkeurIndex.
-// Bij succes: voorkeur opslaan. Bij fout/timeout: volgende proberen.
-// Na 1 uur: voorkeur resetten naar index 0 (primair endpoint).
-async function fetchOverpass(query) {
-  // Reset voorkeur naar 0 als oude keuze langer dan TTL geleden gezet is
-  if (overpassVoorkeurTijdstip !== null &&
-      Date.now() - overpassVoorkeurTijdstip > OVERPASS_VOORKEUR_TTL) {
-    overpassVoorkeurIndex = 0;
-    overpassVoorkeurTijdstip = null;
-  }
-  const aantal = OVERPASS_ENDPOINTS.length;
-  let laatsteFout = null;
-  for (let stap = 0; stap < aantal; stap++) {
-    const idx = (overpassVoorkeurIndex + stap) % aantal;
-    const url = OVERPASS_ENDPOINTS[idx];
-    const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), OVERPASS_TIMEOUT_MS);
-    try {
-      const response = await fetch(url, {
-        method: 'POST',
-        body: `data=${encodeURIComponent(query)}`,
-        signal: controller.signal
-      });
-      clearTimeout(timeoutId);
-      if (!response.ok) throw new Error(`HTTP ${response.status}`);
-      const data = await response.json();
-      overpassVoorkeurIndex   = idx;
-      overpassVoorkeurTijdstip = Date.now();
-      return data;
-    } catch (err) {
-      clearTimeout(timeoutId);
-      laatsteFout = err;
-      // probeer volgende endpoint
-    }
-  }
-  throw laatsteFout || new Error('alle Overpass endpoints onbereikbaar');
-}
-
 async function downloadOSM(lat, lon) {
   if (cacheBezig) return;
   cacheBezig = true;
   pOSM.className='pill-dot o'; pOSMT.textContent='laden'; debugWaarden.osm='osm:laden';
   const q = `[out:json][timeout:25];node["highway"="traffic_signals"](around:${OSM_RADIUS},${lat},${lon})->.tl;.tl out body;way(bn.tl)["name"];out geom;`;
   try {
-    const d = await fetchOverpass(q);
+    const ctrl = new AbortController();
+    const t = setTimeout(()=>ctrl.abort(), 25000);
+    const r = await fetch(OVERPASS_URL, { method:'POST', body:`data=${encodeURIComponent(q)}`, signal:ctrl.signal });
+    clearTimeout(t);
+    if (!r.ok) throw new Error(`HTTP ${r.status}`);
+    const d = await r.json();
     const nodes = (d.elements||[]).filter(el=>el.type==='node');
     const ways  = (d.elements||[]).filter(el=>el.type==='way');
     const nodeWegen = new Map();
@@ -2172,13 +2118,8 @@ async function haalStraatnamenOp() {
 
 function vindDichtbij(lat, lon, heading) {
   if (!osmCache.length) return null;
-  // V8.8.5: filter recent gepasseerde nodes weg; als álles gefilterd wordt
-  // (bijvoorbeeld nieuw kruispunt binnen 60m van een gepasseerde node) laten
-  // we de filter los zodat er altijd een kandidaat overblijft.
-  let kandidaten = osmCache.filter(sl => !isNodeRecentGepasseerd(sl));
-  if (!kandidaten.length) kandidaten = osmCache;
   let beste=null, bestS=-Infinity;
-  for (const sl of kandidaten) {
+  for (const sl of osmCache) {
     const af = afstand(lat,lon,sl.lat,sl.lon);
     if (af > 400) continue;
     const dLon=(sl.lon-lon)*Math.PI/180;
@@ -2191,7 +2132,7 @@ function vindDichtbij(lat, lon, heading) {
   }
   if (!beste) {
     let minA=Infinity;
-    for (const sl of kandidaten) {
+    for (const sl of osmCache) {
       const a=afstand(lat,lon,sl.lat,sl.lon);
       if (a<minA) { minA=a; beste={...sl, afstand:a}; }
     }
@@ -2240,37 +2181,6 @@ function isStoplichtVoorbij(stoplichtPos, hPos, rijrichting) {
   const rijRad = rijrichting * Math.PI / 180;
   const voorbijProjectieM = dLat * Math.cos(rijRad) + dLon * Math.sin(rijRad);
   return voorbijProjectieM > 15;
-}
-
-// V8.8.5: Gepasseerde nodes bijhouden — voorkomt terugspringen naar hetzelfde kruispunt
-function markeerNodeVoorbij(nodeId, lat, lon) {
-  if (!nodeId || typeof lat !== 'number' || typeof lon !== 'number') return;
-  const sleutel = String(nodeId);
-  const nu = Date.now();
-  // Bestaande ingang vervangen (ververs tijdstip) ipv dupliceren
-  recentGepasseerdeNodes = recentGepasseerdeNodes.filter(n => n.nodeId !== sleutel);
-  recentGepasseerdeNodes.push({ nodeId: sleutel, lat, lon, tijdstip: nu });
-  // Verloop: ingangen ouder dan 90s weggooien
-  recentGepasseerdeNodes = recentGepasseerdeNodes.filter(
-    n => nu - n.tijdstip < GEPASSEERD_MAX_LEEFTIJD_MS
-  );
-}
-
-function isNodeRecentGepasseerd(sl) {
-  if (!sl || !recentGepasseerdeNodes.length) return false;
-  const nu = Date.now();
-  const slId = String(sl.id);
-  for (const ing of recentGepasseerdeNodes) {
-    if (nu - ing.tijdstip >= GEPASSEERD_MAX_LEEFTIJD_MS) continue;
-    if (ing.nodeId !== slId) continue;
-    const d = afstand(sl.lat, sl.lon, ing.lat, ing.lon);
-    if (d < GEPASSEERD_MIN_AFSTAND_M) return true;
-  }
-  return false;
-}
-
-function resetRecentGepasseerd() {
-  recentGepasseerdeNodes = [];
 }
 
 function kiesBesteWeg(wegen, gpsHeading) {
@@ -2765,13 +2675,6 @@ function updateDichtbij(lat, lon) {
   kAf.textContent   = toonAfstandM<1000 ? `${Math.round(toonAfstandM)}m` : `${(toonAfstandM/1000).toFixed(1)}km`;
   kDD.textContent   = `${DD[huidigDDActief()].ic} ${huidigDDActief()}`;
   if (nieuw.id !== vorigOsmId) {
-    // V8.8.5: Als de vorige node voorbij is, markeer die als gepasseerd
-    // zodat hij niet meer terugkeert bij de volgende selectie-ronde.
-    if (dichtstbijOSM && dichtstbijOSM.id !== nieuw.id &&
-        isStoplichtVoorbij({lat:dichtstbijOSM.lat, lon:dichtstbijOSM.lon},
-                           {lat, lon}, getSmoothedHeading())) {
-      markeerNodeVoorbij(dichtstbijOSM.id, dichtstbijOSM.lat, dichtstbijOSM.lon);
-    }
     vorigOsmId=nieuw.id; dichtstbijOSM=nieuw; afwijkBuf=[];
     activeCdDoel = gewGem(laadM(nieuw.id, huidigDDActief())) || 0;
     bijwerkLeerkaart(nieuw); bijwerkDashboardKnop();
@@ -2832,14 +2735,6 @@ async function onGPS(pos) {
   if (zoomVergrendeld && huidigActiefStoplichtPositie &&
       isStoplichtVoorbij(huidigActiefStoplichtPositie, {lat,lon}, getSmoothedHeading()) &&
       (Date.now()-zoomVergrendelTijdstip) > 3000) {
-    // V8.8.5: Node als gepasseerd markeren voordat we vergrendeling loslaten
-    if (huidigBevestigdOsmNodeId) {
-      markeerNodeVoorbij(
-        huidigBevestigdOsmNodeId,
-        huidigActiefStoplichtPositie.lat,
-        huidigActiefStoplichtPositie.lon
-      );
-    }
     zoomVergrendeld=false; huidigActiefStoplichtPositie=null;
   }
   // V8.8.1: Tikinterface verbergen als kruispunt voorbij of snelheid >30 na passeren
