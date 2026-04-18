@@ -329,7 +329,7 @@
 <div id="startscherm">
   <div id="s-icoon">🚦</div>
   <div id="s-titel">Stoplicht<span>IQ</span></div>
-  <div id="s-versie">V8.8.6 — Node Stilstand Lock + Tijdzone Fix</div>
+  <div id="s-versie">V8.8.5 — Overpass Roulering + Node Voorbij Lock</div>
   <div id="s-model-wrap">
     <div id="s-model-rij">
       <div id="s-model-label">🤖 YOLOv8 model laden…</div>
@@ -500,8 +500,8 @@
 
 <script>
 // ═══════════════════════════════════════════════════════════════
-//  StoplichtIQ V8.8.6
-//  Nieuw: node vergrendeling bij stilstand, zonsondergang tijdzone fix
+//  StoplichtIQ V8.8.5
+//  Nieuw: Overpass endpoint roulering (4 mirrors), node-voorbij lock
 //  © 2026 StoplichtIQ — Y. Lemaalem
 // ═══════════════════════════════════════════════════════════════
 
@@ -606,9 +606,6 @@ let zonsondergangDatum = null;
 let zoekZonsondergangCache = null; // V8.8.3: cache voor herberekening bij locatiewissel
 
 // V8.8.1: Astronomische zonsondergang berekening (geen internet nodig)
-// V8.8.6: Tijdzone offset via huidige device-timezone (picked up DST automatisch)
-// In april NL: getTimezoneOffset() = -120 min → tijdzoneOffsetUren = 2 (CEST)
-// In december NL: getTimezoneOffset() = -60 min → tijdzoneOffsetUren = 1 (CET)
 function berekenZonsondergang(lat, lon, datum) {
   if (!datum) datum = new Date();
   const dagVanJaar = Math.floor((datum - new Date(datum.getFullYear(), 0, 0)) / 86400000);
@@ -620,8 +617,9 @@ function berekenZonsondergang(lat, lon, datum) {
   // Poolgebied: zon gaat niet onder/op → fallback
   if (cosUrenhoek < -1 || cosUrenhoek > 1) return null;
   const urenhoek = Math.acos(cosUrenhoek) * 180 / Math.PI;
-  const tijdzoneOffsetUren = -1 * new Date().getTimezoneOffset() / 60;
-  const zonsmiddag = 12 - (lon / 15) - (ET / 60) + tijdzoneOffsetUren;
+  // Tijdzone offset: JavaScript Date geeft lokale tijd
+  const tzOffset = datum.getTimezoneOffset() / -60;
+  const zonsmiddag = 12 - (lon / 15) - (ET / 60) + tzOffset;
   return zonsmiddag + (urenhoek / 15); // decimale uren
 }
 
@@ -643,9 +641,7 @@ function updateZonsondergang(forceHerbereken) {
 }
 
 // V8.8.2: Correcte dagdeel logica — nacht pas vanaf 22:00 (harde regel)
-// V8.8.6: Dag/avond grens nu dynamisch op basis van berekende zonsondergang.
-// Voor zonsondergang: ochtend (6-8) of dag (9+). Vanaf zonsondergang: avond.
-// Zonsondergang bepaalt alleen dag→avond grens, NOOIT avond→nacht.
+// Zonsondergang bepaalt alleen dag→avond grens, NOOIT avond→nacht
 function updateDagdeelViaCamera(helderheid) {
   const uur = new Date().getHours();
   const uurDecimaal = uur + new Date().getMinutes() / 60;
@@ -655,19 +651,15 @@ function updateDagdeelViaCamera(helderheid) {
   updateZonsondergang();
   const zg = laatsteZonsondergang;
   if (zg !== null) {
-    // Voor zonsondergang: ochtend (6-8) of dag. De oude huidigDD() tabel
-    // forceerde 'avond' voor uur 16-19 óók in april/mei — dat klopt niet.
-    if (uurDecimaal < zg) {
-      huidigDagdeelFinaal = (uur >= 6 && uur <= 8) ? 'ochtend' : 'dag';
-      return;
-    }
+    // 06:00 tot zonsondergang → dag/ochtend via huidigDD()
+    if (uurDecimaal < zg) { huidigDagdeelFinaal = huidigDD(); return; }
     // Zonsondergang tot 22:00 → altijd avond (nooit nacht via camera)
     huidigDagdeelFinaal = 'avond';
     return;
   }
-  // 4. Fallback: GPS null → vaste tijden (V8.8.6: grens 19:30, iets veiliger voor zomer)
-  if (uur >= 8 && uurDecimaal < 19.5) { huidigDagdeelFinaal = huidigDD(); return; }
-  // 19:30-22:00 zonder GPS → camera beslist dag of avond (maar nooit nacht)
+  // 4. Fallback: GPS null → vaste tijden (19:00 grens — V8.8.3: was 17:00)
+  if (uur >= 8 && uurDecimaal < 19) { huidigDagdeelFinaal = huidigDD(); return; }
+  // 19:00-22:00 zonder GPS → camera beslist dag of avond (maar nooit nacht)
   if (typeof helderheid === 'number' && !isNaN(helderheid)) {
     dagdeelCameraBuffer.push(helderheid < 40);
     if (dagdeelCameraBuffer.length > 10) dagdeelCameraBuffer.shift();
@@ -909,14 +901,6 @@ let bboxDichtbij = false;
 let bevrorenAfstandM = null;
 // V8.8.2: Richtingknop éénmalig per rode fase
 let richtingGedruktVoorNode = null;
-
-// V8.8.6: Node vergrendeling bij stilstand — voorkomt GPS-drift sprongen
-// vergrendeldeNode: String node-id waarop we zijn gelockt (of null)
-// vergrendeldeSinds: ms-timestamp van lock-start; veiligheidsnet kapt na 300s
-let vergrendeldeNode = null;
-let vergrendeldeSinds = null;
-const VERGRENDEL_MAX_DUUR_MS = 300000; // 5 min
-const VERGRENDEL_SNELHEID_GRENS = 8;    // km/u — boven deze snelheid geen lock
 
 // Debug
 let debugWaarden={};
@@ -1456,19 +1440,6 @@ function verwerkDetecties() {
       // Kleurwissel: hard resetten — voorkomt dat rood-teller naar groen doorloopt
       aiKleur = aiR.kleur;
       aiTeller = 1;
-      // V8.8.6: Node vergrendeling activeren bij eerste detectie van deze kleur
-      // Zodra we een stoplicht zien EN we hebben een dichtstbijzijnde node,
-      // pinnen we die node zodat GPS-drift bij stilstand niet meer van node wisselt.
-      // Als er al een lock actief is op een ANDERE node blijft die intact —
-      // de nieuwe node wordt pas actief na ontgrendeling.
-      if (dichtstbijOSM) {
-        const huidigNodeId = String(dichtstbijOSM.id);
-        if (vergrendeldeNode === null) {
-          vergrendeldeNode = huidigNodeId;
-          vergrendeldeSinds = Date.now();
-        }
-        // vergrendeldeNode !== null && vergrendeldeNode !== huidigNodeId → negeren
-      }
     }
     tekenOverlay(aiR.box, aiR.score, aiR.horizontaal);
     geenTeller = 0;
@@ -1602,8 +1573,6 @@ function resetNeutraal() {
   resetProxy();
   // V8.8.5: Gepasseerde nodes lijst leegmaken
   resetRecentGepasseerd();
-  // V8.8.6: Node vergrendeling ook loslaten
-  resetVergrendeling();
   // Stale teller resetten
   staleFaseFrameTeller=0;
   // Tolerantie teller resetten
@@ -2038,7 +2007,7 @@ function tijdGeleden(ts) {
 // ── DATA EXPORT/IMPORT ────────────────────────────────────────
 function exporteerData() {
   try {
-    const exportData = { versie:'8.8.6', exportDatum:new Date().toISOString(), app:'StoplichtIQ', data:{} };
+    const exportData = { versie:'8.8.5', exportDatum:new Date().toISOString(), app:'StoplichtIQ', data:{} };
     for (const key of Object.keys(localStorage)) {
       if (key.startsWith('sl_v4_')||key.startsWith('sl_v3_')||key.startsWith('sl_tag_')||key.startsWith('sl_naam_')||key.startsWith('sl_richting_')||key==='sl_stad_cache') {
         try { exportData.data[key] = JSON.parse(localStorage.getItem(key)); }
@@ -2203,18 +2172,6 @@ async function haalStraatnamenOp() {
 
 function vindDichtbij(lat, lon, heading) {
   if (!osmCache.length) return null;
-  // V8.8.6: Node vergrendeling bij stilstand
-  // Zolang we gelockt zijn én langzaam rijden, pinnen we de keuze op de
-  // vergrendelde node. GPS-drift kan hiermee geen sprongen meer veroorzaken.
-  checkVergrendelingVerval();
-  if (vergrendeldeNode !== null && snelheidKmh < VERGRENDEL_SNELHEID_GRENS) {
-    const locked = osmCache.find(sl => String(sl.id) === vergrendeldeNode);
-    if (locked) {
-      return { ...locked, afstand: afstand(lat, lon, locked.lat, locked.lon) };
-    }
-    // Node niet meer in osmCache → lock ongeldig, laat los en ga door
-    resetVergrendeling();
-  }
   // V8.8.5: filter recent gepasseerde nodes weg; als álles gefilterd wordt
   // (bijvoorbeeld nieuw kruispunt binnen 60m van een gepasseerde node) laten
   // we de filter los zodat er altijd een kandidaat overblijft.
@@ -2314,21 +2271,6 @@ function isNodeRecentGepasseerd(sl) {
 
 function resetRecentGepasseerd() {
   recentGepasseerdeNodes = [];
-}
-
-// V8.8.6: Node vergrendeling helpers
-function resetVergrendeling() {
-  vergrendeldeNode = null;
-  vergrendeldeSinds = null;
-}
-
-// Verval check: als lock ouder dan VERGRENDEL_MAX_DUUR_MS, laat los.
-// Geroepen vanaf vindDichtbij() en vanuit onGPS voor zekerheid.
-function checkVergrendelingVerval() {
-  if (vergrendeldeNode === null || vergrendeldeSinds === null) return;
-  if (Date.now() - vergrendeldeSinds > VERGRENDEL_MAX_DUUR_MS) {
-    resetVergrendeling();
-  }
 }
 
 function kiesBesteWeg(wegen, gpsHeading) {
@@ -2886,12 +2828,6 @@ async function onGPS(pos) {
   const snelheidMs = (pos.coords.speed!=null && !isNaN(pos.coords.speed)) ? pos.coords.speed : 0;
   snelheidKmh = snelheidMs * 3.6;
   gpsBuffer   = Math.min(10 + snelheidKmh*0.4, 40);
-  // V8.8.6: Rij-hysterese — boven grens-snelheid is drift verwaarloosbaar
-  // en moet de node lock loslaten zodat nieuwe nodes geselecteerd kunnen worden.
-  if (snelheidKmh > VERGRENDEL_SNELHEID_GRENS && vergrendeldeNode !== null) {
-    resetVergrendeling();
-  }
-  checkVergrendelingVerval();
   // Zoom unlock via GPS-voorbij
   if (zoomVergrendeld && huidigActiefStoplichtPositie &&
       isStoplichtVoorbij(huidigActiefStoplichtPositie, {lat,lon}, getSmoothedHeading()) &&
@@ -2905,9 +2841,6 @@ async function onGPS(pos) {
       );
     }
     zoomVergrendeld=false; huidigActiefStoplichtPositie=null;
-    // V8.8.6: GPS-voorbij → ook node lock loslaten zodat het volgende
-    // kruispunt geselecteerd kan worden.
-    resetVergrendeling();
   }
   // V8.8.1: Tikinterface verbergen als kruispunt voorbij of snelheid >30 na passeren
   if (richtingKnoppenNodeId && huidigActiefStoplichtPositie &&
@@ -3056,10 +2989,7 @@ function updateDebugOverlay() {
   let proxyDbg = '';
   if (proxySavedFeedback) proxyDbg = 'prx:✓';
   else if (proxyTimerStart) proxyDbg = `prx:${Math.round((Date.now()-proxyTimerStart)/1000)}s`;
-  // V8.8.6: Node lock status in debug — eerste 6 cijfers van nodeId
-  let lockDbg = '';
-  if (vergrendeldeNode) lockDbg = `lock:${String(vergrendeldeNode).slice(0,6)}`;
-  dInfo.textContent = [debugWaarden.info||'—', proxyDbg, lockDbg].filter(Boolean).join(' ');
+  dInfo.textContent = [debugWaarden.info||'—', proxyDbg].filter(Boolean).join(' ');
 }
 setInterval(updateDebugOverlay, 500);
 
