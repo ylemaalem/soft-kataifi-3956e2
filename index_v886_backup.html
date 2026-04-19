@@ -329,7 +329,7 @@
 <div id="startscherm">
   <div id="s-icoon">🚦</div>
   <div id="s-titel">Stoplicht<span>IQ</span></div>
-  <div id="s-versie">V8.8.7 — Cyclus Deductie + Tijdstempel Fingerprint</div>
+  <div id="s-versie">V8.8.6 — Node Stilstand Lock + Tijdzone Fix</div>
   <div id="s-model-wrap">
     <div id="s-model-rij">
       <div id="s-model-label">🤖 YOLOv8 model laden…</div>
@@ -500,8 +500,8 @@
 
 <script>
 // ═══════════════════════════════════════════════════════════════
-//  StoplichtIQ V8.8.7
-//  Nieuw: cyclustijd deductie (Nederlandse standaards), tijdstempel fingerprint
+//  StoplichtIQ V8.8.6
+//  Nieuw: node vergrendeling bij stilstand, zonsondergang tijdzone fix
 //  © 2026 StoplichtIQ — Y. Lemaalem
 // ═══════════════════════════════════════════════════════════════
 
@@ -917,33 +917,6 @@ let vergrendeldeNode = null;
 let vergrendeldeSinds = null;
 const VERGRENDEL_MAX_DUUR_MS = 300000; // 5 min
 const VERGRENDEL_SNELHEID_GRENS = 8;    // km/u — boven deze snelheid geen lock
-
-// V8.8.7: Tijdstempel fingerprint — UTC ms van start rode fase
-// Wordt gezet in verwerkFase bij nieuw==='rood', gebruikt bij rood→groen wissel
-// om een patroon in sl_fp_{nodeId} op te slaan. Reset in resetNeutraal.
-let roodFaseStartMs = null;
-
-// V8.8.7: Fingerprint countdown meta voor debug overlay
-let fpCountdownActief = false;
-// V8.8.7: Deductie debug feedback — toont "ded:✓" voor 3 seconden
-let deductieFeedbackTot = 0;
-
-const FP_MIN_PATRONEN        = 3;
-const FP_MAX_PATRONEN        = 10;
-const FP_STDEV_CYCLUS_MAX_S  = 15;    // s — boven deze stdev te variabel (VRI)
-const FP_STDEV_MODULO_MAX_MS = 5000;  // 5s — onder deze stdev: bevestigd
-const FP_MISMATCH_GRENS_MS   = 8000;  // 8s — afwijking telt als mismatch
-const FP_MISMATCH_RESET      = 3;     // reset na 3 opeenvolgende mismatches
-const FP_ORANJE_BUFFER_MS    = 3000;  // oranje-fase buffer voor roodRestant
-
-// V8.8.7: Cyclustijd deductie — Nederlandse standaard cycli (seconden)
-// Voor elk: cyclus totaal, verwachte roodrange [min,max], oranje-overgang 3s
-const STANDAARD_CYCLI = [60, 90, 120];
-const DEDUCTIE_ORANJE_S  = 3;
-const DEDUCTIE_GROEN_MIN = 7;
-const DEDUCTIE_ROOD_MIN  = 20;
-const DEDUCTIE_ROOD_MAX  = 80;
-const DEDUCTIE_GEWICHT   = 0.4;
 
 // Debug
 let debugWaarden={};
@@ -1631,9 +1604,6 @@ function resetNeutraal() {
   resetRecentGepasseerd();
   // V8.8.6: Node vergrendeling ook loslaten
   resetVergrendeling();
-  // V8.8.7: Fingerprint staat resetten
-  roodFaseStartMs = null;
-  fpCountdownActief = false;
   // Stale teller resetten
   staleFaseFrameTeller=0;
   // Tolerantie teller resetten
@@ -1655,13 +1625,6 @@ function verwerkFase(nieuw, horizontaal) {
   if (fase === 'groen' && groenStart !== null) groenDuur = (nu-groenStart)/1000;
   if (nieuw === 'groen') {
     groenStart = nu;
-    // V8.8.7: Rood → groen overgang → fingerprint patroon opslaan
-    if (fase === 'rood' && roodFaseStartMs !== null && dichtstbijOSM) {
-      try {
-        voegFingerprintPatroonToe(String(dichtstbijOSM.id), roodFaseStartMs, Date.now());
-      } catch (e) { /* stil falen */ }
-      roodFaseStartMs = null;
-    }
   } else if (nieuw === 'rood') {
     if (groenDuur > 3 && groenDuur < 300 && dichtstbijOSM) {
       slaGroenOp(dichtstbijOSM.id, huidigeRichting, groenDuur);
@@ -1669,16 +1632,12 @@ function verwerkFase(nieuw, horizontaal) {
     groenStart=null; groenDuur=0;
     // V8.8.3: Bevries afstandsweergave bij rood
     if (dichtstbijOSM) bevrorenAfstandM = dichtstbijOSM.afstand;
-    // V8.8.7: Onthoud start rode fase in UTC ms voor fingerprint
-    roodFaseStartMs = Date.now();
   }
   // Rode fase opslaan
   if (fase && faseStart) {
     const dur = (nu-faseStart)/1000;
     if (fase==='rood' && dur>8 && dur<300 && dichtstbijOSM) {
       slaOp(dichtstbijOSM.id, huidigeRichting, dur);
-      // V8.8.7: Deductieve hypothese direct na echte roodmeting
-      verwerkDeductie(dichtstbijOSM.id, huidigeRichting, dur);
       bijwerkLeerkaart(dichtstbijOSM); bijwerkDashboardKnop();
     }
   }
@@ -1686,20 +1645,10 @@ function verwerkFase(nieuw, horizontaal) {
   updateUI(nieuw, horizontaal);
   if (nieuw==='groen') speelGroen();
   if (nieuw==='rood') {
-    // V8.8.7: Fingerprint countdown heeft voorrang boven leergeheugen-gemiddelde
-    let fpDoel = dichtstbijOSM ? berekenFingerprintCountdown(String(dichtstbijOSM.id)) : null;
-    if (fpDoel !== null && fpDoel > 0) {
-      activeCdDoel = fpDoel;
-      fpCountdownActief = true;
-      startCd();
-    } else {
-      fpCountdownActief = false;
-      const m = dichtstbijOSM ? laadM(dichtstbijOSM.id, huidigDDActief()) : [];
-      const gem = gewGem(m);
-      if (gem > 0) { activeCdDoel=gem; startCd(); } else stopCd();
-    }
+    const m = dichtstbijOSM ? laadM(dichtstbijOSM.id, huidigDDActief()) : [];
+    const gem = gewGem(m);
+    if (gem > 0) { activeCdDoel=gem; startCd(); } else stopCd();
   } else {
-    fpCountdownActief = false;
     stopCd();
   }
 }
@@ -2089,9 +2038,9 @@ function tijdGeleden(ts) {
 // ── DATA EXPORT/IMPORT ────────────────────────────────────────
 function exporteerData() {
   try {
-    const exportData = { versie:'8.8.7', exportDatum:new Date().toISOString(), app:'StoplichtIQ', data:{} };
+    const exportData = { versie:'8.8.6', exportDatum:new Date().toISOString(), app:'StoplichtIQ', data:{} };
     for (const key of Object.keys(localStorage)) {
-      if (key.startsWith('sl_v4_')||key.startsWith('sl_v3_')||key.startsWith('sl_tag_')||key.startsWith('sl_naam_')||key.startsWith('sl_richting_')||key.startsWith('sl_fp_')||key==='sl_stad_cache') {
+      if (key.startsWith('sl_v4_')||key.startsWith('sl_v3_')||key.startsWith('sl_tag_')||key.startsWith('sl_naam_')||key.startsWith('sl_richting_')||key==='sl_stad_cache') {
         try { exportData.data[key] = JSON.parse(localStorage.getItem(key)); }
         catch(e) { exportData.data[key] = localStorage.getItem(key); }
       }
@@ -2129,7 +2078,7 @@ function importeerData(bestand) {
       if (!bevestigd) return;
       let toegevoegd=0, overgeslagen=0;
       for (const [key, waarde] of Object.entries(importData.data)) {
-        if (!key.startsWith('sl_v4_')&&!key.startsWith('sl_v3_')&&!key.startsWith('sl_tag_')&&!key.startsWith('sl_naam_')&&!key.startsWith('sl_richting_')&&!key.startsWith('sl_fp_')&&key!=='sl_stad_cache') { overgeslagen++; continue; }
+        if (!key.startsWith('sl_v4_')&&!key.startsWith('sl_v3_')&&!key.startsWith('sl_tag_')&&!key.startsWith('sl_naam_')&&!key.startsWith('sl_richting_')&&key!=='sl_stad_cache') { overgeslagen++; continue; }
         if (localStorage.getItem(key) !== null) { overgeslagen++; continue; }
         try { localStorage.setItem(key, JSON.stringify(waarde)); toegevoegd++; } catch(e) { overgeslagen++; }
       }
@@ -2412,32 +2361,6 @@ function checkLocalStorageRuimte() {
         else localStorage.setItem(item.key, JSON.stringify(cleaned));
       });
     }
-    // V8.8.7: Fingerprint cleanup — bij >500KB sl_fp_ totaal, verwijder nodes
-    // die >90 dagen geen bevestiging meer hebben gehad.
-    let fpTotaal = 0;
-    const fpKeys = [];
-    for (const key of Object.keys(localStorage)) {
-      if (key.startsWith('sl_fp_')) {
-        const waarde = localStorage.getItem(key) || '';
-        fpTotaal += waarde.length * 2;
-        fpKeys.push(key);
-      }
-    }
-    if (fpTotaal > 500 * 1024) {
-      const drempel = Date.now() - 90 * 86400000; // 90 dagen geleden in ms
-      for (const key of fpKeys) {
-        try {
-          const fp = JSON.parse(localStorage.getItem(key) || 'null');
-          if (!fp || !Array.isArray(fp.patronen) || !fp.patronen.length) {
-            localStorage.removeItem(key);
-            continue;
-          }
-          const laatste = fp.patronen[fp.patronen.length - 1];
-          const laatsteTs = laatste && laatste.groenStart ? laatste.groenStart : 0;
-          if (laatsteTs < drempel) localStorage.removeItem(key);
-        } catch (e) { localStorage.removeItem(key); }
-      }
-    }
   } catch(e) {}
 }
 
@@ -2667,163 +2590,6 @@ function slaLeergeheugenOpS2(nodeId, kleur) {
   if (m.length>MAX_METINGEN) { m.sort((a,b)=>gew(b.tijd)-gew(a.tijd)); m=m.slice(0,MAX_METINGEN); }
   try { localStorage.setItem(`${LS_PREFIX}${nodeId}_${dd}`, JSON.stringify(m)); } catch(e) {}
   checkLocalStorageRuimte();
-}
-
-// ── V8.8.7: CYCLUSTIJD DEDUCTIE ─────────────────────────────────
-// Één echte roodmeting genereert hypothese over verwachte groenfase.
-// Nederlandse standaard cycli 60/90/120s — kies dichtstbijzijnde op
-// basis van afwijking tot helft-cyclus. Verwerpt onrealistische invoer.
-function berekenHypothetischeCyclus(gemetenRoodfaseSeconden) {
-  if (typeof gemetenRoodfaseSeconden !== 'number' || isNaN(gemetenRoodfaseSeconden)) return null;
-  if (gemetenRoodfaseSeconden < DEDUCTIE_ROOD_MIN) return null; // te kort: voetganger/file
-  if (gemetenRoodfaseSeconden > DEDUCTIE_ROOD_MAX) return null; // te lang voor standaard
-  let besteCyclus = null, kleinsteAfwijking = Infinity;
-  for (const c of STANDAARD_CYCLI) {
-    const afwijking = Math.abs(gemetenRoodfaseSeconden - (c / 2));
-    if (afwijking < kleinsteAfwijking) { kleinsteAfwijking = afwijking; besteCyclus = c; }
-  }
-  if (besteCyclus === null) return null;
-  const groenfase = besteCyclus - gemetenRoodfaseSeconden - DEDUCTIE_ORANJE_S;
-  if (groenfase < DEDUCTIE_GROEN_MIN) return null; // onrealistische groenfase
-  return { cyclus: besteCyclus, groenfase, betrouwbaarheid: 'hypothese' };
-}
-
-// Spreiding voor één set metingen — (max-min)/gem * 100 in procenten
-function berekenSpreidingPct(metingen) {
-  if (!Array.isArray(metingen) || metingen.length < 2) return null;
-  const duurs = metingen.filter(x => x && x.duur > 0).map(x => x.duur);
-  if (duurs.length < 2) return null;
-  const gem = duurs.reduce((s, v) => s + v, 0) / duurs.length;
-  if (gem <= 0) return null;
-  const mn = Math.min(...duurs), mx = Math.max(...duurs);
-  return ((mx - mn) / gem) * 100;
-}
-
-// Hoofdfunctie: wordt aangeroepen direct na een ECHTE roodmeting via slaOp.
-// Gooit geen errors op — silently faalt bij ongeldige input.
-function verwerkDeductie(nodeId, richting, gemetenRoodfase) {
-  try {
-    if (!nodeId) return;
-    const hypo = berekenHypothetischeCyclus(gemetenRoodfase);
-    if (!hypo) return;
-    const dd = huidigDagdeelFinaal || huidigDD();
-    const bestaandeM = laadM(nodeId, dd);
-    // Spreiding >= 30% → VRI-gestuurd, geen deductie
-    if (bestaandeM.length >= 2) {
-      const sp = berekenSpreidingPct(bestaandeM);
-      if (sp !== null && sp >= 30) return;
-    }
-    // Deductieve meting opslaan
-    slaOp(nodeId, richting, hypo.groenfase, { gewicht: DEDUCTIE_GEWICHT, bron: 'deductie' });
-    deductieFeedbackTot = Date.now() + 3000;
-  } catch (e) { /* stil falen */ }
-}
-
-// ── V8.8.7: TIJDSTEMPEL FINGERPRINT ─────────────────────────────
-// Onthoudt het exacte schakelritme per stoplicht via UTC ms tijdstempels.
-// Na FP_MIN_PATRONEN bevestigingen met lage modulo-stdev → countdown accuraat.
-function laadFingerprint(nodeId) {
-  if (!nodeId) return null;
-  try {
-    const raw = localStorage.getItem(`sl_fp_${nodeId}`);
-    const fp = raw ? JSON.parse(raw) : null;
-    if (!fp || typeof fp !== 'object') return null;
-    if (!Array.isArray(fp.patronen)) fp.patronen = [];
-    if (typeof fp.aantalBevestigingen !== 'number') fp.aantalBevestigingen = 0;
-    if (typeof fp.aantalMismatches !== 'number') fp.aantalMismatches = 0;
-    if (typeof fp.bevestigd !== 'boolean') fp.bevestigd = false;
-    return fp;
-  } catch (e) { return null; }
-}
-
-function slaFingerprintOp(nodeId, fp) {
-  if (!nodeId || !fp) return;
-  try { localStorage.setItem(`sl_fp_${nodeId}`, JSON.stringify(fp)); } catch (e) {}
-}
-
-function berekenStdev(arr) {
-  if (!arr.length) return 0;
-  const gem = arr.reduce((s, v) => s + v, 0) / arr.length;
-  const variantie = arr.reduce((s, v) => s + (v - gem) * (v - gem), 0) / arr.length;
-  return Math.sqrt(variantie);
-}
-
-// Voegt patroon toe en herberekent fingerprint. Returned true als nu bevestigd.
-function voegFingerprintPatroonToe(nodeId, roodStartMs, groenStartMs) {
-  if (!nodeId || typeof roodStartMs !== 'number' || typeof groenStartMs !== 'number') return false;
-  if (groenStartMs <= roodStartMs) return false;
-  let fp = laadFingerprint(nodeId) || {
-    patronen: [], bevestigd: false, aantalBevestigingen: 0, cyclus: null, aantalMismatches: 0
-  };
-  const cyclusSec = (groenStartMs - roodStartMs) / 1000;
-  // Mismatch check tegen huidig bevestigde fingerprint
-  if (fp.bevestigd && fp.cyclus && fp.cyclus > 0) {
-    const cyclusMs = fp.cyclus * 1000;
-    const nieuweModulo = ((roodStartMs % cyclusMs) + cyclusMs) % cyclusMs;
-    const bestaandeModulos = fp.patronen.map(p => ((p.roodStart % cyclusMs) + cyclusMs) % cyclusMs);
-    if (bestaandeModulos.length > 0) {
-      const sinGem = bestaandeModulos.reduce((s, v) => s + Math.sin(v / cyclusMs * 2 * Math.PI), 0) / bestaandeModulos.length;
-      const cosGem = bestaandeModulos.reduce((s, v) => s + Math.cos(v / cyclusMs * 2 * Math.PI), 0) / bestaandeModulos.length;
-      const gemMod = ((Math.atan2(sinGem, cosGem) / (2 * Math.PI)) * cyclusMs + cyclusMs) % cyclusMs;
-      let afwijking = Math.abs(nieuweModulo - gemMod);
-      if (afwijking > cyclusMs / 2) afwijking = cyclusMs - afwijking;
-      if (afwijking > FP_MISMATCH_GRENS_MS) {
-        fp.aantalMismatches++;
-        if (fp.aantalMismatches >= FP_MISMATCH_RESET) {
-          fp.patronen = []; fp.bevestigd = false; fp.cyclus = null; fp.aantalMismatches = 0;
-        }
-      } else {
-        fp.aantalMismatches = 0;
-      }
-    }
-  }
-  fp.patronen.push({ roodStart: roodStartMs, groenStart: groenStartMs, cyclus: cyclusSec });
-  while (fp.patronen.length > FP_MAX_PATRONEN) fp.patronen.shift();
-  // Fingerprint evalueren
-  if (fp.patronen.length >= FP_MIN_PATRONEN) {
-    const cycli = fp.patronen.map(p => p.cyclus);
-    const stdevCycli = berekenStdev(cycli);
-    if (stdevCycli > FP_STDEV_CYCLUS_MAX_S) {
-      // Te variabel → reset
-      fp.patronen = []; fp.bevestigd = false; fp.cyclus = null;
-    } else {
-      const gemCyclus = cycli.reduce((s, v) => s + v, 0) / cycli.length;
-      const cyclusMs = gemCyclus * 1000;
-      const modulos = fp.patronen.map(p => ((p.roodStart % cyclusMs) + cyclusMs) % cyclusMs);
-      const sinGem = modulos.reduce((s, v) => s + Math.sin(v / cyclusMs * 2 * Math.PI), 0) / modulos.length;
-      const cosGem = modulos.reduce((s, v) => s + Math.cos(v / cyclusMs * 2 * Math.PI), 0) / modulos.length;
-      const gemMod = ((Math.atan2(sinGem, cosGem) / (2 * Math.PI)) * cyclusMs + cyclusMs) % cyclusMs;
-      const afwijkingen = modulos.map(m => {
-        let d = Math.abs(m - gemMod);
-        if (d > cyclusMs / 2) d = cyclusMs - d;
-        return d;
-      });
-      const stdevMod = berekenStdev(afwijkingen);
-      if (stdevMod < FP_STDEV_MODULO_MAX_MS) {
-        if (!fp.bevestigd) fp.aantalBevestigingen++;
-        else fp.aantalBevestigingen++;
-        fp.bevestigd = true;
-        fp.cyclus = gemCyclus;
-      }
-    }
-  }
-  slaFingerprintOp(nodeId, fp);
-  return fp.bevestigd;
-}
-
-// Bereken resterende rood-tijd in seconden op basis van fingerprint.
-// Return null als fingerprint niet bevestigd of restant ongeldig.
-function berekenFingerprintCountdown(nodeId) {
-  if (!nodeId) return null;
-  const fp = laadFingerprint(nodeId);
-  if (!fp || !fp.bevestigd || !fp.cyclus || !fp.patronen.length) return null;
-  const cyclusMs = fp.cyclus * 1000;
-  if (cyclusMs <= 0) return null;
-  const meestRecenteRoodStart = fp.patronen[fp.patronen.length - 1].roodStart;
-  const verstreken = (Date.now() - meestRecenteRoodStart) % cyclusMs;
-  const roodRestantMs = cyclusMs - verstreken - FP_ORANJE_BUFFER_MS;
-  if (roodRestantMs <= 0 || roodRestantMs >= cyclusMs) return null;
-  return roodRestantMs / 1000;
 }
 
 // ── TAGGING ───────────────────────────────────────────────────
@@ -3293,16 +3059,7 @@ function updateDebugOverlay() {
   // V8.8.6: Node lock status in debug — eerste 6 cijfers van nodeId
   let lockDbg = '';
   if (vergrendeldeNode) lockDbg = `lock:${String(vergrendeldeNode).slice(0,6)}`;
-  // V8.8.7: Deductie + fingerprint status
-  let dedDbg = '';
-  if (deductieFeedbackTot && Date.now() < deductieFeedbackTot) dedDbg = 'ded:✓';
-  let fpDbg = '';
-  if (fpCountdownActief) fpDbg = 'fp:cd';
-  else if (huidigBevestigdOsmNodeId) {
-    const fp = laadFingerprint(huidigBevestigdOsmNodeId);
-    if (fp && fp.bevestigd) fpDbg = `fp:✓[${fp.aantalBevestigingen}]`;
-  }
-  dInfo.textContent = [debugWaarden.info||'—', proxyDbg, lockDbg, dedDbg, fpDbg].filter(Boolean).join(' ');
+  dInfo.textContent = [debugWaarden.info||'—', proxyDbg, lockDbg].filter(Boolean).join(' ');
 }
 setInterval(updateDebugOverlay, 500);
 
