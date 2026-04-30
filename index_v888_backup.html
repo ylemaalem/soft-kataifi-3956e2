@@ -338,7 +338,7 @@
 <div id="startscherm">
   <div id="s-icoon">🚦</div>
   <div id="s-titel">Stoplicht<span>IQ</span></div>
-  <div id="s-versie">V8.8.9 — Gewogen Gemiddelde met Metinggewichten</div>
+  <div id="s-versie">V8.8.8 — Vergrendeling + Fingerprint Validatie + Kaartvisualisatie</div>
   <div id="s-model-wrap">
     <div id="s-model-rij">
       <div id="s-model-label">🤖 YOLOv8 model laden…</div>
@@ -519,8 +519,8 @@
 
 <script>
 // ═══════════════════════════════════════════════════════════════
-//  StoplichtIQ V8.8.9
-//  Nieuw: gewogen gemiddelde combineert tijdsverval met metinggewicht (proxy 0.3, deductie 0.4, echt 1.0)
+//  StoplichtIQ V8.8.8
+//  Nieuw: vergrendeling bij AI_DREMPEL, fingerprint validatie, kaartvisualisatie, proxy camera-leidend
 //  © 2026 StoplichtIQ — Y. Lemaalem
 // ═══════════════════════════════════════════════════════════════
 
@@ -710,8 +710,7 @@ function gew(ts) { return Math.exp(-(Date.now()-ts)/86400000/HALFWAARDETIJD); }
 function gewGem(m) {
   if (!m.length) return null;
   let wS=0, gS=0;
-  // V8.8.9: combineer tijdsvervalgewicht met metinggewicht (proxy=0.3, deductie=0.4, echt=1.0)
-  for (const x of m) { const tw=gew(x.tijd); const ew=x.gewicht??1.0; const w=tw*ew; gS+=x.duur*w; wS+=w; }
+  for (const x of m) { const w=gew(x.tijd); gS+=x.duur*w; wS+=w; }
   return wS>0 ? gS/wS : null;
 }
 
