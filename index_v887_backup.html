@@ -183,15 +183,6 @@
       letter-spacing:0.08em;text-transform:uppercase;color:var(--dim);
       cursor:pointer;white-space:nowrap;transition:all .2s}
     .filter-btn.actief{background:rgba(52,199,89,.15);border-color:rgba(52,199,89,.4);color:var(--groen)}
-    #dash-tabs{display:flex;gap:0;padding:8px 18px 0;flex-shrink:0}
-    .dash-tab{flex:1;text-align:center;padding:8px 12px;font-size:10px;font-weight:600;letter-spacing:0.08em;text-transform:uppercase;color:var(--dim);cursor:pointer;background:rgba(255,255,255,0.04);border:1px solid var(--border);transition:all .2s}
-    .dash-tab:first-child{border-radius:8px 0 0 8px}
-    .dash-tab:last-child{border-radius:0 8px 8px 0}
-    .dash-tab.actief{background:rgba(52,199,89,.12);border-color:rgba(52,199,89,.35);color:var(--groen)}
-    #dash-lijst-panel{flex:1;display:flex;flex-direction:column;overflow:hidden;min-height:0}
-    #dash-kaart-panel{flex:1;display:none;flex-direction:column;padding:8px 18px;min-height:0}
-    #dashboard-kaart{flex:1;min-height:300px;border-radius:10px;overflow:hidden}
-    #dash-kaart-info{padding:6px 0;font-size:10px;color:rgba(255,255,255,0.35);letter-spacing:0.04em;flex-shrink:0}
     #dash-lijst{flex:1;overflow-y:auto;padding:8px 18px 16px;display:flex;flex-direction:column;gap:8px}
     .sl-kaart{background:rgba(255,255,255,0.04);border:1px solid var(--border);
       border-radius:14px;padding:12px 14px;display:flex;flex-direction:column;gap:8px}
@@ -338,7 +329,7 @@
 <div id="startscherm">
   <div id="s-icoon">🚦</div>
   <div id="s-titel">Stoplicht<span>IQ</span></div>
-  <div id="s-versie">V8.8.8 — Vergrendeling + Fingerprint Validatie + Kaartvisualisatie</div>
+  <div id="s-versie">V8.8.7 — Cyclus Deductie + Tijdstempel Fingerprint</div>
   <div id="s-model-wrap">
     <div id="s-model-rij">
       <div id="s-model-label">🤖 YOLOv8 model laden…</div>
@@ -487,11 +478,6 @@
     </div>
     <div style="font-size:9px;color:rgba(255,255,255,0.3);line-height:1.4">Verzamelt 640x640 frames met YOLO labels tijdens detectie.</div>
   </div>
-  <div id="dash-tabs">
-    <div class="dash-tab actief" id="dash-tab-lijst" onclick="switchDashTab('lijst',this)">&#9776; Lijst</div>
-    <div class="dash-tab" id="dash-tab-kaart" onclick="switchDashTab('kaart',this)">&#128506; Kaart</div>
-  </div>
-  <div id="dash-lijst-panel">
   <div id="dash-zoek-wrap" style="padding:8px 18px 0">
     <input id="dash-zoek" type="text" placeholder="Zoek kruispunt of tagtype…" oninput="zoekDashboard(this.value)"
       style="width:100%;padding:9px 14px;background:rgba(255,255,255,0.06);color:#fff;
@@ -510,17 +496,12 @@
     <div class="filter-btn" onclick="filterDashboard('nacht',this)">🌙 Nacht</div>
   </div>
   <div id="dash-lijst"></div>
-  </div>
-  <div id="dash-kaart-panel">
-    <div id="dashboard-kaart"></div>
-    <div id="dash-kaart-info"></div>
-  </div>
 </div>
 
 <script>
 // ═══════════════════════════════════════════════════════════════
-//  StoplichtIQ V8.8.8
-//  Nieuw: vergrendeling bij AI_DREMPEL, fingerprint validatie, kaartvisualisatie, proxy camera-leidend
+//  StoplichtIQ V8.8.7
+//  Nieuw: cyclustijd deductie (Nederlandse standaards), tijdstempel fingerprint
 //  © 2026 StoplichtIQ — Y. Lemaalem
 // ═══════════════════════════════════════════════════════════════
 
@@ -944,7 +925,6 @@ let roodFaseStartMs = null;
 
 // V8.8.7: Fingerprint countdown meta voor debug overlay
 let fpCountdownActief = false;
-let fpErrTot = 0; // V8.8.8 Fix 2: Tijdstip tot wanneer "fp:err" getoond wordt
 // V8.8.7: Deductie debug feedback — toont "ded:✓" voor 3 seconden
 let deductieFeedbackTot = 0;
 
@@ -1503,7 +1483,19 @@ function verwerkDetecties() {
       // Kleurwissel: hard resetten — voorkomt dat rood-teller naar groen doorloopt
       aiKleur = aiR.kleur;
       aiTeller = 1;
-      // V8.8.8 Fix 1: Vergrendeling verplaatst naar AI_DREMPEL block — pas na 2 bevestigde detecties
+      // V8.8.6: Node vergrendeling activeren bij eerste detectie van deze kleur
+      // Zodra we een stoplicht zien EN we hebben een dichtstbijzijnde node,
+      // pinnen we die node zodat GPS-drift bij stilstand niet meer van node wisselt.
+      // Als er al een lock actief is op een ANDERE node blijft die intact —
+      // de nieuwe node wordt pas actief na ontgrendeling.
+      if (dichtstbijOSM) {
+        const huidigNodeId = String(dichtstbijOSM.id);
+        if (vergrendeldeNode === null) {
+          vergrendeldeNode = huidigNodeId;
+          vergrendeldeSinds = Date.now();
+        }
+        // vergrendeldeNode !== null && vergrendeldeNode !== huidigNodeId → negeren
+      }
     }
     tekenOverlay(aiR.box, aiR.score, aiR.horizontaal);
     geenTeller = 0;
@@ -1547,11 +1539,6 @@ function verwerkDetecties() {
       }
       if (dichtstbijOSM) {
         huidigBevestigdOsmNodeId = String(dichtstbijOSM.id);
-        // V8.8.8 Fix 1: Node vergrendeling pas na AI_DREMPEL bevestigde detecties
-        if (vergrendeldeNode === null) {
-          vergrendeldeNode = huidigBevestigdOsmNodeId;
-          vergrendeldeSinds = Date.now();
-        }
         toonTagKnop(huidigBevestigdOsmNodeId);
         checkVRISuggestie(huidigBevestigdOsmNodeId);
         // V8.8: Passief rijrichtingdata opslaan
@@ -1699,17 +1686,8 @@ function verwerkFase(nieuw, horizontaal) {
   updateUI(nieuw, horizontaal);
   if (nieuw==='groen') speelGroen();
   if (nieuw==='rood') {
-    // V8.8.8 Fix 2: Fingerprint countdown met drie validatiechecks
-    // Check 1: roodFaseStartMs moet bekend zijn (net gezet boven, veiligheidscheck)
-    let fpDoel = null;
-    if (roodFaseStartMs !== null && dichtstbijOSM) {
-      fpDoel = berekenFingerprintCountdown(String(dichtstbijOSM.id));
-      // fp:err feedback als fingerprint bevestigd is maar countdown niet geldig
-      if (fpDoel === null) {
-        const fpCheck = laadFingerprint(String(dichtstbijOSM.id));
-        if (fpCheck && fpCheck.bevestigd) fpErrTot = Date.now() + 2000;
-      }
-    }
+    // V8.8.7: Fingerprint countdown heeft voorrang boven leergeheugen-gemiddelde
+    let fpDoel = dichtstbijOSM ? berekenFingerprintCountdown(String(dichtstbijOSM.id)) : null;
     if (fpDoel !== null && fpDoel > 0) {
       activeCdDoel = fpDoel;
       fpCountdownActief = true;
@@ -1914,13 +1892,6 @@ function openDashboard() {
   uitgeklapteDD = null;
   const zoekInput = document.getElementById('dash-zoek');
   if (zoekInput) zoekInput.value = '';
-  // V8.8.8 Fix 3: Reset naar lijst tab bij openen
-  const lp = document.getElementById('dash-lijst-panel');
-  const kp = document.getElementById('dash-kaart-panel');
-  if (lp) lp.style.display = '';
-  if (kp) kp.style.display = 'none';
-  document.getElementById('dash-tab-lijst')?.classList.add('actief');
-  document.getElementById('dash-tab-kaart')?.classList.remove('actief');
   laadDashboard();
   updateTrainframesTeller();
   document.getElementById('dashboard').classList.remove('verborgen');
@@ -1929,120 +1900,6 @@ function openDashboard() {
 function sluitDashboard() {
   document.getElementById('dashboard').classList.add('verborgen');
   uitgeklapteDD = null;
-}
-
-// V8.8.8 Fix 3: Kaartvisualisatie (lazy Leaflet)
-let dashKaartGeladen = false;
-
-function switchDashTab(tab, el) {
-  document.querySelectorAll('.dash-tab').forEach(t => t.classList.remove('actief'));
-  el.classList.add('actief');
-  const lijstPanel = document.getElementById('dash-lijst-panel');
-  const kaartPanel = document.getElementById('dash-kaart-panel');
-  if (tab === 'kaart') {
-    lijstPanel.style.display = 'none';
-    kaartPanel.style.display = 'flex';
-    initDashboardKaart();
-  } else {
-    lijstPanel.style.display = '';
-    kaartPanel.style.display = 'none';
-  }
-}
-
-function initDashboardKaart() {
-  if (!window.L) {
-    if (document.getElementById('leaflet-js')) return;
-    const css = document.createElement('link');
-    css.rel = 'stylesheet';
-    css.href = 'https://unpkg.com/leaflet@1.9.4/dist/leaflet.css';
-    document.head.appendChild(css);
-    const js = document.createElement('script');
-    js.id = 'leaflet-js';
-    js.src = 'https://unpkg.com/leaflet@1.9.4/dist/leaflet.js';
-    js.onload = () => _bouwDashboardKaart();
-    document.head.appendChild(js);
-    return;
-  }
-  if (dashKaartGeladen && window._dashKaartInstantie) {
-    window._dashKaartInstantie.invalidateSize();
-    return;
-  }
-  _bouwDashboardKaart();
-}
-
-function _bouwDashboardKaart() {
-  if (!window.L) return;
-  const kaartDiv = document.getElementById('dashboard-kaart');
-  if (!kaartDiv) return;
-  const nodeMap = new Map();
-  for (let i = 0; i < localStorage.length; i++) {
-    const key = localStorage.key(i);
-    if (!key || !key.startsWith('sl_v4_')) continue;
-    const rest = key.replace('sl_v4_', '');
-    if (rest.endsWith('_groen')) continue;
-    const parts = rest.split('_');
-    if (parts.length < 2) continue;
-    const nodeId = parts[0];
-    if (nodeMap.has(nodeId)) continue;
-    const cached = osmCache.find(c => String(c.id) === nodeId);
-    let naam = null;
-    try { naam = localStorage.getItem('sl_naam_' + nodeId); } catch(e) {}
-    naam = naam || (cached && cached.naam) || nodeId;
-    nodeMap.set(nodeId, { id: nodeId,
-      lat: cached ? cached.lat : null,
-      lon: cached ? cached.lon : null, naam });
-  }
-  const totaalNodes = nodeMap.size;
-  const nodesMetCoords = [];
-  for (const [nodeId, info] of nodeMap) {
-    if (info.lat === null || info.lon === null) continue;
-    let totalMetingen = 0, lastTijd = 0;
-    const cyclusPerDD = {};
-    for (const dd of Object.keys(DD)) {
-      const m = laadM(nodeId, dd);
-      totalMetingen += m.length;
-      m.forEach(x => { if (x.tijd > lastTijd) lastTijd = x.tijd; });
-      const gem = gewGem(m);
-      if (gem) cyclusPerDD[dd] = Math.round(gem);
-    }
-    const leerPct = berekenLeerPct(nodeId);
-    nodesMetCoords.push({ ...info, totalMetingen, lastTijd, cyclusPerDD, leerPct });
-  }
-  const infoEl = document.getElementById('dash-kaart-info');
-  if (!nodesMetCoords.length) {
-    if (infoEl) infoEl.textContent =
-      `0 van ${totaalNodes} nodes zichtbaar — geen coördinaten beschikbaar`;
-    return;
-  }
-  const avgLat = nodesMetCoords.reduce((s, n) => s + n.lat, 0) / nodesMetCoords.length;
-  const avgLon = nodesMetCoords.reduce((s, n) => s + n.lon, 0) / nodesMetCoords.length;
-  if (window._dashKaartInstantie) {
-    window._dashKaartInstantie.remove();
-    window._dashKaartInstantie = null;
-    dashKaartGeladen = false;
-  }
-  const kaart = L.map('dashboard-kaart').setView([avgLat, avgLon], 14);
-  window._dashKaartInstantie = kaart;
-  L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-    attribution: '© OpenStreetMap contributors', maxZoom: 19
-  }).addTo(kaart);
-  const ddLabels = { ochtend: '🌅 Ochtend', dag: '☀️ Dag',
-                     avond: '🌆 Avond', nacht: '🌙 Nacht' };
-  for (const n of nodesMetCoords) {
-    const kleur = n.leerPct < 30 ? '#FF3030' : n.leerPct < 70 ? '#FF9F0A' : '#34C759';
-    const cyclusHTML = Object.entries(n.cyclusPerDD)
-      .map(([dd, s]) => `${ddLabels[dd] || dd}: ${s}s`).join('<br>') || 'Geen cyclus';
-    const datum = n.lastTijd
-      ? new Date(n.lastTijd).toLocaleDateString('nl-NL') : 'onbekend';
-    const popup = `<b>${escapeHTML(String(n.naam))}</b><br>Node: ${n.id}<br>` +
-      `${cyclusHTML}<br>${n.totalMetingen} metingen<br>Laatste: ${datum}`;
-    L.circleMarker([n.lat, n.lon], {
-      radius: 8, color: kleur, fillColor: kleur, fillOpacity: 0.8, weight: 2
-    }).bindPopup(popup).addTo(kaart);
-  }
-  dashKaartGeladen = true;
-  if (infoEl) infoEl.textContent =
-    `${nodesMetCoords.length} van ${totaalNodes} opgeslagen nodes zichtbaar op kaart`;
 }
 
 function toggleDagdeelDetail(nodeId, dd) {
@@ -2966,8 +2823,6 @@ function berekenFingerprintCountdown(nodeId) {
   const verstreken = (Date.now() - meestRecenteRoodStart) % cyclusMs;
   const roodRestantMs = cyclusMs - verstreken - FP_ORANJE_BUFFER_MS;
   if (roodRestantMs <= 0 || roodRestantMs >= cyclusMs) return null;
-  // V8.8.8 Fix 2 Check 2: Te kort restant is onbetrouwbaar (voorkomt "groen over <1s")
-  if (roodRestantMs / 1000 <= 3) return null;
   return roodRestantMs / 1000;
 }
 
@@ -3317,14 +3172,9 @@ function verwerkStilstandProxy() {
     if (wachttijdB > 180) { resetProxy(); return; }
   }
 
-  // V8.8.8 Fix 5: Camera leidend — groen detectie reset lopende proxy timer direct
-  if (proxyTimerStart !== null && fase === 'groen') { resetProxy(); return; }
-
   // STAP A: Stilstand detectie — start proxy timer
   // Hysteresis: start bij <3 km/u, stop bij >8 km/u
-  // V8.8.8 Fix 5: Camera leidend — geen proxy starten bij groen (haaientanden, zebrapad)
-  if (snelheidKmh < 3 && dichtstbijOSM && dichtstbijOSM.afstand < 80 && proxyTimerStart === null
-      && fase !== 'groen') {
+  if (snelheidKmh < 3 && dichtstbijOSM && dichtstbijOSM.afstand < 80 && proxyTimerStart === null) {
     proxyTimerStart = Date.now();
     proxyNodeId = String(dichtstbijOSM.id);
     proxyFaseActief = true;
@@ -3448,7 +3298,6 @@ function updateDebugOverlay() {
   if (deductieFeedbackTot && Date.now() < deductieFeedbackTot) dedDbg = 'ded:✓';
   let fpDbg = '';
   if (fpCountdownActief) fpDbg = 'fp:cd';
-  else if (fpErrTot && Date.now() < fpErrTot) fpDbg = 'fp:err';
   else if (huidigBevestigdOsmNodeId) {
     const fp = laadFingerprint(huidigBevestigdOsmNodeId);
     if (fp && fp.bevestigd) fpDbg = `fp:✓[${fp.aantalBevestigingen}]`;
