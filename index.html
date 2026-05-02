@@ -1,4 +1,4 @@
-<!-- StoplichtIQ v8.9.3 — 2 mei 2026 -->
+<!-- StoplichtIQ v8.9.4 — 2 mei 2026 -->
 <!DOCTYPE html>
 
 <html lang="nl">
@@ -355,7 +355,7 @@
 <div id="startscherm">
   <div id="s-icoon">🚦</div>
   <div id="s-titel">Stoplicht<span>IQ</span></div>
-  <div id="s-versie">V8.9.3 — Diagnose</div>
+  <div id="s-versie">V8.9.4</div>
   <div id="s-model-wrap">
     <div id="s-model-rij">
       <div id="s-model-label">🤖 YOLOv8 model laden…</div>
@@ -363,7 +363,7 @@
     </div>
     <div id="s-model-bg"><div id="s-model-balk"></div></div>
   </div>
-  <div id="s-debug-log" style="display:none;font-size:9px;color:#BF5AF2;font-family:monospace;max-height:120px;overflow-y:auto;text-align:left;width:100%;max-width:300px;padding:8px;background:rgba(0,0,0,0.4);border-radius:6px;margin-top:8px;white-space:pre-wrap;"></div>
+
   <div id="s-geh-info" style="color:var(--dim)">Geheugen laden…</div>
   <div id="s-features">
     <div class="feat">🎯 Slim selectie</div>
@@ -536,15 +536,6 @@
 </div>
 
 <script>
-window.onerror = function(msg, url, line, col, err) {
-  const log = document.getElementById('s-debug-log');
-  if (log) {
-    log.style.display = 'block';
-    log.style.color = '#FF3030';
-    log.textContent = 'JS ERROR: ' + msg + ' @ regel ' + line + ':' + col;
-  }
-  return false;
-};
 // ═══════════════════════════════════════════════════════════════
 //  StoplichtIQ V8.9.0
 //  Nieuw: gewogen gemiddelde combineert tijdsverval met metinggewicht (proxy 0.3, deductie 0.4, echt 1.0)
@@ -1086,65 +1077,29 @@ const simInt = setInterval(() => {
 }, 400);
 
 async function laadONNXModel() {
-  const dbgEl = document.getElementById('s-debug-log');
-  function dbg(msg) {
-    const t = ((performance.now()-modelLaadStart)/1000).toFixed(2)+'s';
-    const line = `[${t}] ${msg}\n`;
-    if (dbgEl) { dbgEl.style.display='block'; dbgEl.textContent += line; dbgEl.scrollTop = dbgEl.scrollHeight; }
-    console.log('[SIQ]', msg);
-  }
-  function dbgErr(label, e) {
-    const line = `[ERR] ${label}\n  ${e.message}\n  ${e.stack||'(geen stack)'}\n`;
-    if (dbgEl) { dbgEl.style.color='#FF3030'; dbgEl.textContent += line; dbgEl.scrollTop = dbgEl.scrollHeight; }
-    console.error('[SIQ]', label, e);
-  }
   try {
-    dbg('1. Start laadONNXModel()');
     sModelLabel.textContent = '🤖 YOLOv8 model laden…';
     const modelPad = './model.onnx';
-    const cachesBeschikbaar = typeof caches !== 'undefined';
-    dbg(`2. Cache API beschikbaar? ${cachesBeschikbaar ? 'yes' : 'no'}`);
     let modelArrayBuffer;
-    if (cachesBeschikbaar) {
-      dbg('3. caches.open() gestart...');
-      let modelCache;
+    if (typeof caches !== 'undefined') {
       try {
-        modelCache = await caches.open('stoplichtiq-model-v1');
-        dbg('4. caches.open() klaar, cache match zoeken...');
+        const modelCache = await caches.open('stoplichtiq-model-v1');
         let modelResponse = await modelCache.match(modelPad);
         if (!modelResponse) {
-          dbg('5. Cache miss');
-          dbg('6. Fetch gestart...');
           modelResponse = await fetch(modelPad);
           await modelCache.put(modelPad, modelResponse.clone());
-          dbg('7. Fetch klaar, ArrayBuffer maken...');
-        } else {
-          dbg('5. Cache hit');
-          dbg('7. ArrayBuffer maken van cache...');
         }
         modelArrayBuffer = await modelResponse.arrayBuffer();
       } catch(eCacheErr) {
-        dbgErr('Cache API fout — fallback naar directe fetch()', eCacheErr);
-        dbg('6. Fetch gestart (fallback)...');
-        const r = await fetch(modelPad);
-        dbg('7. Fetch klaar, ArrayBuffer maken...');
-        modelArrayBuffer = await r.arrayBuffer();
+        modelArrayBuffer = await fetch(modelPad).then(r => r.arrayBuffer());
       }
     } else {
-      dbg('3. Cache API niet beschikbaar — directe fetch...');
-      dbg('6. Fetch gestart...');
-      const r = await fetch(modelPad);
-      dbg('7. Fetch klaar, ArrayBuffer maken...');
-      modelArrayBuffer = await r.arrayBuffer();
+      modelArrayBuffer = await fetch(modelPad).then(r => r.arrayBuffer());
     }
-    const mb = (modelArrayBuffer.byteLength / 1048576).toFixed(2);
-    dbg(`8. ArrayBuffer klaar: ${mb} MB`);
-    dbg('9. ort.InferenceSession.create() gestart...');
     onnxSession = await ort.InferenceSession.create(
       modelArrayBuffer.slice(0),
       { executionProviders:['wasm'], graphOptimizationLevel:'all' }
     );
-    dbg('10. Session klaar — model live');
     modelGeladen = true;
     clearInterval(simInt);
     sModelBalk.style.width='100%'; sModelBalk.style.background='var(--groen)';
@@ -1191,12 +1146,7 @@ async function laadONNXModel() {
   } catch(e) {
     console.error('[StoplichtIQ] Model laden mislukt:', e);
     clearInterval(simInt);
-    if (dbgEl) {
-      dbgEl.style.color = '#FF3030';
-      dbgEl.textContent += `\n⚠ FOUT: ${e.message}\n${e.stack||''}`;
-      dbgEl.scrollTop = dbgEl.scrollHeight;
-    }
-    sModelLabel.textContent = `⚠ ${e.message||'Model niet gevonden'}`;
+    sModelLabel.textContent = '⚠ Model niet gevonden';
     sModelLabel.style.color = 'var(--oranje)';
     modelLijn.classList.add('weg');
     pAI.className='pill-dot o'; debugWaarden.ai='ai:fout';
