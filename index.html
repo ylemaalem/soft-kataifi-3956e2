@@ -250,7 +250,8 @@
       justify-content:center;gap:12px;padding:40px;text-align:center;flex:1}
     #startscherm{position:fixed;inset:0;background:#080A0C;z-index:300;
       display:flex;flex-direction:column;align-items:center;
-      justify-content:center;gap:16px;padding:32px;transition:opacity .5s}
+      justify-content:center;gap:16px;padding:32px;transition:opacity .5s;
+      overflow-y:auto}
     #startscherm.weg{opacity:0;pointer-events:none}
     #s-icoon{font-size:64px}
     #s-titel{font-size:28px;font-weight:700;letter-spacing:0.08em;
@@ -362,7 +363,7 @@
     </div>
     <div id="s-model-bg"><div id="s-model-balk"></div></div>
   </div>
-  <div id="s-debug-log" style="font-size:9px;color:#BF5AF2;font-family:monospace;max-height:120px;overflow-y:auto;text-align:left;width:100%;max-width:300px;padding:8px;background:rgba(0,0,0,0.4);border-radius:6px;margin-top:8px;white-space:pre-wrap;"></div>
+  <div id="s-debug-log" style="display:none;font-size:9px;color:#BF5AF2;font-family:monospace;max-height:120px;overflow-y:auto;text-align:left;width:100%;max-width:300px;padding:8px;background:rgba(0,0,0,0.4);border-radius:6px;margin-top:8px;white-space:pre-wrap;"></div>
   <div id="s-geh-info" style="color:var(--dim)">Geheugen laden…</div>
   <div id="s-features">
     <div class="feat">🎯 Slim selectie</div>
@@ -535,6 +536,15 @@
 </div>
 
 <script>
+window.onerror = function(msg, url, line, col, err) {
+  const log = document.getElementById('s-debug-log');
+  if (log) {
+    log.style.display = 'block';
+    log.style.color = '#FF3030';
+    log.textContent = 'JS ERROR: ' + msg + ' @ regel ' + line + ':' + col;
+  }
+  return false;
+};
 // ═══════════════════════════════════════════════════════════════
 //  StoplichtIQ V8.9.0
 //  Nieuw: gewogen gemiddelde combineert tijdsverval met metinggewicht (proxy 0.3, deductie 0.4, echt 1.0)
@@ -1079,7 +1089,7 @@ async function laadONNXModel() {
   function dbg(msg) {
     const t = ((performance.now()-modelLaadStart)/1000).toFixed(2)+'s';
     const line = `[${t}] ${msg}\n`;
-    if (dbgEl) { dbgEl.textContent += line; dbgEl.scrollTop = dbgEl.scrollHeight; }
+    if (dbgEl) { dbgEl.style.display='block'; dbgEl.textContent += line; dbgEl.scrollTop = dbgEl.scrollHeight; }
     console.log('[SIQ]', msg);
   }
   function dbgErr(label, e) {
