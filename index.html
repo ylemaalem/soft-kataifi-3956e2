@@ -1,4 +1,4 @@
-<!-- StoplichtIQ v8.9.4 — 2 mei 2026 -->
+<!-- StoplichtIQ v8.9.5 — 2 mei 2026 -->
 <!DOCTYPE html>
 
 <html lang="nl">
@@ -355,7 +355,7 @@
 <div id="startscherm">
   <div id="s-icoon">🚦</div>
   <div id="s-titel">Stoplicht<span>IQ</span></div>
-  <div id="s-versie">V8.9.4</div>
+  <div id="s-versie">V8.9.5</div>
   <div id="s-model-wrap">
     <div id="s-model-rij">
       <div id="s-model-label">🤖 YOLOv8 model laden…</div>
@@ -1973,6 +1973,8 @@ function openDashboard() {
   document.getElementById('dash-tab-kaart')?.classList.remove('actief');
   laadDashboard();
   updateTrainframesTeller();
+  const miniKaartEl = document.getElementById('mini-kaart-container');
+  if (miniKaartEl) miniKaartEl.style.display = 'none';
   document.getElementById('dashboard').classList.remove('verborgen');
 }
 
@@ -2336,6 +2338,8 @@ function importeerData(bestand) {
 
 // ── STARTSCHERM / TERUG ───────────────────────────────────────
 function naarStartscherm() {
+  const miniKaartEl = document.getElementById('mini-kaart-container');
+  if (miniKaartEl) miniKaartEl.style.display = 'none';
   try { const stream=video.srcObject; if(stream)stream.getTracks().forEach(t=>t.stop()); video.srcObject=null; } catch(e) {}
   resetNeutraal();
   document.getElementById('startscherm').classList.remove('weg');
