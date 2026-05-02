@@ -905,7 +905,8 @@ const kNaam       = document.getElementById('kruispunt-naam');
 const kAf         = document.getElementById('kruispunt-af');
 // V8.9.0 Feature 3: Tap op afstandsdisplay opent node-correctie
 document.getElementById('kruispunt-blok').addEventListener('click', toonNodeCorrectieSheet);
-document.getElementById('node-correctie-overlay').addEventListener('click', sluitNodeCorrectieSheet);
+const ncoOverlay = document.getElementById('node-correctie-overlay');
+if (ncoOverlay) ncoOverlay.addEventListener('click', sluitNodeCorrectieSheet);
 const kDD         = document.getElementById('kruispunt-dd');
 const leerNaam    = document.getElementById('leer-naam');
 const leerBadge   = document.getElementById('leer-nieuw-badge');
