@@ -1075,13 +1075,18 @@ const simInt = setInterval(() => {
 async function laadONNXModel() {
   try {
     sModelLabel.textContent = '🤖 YOLOv8 model laden…';
-    let modelPad = './model.onnx';
-    try {
-      onnxSession = await ort.InferenceSession.create(modelPad, { executionProviders:['wasm'], graphOptimizationLevel:'all' });
-    } catch(e1) {
-      modelPad = './model/model.onnx';
-      onnxSession = await ort.InferenceSession.create(modelPad, { executionProviders:['wasm'], graphOptimizationLevel:'all' });
+    const modelPad = './model.onnx';
+    const modelCache = await caches.open('stoplichtiq-model-v1');
+    let modelResponse = await modelCache.match(modelPad);
+    if (!modelResponse) {
+      modelResponse = await fetch(modelPad);
+      await modelCache.put(modelPad, modelResponse.clone());
     }
+    const modelArrayBuffer = await modelResponse.arrayBuffer();
+    onnxSession = await ort.InferenceSession.create(
+      modelArrayBuffer.slice(0),
+      { executionProviders:['wasm'], graphOptimizationLevel:'all' }
+    );
     modelGeladen = true;
     clearInterval(simInt);
     sModelBalk.style.width='100%'; sModelBalk.style.background='var(--groen)';
@@ -1097,7 +1102,6 @@ async function laadONNXModel() {
     yoloCtx = yoloCanvas.getContext('2d');
     // Worker starten
     try {
-      const modelArrayBuffer = await fetch(modelPad).then(r=>r.arrayBuffer());
       const blob = new Blob([YOLO_WORKER_CODE], { type:'application/javascript' });
       const workerUrl = URL.createObjectURL(blob);
       yoloWorker = new Worker(workerUrl);
@@ -1127,6 +1131,7 @@ async function laadONNXModel() {
       yoloWorker = null; workerKlaar = false;
     }
   } catch(e) {
+    console.error('[StoplichtIQ] Model laden mislukt:', e);
     clearInterval(simInt);
     sModelLabel.textContent = '⚠ Model niet gevonden';
     sModelLabel.style.color = 'var(--oranje)';
