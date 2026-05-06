@@ -1,4 +1,4 @@
-<!-- StoplichtIQ v8.9.7 — 7 mei 2026 -->
+<!-- StoplichtIQ v8.9.8 — 7 mei 2026 -->
 <!DOCTYPE html>
 
 <html lang="nl">
@@ -292,18 +292,22 @@
       padding:16px 16px 32px;z-index:9801;display:none;max-height:60vh;overflow-y:auto}
     #node-correctie-sheet h3{font-family:"Rajdhani",sans-serif;font-size:14px;
       color:rgba(255,255,255,0.5);margin:0 0 12px;text-transform:uppercase;letter-spacing:0.08em}
-    .nc-knop{display:flex;align-items:center;justify-content:space-between;width:100%;
-      background:rgba(255,255,255,0.06);border:none;border-radius:10px;padding:12px 14px;
-      margin-bottom:8px;cursor:pointer;color:#fff;font-size:14px;text-align:left}
+    .nc-knop{display:flex;flex-direction:column;width:100%;
+      background:rgba(255,255,255,0.06);border:none;border-radius:10px;padding:14px 16px;
+      margin-bottom:8px;cursor:pointer;color:#fff;text-align:left;min-height:56px}
     .nc-knop.actief{background:rgba(10,132,255,0.25);border:1px solid rgba(10,132,255,0.5)}
+    .nc-knop-top{display:flex;align-items:center;margin-bottom:4px}
+    .nc-richting{font-size:16px;font-weight:700;letter-spacing:0.02em}
+    .nc-knop-mid{font-size:13px;color:rgba(255,255,255,0.7);margin-bottom:2px}
     .nc-knop-af{font-size:11px;color:rgba(255,255,255,0.4);white-space:nowrap}
-    .nc-auto-indicator{font-size:11px;color:rgba(10,132,255,0.8);padding:6px 0 10px;text-align:center}
-    .nc-kleur-dot{width:8px;height:8px;border-radius:50%;display:inline-block;margin-right:8px;flex-shrink:0}
-    #mini-kaart-container{position:fixed;bottom:0;left:50%;transform:translateX(-50%);
-      width:180px;height:180px;border-radius:12px 12px 0 0;overflow:hidden;
-      border:2px solid rgba(255,255,255,0.15);border-bottom:none;
-      box-shadow:0 4px 20px rgba(0,0,0,0.7);z-index:9802;display:none}
-    #mini-kaart{width:100%;height:100%;display:block;cursor:pointer}
+    .nc-knop-leer{font-size:10px;color:rgba(255,255,255,0.3)}
+    .nc-actief-label{color:#0A84FF;font-weight:600}
+    .nc-auto-indicator{font-size:12px;color:rgba(10,132,255,0.8);padding:8px 0 12px;text-align:center}
+    .nc-kleur-dot{width:10px;height:10px;border-radius:50%;display:inline-block;margin-right:8px;flex-shrink:0}
+    .nc-sluit{position:absolute;top:12px;right:12px;width:32px;height:32px;border:none;
+      background:rgba(255,255,255,0.1);border-radius:50%;color:#fff;font-size:18px;
+      cursor:pointer;display:flex;align-items:center;justify-content:center;line-height:1}
+
   </style>
 </head>
 <body>
@@ -358,7 +362,7 @@
 <div id="startscherm">
   <div id="s-icoon">🚦</div>
   <div id="s-titel">Stoplicht<span>IQ</span></div>
-  <div id="s-versie">V8.9.7</div>
+  <div id="s-versie">V8.9.8</div>
   <div id="s-model-wrap">
     <div id="s-model-rij">
       <div id="s-model-label">🤖 YOLOv8 model laden…</div>
@@ -1961,8 +1965,7 @@ function openDashboard() {
   document.getElementById('dash-tab-kaart')?.classList.remove('actief');
   laadDashboard();
   updateTrainframesTeller();
-  const miniKaartEl = document.getElementById('mini-kaart-container');
-  if (miniKaartEl) miniKaartEl.style.display = 'none';
+
   document.getElementById('dashboard').classList.remove('verborgen');
 }
 
@@ -2326,8 +2329,7 @@ function importeerData(bestand) {
 
 // ── STARTSCHERM / TERUG ───────────────────────────────────────
 function naarStartscherm() {
-  const miniKaartEl = document.getElementById('mini-kaart-container');
-  if (miniKaartEl) miniKaartEl.style.display = 'none';
+
   try { const stream=video.srcObject; if(stream)stream.getTracks().forEach(t=>t.stop()); video.srcObject=null; } catch(e) {}
   resetNeutraal();
   document.getElementById('startscherm').classList.remove('weg');
@@ -3247,17 +3249,43 @@ async function forceerVerreFocus(stream) {
   } catch(e) {}
 }
 
-// V8.9.7 Feature 3: Handmatige node-correctie met richting-labels en leerdata
+// V8.9.8: Relatieve richting-classificatie
+function classificeerNodesRelatief(kandidaten, heading) {
+  kandidaten.forEach(node => {
+    node._bearing = berekenBearing(huidigePos.lat, huidigePos.lon, node.lat, node.lon);
+    let delta = node._bearing - heading;
+    while (delta > 180) delta -= 360;
+    while (delta < -180) delta += 360;
+    node._delta = delta;
+  });
+  kandidaten.sort((a, b) => a._delta - b._delta);
+  if (kandidaten.length === 1) {
+    kandidaten[0]._richting = '↑ Rechtdoor';
+  } else if (kandidaten.length === 2) {
+    kandidaten[0]._richting = '↖ Links';
+    kandidaten[1]._richting = '↗ Rechts';
+  } else {
+    kandidaten[0]._richting = '↖ Links';
+    kandidaten[kandidaten.length - 1]._richting = '↗ Rechts';
+    for (let i = 1; i < kandidaten.length - 1; i++) {
+      kandidaten[i]._richting = '↑ Midden';
+    }
+  }
+  return kandidaten;
+}
+
+// V8.9.8: Node-correctie overlay (alleen lijst, geen canvas)
 function toonNodeCorrectieSheet() {
   if (!osmCache.length || !huidigePos) return;
   const {lat, lon} = huidigePos;
-  const kandidaten = osmCache
+  let kandidaten = osmCache
     .map(n => ({...n, afstand: afstand(lat, lon, n.lat, n.lon)}))
     .filter(n => n.afstand <= NODE_CORRECTIE_MAX_AFSTAND_M * 10)
-    .sort((a,b) => headingDelta(berekenBearing(lat,lon,a.lat,a.lon), huidigeRichting)
-                 - headingDelta(berekenBearing(lat,lon,b.lat,b.lon), huidigeRichting))
+    .sort((a,b) => a.afstand - b.afstand)
     .slice(0, NODE_CORRECTIE_MAX_AANTAL);
   if (!kandidaten.length) return;
+
+  classificeerNodesRelatief(kandidaten, huidigeRichting);
 
   const osmId = dichtstbijOSM ? String(dichtstbijOSM.id) : null;
   const autoMatch = osmId ? autoSelecteerNode(osmId, kandidaten, huidigeRichting) : null;
@@ -3266,48 +3294,32 @@ function toonNodeCorrectieSheet() {
   const lijst = document.getElementById('node-correctie-lijst');
   let html = '';
   if (autoMatch) {
-    const autoNaam = autoMatch.naam || (autoMatch.slim ? '⚡ Slim' : 'Stoplicht');
-    const autoBearing = berekenBearing(lat, lon, autoMatch.lat, autoMatch.lon);
-    const autoRel = (autoBearing - huidigeRichting + 360) % 360;
-    const autoRichtLabel = autoRel < 45 || autoRel >= 315 ? '↑ Midden' :
-                           autoRel < 135 ? '↗ Rechts' :
-                           autoRel < 225 ? '↓ Achter' : '↖ Links';
-    html += `<div class="nc-auto-indicator">${autoRichtLabel} Auto-selectie: ${autoNaam} — tap om te wijzigen</div>`;
+    const autoR = autoMatch._richting || '↑ Rechtdoor';
+    html += `<div class="nc-auto-indicator">🤖 Auto: ${autoR} — tap om te wijzigen</div>`;
   }
   html += kandidaten.map(n => {
     const afStr = n.afstand < 1000 ? `${Math.round(n.afstand)}m` : `${(n.afstand/1000).toFixed(1)}km`;
     const isActief = String(n.id) === huidigId;
-    const naam = (n.naam || (n.slim ? '⚡ Slim' : 'Stoplicht')) + (isActief ? ' (actief)' : '');
-    const bearing = berekenBearing(lat, lon, n.lat, n.lon);
-    const rel = (bearing - huidigeRichting + 360) % 360;
-    const richtLabel = rel < 45 || rel >= 315 ? '↑ Midden' :
-                       rel < 135 ? '↗ Rechts' :
-                       rel < 225 ? '↓ Achter' : '↖ Links';
+    const naam = n.naam || (n.slim ? '⚡ Slim' : 'Stoplicht');
     const alleM = Object.keys(DD).flatMap(d => laadM(n.id, d));
     const leerStr = alleM.length
       ? `${alleM.length}x · ${Math.round(gewGem(alleM)||0)}s gem`
       : 'Nieuw';
     const dotKleur = alleM.length >= 10 ? '#30D158' : alleM.length >= 3 ? '#FF9500' : '#FF3B30';
     return `<button class="nc-knop${isActief ? ' actief' : ''}" onclick="kiesNode(${n.id})">
-      <span class="nc-kleur-dot" style="background:${dotKleur}"></span>
-      <span style="flex:1">${richtLabel} ${naam}</span>
-      <span class="nc-knop-af">${afStr} · ${leerStr}</span></button>`;
+      <div class="nc-knop-top"><span class="nc-kleur-dot" style="background:${dotKleur}"></span><span class="nc-richting">${n._richting}</span></div>
+      <div class="nc-knop-mid">${naam}${isActief ? ' <span class="nc-actief-label">(actief)</span>' : ''} <span class="nc-knop-af">${afStr}</span></div>
+      <div class="nc-knop-leer">${leerStr}</div></button>`;
   }).join('');
   lijst.innerHTML = html;
 
   document.getElementById('node-correctie-overlay').style.display = 'block';
   document.getElementById('node-correctie-sheet').style.display = 'block';
-  const container = document.getElementById('mini-kaart-container');
-  if (container) container.style.display = 'block';
-  mkInitNodeSelector();
-  tekenNodeSelector(kandidaten);
 }
 
 function sluitNodeCorrectieSheet() {
   document.getElementById('node-correctie-overlay').style.display = 'none';
   document.getElementById('node-correctie-sheet').style.display = 'none';
-  const container = document.getElementById('mini-kaart-container');
-  if (container) container.style.display = 'none';
 }
 
 function kiesNode(nodeId) {
@@ -3365,112 +3377,6 @@ function autoSelecteerNode(osmId, kandidaten, heading) {
   return kandidaten.find(k => String(k.id) === opgeslagenId) || null;
 }
 
-
-// V8.9.7: Mini-kaart als node-selector (verschijnt alleen bij correctie-overlay)
-let mkNodeHitMap = [];
-const MK_NODE_R = 28;
-
-function tekenNodeSelector(kandidaten) {
-  const canvas = document.getElementById('mini-kaart');
-  if (!canvas || !huidigePos) return;
-  const ctx = canvas.getContext('2d');
-  const W = canvas.width, H = canvas.height, cx = W/2, cy = H/2;
-  const gLat = huidigePos.lat, gLon = huidigePos.lon;
-  const cosLat = Math.cos(gLat * Math.PI / 180);
-  const h = huidigeRichting * Math.PI / 180;
-  const SCALE = 3;
-
-  ctx.fillStyle = '#000';
-  ctx.fillRect(0, 0, W, H);
-
-  mkNodeHitMap = [];
-  const huidigId = manueleNodeId || (dichtstbijOSM ? String(dichtstbijOSM.id) : null);
-
-  for (const n of kandidaten) {
-    const dLat = (n.lat - gLat) * 111320;
-    const dLon = (n.lon - gLon) * 111320 * cosLat;
-    const px = cx + (dLon * Math.cos(h) - dLat * Math.sin(h)) / SCALE;
-    const py = cy - (dLat * Math.cos(h) + dLon * Math.sin(h)) / SCALE;
-    mkNodeHitMap.push({ osmId: String(n.id), px, py });
-
-    const alleM = Object.keys(DD).flatMap(d => laadM(n.id, d));
-    const kleur = alleM.length >= 10 ? '#30D158' : alleM.length >= 3 ? '#FF9500' : '#FF3B30';
-    const isActief = String(n.id) === huidigId;
-
-    ctx.beginPath();
-    ctx.arc(px, py, MK_NODE_R, 0, Math.PI * 2);
-    ctx.fillStyle = kleur + '44';
-    ctx.fill();
-    ctx.strokeStyle = isActief ? '#0A84FF' : kleur;
-    ctx.lineWidth = isActief ? 3 : 2;
-    ctx.stroke();
-
-    if (isActief) {
-      ctx.beginPath();
-      ctx.arc(px, py, MK_NODE_R + 5, 0, Math.PI * 2);
-      ctx.strokeStyle = '#0A84FF';
-      ctx.lineWidth = 2;
-      ctx.stroke();
-    }
-
-    const bearing = berekenBearing(gLat, gLon, n.lat, n.lon);
-    const rel = (bearing - huidigeRichting + 360) % 360;
-    const richtLabel = rel < 45 || rel >= 315 ? '\u2191 Midden' :
-                       rel < 135 ? '\u2197 Rechts' :
-                       rel < 225 ? '\u2193 Achter' : '\u2196 Links';
-    const afStr = n.afstand < 1000 ? `${Math.round(n.afstand)}m` : `${(n.afstand/1000).toFixed(1)}km`;
-    ctx.fillStyle = '#fff';
-    ctx.font = 'bold 10px sans-serif';
-    ctx.textAlign = 'center';
-    ctx.textBaseline = 'bottom';
-    ctx.fillText(`${richtLabel} ${afStr}`, px, py - MK_NODE_R - 4);
-  }
-
-  ctx.save();
-  ctx.translate(cx, cy);
-  ctx.shadowColor = '#fff';
-  ctx.shadowBlur = 6;
-  ctx.beginPath();
-  ctx.moveTo(0, -10);
-  ctx.lineTo(-6, 7);
-  ctx.lineTo(0, 3);
-  ctx.lineTo(6, 7);
-  ctx.closePath();
-  ctx.fillStyle = '#fff';
-  ctx.fill();
-  ctx.restore();
-}
-
-function mkInitNodeSelector() {
-  const canvas = document.getElementById('mini-kaart');
-  if (!canvas || canvas._mkListenerAdded) return;
-  canvas._mkListenerAdded = true;
-  canvas.addEventListener('click', (e) => {
-    const rect = canvas.getBoundingClientRect();
-    const mx = (e.clientX - rect.left) * (canvas.width / rect.width);
-    const my = (e.clientY - rect.top) * (canvas.height / rect.height);
-    for (const hit of mkNodeHitMap) {
-      if (Math.hypot(mx - hit.px, my - hit.py) <= MK_NODE_R) {
-        kiesNode(hit.osmId);
-        return;
-      }
-    }
-  });
-  canvas.addEventListener('touchend', (e) => {
-    if (e.changedTouches.length !== 1) return;
-    e.preventDefault();
-    const rect = canvas.getBoundingClientRect();
-    const t = e.changedTouches[0];
-    const mx = (t.clientX - rect.left) * (canvas.width / rect.width);
-    const my = (t.clientY - rect.top) * (canvas.height / rect.height);
-    for (const hit of mkNodeHitMap) {
-      if (Math.hypot(mx - hit.px, my - hit.py) <= MK_NODE_R) {
-        kiesNode(hit.osmId);
-        return;
-      }
-    }
-  }, {passive:false});
-}
 
 // V8.9.0 Feature 1: Vertrouwensindicator
 function berekenVertrouwen(afstandM) {
@@ -3873,8 +3779,8 @@ bijwerkDashboardKnop();
 <div id="node-correctie-overlay"></div>
 <div id="node-correctie-sheet">
   <h3>Kies stoplicht</h3>
+  <button class="nc-sluit" onclick="sluitNodeCorrectieSheet()">✕</button>
   <div id="node-correctie-lijst"></div>
 </div>
-<div id="mini-kaart-container"><canvas id="mini-kaart" width="180" height="180"></canvas></div>
 </body>
 </html>
