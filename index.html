@@ -289,7 +289,7 @@
     #node-correctie-overlay{position:fixed;inset:0;background:rgba(0,0,0,0.55);z-index:9800;display:none}
     #node-correctie-sheet{position:fixed;bottom:0;left:0;right:0;background:#1a1a1a;
       border-top:1px solid rgba(255,255,255,0.12);border-radius:16px 16px 0 0;
-      padding:16px 16px 32px;z-index:9801;display:none;max-height:60vh;overflow-y:auto}
+      padding:16px 16px 32px;z-index:9801;display:none;max-height:65vh;overflow-y:auto}
     #node-correctie-sheet h3{font-family:"Rajdhani",sans-serif;font-size:14px;
       color:rgba(255,255,255,0.5);margin:0 0 12px;text-transform:uppercase;letter-spacing:0.08em}
     .nc-knop{display:flex;flex-direction:column;width:100%;
@@ -344,6 +344,7 @@
     <button class="richting-btn rechts" onclick="tikRichting('rechts')"><span class="richting-pijl">↗</span>RECHTS</button>
   </div>
 </div>
+<div id="rijrichting-bevestiging" style="font-size:11px;color:#30D158;opacity:0;transition:opacity 0.3s;height:16px;text-align:center;pointer-events:none;"></div>
 
 <div id="bodem-balk">
   <div id="debug">
@@ -951,6 +952,10 @@ let geselecteerdeRichting = null;
 let richtingResetDebounce = null;
 // V8.8.2: Bbox-grootte zoom override
 let bboxDichtbij = false;
+let bboxZoneHistory = [];
+let huidigeDetectieBboxX = null;
+let bboxTijd = 0;
+const BBOX_STABILITEIT = 5;
 // V8.8.3: Afstandsweergave bevriezen bij stilstand rood
 let bevrorenAfstandM = null;
 // V8.8.2: Richtingknop éénmalig per rode fase
@@ -1373,6 +1378,7 @@ function _verwerkWorkerResultaat(detecties) {
     debugWaarden.ai = 'ai:weg';
     laatsteAI = null; nieuwAIResultaat = true;
     bboxDichtbij = false; // V8.8.2
+    bboxZoneHistory = []; huidigeDetectieBboxX = null;
     s1GebruikteNodesDezeRun.clear();
     return;
   }
@@ -1393,6 +1399,16 @@ function _verwerkWorkerResultaat(detecties) {
   }
   // V8.8.2: Bbox-grootte zoom override — groot stoplicht = dichtbij
   bboxDichtbij = (beste.h > 96);
+  if (beste.cx !== undefined) {
+    const _bboxCx = beste.cx / YOLO_SIZE;
+    const _bboxZone = _bboxCx < 0.4 ? 'links' : _bboxCx > 0.6 ? 'rechts' : 'midden';
+    bboxZoneHistory.push(_bboxZone);
+    if (bboxZoneHistory.length > BBOX_STABILITEIT) bboxZoneHistory.shift();
+    if (bboxZoneHistory.every(z => z === _bboxZone)) {
+      huidigeDetectieBboxX = _bboxCx;
+      bboxTijd = Date.now();
+    }
+  }
   const gesmoothedScore = pasConfidenceSmoothingToe(beste.klasse, beste.score);
   vorigeDetectie = { cx:beste.cx, cy:beste.cy };
   debugWaarden.ai = `ai:${kleur} ${(gesmoothedScore*100).toFixed(0)}% [${detecties.length}]`;
@@ -2829,6 +2845,39 @@ function tikRichting(richting) {
     if (btn.textContent.toLowerCase().includes(richting)) btn.classList.add('gekozen');
   });
   setTimeout(verbergRichtingKnoppen, 1200);
+
+  // V8.9.8 DEEL 5: Koppel rijrichtingknop aan node-selectie
+  if (huidigePos && snelheidKmh < 20 && aiTeller >= 1 && osmCache.length) {
+    const {lat, lon} = huidigePos;
+    let kandiTik = osmCache
+      .map(n => ({...n, afstand: afstand(lat, lon, n.lat, n.lon)}))
+      .filter(n => n.afstand <= NODE_CORRECTIE_MAX_AFSTAND_M * 10)
+      .filter(n => isVoorJe(n, huidigeRichting))
+      .sort((a,b) => a.afstand - b.afstand)
+      .slice(0, NODE_CORRECTIE_MAX_AANTAL);
+    if (kandiTik.length === 0) {
+      kandiTik = osmCache
+        .map(n => ({...n, afstand: afstand(lat, lon, n.lat, n.lon)}))
+        .sort((a,b) => a.afstand - b.afstand)
+        .slice(0, 1);
+    }
+    if (kandiTik.length >= 2) {
+      classificeerNodesRelatief(kandiTik, huidigeRichting);
+      const richtingMap = { links:'links', rechtdoor:'midden', rechts:'rechts' };
+      const gezochteKey = richtingMap[richting];
+      const doelNode = kandiTik.find(n => n._richtingKey === gezochteKey);
+      if (doelNode && String(doelNode.id) !== vorigOsmId) {
+        kiesNode(doelNode.id);
+        slaRijrichtingOp(String(doelNode.id), String(doelNode.id), huidigeRichting);
+        const bevestEl = document.getElementById('rijrichting-bevestiging');
+        if (bevestEl) {
+          bevestEl.textContent = `✓ ${doelNode._richting} stoplicht geselecteerd`;
+          bevestEl.style.opacity = '1';
+          setTimeout(() => { bevestEl.style.opacity = '0'; }, 2000);
+        }
+      }
+    }
+  }
 }
 
 function renderRichtingBadge(nodeId) {
@@ -3249,48 +3298,93 @@ async function forceerVerreFocus(stream) {
   } catch(e) {}
 }
 
-// V8.9.8: Relatieve richting-classificatie
+// V8.9.8 DEEL 3: Relatieve richting-classificatie met schermPositie
 function classificeerNodesRelatief(kandidaten, heading) {
+  if (!huidigePos) return kandidaten;
   kandidaten.forEach(node => {
-    node._bearing = berekenBearing(huidigePos.lat, huidigePos.lon, node.lat, node.lon);
-    let delta = node._bearing - heading;
-    while (delta > 180) delta -= 360;
-    while (delta < -180) delta += 360;
-    node._delta = delta;
+    node._schermPos = bepaalSchermPositie(node, heading);
   });
-  kandidaten.sort((a, b) => a._delta - b._delta);
+  kandidaten.sort((a, b) => a._schermPos - b._schermPos);
+
+  // Fallback: als alle nodes te dicht bij elkaar liggen, verdeel gelijkmatig
+  if (kandidaten.length >= 2) {
+    const spread = kandidaten[kandidaten.length-1]._schermPos - kandidaten[0]._schermPos;
+    if (spread < 0.15) {
+      const posities = [0.2, 0.5, 0.8];
+      kandidaten.forEach((n, i) => { n._schermPos = posities[Math.min(i, posities.length-1)]; });
+    }
+  }
+
   if (kandidaten.length === 1) {
     kandidaten[0]._richting = '↑ Rechtdoor';
+    kandidaten[0]._richtingKey = 'midden';
   } else if (kandidaten.length === 2) {
     kandidaten[0]._richting = '↖ Links';
+    kandidaten[0]._richtingKey = 'links';
     kandidaten[1]._richting = '↗ Rechts';
+    kandidaten[1]._richtingKey = 'rechts';
   } else {
     kandidaten[0]._richting = '↖ Links';
-    kandidaten[kandidaten.length - 1]._richting = '↗ Rechts';
+    kandidaten[0]._richtingKey = 'links';
+    kandidaten[kandidaten.length-1]._richting = '↗ Rechts';
+    kandidaten[kandidaten.length-1]._richtingKey = 'rechts';
     for (let i = 1; i < kandidaten.length - 1; i++) {
       kandidaten[i]._richting = '↑ Midden';
+      kandidaten[i]._richtingKey = 'midden';
     }
   }
   return kandidaten;
 }
 
-// V8.9.8: Node-correctie overlay (alleen lijst, geen canvas)
+// V8.9.8 DEEL 1+4+6: Node-correctie overlay met filters, visuele balk, timeout
+let ncSluitTimer = null;
 function toonNodeCorrectieSheet() {
   if (!osmCache.length || !huidigePos) return;
   const {lat, lon} = huidigePos;
-  let kandidaten = osmCache
+
+  // Laag 1: filter en sortering
+  let alleNabij = osmCache
     .map(n => ({...n, afstand: afstand(lat, lon, n.lat, n.lon)}))
     .filter(n => n.afstand <= NODE_CORRECTIE_MAX_AFSTAND_M * 10)
-    .sort((a,b) => a.afstand - b.afstand)
-    .slice(0, NODE_CORRECTIE_MAX_AANTAL);
+    .sort((a,b) => a.afstand - b.afstand);
+  const dichtstbijFallback = alleNabij[0] || null;
+
+  let kandidaten = alleNabij.filter(n => isVoorJe(n, huidigeRichting));
+  if (kandidaten.length === 0 && dichtstbijFallback) kandidaten = [dichtstbijFallback];
+  kandidaten = filterDubbeleNodes(kandidaten, 8);
+  kandidaten = filterOnbetrouwbareNodes(kandidaten);
+  if (kandidaten.length === 0 && dichtstbijFallback) kandidaten = [dichtstbijFallback];
+  kandidaten = kandidaten.slice(0, NODE_CORRECTIE_MAX_AANTAL);
   if (!kandidaten.length) return;
 
+  // Laag 2: relatieve classificatie
   classificeerNodesRelatief(kandidaten, huidigeRichting);
 
   const osmId = dichtstbijOSM ? String(dichtstbijOSM.id) : null;
   const autoMatch = osmId ? autoSelecteerNode(osmId, kandidaten, huidigeRichting) : null;
   const huidigId = manueleNodeId || osmId;
 
+  // DEEL 4: visuele balk
+  const balk = document.getElementById('node-visuele-balk');
+  if (balk) {
+    balk.querySelectorAll('.nc-balk-node').forEach(el => el.remove());
+    const kleurEmoji = fase === 'rood' ? '🔴' : fase === 'groen' ? '🟢' :
+                       fase === 'oranje' ? '🟠' : '⚫';
+    kandidaten.forEach(node => {
+      const pct = Math.max(10, Math.min(90, (node._schermPos || 0.5) * 100));
+      const isActiefBalk = String(node.id) === (vorigOsmId || huidigId);
+      const el = document.createElement('div');
+      el.className = 'nc-balk-node';
+      el.style.cssText = `position:absolute;left:${pct}%;transform:translateX(-50%);top:18px;text-align:center;cursor:pointer;min-width:60px;padding:4px;`;
+      el.innerHTML = `<div style="font-size:22px;${isActiefBalk ? 'outline:2px solid #FFD60A;border-radius:50%;display:inline-block;' : ''}">${kleurEmoji}</div>`
+        + `<div style="font-size:11px;color:#fff;font-weight:700;margin-top:2px;">${node._richting}</div>`
+        + `<div style="font-size:9px;color:rgba(255,255,255,0.5);">${Math.round(node.afstand)}m</div>`;
+      el.onclick = () => kiesNode(node.id);
+      balk.appendChild(el);
+    });
+  }
+
+  // Tekstlijst
   const lijst = document.getElementById('node-correctie-lijst');
   let html = '';
   if (autoMatch) {
@@ -3306,20 +3400,25 @@ function toonNodeCorrectieSheet() {
       ? `${alleM.length}x · ${Math.round(gewGem(alleM)||0)}s gem`
       : 'Nieuw';
     const dotKleur = alleM.length >= 10 ? '#30D158' : alleM.length >= 3 ? '#FF9500' : '#FF3B30';
-    return `<button class="nc-knop${isActief ? ' actief' : ''}" onclick="kiesNode(${n.id})">
-      <div class="nc-knop-top"><span class="nc-kleur-dot" style="background:${dotKleur}"></span><span class="nc-richting">${n._richting}</span></div>
-      <div class="nc-knop-mid">${naam}${isActief ? ' <span class="nc-actief-label">(actief)</span>' : ''} <span class="nc-knop-af">${afStr}</span></div>
-      <div class="nc-knop-leer">${leerStr}</div></button>`;
+    return `<button class="nc-knop${isActief ? ' actief' : ''}" onclick="kiesNode(${n.id})">`
+      + `<div class="nc-knop-top"><span class="nc-kleur-dot" style="background:${dotKleur}"></span><span class="nc-richting">${n._richting}</span></div>`
+      + `<div class="nc-knop-mid">${naam}${isActief ? ' <span class="nc-actief-label">(actief)</span>' : ''} <span class="nc-knop-af">${afStr}</span></div>`
+      + `<div class="nc-knop-leer">${leerStr}</div></button>`;
   }).join('');
   lijst.innerHTML = html;
 
   document.getElementById('node-correctie-overlay').style.display = 'block';
   document.getElementById('node-correctie-sheet').style.display = 'block';
+
+  // DEEL 6: 10s auto-sluit timeout
+  if (ncSluitTimer) clearTimeout(ncSluitTimer);
+  ncSluitTimer = setTimeout(sluitNodeCorrectieSheet, 10000);
 }
 
 function sluitNodeCorrectieSheet() {
   document.getElementById('node-correctie-overlay').style.display = 'none';
   document.getElementById('node-correctie-sheet').style.display = 'none';
+  if (ncSluitTimer) { clearTimeout(ncSluitTimer); ncSluitTimer = null; }
 }
 
 function kiesNode(nodeId) {
@@ -3345,8 +3444,49 @@ function berekenBearing(la1, lo1, la2, lo2) {
   return (Math.atan2(y, x) * 180 / Math.PI + 360) % 360;
 }
 
+// V8.9.8 DEEL 1: Heading voorkant filter
+function isVoorJe(node, heading) {
+  if (!huidigePos || heading === null || heading === undefined) return true;
+  const bearing = berekenBearing(huidigePos.lat, huidigePos.lon, node.lat, node.lon);
+  let delta = bearing - heading;
+  while (delta > 180) delta -= 360;
+  while (delta < -180) delta += 360;
+  console.log(`[Filter] node:${node.id} delta:${Math.round(delta)}° → ${Math.abs(delta) < 60 ? 'VOOR' : 'ACHTER'}`);
+  return Math.abs(delta) < 60;
+}
+
+function filterDubbeleNodes(nodes, minAfstandM) {
+  const gefilterd = [];
+  for (const node of nodes) {
+    const teVeel = gefilterd.some(g => afstand(g.lat, g.lon, node.lat, node.lon) < minAfstandM);
+    if (!teVeel) gefilterd.push(node);
+  }
+  return gefilterd;
+}
+
+function filterOnbetrouwbareNodes(nodes) {
+  return nodes.filter(node => {
+    if (laadM(node.id, huidigDD()).length > 0) return true;
+    return !nodes.some(ander =>
+      ander.id !== node.id &&
+      afstand(node.lat, node.lon, ander.lat, ander.lon) < 15 &&
+      laadM(ander.id, huidigDD()).length > 0
+    );
+  });
+}
+
+// V8.9.8 DEEL 3: Scherm-positie berekening
+function bepaalSchermPositie(node, heading) {
+  const bearing = berekenBearing(huidigePos.lat, huidigePos.lon, node.lat, node.lon);
+  let delta = bearing - heading;
+  while (delta > 180) delta -= 360;
+  while (delta < -180) delta += 360;
+  return (delta + 90) / 180;
+}
+
 function slaRijrichtingOp(osmId, nodeId, heading) {
   const headingBucket = Math.round(heading / 45) * 45;
+  console.log(`[RijR] node:${osmId} heading:${Math.round(heading)}° bucket:${headingBucket}°`);
   const sleutel = `sl_rij_${osmId}`;
   let data = {};
   try { data = JSON.parse(localStorage.getItem(sleutel) || '{}'); } catch(e) {}
@@ -3780,6 +3920,7 @@ bijwerkDashboardKnop();
 <div id="node-correctie-sheet">
   <h3>Kies stoplicht</h3>
   <button class="nc-sluit" onclick="sluitNodeCorrectieSheet()">✕</button>
+  <div id="node-visuele-balk" style="width:100%;height:90px;background:rgba(0,0,0,0.5);border-radius:10px;position:relative;margin-bottom:12px;border:1px solid rgba(255,255,255,0.1);overflow:hidden;"><div style="position:absolute;top:4px;left:8px;font-size:9px;color:rgba(255,255,255,0.3);font-family:monospace;letter-spacing:0.05em;">← camerascherm →</div></div>
   <div id="node-correctie-lijst"></div>
 </div>
 </body>
