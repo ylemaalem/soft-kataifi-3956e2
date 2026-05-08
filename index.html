@@ -363,7 +363,7 @@
 <div id="startscherm">
   <div id="s-icoon">🚦</div>
   <div id="s-titel">Stoplicht<span>IQ</span></div>
-  <div id="s-versie">V8.9.8</div>
+  <div id="s-versie">V8.9.9</div>
   <div id="s-model-wrap">
     <div id="s-model-rij">
       <div id="s-model-label">🤖 YOLOv8 model laden…</div>
@@ -1407,32 +1407,6 @@ function _verwerkWorkerResultaat(detecties) {
     if (bboxZoneHistory.every(z => z === _bboxZone)) {
       huidigeDetectieBboxX = _bboxCx;
       bboxTijd = Date.now();
-      // Bbox-auto-selectie: stabiele bbox wijst node aan
-      if (huidigePos && osmCache.length) {
-        const {lat, lon} = huidigePos;
-        let bboxKandi = osmCache
-          .map(n => ({...n, afstand: afstand(lat, lon, n.lat, n.lon)}))
-          .filter(n => n.afstand <= NODE_CORRECTIE_MAX_AFSTAND_M * 10)
-          .filter(n => isVoorJe(n, huidigeRichting))
-          .sort((a,b) => a.afstand - b.afstand)
-          .slice(0, NODE_CORRECTIE_MAX_AANTAL);
-        if (bboxKandi.length >= 2) {
-          classificeerNodesRelatief([...bboxKandi], huidigeRichting);
-          const doelKey = _bboxCx < 0.4 ? 'links' : _bboxCx > 0.6 ? 'rechts' : 'midden';
-          const doelNode = bboxKandi.find(n => n._richtingKey === doelKey);
-          if (doelNode && String(doelNode.id) !== vorigOsmId) {
-            kiesNode(doelNode.id);
-            slaRijrichtingOp(String(doelNode.id), String(doelNode.id), huidigeRichting);
-            console.log(`[BboxAuto] → ${doelKey} node:${doelNode.id}`);
-            const bevestEl = document.getElementById('rijrichting-bevestiging');
-            if (bevestEl) {
-              bevestEl.textContent = '🎯 Stoplicht auto-herkend';
-              bevestEl.style.opacity = '1';
-              setTimeout(() => { bevestEl.style.opacity = '0'; }, 2000);
-            }
-          }
-        }
-      }
     }
   }
   const gesmoothedScore = pasConfidenceSmoothingToe(beste.klasse, beste.score);
@@ -2870,6 +2844,38 @@ function tikRichting(richting) {
   knoppen.forEach(btn => {
     if (btn.textContent.toLowerCase().includes(richting)) btn.classList.add('gekozen');
   });
+
+  // V8.9.9: Sla route op + zoek geleerde node
+  if (vorigOsmId && huidigePos) {
+    const kruispuntId = dichtstbijOSM ? String(dichtstbijOSM.id) : vorigOsmId;
+    slaRouteOp(kruispuntId, vorigOsmId, huidigeRichting, richting);
+
+    // Zoek geleerde node voor deze richting
+    const {lat, lon} = huidigePos;
+    let kandiLeer = osmCache
+      .map(n => ({...n, afstand: afstand(lat, lon, n.lat, n.lon)}))
+      .filter(n => n.afstand <= NODE_CORRECTIE_MAX_AFSTAND_M * 10)
+      .filter(n => isVoorJe(n, huidigeRichting))
+      .sort((a,b) => a.afstand - b.afstand)
+      .slice(0, NODE_CORRECTIE_MAX_AANTAL);
+    if (kandiLeer.length === 0) {
+      kandiLeer = osmCache
+        .map(n => ({...n, afstand: afstand(lat, lon, n.lat, n.lon)}))
+        .sort((a,b) => a.afstand - b.afstand)
+        .slice(0, 1);
+    }
+    const geleerd = zoekGeleerdeNode(kruispuntId, huidigeRichting, richting, kandiLeer);
+    if (geleerd && geleerd._routeCount >= 3 && String(geleerd.id) !== vorigOsmId) {
+      kiesNode(geleerd.id);
+      const bevestEl = document.getElementById('rijrichting-bevestiging');
+      if (bevestEl) {
+        bevestEl.textContent = '\u{1f3af} Bekend kruispunt \u2014 auto-selectie';
+        bevestEl.style.opacity = '1';
+        setTimeout(() => { bevestEl.style.opacity = '0'; }, 2000);
+      }
+    }
+  }
+
   setTimeout(verbergRichtingKnoppen, 1200);
 }
 
@@ -3354,7 +3360,6 @@ function toonNodeCorrectieSheet() {
   classificeerNodesRelatief(kandidaten, huidigeRichting);
 
   const osmId = dichtstbijOSM ? String(dichtstbijOSM.id) : null;
-  const autoMatch = osmId ? autoSelecteerNode(osmId, kandidaten, huidigeRichting) : null;
   const huidigId = manueleNodeId || osmId;
 
   // DEEL 4: visuele balk
@@ -3377,13 +3382,9 @@ function toonNodeCorrectieSheet() {
     });
   }
 
-  // Tekstlijst
+  // Tekstlijst met leervoortgang
   const lijst = document.getElementById('node-correctie-lijst');
   let html = '';
-  if (autoMatch) {
-    const autoR = autoMatch._richting || '↑ Rechtdoor';
-    html += `<div class="nc-auto-indicator">🤖 Auto: ${autoR} — tap om te wijzigen</div>`;
-  }
   html += kandidaten.map(n => {
     const afStr = n.afstand < 1000 ? `${Math.round(n.afstand)}m` : `${(n.afstand/1000).toFixed(1)}km`;
     const isActief = String(n.id) === huidigId;
@@ -3393,10 +3394,24 @@ function toonNodeCorrectieSheet() {
       ? `${alleM.length}x · ${Math.round(gewGem(alleM)||0)}s gem`
       : 'Nieuw';
     const dotKleur = alleM.length >= 10 ? '#30D158' : alleM.length >= 3 ? '#FF9500' : '#FF3B30';
+    // V8.9.9: toon leervoortgang per node
+    let routeInfo = '';
+    if (osmId) {
+      const bucket = Math.round(huidigeRichting / 45) * 45;
+      let routes = [];
+      try { routes = JSON.parse(localStorage.getItem(`sl_route_${osmId}`) || '[]'); } catch(e) {}
+      const match = routes.find(r =>
+        r.nodeId === String(n.id) &&
+        Math.abs(((r.aanrijBucket - bucket + 540) % 360) - 180) < 45
+      );
+      if (match) {
+        routeInfo = `<div style="font-size:10px;color:#30D158;margin-top:2px;">✓ ${match.count}x bevestigd via ${match.afrijRichting}</div>`;
+      }
+    }
     return `<button class="nc-knop${isActief ? ' actief' : ''}" onclick="kiesNode(${n.id})">`
       + `<div class="nc-knop-top"><span class="nc-kleur-dot" style="background:${dotKleur}"></span><span class="nc-richting">${n._richting}</span></div>`
       + `<div class="nc-knop-mid">${naam}${isActief ? ' <span class="nc-actief-label">(actief)</span>' : ''} <span class="nc-knop-af">${afStr}</span></div>`
-      + `<div class="nc-knop-leer">${leerStr}</div></button>`;
+      + `<div class="nc-knop-leer">${leerStr}</div>${routeInfo}</button>`;
   }).join('');
   lijst.innerHTML = html;
 
@@ -3421,7 +3436,14 @@ function kiesNode(nodeId) {
   if (gevonden) dichtstbijOSM = gevonden;
   manueleNodeId = nodeStr;
   localStorage.setItem('sl_manueel_actief', nodeStr);
-  if (huidigePos) slaRijrichtingOp(nodeStr, nodeStr, huidigeRichting);
+  // V8.9.9: handmatige selectie = 2 stemmen (count bonus)
+  if (huidigePos && dichtstbijOSM) {
+    const kruispuntId = String(dichtstbijOSM.id);
+    const richtingData = laadRichtingData(nodeStr);
+    const afrijR = (richtingData && richtingData.tikrichting) || 'rechtdoor';
+    slaRouteOp(kruispuntId, nodeStr, huidigeRichting, afrijR);
+    slaRouteOp(kruispuntId, nodeStr, huidigeRichting, afrijR);
+  }
   sluitNodeCorrectieSheet();
   if (huidigePos) updateDichtbij(huidigePos.lat, huidigePos.lon);
 }
@@ -3477,37 +3499,52 @@ function bepaalSchermPositie(node, heading) {
   return (delta + 90) / 180;
 }
 
-function slaRijrichtingOp(osmId, nodeId, heading) {
-  const headingBucket = Math.round(heading / 45) * 45;
-  console.log(`[RijR] node:${osmId} heading:${Math.round(heading)}° bucket:${headingBucket}°`);
-  const sleutel = `sl_rij_${osmId}`;
-  let data = {};
-  try { data = JSON.parse(localStorage.getItem(sleutel) || '{}'); } catch(e) {}
-  if (!data[headingBucket]) {
-    data[headingBucket] = { nodeId: String(nodeId), count: 1 };
-  } else if (data[headingBucket].nodeId === String(nodeId)) {
-    data[headingBucket].count++;
+function slaRouteOp(kruispuntId, nodeId, aanrijHeading, afrijRichting) {
+  const bucket = Math.round(aanrijHeading / 45) * 45;
+  const sleutel = `sl_route_${kruispuntId}`;
+  let routes = [];
+  try { routes = JSON.parse(localStorage.getItem(sleutel) || '[]'); } catch(e) {}
+  const bestaand = routes.find(r =>
+    r.aanrijBucket === bucket &&
+    r.afrijRichting === afrijRichting &&
+    r.nodeId === nodeId
+  );
+  if (bestaand) {
+    bestaand.count++;
+    bestaand.timestamp = Date.now();
   } else {
-    data[headingBucket] = { nodeId: String(nodeId), count: 1 };
+    routes.push({
+      aanrijBucket: bucket,
+      afrijRichting: afrijRichting,
+      nodeId: nodeId,
+      count: 1,
+      timestamp: Date.now()
+    });
   }
-  data[headingBucket].timestamp = Date.now();
-  try { localStorage.setItem(sleutel, JSON.stringify(data)); } catch(e) {}
+  if (routes.length > 20) {
+    routes.sort((a,b) => b.timestamp - a.timestamp);
+    routes = routes.slice(0, 20);
+  }
+  try { localStorage.setItem(sleutel, JSON.stringify(routes)); } catch(e) {}
+  console.log(`[Route] opgeslagen: kruispunt:${kruispuntId} node:${nodeId} richting:${afrijRichting} bucket:${bucket} count:${bestaand ? bestaand.count : 1}`);
 }
 
-function autoSelecteerNode(osmId, kandidaten, heading) {
-  const sleutel = `sl_rij_${osmId}`;
-  let data = {};
-  try { data = JSON.parse(localStorage.getItem(sleutel) || '{}'); } catch(e) { return null; }
-  let besteBucket = null, besteDelta = 30;
-  for (const bucketStr of Object.keys(data)) {
-    const delta = headingDelta(heading, parseInt(bucketStr));
-    if (delta < besteDelta && data[bucketStr].count >= 2) {
-      besteDelta = delta; besteBucket = bucketStr;
-    }
-  }
-  if (besteBucket === null) return null;
-  const opgeslagenId = data[besteBucket].nodeId;
-  return kandidaten.find(k => String(k.id) === opgeslagenId) || null;
+function zoekGeleerdeNode(kruispuntId, aanrijHeading, afrijRichting, kandidaten) {
+  const bucket = Math.round(aanrijHeading / 45) * 45;
+  const sleutel = `sl_route_${kruispuntId}`;
+  let routes = [];
+  try { routes = JSON.parse(localStorage.getItem(sleutel) || '[]'); } catch(e) { return null; }
+  const matches = routes.filter(r =>
+    r.afrijRichting === afrijRichting &&
+    Math.abs(((r.aanrijBucket - bucket + 540) % 360) - 180) < 45 &&
+    r.count >= 1
+  );
+  if (!matches.length) return null;
+  matches.sort((a, b) => b.count - a.count);
+  const beste = matches[0];
+  const node = kandidaten.find(k => String(k.id) === beste.nodeId) || null;
+  if (node) node._routeCount = beste.count;
+  return node;
 }
 
 
