@@ -1407,6 +1407,32 @@ function _verwerkWorkerResultaat(detecties) {
     if (bboxZoneHistory.every(z => z === _bboxZone)) {
       huidigeDetectieBboxX = _bboxCx;
       bboxTijd = Date.now();
+      // Bbox-auto-selectie: stabiele bbox wijst node aan
+      if (huidigePos && osmCache.length) {
+        const {lat, lon} = huidigePos;
+        let bboxKandi = osmCache
+          .map(n => ({...n, afstand: afstand(lat, lon, n.lat, n.lon)}))
+          .filter(n => n.afstand <= NODE_CORRECTIE_MAX_AFSTAND_M * 10)
+          .filter(n => isVoorJe(n, huidigeRichting))
+          .sort((a,b) => a.afstand - b.afstand)
+          .slice(0, NODE_CORRECTIE_MAX_AANTAL);
+        if (bboxKandi.length >= 2) {
+          classificeerNodesRelatief([...bboxKandi], huidigeRichting);
+          const doelKey = _bboxCx < 0.4 ? 'links' : _bboxCx > 0.6 ? 'rechts' : 'midden';
+          const doelNode = bboxKandi.find(n => n._richtingKey === doelKey);
+          if (doelNode && String(doelNode.id) !== vorigOsmId) {
+            kiesNode(doelNode.id);
+            slaRijrichtingOp(String(doelNode.id), String(doelNode.id), huidigeRichting);
+            console.log(`[BboxAuto] → ${doelKey} node:${doelNode.id}`);
+            const bevestEl = document.getElementById('rijrichting-bevestiging');
+            if (bevestEl) {
+              bevestEl.textContent = '🎯 Stoplicht auto-herkend';
+              bevestEl.style.opacity = '1';
+              setTimeout(() => { bevestEl.style.opacity = '0'; }, 2000);
+            }
+          }
+        }
+      }
     }
   }
   const gesmoothedScore = pasConfidenceSmoothingToe(beste.klasse, beste.score);
@@ -2845,39 +2871,6 @@ function tikRichting(richting) {
     if (btn.textContent.toLowerCase().includes(richting)) btn.classList.add('gekozen');
   });
   setTimeout(verbergRichtingKnoppen, 1200);
-
-  // V8.9.8 DEEL 5: Koppel rijrichtingknop aan node-selectie
-  if (huidigePos && snelheidKmh < 20 && aiTeller >= 1 && osmCache.length) {
-    const {lat, lon} = huidigePos;
-    let kandiTik = osmCache
-      .map(n => ({...n, afstand: afstand(lat, lon, n.lat, n.lon)}))
-      .filter(n => n.afstand <= NODE_CORRECTIE_MAX_AFSTAND_M * 10)
-      .filter(n => isVoorJe(n, huidigeRichting))
-      .sort((a,b) => a.afstand - b.afstand)
-      .slice(0, NODE_CORRECTIE_MAX_AANTAL);
-    if (kandiTik.length === 0) {
-      kandiTik = osmCache
-        .map(n => ({...n, afstand: afstand(lat, lon, n.lat, n.lon)}))
-        .sort((a,b) => a.afstand - b.afstand)
-        .slice(0, 1);
-    }
-    if (kandiTik.length >= 2) {
-      classificeerNodesRelatief(kandiTik, huidigeRichting);
-      const richtingMap = { links:'links', rechtdoor:'midden', rechts:'rechts' };
-      const gezochteKey = richtingMap[richting];
-      const doelNode = kandiTik.find(n => n._richtingKey === gezochteKey);
-      if (doelNode && String(doelNode.id) !== vorigOsmId) {
-        kiesNode(doelNode.id);
-        slaRijrichtingOp(String(doelNode.id), String(doelNode.id), huidigeRichting);
-        const bevestEl = document.getElementById('rijrichting-bevestiging');
-        if (bevestEl) {
-          bevestEl.textContent = `✓ ${doelNode._richting} stoplicht geselecteerd`;
-          bevestEl.style.opacity = '1';
-          setTimeout(() => { bevestEl.style.opacity = '0'; }, 2000);
-        }
-      }
-    }
-  }
 }
 
 function renderRichtingBadge(nodeId) {
