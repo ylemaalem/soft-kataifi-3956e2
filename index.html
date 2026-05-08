@@ -363,7 +363,7 @@
 <div id="startscherm">
   <div id="s-icoon">🚦</div>
   <div id="s-titel">Stoplicht<span>IQ</span></div>
-  <div id="s-versie">V8.9.9</div>
+  <div id="s-versie">V8.9.10</div>
   <div id="s-model-wrap">
     <div id="s-model-rij">
       <div id="s-model-label">🤖 YOLOv8 model laden…</div>
@@ -505,9 +505,11 @@
     <div style="display:flex;align-items:center;justify-content:space-between">
       <div style="font-size:12px;font-weight:600;color:#BF5AF2;letter-spacing:0.08em;text-transform:uppercase">Trainingsdata</div>
       <div id="tf-teller" style="font-family:'Share Tech Mono',monospace;font-size:11px;color:var(--dim)">0/500 frames</div>
+      <div id="tf-oranje-teller" style="font-family:'Share Tech Mono',monospace;font-size:10px;color:#FF9F0A;display:none">0/200 oranje</div>
     </div>
     <div style="display:flex;gap:8px;flex-wrap:wrap">
-      <button id="tf-toggle-btn" onclick="toggleTrainframes()" style="flex:1;padding:8px 12px;background:rgba(52,199,89,0.2);color:#34C759;border:1px solid rgba(52,199,89,0.4);border-radius:8px;font-size:12px;cursor:pointer;min-width:100px">▶ Verzamelen</button>
+      <button id="tf-toggle-btn" onclick="toggleTrainframes()" style="flex:1;padding:8px 12px;background:rgba(52,199,89,0.2);color:#34C759;border:1px solid rgba(52,199,89,0.4);border-radius:8px;font-size:12px;cursor:pointer;min-width:90px">▶ Verzamelen</button>
+      <button id="tf-oranje-btn" onclick="toggleOranjeFocus()" style="flex:1;padding:8px 12px;background:rgba(255,159,10,0.15);color:#FF9F0A;border:1px solid rgba(255,159,10,0.3);border-radius:8px;font-size:12px;cursor:pointer;min-width:90px;opacity:0.5">🟠 Oranje focus</button>
       <button onclick="exporteerTrainframes()" style="flex:1;padding:8px 12px;background:rgba(191,90,242,0.2);color:#BF5AF2;border:1px solid rgba(191,90,242,0.4);border-radius:8px;font-size:12px;cursor:pointer;min-width:100px">📦 Exporteer</button>
       <button onclick="verwijderTrainframes()" style="padding:8px 12px;background:rgba(255,48,48,0.15);color:#FF3030;border:1px solid rgba(255,48,48,0.3);border-radius:8px;font-size:12px;cursor:pointer">🗑 Wis</button>
     </div>
@@ -1032,6 +1034,12 @@ const TRAINFRAMES_MIN_INTERVAL=3000;       // min interval voor zekere frames (h
 const TRAINFRAMES_TWIJFEL_INTERVAL=8000;   // min interval voor twijfelframes — minder frequent
 let trainframesAan=false, trainframesTeller=0, trainframesLaatstOpgeslagen=0, trainframesDB=null;
 let trainframesLaatstTwijfelOpgeslagen=0;  // apart bijhouden voor twijfelframes
+// V8.9.10: Oranje focus trainmodus
+let oranjeFocusAan=false, oranjeFramesTeller=0;
+const ORANJE_FRAMES_MAX=200;
+const ORANJE_MIN_INTERVAL=1000;
+let oranjeLaatstOpgeslagen=0;
+let laatsteFaseOvergangVanRood=0;
 
 // V8.7: Camera exposure compensatie bij nacht
 let nachtExposureActief=false;
@@ -1414,6 +1422,7 @@ function _verwerkWorkerResultaat(detecties) {
   debugWaarden.ai = `ai:${kleur} ${(gesmoothedScore*100).toFixed(0)}% [${detecties.length}]`;
   const kcheck = kleurCheckInBox(beste);
   if (kcheck) debugWaarden.ai += ` kc:${kcheck.kleur}`;
+  if (kcheck && oranjeFocusAan && trainframesAan) slaOranjeFrameOp(kcheck);
   laatsteAI = {
     kleur, horizontaal: beste.w > beste.h*1.3, score: gesmoothedScore,
     box: { x:(beste.x1-lbPadX)/lbScale, y:(beste.y1-lbPadY)/lbScale,
@@ -1726,6 +1735,7 @@ function verwerkFase(nieuw, horizontaal) {
   if (fase === 'groen' && groenStart !== null) groenDuur = (nu-groenStart)/1000;
   if (nieuw === 'groen') {
     groenStart = nu;
+    if (fase === 'rood') laatsteFaseOvergangVanRood = Date.now();
     // V8.8.7: Rood → groen overgang → fingerprint patroon opslaan
     if (fase === 'rood' && roodFaseStartMs !== null && dichtstbijOSM) {
       try {
@@ -1753,6 +1763,7 @@ function verwerkFase(nieuw, horizontaal) {
       bijwerkLeerkaart(dichtstbijOSM); bijwerkDashboardKnop();
     }
   }
+  if (fase === 'rood' && (nieuw === 'oranje' || nieuw === 'groen')) laatsteFaseOvergangVanRood = Date.now();
   fase=nieuw; faseStart=nu; geenTeller=0; aiTeller=0; aiKleur=nieuw;
   updateUI(nieuw, horizontaal);
   if (nieuw==='groen') speelGroen();
@@ -3141,10 +3152,11 @@ function renderTagInDashboard(nodeId) {
 // ── V8.5: TRAININGSDATA ──────────────────────────────────────
 function openTrainframesDB() {
   return new Promise((resolve,reject) => {
-    const req = indexedDB.open('StoplichtIQ_Trainframes', 1);
+    const req = indexedDB.open('StoplichtIQ_Trainframes', 2);
     req.onupgradeneeded = (e) => {
       const db=e.target.result;
       if (!db.objectStoreNames.contains('frames')) db.createObjectStore('frames', { keyPath:'id', autoIncrement:true });
+      if (!db.objectStoreNames.contains('oranje_frames')) db.createObjectStore('oranje_frames', { keyPath:'id', autoIncrement:true });
     };
     req.onsuccess = (e) => { trainframesDB=e.target.result; resolve(trainframesDB); };
     req.onerror   = (e) => reject(e);
@@ -3158,6 +3170,13 @@ async function laadTrainframesTeller() {
     const req = tx.objectStore('frames').count();
     return new Promise(r => { req.onsuccess=()=>{trainframesTeller=req.result;r(trainframesTeller);}; req.onerror=()=>r(0); });
   } catch(e) { return 0; }
+}
+
+// V8.9.10: Bij init ook oranje teller laden
+async function laadAlleTrainframeTellers() {
+  await laadTrainframesTeller();
+  await laadOranjeFramesTeller();
+  updateTrainframesTeller();
 }
 
 // twijfel=true: confidence 0.35-0.60 — apart markeren voor handmatige controle
@@ -3201,6 +3220,56 @@ function toggleTrainframes() {
 function updateTrainframesTeller() {
   const el = document.getElementById('tf-teller');
   if (el) el.textContent = `${trainframesTeller}/${TRAINFRAMES_MAX} frames${trainframesAan?' (actief)':''}`;
+  const oEl = document.getElementById('tf-oranje-teller');
+  if (oEl) {
+    oEl.style.display = oranjeFocusAan ? 'block' : 'none';
+    oEl.textContent = `${oranjeFramesTeller}/${ORANJE_FRAMES_MAX} oranje${oranjeFocusAan?' (actief)':''}`;
+  }
+}
+
+function toggleOranjeFocus() {
+  oranjeFocusAan = !oranjeFocusAan;
+  const btn = document.getElementById('tf-oranje-btn');
+  if (btn) {
+    btn.style.opacity = oranjeFocusAan ? '1' : '0.5';
+    btn.style.background = oranjeFocusAan ? 'rgba(255,159,10,0.35)' : 'rgba(255,159,10,0.15)';
+    btn.style.borderColor = oranjeFocusAan ? 'rgba(255,159,10,0.7)' : 'rgba(255,159,10,0.3)';
+  }
+  updateTrainframesTeller();
+}
+
+async function laadOranjeFramesTeller() {
+  try {
+    if (!trainframesDB) await openTrainframesDB();
+    if (!trainframesDB.objectStoreNames.contains('oranje_frames')) return 0;
+    const tx = trainframesDB.transaction('oranje_frames','readonly');
+    const req = tx.objectStore('oranje_frames').count();
+    return new Promise(r => { req.onsuccess=()=>{oranjeFramesTeller=req.result;r(oranjeFramesTeller);}; req.onerror=()=>r(0); });
+  } catch(e) { return 0; }
+}
+
+async function slaOranjeFrameOp(kcheck) {
+  if (!oranjeFocusAan || !trainframesAan) return;
+  if (oranjeFramesTeller >= ORANJE_FRAMES_MAX) return;
+  if (!yoloCanvas) return;
+  const nu = Date.now();
+  if (nu - oranjeLaatstOpgeslagen < ORANJE_MIN_INTERVAL) return;
+  if (nu - laatsteFaseOvergangVanRood > 3000) return;
+  if (!kcheck || (kcheck.kleur !== 'rood' && kcheck.kleur !== 'oranje')) return;
+  if (roodFaseStartMs === null && fase !== 'groen' && fase !== 'oranje') return;
+  try {
+    const jpeg = yoloCanvas.toDataURL('image/jpeg', TRAINFRAMES_JPEG_KWALITEIT);
+    if (!trainframesDB) await openTrainframesDB();
+    if (!trainframesDB.objectStoreNames.contains('oranje_frames')) return;
+    const tx = trainframesDB.transaction('oranje_frames','readwrite');
+    tx.objectStore('oranje_frames').add({
+      jpeg, kcheck_kleur: kcheck.kleur, kcheck_zekerheid: kcheck.zekerheid,
+      fase_voor: 'rood', fase_na: fase, tijd: nu, type: 'oranje_kandidaat'
+    });
+    oranjeFramesTeller++;
+    oranjeLaatstOpgeslagen = nu;
+    updateTrainframesTeller();
+  } catch(e) { console.warn('Oranje frame opslaan mislukt:', e); }
 }
 
 async function exporteerTrainframes() {
@@ -3216,6 +3285,34 @@ async function exporteerTrainframes() {
         aantalFrames:frames.length,
         frames:frames.map(f=>({ naam:`train_${f.tijd}.jpg`, jpeg:f.jpeg, label:f.label, bron:f.bron, tijd:f.tijd }))
       };
+      // V8.9.10: Oranje frames apart toevoegen
+      try {
+        if (trainframesDB.objectStoreNames.contains('oranje_frames')) {
+          const otx = trainframesDB.transaction('oranje_frames','readonly');
+          const oreq = otx.objectStore('oranje_frames').getAll();
+          oreq.onsuccess = () => {
+            const oFrames = oreq.result || [];
+            if (oFrames.length) {
+              exportData.oranjeFrames = oFrames.map(f => ({
+                naam: `oranje_${f.tijd}.jpg`, jpeg: f.jpeg,
+                kcheck_kleur: f.kcheck_kleur, fase_voor: f.fase_voor,
+                fase_na: f.fase_na, tijd: f.tijd, type: f.type
+              }));
+              exportData.aantalOranjeFrames = oFrames.length;
+            }
+            voltooiExport(exportData);
+          };
+          oreq.onerror = () => voltooiExport(exportData);
+          return;
+        }
+      } catch(e) {}
+      voltooiExport(exportData);
+    };
+    req.onerror = () => alert('Export mislukt.');
+  } catch(e) { alert('Export mislukt: '+e.message); }
+}
+
+function voltooiExport(exportData) {
       const bestandsnaam = `stoplichtiq-trainframes-${new Date().toISOString().slice(0,10)}.json`;
       const jsonString   = JSON.stringify(exportData);
       if (navigator.share&&navigator.canShare) {
@@ -3228,9 +3325,6 @@ async function exporteerTrainframes() {
       const blob = new Blob([jsonString],{type:'application/json'});
       const a=document.createElement('a');a.href=URL.createObjectURL(blob);a.download=bestandsnaam;
       document.body.appendChild(a);a.click();document.body.removeChild(a);
-    };
-    req.onerror = () => alert('Export mislukt.');
-  } catch(e) { alert('Export mislukt: '+e.message); }
 }
 
 async function verwijderTrainframes() {
@@ -3240,6 +3334,11 @@ async function verwijderTrainframes() {
     const tx = trainframesDB.transaction('frames','readwrite');
     tx.objectStore('frames').clear();
     tx.oncomplete = () => { trainframesTeller=0; updateTrainframesTeller(); };
+    if (trainframesDB.objectStoreNames.contains('oranje_frames')) {
+      const otx = trainframesDB.transaction('oranje_frames','readwrite');
+      otx.objectStore('oranje_frames').clear();
+      otx.oncomplete = () => { oranjeFramesTeller=0; updateTrainframesTeller(); };
+    }
   } catch(e) { alert('Verwijderen mislukt: '+e.message); }
 }
 
