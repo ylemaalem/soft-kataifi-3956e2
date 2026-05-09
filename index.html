@@ -275,6 +275,20 @@
       box-shadow:0 0 36px rgba(52,199,89,.4);transition:transform .15s}
     #s-knop:active{transform:scale(0.96)}
     #s-copyright{font-size:10px;color:rgba(255,255,255,0.25);letter-spacing:0.06em;text-align:center;margin-top:4px}
+    /* ── Correctielijst (bottom sheet) ── */
+    #correctie-overlay{display:none;position:fixed;inset:0;z-index:500;background:rgba(0,0,0,0.60);backdrop-filter:blur(2px)}
+    #correctie-sheet{position:absolute;bottom:0;left:0;right:0;background:rgba(0,0,0,0.92);border-radius:16px 16px 0 0;max-height:60vh;overflow-y:scroll;padding:16px;padding-bottom:env(safe-area-inset-bottom,16px)}
+    #correctie-sluiten{display:flex;align-items:center;justify-content:center;min-height:48px;background:rgba(255,255,255,0.06);border:1px solid rgba(255,255,255,0.15);border-radius:10px;margin-bottom:12px;font-size:16px;font-weight:600;color:#fff;cursor:pointer;font-family:'Rajdhani',sans-serif;letter-spacing:0.08em;text-transform:uppercase;transition:background .15s}
+    #correctie-sluiten:active{background:rgba(255,255,255,0.12)}
+    .correctie-item{min-height:72px;display:flex;align-items:center;border-bottom:1px solid #1a2230;background:#0e1419;padding:12px 14px;cursor:pointer;position:relative;gap:12px;transition:background .15s;-webkit-tap-highlight-color:transparent}
+    .correctie-item:active{background:rgba(255,255,255,0.08)}
+    .correctie-item-balk{width:4px;align-self:stretch;border-radius:2px;flex-shrink:0}
+    .correctie-item-balk.actief{background:var(--groen)}
+    .correctie-item-info{flex:1;min-width:0}
+    .correctie-item-straat{font-size:18px;font-weight:700;color:#fff;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+    .correctie-item-afstand{font-size:22px;font-weight:700;color:#f59e0b;font-family:'Share Tech Mono',monospace;margin-top:2px;line-height:1}
+    .correctie-item-hoek{font-size:13px;color:rgba(255,255,255,0.4);margin-top:2px}
+    .correctie-item-badge{font-size:10px;font-weight:600;padding:2px 6px;border-radius:6px;background:rgba(52,199,89,0.2);color:var(--groen);border:1px solid rgba(52,199,89,0.3);letter-spacing:0.06em;align-self:flex-start;flex-shrink:0;text-transform:uppercase}
   </style>
 </head>
 <body>
@@ -299,6 +313,14 @@
     <button onclick="voerTagUit('voetganger')" style="padding:10px;background:rgba(255,255,255,0.08);color:white;border:1px solid rgba(255,255,255,0.10);border-radius:8px;font-size:13px;cursor:pointer;font-family:'Rajdhani',sans-serif;">🚶 Voetganger (drukknop)</button>
     <button onclick="voerTagUit('normaal')" style="padding:10px;background:rgba(255,255,255,0.08);color:white;border:1px solid rgba(255,255,255,0.10);border-radius:8px;font-size:13px;cursor:pointer;font-family:'Rajdhani',sans-serif;">🔄 Normaal stoplicht</button>
     <button onclick="voerTagUit('groene_golf')" style="padding:10px;background:rgba(255,255,255,0.08);color:white;border:1px solid rgba(255,255,255,0.10);border-radius:8px;font-size:13px;cursor:pointer;font-family:'Rajdhani',sans-serif;">🟢 Groene golf</button>
+  </div>
+</div>
+
+<!-- V8.9.11: Correctielijst (bottom sheet) -->
+<div id="correctie-overlay" onclick="sluitCorrectielijst()">
+  <div id="correctie-sheet" onclick="event.stopPropagation()">
+    <div id="correctie-sluiten" onclick="sluitCorrectielijst()">✕ Sluiten</div>
+    <div id="correctie-lijst"></div>
   </div>
 </div>
 
@@ -329,7 +351,7 @@
 <div id="startscherm">
   <div id="s-icoon">🚦</div>
   <div id="s-titel">Stoplicht<span>IQ</span></div>
-  <div id="s-versie">V8.8.7 — Cyclus Deductie + Tijdstempel Fingerprint</div>
+  <div id="s-versie">V8.9.11 — Oranje Focus + Richtingfix + Correctielijst</div>
   <div id="s-model-wrap">
     <div id="s-model-rij">
       <div id="s-model-label">🤖 YOLOv8 model laden…</div>
@@ -407,7 +429,7 @@
           <div id="fase-bron"></div>
         </div>
       </div>
-      <div id="kruispunt-blok">
+      <div id="kruispunt-blok" onclick="toonCorrectielijst()" style="cursor:pointer;-webkit-tap-highlight-color:rgba(255,255,255,0.05)">
         <div id="kruispunt-naam">Wacht op GPS…</div>
         <div id="kruispunt-af">—</div>
         <div id="kruispunt-dd"></div>
@@ -469,7 +491,10 @@
   <div style="display:flex;flex-direction:column;gap:8px;padding:12px 16px;background:rgba(191,90,242,0.08);border:1px solid rgba(191,90,242,0.2);border-radius:10px;margin:0 18px 12px">
     <div style="display:flex;align-items:center;justify-content:space-between">
       <div style="font-size:12px;font-weight:600;color:#BF5AF2;letter-spacing:0.08em;text-transform:uppercase">Trainingsdata</div>
-      <div id="tf-teller" style="font-family:'Share Tech Mono',monospace;font-size:11px;color:var(--dim)">0/500 frames</div>
+      <div style="display:flex;flex-direction:column;align-items:flex-end;gap:2px">
+        <div id="tf-teller" style="font-family:'Share Tech Mono',monospace;font-size:11px;color:var(--dim)">0/500 frames</div>
+        <div id="of-teller" style="font-family:'Share Tech Mono',monospace;font-size:10px;color:var(--oranje)">0/200 oranje</div>
+      </div>
     </div>
     <div style="display:flex;gap:8px;flex-wrap:wrap">
       <button id="tf-toggle-btn" onclick="toggleTrainframes()" style="flex:1;padding:8px 12px;background:rgba(52,199,89,0.2);color:#34C759;border:1px solid rgba(52,199,89,0.4);border-radius:8px;font-size:12px;cursor:pointer;min-width:100px">▶ Verzamelen</button>
@@ -500,8 +525,11 @@
 
 <script>
 // ═══════════════════════════════════════════════════════════════
-//  StoplichtIQ V8.8.7
-//  Nieuw: cyclustijd deductie (Nederlandse standaards), tijdstempel fingerprint
+//  StoplichtIQ V8.9.11
+//  Bug1: Oranje focus timing-gebaseerd (rood→groen buffer)
+//  Bug2: Richtingknop reset bij node-wissel
+//  Bug3: refreshHoofdschermVoorActieveNode centrale UI-refresh
+//  UI:   Correctielijst bottom-sheet redesign
 //  © 2026 StoplichtIQ — Y. Lemaalem
 // ═══════════════════════════════════════════════════════════════
 
@@ -513,25 +541,7 @@ if (typeof ort !== 'undefined') {
 const OMTREK_CD        = 2 * Math.PI * 32;
 const OSM_RADIUS       = 5000;
 const OSM_REFRESH      = 3000;
-const OVERPASS_ENDPOINTS = [
-  'https://overpass.private.coffee/api/interpreter',
-  'https://lz4.overpass-api.de/api/interpreter',
-  'https://z.overpass-api.de/api/interpreter',
-  'https://overpass-api.de/api/interpreter'
-];
-const OVERPASS_TIMEOUT_MS   = 8000;
-const OVERPASS_VOORKEUR_TTL = 3600000; // 1 uur
-
-// V8.8.5: Overpass endpoint roulering — volgt volgorde in OVERPASS_ENDPOINTS
-let overpassVoorkeurIndex   = 0;
-let overpassVoorkeurTijdstip = null;
-
-// V8.8.5: Recent gepasseerde nodes — voorkomt terugspringen naar hetzelfde kruispunt
-// Elk element: { nodeId:String, lat:Number, lon:Number, tijdstip:Number }
-let recentGepasseerdeNodes = [];
-const GEPASSEERD_MAX_LEEFTIJD_MS = 90000; // 90s
-const GEPASSEERD_MIN_AFSTAND_M   = 60;     // binnen 60m van gepasseerde node blijft filter actief
-
+const OVERPASS_URL     = 'https://overpass-api.de/api/interpreter';
 const LS_PREFIXEN      = ['sl_v4_','sl_v3_'];
 const LS_PREFIX        = 'sl_v4_';
 const MAX_METINGEN     = 50;
@@ -603,12 +613,8 @@ let huidigDagdeelFinaal = null;
 let dagdeelCameraBuffer = [];
 let laatsteZonsondergang = null;
 let zonsondergangDatum = null;
-let zoekZonsondergangCache = null; // V8.8.3: cache voor herberekening bij locatiewissel
 
 // V8.8.1: Astronomische zonsondergang berekening (geen internet nodig)
-// V8.8.6: Tijdzone offset via huidige device-timezone (picked up DST automatisch)
-// In april NL: getTimezoneOffset() = -120 min → tijdzoneOffsetUren = 2 (CEST)
-// In december NL: getTimezoneOffset() = -60 min → tijdzoneOffsetUren = 1 (CET)
 function berekenZonsondergang(lat, lon, datum) {
   if (!datum) datum = new Date();
   const dagVanJaar = Math.floor((datum - new Date(datum.getFullYear(), 0, 0)) / 86400000);
@@ -620,17 +626,17 @@ function berekenZonsondergang(lat, lon, datum) {
   // Poolgebied: zon gaat niet onder/op → fallback
   if (cosUrenhoek < -1 || cosUrenhoek > 1) return null;
   const urenhoek = Math.acos(cosUrenhoek) * 180 / Math.PI;
-  const tijdzoneOffsetUren = -1 * new Date().getTimezoneOffset() / 60;
-  const zonsmiddag = 12 - (lon / 15) - (ET / 60) + tijdzoneOffsetUren;
+  // Tijdzone offset: JavaScript Date geeft lokale tijd
+  const tzOffset = datum.getTimezoneOffset() / -60;
+  const zonsmiddag = 12 - (lon / 15) - (ET / 60) + tzOffset;
   return zonsmiddag + (urenhoek / 15); // decimale uren
 }
 
-function updateZonsondergang(forceHerbereken) {
+function updateZonsondergang() {
   if (!huidigePos) return;
   const nu = new Date();
   const vandaag = nu.toDateString();
-  // V8.8.3: Herbereken als datum wisselt OF als forceHerbereken=true (locatiewissel)
-  if (zonsondergangDatum === vandaag && !forceHerbereken) return;
+  if (zonsondergangDatum === vandaag) return; // al berekend voor vandaag
   let zg = berekenZonsondergang(huidigePos.lat, huidigePos.lon, nu);
   // V8.8.2: Veiligheidslimieten op zonsondergang
   if (zg !== null) {
@@ -638,14 +644,11 @@ function updateZonsondergang(forceHerbereken) {
     if (zg < 17.0) zg = 17.0;   // cap op 17:00
     laatsteZonsondergang = zg;
     zonsondergangDatum = vandaag;
-    zoekZonsondergangCache = zg; // V8.8.3: cache opslaan
   }
 }
 
 // V8.8.2: Correcte dagdeel logica — nacht pas vanaf 22:00 (harde regel)
-// V8.8.6: Dag/avond grens nu dynamisch op basis van berekende zonsondergang.
-// Voor zonsondergang: ochtend (6-8) of dag (9+). Vanaf zonsondergang: avond.
-// Zonsondergang bepaalt alleen dag→avond grens, NOOIT avond→nacht.
+// Zonsondergang bepaalt alleen dag→avond grens, NOOIT avond→nacht
 function updateDagdeelViaCamera(helderheid) {
   const uur = new Date().getHours();
   const uurDecimaal = uur + new Date().getMinutes() / 60;
@@ -655,19 +658,15 @@ function updateDagdeelViaCamera(helderheid) {
   updateZonsondergang();
   const zg = laatsteZonsondergang;
   if (zg !== null) {
-    // Voor zonsondergang: ochtend (6-8) of dag. De oude huidigDD() tabel
-    // forceerde 'avond' voor uur 16-19 óók in april/mei — dat klopt niet.
-    if (uurDecimaal < zg) {
-      huidigDagdeelFinaal = (uur >= 6 && uur <= 8) ? 'ochtend' : 'dag';
-      return;
-    }
+    // 06:00 tot zonsondergang → dag/ochtend via huidigDD()
+    if (uurDecimaal < zg) { huidigDagdeelFinaal = huidigDD(); return; }
     // Zonsondergang tot 22:00 → altijd avond (nooit nacht via camera)
     huidigDagdeelFinaal = 'avond';
     return;
   }
-  // 4. Fallback: GPS null → vaste tijden (V8.8.6: grens 19:30, iets veiliger voor zomer)
-  if (uur >= 8 && uurDecimaal < 19.5) { huidigDagdeelFinaal = huidigDD(); return; }
-  // 19:30-22:00 zonder GPS → camera beslist dag of avond (maar nooit nacht)
+  // 4. Fallback: GPS null → oude vaste tijden (17:00 grens)
+  if (uur >= 8 && uur < 17) { huidigDagdeelFinaal = huidigDD(); return; }
+  // 17:00-22:00 zonder GPS → camera beslist dag of avond (maar nooit nacht)
   if (typeof helderheid === 'number' && !isNaN(helderheid)) {
     dagdeelCameraBuffer.push(helderheid < 40);
     if (dagdeelCameraBuffer.length > 10) dagdeelCameraBuffer.shift();
@@ -718,27 +717,7 @@ function berekenLeerPct(osmId) {
       consistScore = Math.max(0, 100 - (sp/gem*200));
     }
   }
-  let basisPct = Math.min(100, Math.round(aantalScore*0.5 + consistScore*0.5));
-  // V8.8.3: Consistentiebonus — als >=8 metingen en spreiding <20%, minimum 70%
-  // Uitzondering: voetgangersstoplichten (variabele cyclustijden via drukknop)
-  try {
-    const tagVoorBonus = laadStoplichtTag(osmId);
-    if (!(tagVoorBonus && tagVoorBonus.type === 'voetganger')) {
-      if (huidigM.length >= 8) {
-        const bonusDuurs = huidigM.filter(x => x.duur > 0).map(x => x.duur);
-        if (bonusDuurs.length >= 8) {
-          const bonusMin = Math.min(...bonusDuurs);
-          const bonusMax = Math.max(...bonusDuurs);
-          const bonusGem = bonusDuurs.reduce((s,v) => s+v, 0) / bonusDuurs.length;
-          if (bonusGem > 0) {
-            const bonusSpreiding = ((bonusMax - bonusMin) / bonusGem) * 100;
-            if (bonusSpreiding < 20) basisPct = Math.max(basisPct, 70);
-          }
-        }
-      }
-    }
-  } catch(e) {}
-  return basisPct;
+  return Math.min(100, Math.round(aantalScore*0.5 + consistScore*0.5));
 }
 
 function leerKleur(pct) {
@@ -770,18 +749,14 @@ function laadM(osmId, dd) {
   } catch(e) { return []; }
 }
 
-function slaOp(osmId, richting, duur, opties) {
+function slaOp(osmId, richting, duur) {
   if (!osmId || duur < 4 || duur > 300) return false;
   const dd = (huidigDagdeelFinaal) ? huidigDagdeelFinaal : huidigDD();
   let m = laadM(osmId, dd);
   if (!isMetingBetrouwbaar(duur, m)) return false;
   const gewijzigd = checkAfwijking(duur, gewGem(m));
   if (gewijzigd) m = [];
-  // V8.8.4: optionele gewicht en bron velden (default gewicht=1.0)
-  const entry = { duur:Math.round(duur), tijd:Date.now(), richting:Math.round(richting||0) };
-  if (opties && opties.gewicht != null) entry.gewicht = opties.gewicht;
-  if (opties && opties.bron) entry.bron = opties.bron;
-  m.push(entry);
+  m.push({ duur:Math.round(duur), tijd:Date.now(), richting:Math.round(richting||0) });
   if (m.length > MAX_METINGEN) { m.sort((a,b)=>gew(b.tijd)-gew(a.tijd)); m=m.slice(0,MAX_METINGEN); }
   try { localStorage.setItem(`${LS_PREFIX}${osmId}_${dd}`, JSON.stringify(m)); } catch(e) {}
   checkLocalStorageRuimte();
@@ -905,45 +880,17 @@ let geselecteerdeRichting = null;
 let richtingResetDebounce = null;
 // V8.8.2: Bbox-grootte zoom override
 let bboxDichtbij = false;
-// V8.8.3: Afstandsweergave bevriezen bij stilstand rood
-let bevrorenAfstandM = null;
 // V8.8.2: Richtingknop éénmalig per rode fase
 let richtingGedruktVoorNode = null;
 
-// V8.8.6: Node vergrendeling bij stilstand — voorkomt GPS-drift sprongen
-// vergrendeldeNode: String node-id waarop we zijn gelockt (of null)
-// vergrendeldeSinds: ms-timestamp van lock-start; veiligheidsnet kapt na 300s
-let vergrendeldeNode = null;
-let vergrendeldeSinds = null;
-const VERGRENDEL_MAX_DUUR_MS = 300000; // 5 min
-const VERGRENDEL_SNELHEID_GRENS = 8;    // km/u — boven deze snelheid geen lock
-
-// V8.8.7: Tijdstempel fingerprint — UTC ms van start rode fase
-// Wordt gezet in verwerkFase bij nieuw==='rood', gebruikt bij rood→groen wissel
-// om een patroon in sl_fp_{nodeId} op te slaan. Reset in resetNeutraal.
-let roodFaseStartMs = null;
-
-// V8.8.7: Fingerprint countdown meta voor debug overlay
-let fpCountdownActief = false;
-// V8.8.7: Deductie debug feedback — toont "ded:✓" voor 3 seconden
-let deductieFeedbackTot = 0;
-
-const FP_MIN_PATRONEN        = 3;
-const FP_MAX_PATRONEN        = 10;
-const FP_STDEV_CYCLUS_MAX_S  = 15;    // s — boven deze stdev te variabel (VRI)
-const FP_STDEV_MODULO_MAX_MS = 5000;  // 5s — onder deze stdev: bevestigd
-const FP_MISMATCH_GRENS_MS   = 8000;  // 8s — afwijking telt als mismatch
-const FP_MISMATCH_RESET      = 3;     // reset na 3 opeenvolgende mismatches
-const FP_ORANJE_BUFFER_MS    = 3000;  // oranje-fase buffer voor roodRestant
-
-// V8.8.7: Cyclustijd deductie — Nederlandse standaard cycli (seconden)
-// Voor elk: cyclus totaal, verwachte roodrange [min,max], oranje-overgang 3s
-const STANDAARD_CYCLI = [60, 90, 120];
-const DEDUCTIE_ORANJE_S  = 3;
-const DEDUCTIE_GROEN_MIN = 7;
-const DEDUCTIE_ROOD_MIN  = 20;
-const DEDUCTIE_ROOD_MAX  = 80;
-const DEDUCTIE_GEWICHT   = 0.4;
+// V8.9.11: Oranje focus — timing-gebaseerde kandidaat buffer
+const ORANGEFRAMES_MAX = 200;
+let orangeFramesTeller = 0;
+let orangeKandidaatBuffer = []; // { jpeg, timestamp, nodeId }
+let roodStartOranje = null;
+let orangeBufferLaatstToegevoegd = 0;
+const ORANGE_BUFFER_INTERVAL = 400; // ms tussen buffer-captures
+let orangeFocusVensterActief = false;
 
 // Debug
 let debugWaarden={};
@@ -1093,7 +1040,7 @@ if (aantalKP > 0) {
   sGehInfo.textContent = 'Eerste gebruik — leergeheugen wordt opgebouwd';
   sGehInfo.style.color = 'var(--dim)';
 }
-openTrainframesDB().then(()=>laadTrainframesTeller()).catch(()=>{});
+openTrainframesDB().then(async ()=>{ await laadTrainframesTeller(); laadOranjeFramesTeller(); }).catch(()=>{});
 
 // ── YOLO PRE-PROCESSING ───────────────────────────────────────
 function preprocessVoorYOLO() {
@@ -1483,19 +1430,6 @@ function verwerkDetecties() {
       // Kleurwissel: hard resetten — voorkomt dat rood-teller naar groen doorloopt
       aiKleur = aiR.kleur;
       aiTeller = 1;
-      // V8.8.6: Node vergrendeling activeren bij eerste detectie van deze kleur
-      // Zodra we een stoplicht zien EN we hebben een dichtstbijzijnde node,
-      // pinnen we die node zodat GPS-drift bij stilstand niet meer van node wisselt.
-      // Als er al een lock actief is op een ANDERE node blijft die intact —
-      // de nieuwe node wordt pas actief na ontgrendeling.
-      if (dichtstbijOSM) {
-        const huidigNodeId = String(dichtstbijOSM.id);
-        if (vergrendeldeNode === null) {
-          vergrendeldeNode = huidigNodeId;
-          vergrendeldeSinds = Date.now();
-        }
-        // vergrendeldeNode !== null && vergrendeldeNode !== huidigNodeId → negeren
-      }
     }
     tekenOverlay(aiR.box, aiR.score, aiR.horizontaal);
     geenTeller = 0;
@@ -1623,17 +1557,10 @@ function resetNeutraal() {
   // V8.8.2: Bbox zoom + richtingknop reset
   bboxDichtbij = false;
   richtingGedruktVoorNode = null;
-  // V8.8.3: Afstand bevriezing reset
-  bevrorenAfstandM = null;
-  // V8.8.4: Proxy reset
-  resetProxy();
-  // V8.8.5: Gepasseerde nodes lijst leegmaken
-  resetRecentGepasseerd();
-  // V8.8.6: Node vergrendeling ook loslaten
-  resetVergrendeling();
-  // V8.8.7: Fingerprint staat resetten
-  roodFaseStartMs = null;
-  fpCountdownActief = false;
+  // V8.9.11: Oranje buffer leegmaken
+  orangeKandidaatBuffer = [];
+  roodStartOranje = null;
+  orangeFocusVensterActief = false;
   // Stale teller resetten
   staleFaseFrameTeller=0;
   // Tolerantie teller resetten
@@ -1655,51 +1582,38 @@ function verwerkFase(nieuw, horizontaal) {
   if (fase === 'groen' && groenStart !== null) groenDuur = (nu-groenStart)/1000;
   if (nieuw === 'groen') {
     groenStart = nu;
-    // V8.8.7: Rood → groen overgang → fingerprint patroon opslaan
-    if (fase === 'rood' && roodFaseStartMs !== null && dichtstbijOSM) {
-      try {
-        voegFingerprintPatroonToe(String(dichtstbijOSM.id), roodFaseStartMs, Date.now());
-      } catch (e) { /* stil falen */ }
-      roodFaseStartMs = null;
-    }
   } else if (nieuw === 'rood') {
     if (groenDuur > 3 && groenDuur < 300 && dichtstbijOSM) {
       slaGroenOp(dichtstbijOSM.id, huidigeRichting, groenDuur);
     }
     groenStart=null; groenDuur=0;
-    // V8.8.3: Bevries afstandsweergave bij rood
-    if (dichtstbijOSM) bevrorenAfstandM = dichtstbijOSM.afstand;
-    // V8.8.7: Onthoud start rode fase in UTC ms voor fingerprint
-    roodFaseStartMs = Date.now();
   }
   // Rode fase opslaan
   if (fase && faseStart) {
     const dur = (nu-faseStart)/1000;
     if (fase==='rood' && dur>8 && dur<300 && dichtstbijOSM) {
       slaOp(dichtstbijOSM.id, huidigeRichting, dur);
-      // V8.8.7: Deductieve hypothese direct na echte roodmeting
-      verwerkDeductie(dichtstbijOSM.id, huidigeRichting, dur);
       bijwerkLeerkaart(dichtstbijOSM); bijwerkDashboardKnop();
     }
+  }
+  // V8.9.11: Oranje kandidaat frames flushen bij rood→groen overgang
+  if (fase === 'rood' && nieuw === 'groen') {
+    slaOranjeKandidatenOp();
+    roodStartOranje = null;
+    orangeFocusVensterActief = false;
+  } else if (nieuw === 'rood') {
+    roodStartOranje = Date.now();
+    orangeKandidaatBuffer = [];
+    orangeFocusVensterActief = true;
   }
   fase=nieuw; faseStart=nu; geenTeller=0; aiTeller=0; aiKleur=nieuw;
   updateUI(nieuw, horizontaal);
   if (nieuw==='groen') speelGroen();
   if (nieuw==='rood') {
-    // V8.8.7: Fingerprint countdown heeft voorrang boven leergeheugen-gemiddelde
-    let fpDoel = dichtstbijOSM ? berekenFingerprintCountdown(String(dichtstbijOSM.id)) : null;
-    if (fpDoel !== null && fpDoel > 0) {
-      activeCdDoel = fpDoel;
-      fpCountdownActief = true;
-      startCd();
-    } else {
-      fpCountdownActief = false;
-      const m = dichtstbijOSM ? laadM(dichtstbijOSM.id, huidigDDActief()) : [];
-      const gem = gewGem(m);
-      if (gem > 0) { activeCdDoel=gem; startCd(); } else stopCd();
-    }
+    const m = dichtstbijOSM ? laadM(dichtstbijOSM.id, huidigDDActief()) : [];
+    const gem = gewGem(m);
+    if (gem > 0) { activeCdDoel=gem; startCd(); } else stopCd();
   } else {
-    fpCountdownActief = false;
     stopCd();
   }
 }
@@ -1969,8 +1883,7 @@ function laadDashboard() {
     return;
   }
   const data = ids.map(id => {
-    let pct = 0;
-    try { pct = berekenLeerPct(id); } catch(e) { pct = 0; }
+    const pct  = berekenLeerPct(id);
     const alleM = Object.keys(DD).flatMap(d => laadM(id,d));
     return { id, pct, totM:alleM.length, laatste:alleM.length>0?Math.max(...alleM.map(m=>m.tijd)):0, naam:vindNaamVoorId(id) };
   }).filter(d=>d.totM>0);
@@ -2089,9 +2002,9 @@ function tijdGeleden(ts) {
 // ── DATA EXPORT/IMPORT ────────────────────────────────────────
 function exporteerData() {
   try {
-    const exportData = { versie:'8.8.7', exportDatum:new Date().toISOString(), app:'StoplichtIQ', data:{} };
+    const exportData = { versie:'8.9.11', exportDatum:new Date().toISOString(), app:'StoplichtIQ', data:{} };
     for (const key of Object.keys(localStorage)) {
-      if (key.startsWith('sl_v4_')||key.startsWith('sl_v3_')||key.startsWith('sl_tag_')||key.startsWith('sl_naam_')||key.startsWith('sl_richting_')||key.startsWith('sl_fp_')||key==='sl_stad_cache') {
+      if (key.startsWith('sl_v4_')||key.startsWith('sl_v3_')||key.startsWith('sl_tag_')||key.startsWith('sl_naam_')||key.startsWith('sl_richting_')||key==='sl_stad_cache') {
         try { exportData.data[key] = JSON.parse(localStorage.getItem(key)); }
         catch(e) { exportData.data[key] = localStorage.getItem(key); }
       }
@@ -2129,7 +2042,7 @@ function importeerData(bestand) {
       if (!bevestigd) return;
       let toegevoegd=0, overgeslagen=0;
       for (const [key, waarde] of Object.entries(importData.data)) {
-        if (!key.startsWith('sl_v4_')&&!key.startsWith('sl_v3_')&&!key.startsWith('sl_tag_')&&!key.startsWith('sl_naam_')&&!key.startsWith('sl_richting_')&&!key.startsWith('sl_fp_')&&key!=='sl_stad_cache') { overgeslagen++; continue; }
+        if (!key.startsWith('sl_v4_')&&!key.startsWith('sl_v3_')&&!key.startsWith('sl_tag_')&&!key.startsWith('sl_naam_')&&!key.startsWith('sl_richting_')&&key!=='sl_stad_cache') { overgeslagen++; continue; }
         if (localStorage.getItem(key) !== null) { overgeslagen++; continue; }
         try { localStorage.setItem(key, JSON.stringify(waarde)); toegevoegd++; } catch(e) { overgeslagen++; }
       }
@@ -2151,52 +2064,18 @@ function naarStartscherm() {
 }
 
 // ── OSM ───────────────────────────────────────────────────────
-// V8.8.5: Overpass endpoint roulering
-// Probeert endpoints in volgorde vanaf overpassVoorkeurIndex.
-// Bij succes: voorkeur opslaan. Bij fout/timeout: volgende proberen.
-// Na 1 uur: voorkeur resetten naar index 0 (primair endpoint).
-async function fetchOverpass(query) {
-  // Reset voorkeur naar 0 als oude keuze langer dan TTL geleden gezet is
-  if (overpassVoorkeurTijdstip !== null &&
-      Date.now() - overpassVoorkeurTijdstip > OVERPASS_VOORKEUR_TTL) {
-    overpassVoorkeurIndex = 0;
-    overpassVoorkeurTijdstip = null;
-  }
-  const aantal = OVERPASS_ENDPOINTS.length;
-  let laatsteFout = null;
-  for (let stap = 0; stap < aantal; stap++) {
-    const idx = (overpassVoorkeurIndex + stap) % aantal;
-    const url = OVERPASS_ENDPOINTS[idx];
-    const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), OVERPASS_TIMEOUT_MS);
-    try {
-      const response = await fetch(url, {
-        method: 'POST',
-        body: `data=${encodeURIComponent(query)}`,
-        signal: controller.signal
-      });
-      clearTimeout(timeoutId);
-      if (!response.ok) throw new Error(`HTTP ${response.status}`);
-      const data = await response.json();
-      overpassVoorkeurIndex   = idx;
-      overpassVoorkeurTijdstip = Date.now();
-      return data;
-    } catch (err) {
-      clearTimeout(timeoutId);
-      laatsteFout = err;
-      // probeer volgende endpoint
-    }
-  }
-  throw laatsteFout || new Error('alle Overpass endpoints onbereikbaar');
-}
-
 async function downloadOSM(lat, lon) {
   if (cacheBezig) return;
   cacheBezig = true;
   pOSM.className='pill-dot o'; pOSMT.textContent='laden'; debugWaarden.osm='osm:laden';
   const q = `[out:json][timeout:25];node["highway"="traffic_signals"](around:${OSM_RADIUS},${lat},${lon})->.tl;.tl out body;way(bn.tl)["name"];out geom;`;
   try {
-    const d = await fetchOverpass(q);
+    const ctrl = new AbortController();
+    const t = setTimeout(()=>ctrl.abort(), 25000);
+    const r = await fetch(OVERPASS_URL, { method:'POST', body:`data=${encodeURIComponent(q)}`, signal:ctrl.signal });
+    clearTimeout(t);
+    if (!r.ok) throw new Error(`HTTP ${r.status}`);
+    const d = await r.json();
     const nodes = (d.elements||[]).filter(el=>el.type==='node');
     const ways  = (d.elements||[]).filter(el=>el.type==='way');
     const nodeWegen = new Map();
@@ -2254,25 +2133,8 @@ async function haalStraatnamenOp() {
 
 function vindDichtbij(lat, lon, heading) {
   if (!osmCache.length) return null;
-  // V8.8.6: Node vergrendeling bij stilstand
-  // Zolang we gelockt zijn én langzaam rijden, pinnen we de keuze op de
-  // vergrendelde node. GPS-drift kan hiermee geen sprongen meer veroorzaken.
-  checkVergrendelingVerval();
-  if (vergrendeldeNode !== null && snelheidKmh < VERGRENDEL_SNELHEID_GRENS) {
-    const locked = osmCache.find(sl => String(sl.id) === vergrendeldeNode);
-    if (locked) {
-      return { ...locked, afstand: afstand(lat, lon, locked.lat, locked.lon) };
-    }
-    // Node niet meer in osmCache → lock ongeldig, laat los en ga door
-    resetVergrendeling();
-  }
-  // V8.8.5: filter recent gepasseerde nodes weg; als álles gefilterd wordt
-  // (bijvoorbeeld nieuw kruispunt binnen 60m van een gepasseerde node) laten
-  // we de filter los zodat er altijd een kandidaat overblijft.
-  let kandidaten = osmCache.filter(sl => !isNodeRecentGepasseerd(sl));
-  if (!kandidaten.length) kandidaten = osmCache;
   let beste=null, bestS=-Infinity;
-  for (const sl of kandidaten) {
+  for (const sl of osmCache) {
     const af = afstand(lat,lon,sl.lat,sl.lon);
     if (af > 400) continue;
     const dLon=(sl.lon-lon)*Math.PI/180;
@@ -2285,7 +2147,7 @@ function vindDichtbij(lat, lon, heading) {
   }
   if (!beste) {
     let minA=Infinity;
-    for (const sl of kandidaten) {
+    for (const sl of osmCache) {
       const a=afstand(lat,lon,sl.lat,sl.lon);
       if (a<minA) { minA=a; beste={...sl, afstand:a}; }
     }
@@ -2327,59 +2189,7 @@ function isStoplichtVoorbij(stoplichtPos, hPos, rijrichting) {
   const hoek = Math.atan2(stoplichtPos.lon-hPos.lon, stoplichtPos.lat-hPos.lat)*180/Math.PI;
   let verschil = Math.abs(((rijrichting+360)%360) - ((hoek+360)%360));
   if (verschil>180) verschil=360-verschil;
-  if (verschil <= 90) return false;
-  // V8.8.3: Projectie >15m in rijrichting vereist
-  const dLat = (hPos.lat - stoplichtPos.lat) * 111320; // meters noord
-  const dLon = (hPos.lon - stoplichtPos.lon) * 111320 * Math.cos(stoplichtPos.lat * Math.PI / 180); // meters oost
-  const rijRad = rijrichting * Math.PI / 180;
-  const voorbijProjectieM = dLat * Math.cos(rijRad) + dLon * Math.sin(rijRad);
-  return voorbijProjectieM > 15;
-}
-
-// V8.8.5: Gepasseerde nodes bijhouden — voorkomt terugspringen naar hetzelfde kruispunt
-function markeerNodeVoorbij(nodeId, lat, lon) {
-  if (!nodeId || typeof lat !== 'number' || typeof lon !== 'number') return;
-  const sleutel = String(nodeId);
-  const nu = Date.now();
-  // Bestaande ingang vervangen (ververs tijdstip) ipv dupliceren
-  recentGepasseerdeNodes = recentGepasseerdeNodes.filter(n => n.nodeId !== sleutel);
-  recentGepasseerdeNodes.push({ nodeId: sleutel, lat, lon, tijdstip: nu });
-  // Verloop: ingangen ouder dan 90s weggooien
-  recentGepasseerdeNodes = recentGepasseerdeNodes.filter(
-    n => nu - n.tijdstip < GEPASSEERD_MAX_LEEFTIJD_MS
-  );
-}
-
-function isNodeRecentGepasseerd(sl) {
-  if (!sl || !recentGepasseerdeNodes.length) return false;
-  const nu = Date.now();
-  const slId = String(sl.id);
-  for (const ing of recentGepasseerdeNodes) {
-    if (nu - ing.tijdstip >= GEPASSEERD_MAX_LEEFTIJD_MS) continue;
-    if (ing.nodeId !== slId) continue;
-    const d = afstand(sl.lat, sl.lon, ing.lat, ing.lon);
-    if (d < GEPASSEERD_MIN_AFSTAND_M) return true;
-  }
-  return false;
-}
-
-function resetRecentGepasseerd() {
-  recentGepasseerdeNodes = [];
-}
-
-// V8.8.6: Node vergrendeling helpers
-function resetVergrendeling() {
-  vergrendeldeNode = null;
-  vergrendeldeSinds = null;
-}
-
-// Verval check: als lock ouder dan VERGRENDEL_MAX_DUUR_MS, laat los.
-// Geroepen vanaf vindDichtbij() en vanuit onGPS voor zekerheid.
-function checkVergrendelingVerval() {
-  if (vergrendeldeNode === null || vergrendeldeSinds === null) return;
-  if (Date.now() - vergrendeldeSinds > VERGRENDEL_MAX_DUUR_MS) {
-    resetVergrendeling();
-  }
+  return verschil>90;
 }
 
 function kiesBesteWeg(wegen, gpsHeading) {
@@ -2411,32 +2221,6 @@ function checkLocalStorageRuimte() {
         if (!cleaned.length) localStorage.removeItem(item.key);
         else localStorage.setItem(item.key, JSON.stringify(cleaned));
       });
-    }
-    // V8.8.7: Fingerprint cleanup — bij >500KB sl_fp_ totaal, verwijder nodes
-    // die >90 dagen geen bevestiging meer hebben gehad.
-    let fpTotaal = 0;
-    const fpKeys = [];
-    for (const key of Object.keys(localStorage)) {
-      if (key.startsWith('sl_fp_')) {
-        const waarde = localStorage.getItem(key) || '';
-        fpTotaal += waarde.length * 2;
-        fpKeys.push(key);
-      }
-    }
-    if (fpTotaal > 500 * 1024) {
-      const drempel = Date.now() - 90 * 86400000; // 90 dagen geleden in ms
-      for (const key of fpKeys) {
-        try {
-          const fp = JSON.parse(localStorage.getItem(key) || 'null');
-          if (!fp || !Array.isArray(fp.patronen) || !fp.patronen.length) {
-            localStorage.removeItem(key);
-            continue;
-          }
-          const laatste = fp.patronen[fp.patronen.length - 1];
-          const laatsteTs = laatste && laatste.groenStart ? laatste.groenStart : 0;
-          if (laatsteTs < drempel) localStorage.removeItem(key);
-        } catch (e) { localStorage.removeItem(key); }
-      }
     }
   } catch(e) {}
 }
@@ -2644,6 +2428,102 @@ function renderRichtingBadge(nodeId) {
   return `<span class="sl-richting-badge ${kleurClass}">${pijlen[maxZone]||'↑'} ${totaal}x</span>`;
 }
 
+// ── V8.9.11: CORRECTIELIJST + RIJRICHTING RESET ──────────────
+
+// Bug 2: Reset rijrichting volledig bij node-wissel
+function resetRijrichtingState() {
+  geselecteerdeRichting = null;
+  richtingGedruktVoorNode = null;
+  if (richtingResetDebounce) { clearTimeout(richtingResetDebounce); richtingResetDebounce = null; }
+  document.querySelectorAll('.richting-btn').forEach(b => b.classList.remove('gekozen'));
+  verbergRichtingKnoppen();
+}
+
+// Bug 3: Centrale UI-refresh na node-wissel
+function refreshHoofdschermVoorActieveNode() {
+  if (!dichtstbijOSM) return;
+  const sl = dichtstbijOSM;
+  kNaam.textContent = sl.naam || (sl.slim ? '⚡ Slim' : 'Stoplicht');
+  kAf.textContent   = sl.afstand < 1000 ? `${Math.round(sl.afstand)}m` : `${(sl.afstand/1000).toFixed(1)}km`;
+  kDD.textContent   = `${DD[huidigDDActief()].ic} ${huidigDDActief()}`;
+  bijwerkLeerkaart(sl);
+  bijwerkDashboardKnop();
+  if (fase === 'rood') {
+    activeCdDoel = gewGem(laadM(sl.id, huidigDDActief())) || 0;
+    if (activeCdDoel > 0) startCd(); else stopCd();
+  }
+}
+
+// UI: Correctielijst tonen (bottom sheet)
+function toonCorrectielijst() {
+  if (!osmCache.length || !huidigePos) return;
+  const overlay = document.getElementById('correctie-overlay');
+  const lijst   = document.getElementById('correctie-lijst');
+  if (!overlay || !lijst) return;
+
+  const gesorteerd = osmCache
+    .map(sl => ({ ...sl, afstand: afstand(huidigePos.lat, huidigePos.lon, sl.lat, sl.lon) }))
+    .filter(sl => sl.afstand <= 400)
+    .sort((a, b) => a.afstand - b.afstand)
+    .slice(0, 3);
+
+  if (!gesorteerd.length) {
+    lijst.innerHTML = '<div style="color:rgba(255,255,255,0.4);font-size:14px;text-align:center;padding:20px">Geen stoplichten in de buurt</div>';
+    overlay.style.display = 'block';
+    return;
+  }
+
+  const actiefId = dichtstbijOSM ? String(dichtstbijOSM.id) : null;
+  const eenNode  = gesorteerd.length === 1;
+  const dirs = ['N','NO','O','ZO','Z','ZW','W','NW'];
+
+  let html = '';
+  if (eenNode) {
+    html += '<div style="color:rgba(255,255,255,0.4);font-size:13px;text-align:center;padding:4px 0 12px;letter-spacing:0.04em">Geen alternatieven binnen 30m</div>';
+  }
+
+  html += gesorteerd.map(sl => {
+    const isActief = String(sl.id) === actiefId;
+    const afTekst  = sl.afstand < 1000 ? `${Math.round(sl.afstand)}m` : `${(sl.afstand/1000).toFixed(1)}km`;
+    const h        = (Math.atan2(sl.lon - huidigePos.lon, sl.lat - huidigePos.lat) * 180 / Math.PI + 360) % 360;
+    const hoekTekst = dirs[Math.round(h / 45) % 8] + ` ${Math.round(h)}°`;
+    return `<div class="correctie-item" onclick="selecteerNodeHandmatig('${sl.id}')">
+      <div class="correctie-item-balk${isActief ? ' actief' : ''}"></div>
+      <div class="correctie-item-info">
+        <div class="correctie-item-straat">${escapeHTML(sl.naam || `Stoplicht ${sl.id}`)}</div>
+        <div class="correctie-item-afstand">${afTekst}</div>
+        <div class="correctie-item-hoek">${hoekTekst}</div>
+      </div>
+      ${isActief ? '<div class="correctie-item-badge">ACTIEF</div>' : ''}
+    </div>`;
+  }).join('');
+
+  lijst.innerHTML = html;
+  overlay.style.display = 'block';
+}
+
+function sluitCorrectielijst() {
+  const overlay = document.getElementById('correctie-overlay');
+  if (overlay) overlay.style.display = 'none';
+}
+
+// Bug 2 + Bug 3: Handmatige node-selectie
+function selecteerNodeHandmatig(nodeId) {
+  sluitCorrectielijst();
+  const sl = osmCache.find(s => String(s.id) === String(nodeId));
+  if (!sl || !huidigePos) return;
+  const af = afstand(huidigePos.lat, huidigePos.lon, sl.lat, sl.lon);
+  const nieuweNode = { ...sl, afstand: af };
+  vorigOsmId    = sl.id;
+  dichtstbijOSM = nieuweNode;
+  afwijkBuf     = [];
+  activeCdDoel  = gewGem(laadM(sl.id, huidigDDActief())) || 0;
+  // Bug 2: Rijrichting direct resetten
+  resetRijrichtingState();
+  // Bug 3: Hoofdscherm volledig vernieuwen
+  refreshHoofdschermVoorActieveNode();
+}
+
 function vindOsmMatchOpRichting(absoluteRichting, maxHoekGraden, maxAfstandMeter) {
   if (!huidigePos||!osmCache.length) return null;
   let bestMatch=null, besteScore=Infinity;
@@ -2667,163 +2547,6 @@ function slaLeergeheugenOpS2(nodeId, kleur) {
   if (m.length>MAX_METINGEN) { m.sort((a,b)=>gew(b.tijd)-gew(a.tijd)); m=m.slice(0,MAX_METINGEN); }
   try { localStorage.setItem(`${LS_PREFIX}${nodeId}_${dd}`, JSON.stringify(m)); } catch(e) {}
   checkLocalStorageRuimte();
-}
-
-// ── V8.8.7: CYCLUSTIJD DEDUCTIE ─────────────────────────────────
-// Één echte roodmeting genereert hypothese over verwachte groenfase.
-// Nederlandse standaard cycli 60/90/120s — kies dichtstbijzijnde op
-// basis van afwijking tot helft-cyclus. Verwerpt onrealistische invoer.
-function berekenHypothetischeCyclus(gemetenRoodfaseSeconden) {
-  if (typeof gemetenRoodfaseSeconden !== 'number' || isNaN(gemetenRoodfaseSeconden)) return null;
-  if (gemetenRoodfaseSeconden < DEDUCTIE_ROOD_MIN) return null; // te kort: voetganger/file
-  if (gemetenRoodfaseSeconden > DEDUCTIE_ROOD_MAX) return null; // te lang voor standaard
-  let besteCyclus = null, kleinsteAfwijking = Infinity;
-  for (const c of STANDAARD_CYCLI) {
-    const afwijking = Math.abs(gemetenRoodfaseSeconden - (c / 2));
-    if (afwijking < kleinsteAfwijking) { kleinsteAfwijking = afwijking; besteCyclus = c; }
-  }
-  if (besteCyclus === null) return null;
-  const groenfase = besteCyclus - gemetenRoodfaseSeconden - DEDUCTIE_ORANJE_S;
-  if (groenfase < DEDUCTIE_GROEN_MIN) return null; // onrealistische groenfase
-  return { cyclus: besteCyclus, groenfase, betrouwbaarheid: 'hypothese' };
-}
-
-// Spreiding voor één set metingen — (max-min)/gem * 100 in procenten
-function berekenSpreidingPct(metingen) {
-  if (!Array.isArray(metingen) || metingen.length < 2) return null;
-  const duurs = metingen.filter(x => x && x.duur > 0).map(x => x.duur);
-  if (duurs.length < 2) return null;
-  const gem = duurs.reduce((s, v) => s + v, 0) / duurs.length;
-  if (gem <= 0) return null;
-  const mn = Math.min(...duurs), mx = Math.max(...duurs);
-  return ((mx - mn) / gem) * 100;
-}
-
-// Hoofdfunctie: wordt aangeroepen direct na een ECHTE roodmeting via slaOp.
-// Gooit geen errors op — silently faalt bij ongeldige input.
-function verwerkDeductie(nodeId, richting, gemetenRoodfase) {
-  try {
-    if (!nodeId) return;
-    const hypo = berekenHypothetischeCyclus(gemetenRoodfase);
-    if (!hypo) return;
-    const dd = huidigDagdeelFinaal || huidigDD();
-    const bestaandeM = laadM(nodeId, dd);
-    // Spreiding >= 30% → VRI-gestuurd, geen deductie
-    if (bestaandeM.length >= 2) {
-      const sp = berekenSpreidingPct(bestaandeM);
-      if (sp !== null && sp >= 30) return;
-    }
-    // Deductieve meting opslaan
-    slaOp(nodeId, richting, hypo.groenfase, { gewicht: DEDUCTIE_GEWICHT, bron: 'deductie' });
-    deductieFeedbackTot = Date.now() + 3000;
-  } catch (e) { /* stil falen */ }
-}
-
-// ── V8.8.7: TIJDSTEMPEL FINGERPRINT ─────────────────────────────
-// Onthoudt het exacte schakelritme per stoplicht via UTC ms tijdstempels.
-// Na FP_MIN_PATRONEN bevestigingen met lage modulo-stdev → countdown accuraat.
-function laadFingerprint(nodeId) {
-  if (!nodeId) return null;
-  try {
-    const raw = localStorage.getItem(`sl_fp_${nodeId}`);
-    const fp = raw ? JSON.parse(raw) : null;
-    if (!fp || typeof fp !== 'object') return null;
-    if (!Array.isArray(fp.patronen)) fp.patronen = [];
-    if (typeof fp.aantalBevestigingen !== 'number') fp.aantalBevestigingen = 0;
-    if (typeof fp.aantalMismatches !== 'number') fp.aantalMismatches = 0;
-    if (typeof fp.bevestigd !== 'boolean') fp.bevestigd = false;
-    return fp;
-  } catch (e) { return null; }
-}
-
-function slaFingerprintOp(nodeId, fp) {
-  if (!nodeId || !fp) return;
-  try { localStorage.setItem(`sl_fp_${nodeId}`, JSON.stringify(fp)); } catch (e) {}
-}
-
-function berekenStdev(arr) {
-  if (!arr.length) return 0;
-  const gem = arr.reduce((s, v) => s + v, 0) / arr.length;
-  const variantie = arr.reduce((s, v) => s + (v - gem) * (v - gem), 0) / arr.length;
-  return Math.sqrt(variantie);
-}
-
-// Voegt patroon toe en herberekent fingerprint. Returned true als nu bevestigd.
-function voegFingerprintPatroonToe(nodeId, roodStartMs, groenStartMs) {
-  if (!nodeId || typeof roodStartMs !== 'number' || typeof groenStartMs !== 'number') return false;
-  if (groenStartMs <= roodStartMs) return false;
-  let fp = laadFingerprint(nodeId) || {
-    patronen: [], bevestigd: false, aantalBevestigingen: 0, cyclus: null, aantalMismatches: 0
-  };
-  const cyclusSec = (groenStartMs - roodStartMs) / 1000;
-  // Mismatch check tegen huidig bevestigde fingerprint
-  if (fp.bevestigd && fp.cyclus && fp.cyclus > 0) {
-    const cyclusMs = fp.cyclus * 1000;
-    const nieuweModulo = ((roodStartMs % cyclusMs) + cyclusMs) % cyclusMs;
-    const bestaandeModulos = fp.patronen.map(p => ((p.roodStart % cyclusMs) + cyclusMs) % cyclusMs);
-    if (bestaandeModulos.length > 0) {
-      const sinGem = bestaandeModulos.reduce((s, v) => s + Math.sin(v / cyclusMs * 2 * Math.PI), 0) / bestaandeModulos.length;
-      const cosGem = bestaandeModulos.reduce((s, v) => s + Math.cos(v / cyclusMs * 2 * Math.PI), 0) / bestaandeModulos.length;
-      const gemMod = ((Math.atan2(sinGem, cosGem) / (2 * Math.PI)) * cyclusMs + cyclusMs) % cyclusMs;
-      let afwijking = Math.abs(nieuweModulo - gemMod);
-      if (afwijking > cyclusMs / 2) afwijking = cyclusMs - afwijking;
-      if (afwijking > FP_MISMATCH_GRENS_MS) {
-        fp.aantalMismatches++;
-        if (fp.aantalMismatches >= FP_MISMATCH_RESET) {
-          fp.patronen = []; fp.bevestigd = false; fp.cyclus = null; fp.aantalMismatches = 0;
-        }
-      } else {
-        fp.aantalMismatches = 0;
-      }
-    }
-  }
-  fp.patronen.push({ roodStart: roodStartMs, groenStart: groenStartMs, cyclus: cyclusSec });
-  while (fp.patronen.length > FP_MAX_PATRONEN) fp.patronen.shift();
-  // Fingerprint evalueren
-  if (fp.patronen.length >= FP_MIN_PATRONEN) {
-    const cycli = fp.patronen.map(p => p.cyclus);
-    const stdevCycli = berekenStdev(cycli);
-    if (stdevCycli > FP_STDEV_CYCLUS_MAX_S) {
-      // Te variabel → reset
-      fp.patronen = []; fp.bevestigd = false; fp.cyclus = null;
-    } else {
-      const gemCyclus = cycli.reduce((s, v) => s + v, 0) / cycli.length;
-      const cyclusMs = gemCyclus * 1000;
-      const modulos = fp.patronen.map(p => ((p.roodStart % cyclusMs) + cyclusMs) % cyclusMs);
-      const sinGem = modulos.reduce((s, v) => s + Math.sin(v / cyclusMs * 2 * Math.PI), 0) / modulos.length;
-      const cosGem = modulos.reduce((s, v) => s + Math.cos(v / cyclusMs * 2 * Math.PI), 0) / modulos.length;
-      const gemMod = ((Math.atan2(sinGem, cosGem) / (2 * Math.PI)) * cyclusMs + cyclusMs) % cyclusMs;
-      const afwijkingen = modulos.map(m => {
-        let d = Math.abs(m - gemMod);
-        if (d > cyclusMs / 2) d = cyclusMs - d;
-        return d;
-      });
-      const stdevMod = berekenStdev(afwijkingen);
-      if (stdevMod < FP_STDEV_MODULO_MAX_MS) {
-        if (!fp.bevestigd) fp.aantalBevestigingen++;
-        else fp.aantalBevestigingen++;
-        fp.bevestigd = true;
-        fp.cyclus = gemCyclus;
-      }
-    }
-  }
-  slaFingerprintOp(nodeId, fp);
-  return fp.bevestigd;
-}
-
-// Bereken resterende rood-tijd in seconden op basis van fingerprint.
-// Return null als fingerprint niet bevestigd of restant ongeldig.
-function berekenFingerprintCountdown(nodeId) {
-  if (!nodeId) return null;
-  const fp = laadFingerprint(nodeId);
-  if (!fp || !fp.bevestigd || !fp.cyclus || !fp.patronen.length) return null;
-  const cyclusMs = fp.cyclus * 1000;
-  if (cyclusMs <= 0) return null;
-  const meestRecenteRoodStart = fp.patronen[fp.patronen.length - 1].roodStart;
-  const verstreken = (Date.now() - meestRecenteRoodStart) % cyclusMs;
-  const roodRestantMs = cyclusMs - verstreken - FP_ORANJE_BUFFER_MS;
-  if (roodRestantMs <= 0 || roodRestantMs >= cyclusMs) return null;
-  return roodRestantMs / 1000;
 }
 
 // ── TAGGING ───────────────────────────────────────────────────
@@ -2907,6 +2630,68 @@ async function laadTrainframesTeller() {
     const req = tx.objectStore('frames').count();
     return new Promise(r => { req.onsuccess=()=>{trainframesTeller=req.result;r(trainframesTeller);}; req.onerror=()=>r(0); });
   } catch(e) { return 0; }
+}
+
+// ── V8.9.11: ORANJE KANDIDAAT FRAMES ────────────────────────
+async function laadOranjeFramesTeller() {
+  try {
+    if (!trainframesDB) await openTrainframesDB();
+    const tx  = trainframesDB.transaction('frames', 'readonly');
+    const req = tx.objectStore('frames').getAll();
+    return new Promise(r => {
+      req.onsuccess = () => {
+        orangeFramesTeller = (req.result || []).filter(f => f.bron === 'oranje_kandidaat').length;
+        updateOranjeFramesTeller();
+        r(orangeFramesTeller);
+      };
+      req.onerror = () => r(0);
+    });
+  } catch(e) { return 0; }
+}
+
+function voegToeAanOranjeBuffer() {
+  if (!trainframesAan || !yoloCanvas) return;
+  if (orangeFramesTeller >= ORANGEFRAMES_MAX) return;
+  const nu = Date.now();
+  if (nu - orangeBufferLaatstToegevoegd < ORANGE_BUFFER_INTERVAL) return;
+  orangeBufferLaatstToegevoegd = nu;
+  const jpeg = yoloCanvas.toDataURL('image/jpeg', 0.80);
+  const nodeId = dichtstbijOSM ? String(dichtstbijOSM.id) : null;
+  orangeKandidaatBuffer.push({ jpeg, timestamp: nu, nodeId });
+  if (orangeKandidaatBuffer.length > 10) orangeKandidaatBuffer.shift();
+}
+
+async function slaOranjeKandidatenOp() {
+  if (!trainframesAan || !orangeKandidaatBuffer.length) return;
+  if (!trainframesDB) {
+    try { await openTrainframesDB(); } catch(e) { return; }
+  }
+  const nu = Date.now();
+  const vierSecondenGeleden = nu - 4000;
+  const teSlaan = orangeKandidaatBuffer.filter(f => f.timestamp >= vierSecondenGeleden);
+  if (!teSlaan.length) { orangeKandidaatBuffer = []; return; }
+  for (const frame of teSlaan) {
+    if (orangeFramesTeller >= ORANGEFRAMES_MAX) break;
+    try {
+      const tx = trainframesDB.transaction('frames', 'readwrite');
+      tx.objectStore('frames').add({
+        jpeg: frame.jpeg,
+        label: 'oranje_kandidaat',
+        tijd: frame.timestamp,
+        bron: 'oranje_kandidaat',
+        nodeId: frame.nodeId,
+        twijfel: false
+      });
+      orangeFramesTeller++;
+    } catch(e) {}
+  }
+  orangeKandidaatBuffer = [];
+  updateOranjeFramesTeller();
+}
+
+function updateOranjeFramesTeller() {
+  const el = document.getElementById('of-teller');
+  if (el) el.textContent = `${orangeFramesTeller}/${ORANGEFRAMES_MAX} oranje`;
 }
 
 // twijfel=true: confidence 0.35-0.60 — apart markeren voor handmatige controle
@@ -2999,8 +2784,6 @@ async function refreshStadIndienNodig(lat, lon) {
   const nu = Date.now();
   if (stadLaatstRefreshed===0 || (nu-stadLaatstRefreshed)>120000 || (stadLaatsteLat!=null&&afstand(lat,lon,stadLaatsteLat,stadLaatsteLon)>1000)) {
     stadLaatstRefreshed=nu; stadLaatsteLat=lat; stadLaatsteLon=lon;
-    // V8.8.3: Herbereken zonsondergang bij locatiewissel
-    updateZonsondergang(true);
     try {
       const r = await fetch(`https://nominatim.openstreetmap.org/reverse?lat=${lat}&lon=${lon}&zoom=10&format=json`, { headers:{'User-Agent':'StoplichtIQ/8.8'} });
       const d = await r.json();
@@ -3052,30 +2835,14 @@ function updateDichtbij(lat, lon) {
   const nieuw = vindDichtbij(lat, lon, huidigeRichting);
   if (!nieuw) return;
   kNaam.textContent = nieuw.naam || (nieuw.slim?'⚡ Slim':'Stoplicht');
-  // V8.8.3: Afstandsweergave bevriezen bij stilstand rood
-  const toonAfstandM = (snelheidKmh < 5 && fase === 'rood' && bevrorenAfstandM !== null) ? bevrorenAfstandM : nieuw.afstand;
-  kAf.textContent   = toonAfstandM<1000 ? `${Math.round(toonAfstandM)}m` : `${(toonAfstandM/1000).toFixed(1)}km`;
+  kAf.textContent   = nieuw.afstand<1000 ? `${Math.round(nieuw.afstand)}m` : `${(nieuw.afstand/1000).toFixed(1)}km`;
   kDD.textContent   = `${DD[huidigDDActief()].ic} ${huidigDDActief()}`;
   if (nieuw.id !== vorigOsmId) {
-    // V8.8.5: Als de vorige node voorbij is, markeer die als gepasseerd
-    // zodat hij niet meer terugkeert bij de volgende selectie-ronde.
-    if (dichtstbijOSM && dichtstbijOSM.id !== nieuw.id &&
-        isStoplichtVoorbij({lat:dichtstbijOSM.lat, lon:dichtstbijOSM.lon},
-                           {lat, lon}, getSmoothedHeading())) {
-      markeerNodeVoorbij(dichtstbijOSM.id, dichtstbijOSM.lat, dichtstbijOSM.lon);
-    }
     vorigOsmId=nieuw.id; dichtstbijOSM=nieuw; afwijkBuf=[];
     activeCdDoel = gewGem(laadM(nieuw.id, huidigDDActief())) || 0;
     bijwerkLeerkaart(nieuw); bijwerkDashboardKnop();
-    // V8.8.1: Reset richtingknoppen bij kruispuntwissel (met debounce 2s)
-    if (richtingResetDebounce) clearTimeout(richtingResetDebounce);
-    richtingResetDebounce = setTimeout(() => {
-      geselecteerdeRichting = null;
-      richtingGedruktVoorNode = null; // V8.8.2: reset éénmalig-per-fase lock
-      document.querySelectorAll('.richting-btn').forEach(b => b.classList.remove('gekozen'));
-      if (richtingKnoppenNodeId && richtingKnoppenNodeId !== String(nieuw.id)) verbergRichtingKnoppen();
-      richtingResetDebounce = null;
-    }, 2000);
+    // V8.9.11: Rijrichtingstaat direct resetten bij kruispuntwissel (Bug 2)
+    resetRijrichtingState();
   } else {
     dichtstbijOSM = nieuw;
   }
@@ -3084,34 +2851,9 @@ function updateDichtbij(lat, lon) {
   }
 }
 
-// V8.8.3: GPS smoothing bij stilstand — voorkomt valse sprongen
-let gpsVorigePositie = null;
-let gpsVorigeTijdstip = null;
-
-// V8.8.4: Stilstand proxy — meet wachttijd bij stilstand zonder S1 detectie
-let proxyTimerStart = null;
-let proxyNodeId = null;
-let proxyFaseActief = false;
-let proxyLaatsteMeting = null;
-let proxySavedFeedback = null;
-
 // ── GPS ───────────────────────────────────────────────────────
 async function onGPS(pos) {
   const lat=pos.coords.latitude, lon=pos.coords.longitude;
-  // V8.8.3: GPS sprongdetectie bij lage snelheid
-  const gpsTijdNu = Date.now();
-  const gpsSnelheidMs = (pos.coords.speed!=null && !isNaN(pos.coords.speed)) ? pos.coords.speed : 0;
-  const gpsSnelheidKmhNu = gpsSnelheidMs * 3.6;
-  if (gpsVorigePositie !== null && gpsVorigeTijdstip !== null) {
-    const gpsDeltaM = afstand(gpsVorigePositie.lat, gpsVorigePositie.lon, lat, lon);
-    const gpsDeltaS = (gpsTijdNu - gpsVorigeTijdstip) / 1000;
-    if (gpsSnelheidKmhNu < 5 && gpsDeltaM > 20 && gpsDeltaS < 1) {
-      debugWaarden.info = 'GPS:skip';
-      return; // Negeer onrealistische sprong
-    }
-  }
-  gpsVorigePositie = { lat, lon };
-  gpsVorigeTijdstip = gpsTijdNu;
   huidigePos = { lat, lon };
   if (pos.coords.heading!=null && !isNaN(pos.coords.heading)) {
     huidigeRichting = pos.coords.heading;
@@ -3120,28 +2862,11 @@ async function onGPS(pos) {
   const snelheidMs = (pos.coords.speed!=null && !isNaN(pos.coords.speed)) ? pos.coords.speed : 0;
   snelheidKmh = snelheidMs * 3.6;
   gpsBuffer   = Math.min(10 + snelheidKmh*0.4, 40);
-  // V8.8.6: Rij-hysterese — boven grens-snelheid is drift verwaarloosbaar
-  // en moet de node lock loslaten zodat nieuwe nodes geselecteerd kunnen worden.
-  if (snelheidKmh > VERGRENDEL_SNELHEID_GRENS && vergrendeldeNode !== null) {
-    resetVergrendeling();
-  }
-  checkVergrendelingVerval();
   // Zoom unlock via GPS-voorbij
   if (zoomVergrendeld && huidigActiefStoplichtPositie &&
       isStoplichtVoorbij(huidigActiefStoplichtPositie, {lat,lon}, getSmoothedHeading()) &&
       (Date.now()-zoomVergrendelTijdstip) > 3000) {
-    // V8.8.5: Node als gepasseerd markeren voordat we vergrendeling loslaten
-    if (huidigBevestigdOsmNodeId) {
-      markeerNodeVoorbij(
-        huidigBevestigdOsmNodeId,
-        huidigActiefStoplichtPositie.lat,
-        huidigActiefStoplichtPositie.lon
-      );
-    }
     zoomVergrendeld=false; huidigActiefStoplichtPositie=null;
-    // V8.8.6: GPS-voorbij → ook node lock loslaten zodat het volgende
-    // kruispunt geselecteerd kan worden.
-    resetVergrendeling();
   }
   // V8.8.1: Tikinterface verbergen als kruispunt voorbij of snelheid >30 na passeren
   if (richtingKnoppenNodeId && huidigActiefStoplichtPositie &&
@@ -3155,69 +2880,10 @@ async function onGPS(pos) {
   if (zoomVergrendeld && dichtstbijOSM && dichtstbijOSM.afstand < 20) {
     zoomVergrendeld=false; huidigActiefStoplichtPositie=null;
   }
-  // V8.8.4: Stilstand proxy logica
-  verwerkStilstandProxy();
-
   pGPS.className='pill-dot b'; pGPST.textContent='GPS';
   if (!cacheGeladen && !cacheBezig) downloadOSM(lat, lon);
   else if (cacheGeladen) updateDichtbij(lat, lon);
   refreshStadIndienNodig(lat, lon);
-}
-
-// ── V8.8.4: STILSTAND PROXY ──────────────────────────────────
-function verwerkStilstandProxy() {
-  // STAP B: Maximum check — parkeren of extreme file
-  if (proxyTimerStart !== null) {
-    const wachttijdB = (Date.now() - proxyTimerStart) / 1000;
-    if (wachttijdB > 180) { resetProxy(); return; }
-  }
-
-  // STAP A: Stilstand detectie — start proxy timer
-  // Hysteresis: start bij <3 km/u, stop bij >8 km/u
-  if (snelheidKmh < 3 && dichtstbijOSM && dichtstbijOSM.afstand < 80 && proxyTimerStart === null) {
-    proxyTimerStart = Date.now();
-    proxyNodeId = String(dichtstbijOSM.id);
-    proxyFaseActief = true;
-    return;
-  }
-
-  // Node wissel tijdens stilstand — reset proxy
-  if (proxyFaseActief && dichtstbijOSM && String(dichtstbijOSM.id) !== proxyNodeId) {
-    resetProxy();
-    return;
-  }
-
-  // STAP C: Rijden hervat (hysteresis: >8 km/u)
-  if (snelheidKmh > 8 && proxyFaseActief) {
-    const wachttijd = (Date.now() - proxyTimerStart) / 1000;
-    if (wachttijd < 8) {
-      resetProxy(); // Te kort — negeren
-      return;
-    }
-    if (wachttijd >= 8 && wachttijd <= 180) {
-      // STAP D: Overlap check — geen proxy als S1 recent al opsloeg
-      const dd = huidigDagdeelFinaal || huidigDD();
-      const bestaandeM = laadM(proxyNodeId, dd);
-      const nuMs = Date.now();
-      const heeftRecenteS1 = bestaandeM.some(m => m.bron !== 'proxy' && (nuMs - m.tijd) < 60000);
-      if (!heeftRecenteS1) {
-        // STAP E: Proxy meting opslaan
-        slaOp(proxyNodeId, huidigeRichting, wachttijd, { gewicht: 0.3, bron: 'proxy' });
-        bijwerkLeerkaart(dichtstbijOSM); bijwerkDashboardKnop();
-        proxyLaatsteMeting = Date.now();
-        // Debug feedback
-        proxySavedFeedback = Date.now();
-        setTimeout(() => { proxySavedFeedback = null; }, 2000);
-      }
-    }
-    resetProxy();
-  }
-}
-
-function resetProxy() {
-  proxyTimerStart = null;
-  proxyNodeId = null;
-  proxyFaseActief = false;
 }
 
 // ── GELUID ────────────────────────────────────────────────────
@@ -3286,23 +2952,7 @@ function updateDebugOverlay() {
   dAI.textContent  = [debugWaarden.ai||'ai:—', `int:${dynamischInterval}(${Math.round(gemiddeldeInferentieTijd)}ms)`].join(' | ');
   dPct.textContent = [debugWaarden.leer||'leer:—', debugWaarden.zoom||''].filter(Boolean).join(' | ');
   dOSM.textContent = [debugWaarden.osm||'osm:—', s2SessieTeller>0?`S2:${s2SessieTeller}`:'', tag?'tag:'+tag.type:''].filter(Boolean).join(' | ');
-  // V8.8.4: Proxy status in debug
-  let proxyDbg = '';
-  if (proxySavedFeedback) proxyDbg = 'prx:✓';
-  else if (proxyTimerStart) proxyDbg = `prx:${Math.round((Date.now()-proxyTimerStart)/1000)}s`;
-  // V8.8.6: Node lock status in debug — eerste 6 cijfers van nodeId
-  let lockDbg = '';
-  if (vergrendeldeNode) lockDbg = `lock:${String(vergrendeldeNode).slice(0,6)}`;
-  // V8.8.7: Deductie + fingerprint status
-  let dedDbg = '';
-  if (deductieFeedbackTot && Date.now() < deductieFeedbackTot) dedDbg = 'ded:✓';
-  let fpDbg = '';
-  if (fpCountdownActief) fpDbg = 'fp:cd';
-  else if (huidigBevestigdOsmNodeId) {
-    const fp = laadFingerprint(huidigBevestigdOsmNodeId);
-    if (fp && fp.bevestigd) fpDbg = `fp:✓[${fp.aantalBevestigingen}]`;
-  }
-  dInfo.textContent = [debugWaarden.info||'—', proxyDbg, lockDbg, dedDbg, fpDbg].filter(Boolean).join(' ');
+  dInfo.textContent = debugWaarden.info || '—';
 }
 setInterval(updateDebugOverlay, 500);
 
@@ -3349,6 +2999,11 @@ function lus() {
     if (workerKlaar || frameT % 8 === 0) voerAIUit();
   }
   verwerkDetecties();
+
+  // V8.9.11: Oranje kandidaat buffer bijvullen tijdens rode fase
+  if (fase === 'rood' && orangeFocusVensterActief) {
+    voegToeAanOranjeBuffer();
+  }
 
   // V8.7 FIX: Stale fase reset — dynamische grens op basis van inferentietijd
   // Voorkomt "GROEN ACTIEF" bij rood doordat YOLO niet snel genoeg bevestigt
