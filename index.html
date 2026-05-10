@@ -351,7 +351,7 @@
 <div id="startscherm">
   <div id="s-icoon">🚦</div>
   <div id="s-titel">Stoplicht<span>IQ</span></div>
-  <div id="s-versie">V8.9.12 — Oranje Toggle + Camera Watchdog + Node Lock + CamStats</div>
+  <div id="s-versie">V8.9.13 — Oranje buffer groen→rood fix</div>
   <div id="s-model-wrap">
     <div id="s-model-rij">
       <div id="s-model-label">🤖 YOLOv8 model laden…</div>
@@ -530,7 +530,7 @@
 
 <script>
 // ═══════════════════════════════════════════════════════════════
-//  StoplichtIQ V8.9.12
+//  StoplichtIQ V8.9.13
 //  Bug1: Oranje focus timing-gebaseerd (rood→groen buffer)
 //  Bug2: Richtingknop reset bij node-wissel
 //  Bug3: refreshHoofdschermVoorActieveNode centrale UI-refresh
@@ -1626,13 +1626,12 @@ function verwerkFase(nieuw, horizontaal) {
       bijwerkLeerkaart(dichtstbijOSM); bijwerkDashboardKnop();
     }
   }
-  // V8.9.11: Oranje kandidaat frames flushen bij rood→groen overgang
-  if (fase === 'rood' && nieuw === 'groen') {
+  // V8.9.13: Oranje kandidaat frames flushen bij groen→rood overgang
+  if (fase === 'groen' && nieuw === 'rood') {
     slaOranjeKandidatenOp();
-    roodStartOranje = null;
+    orangeKandidaatBuffer = [];
     orangeFocusVensterActief = false;
-  } else if (nieuw === 'rood') {
-    roodStartOranje = Date.now();
+  } else if (nieuw === 'groen') {
     orangeKandidaatBuffer = [];
     orangeFocusVensterActief = true;
   }
@@ -3086,8 +3085,8 @@ function lus() {
   }
   verwerkDetecties();
 
-  // V8.9.11/12: Oranje kandidaat buffer bijvullen tijdens rode fase (alleen als gebruiker activeerde)
-  if (fase === 'rood' && orangeFocusVensterActief && orangeFocusActief) {
+  // V8.9.13: Oranje kandidaat buffer bijvullen tijdens groene fase (voor het oranje moment)
+  if (fase === 'groen' && orangeFocusVensterActief && orangeFocusActief) {
     voegToeAanOranjeBuffer();
   }
 
