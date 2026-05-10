@@ -351,7 +351,7 @@
 <div id="startscherm">
   <div id="s-icoon">🚦</div>
   <div id="s-titel">Stoplicht<span>IQ</span></div>
-  <div id="s-versie">V8.9.11 — Oranje Focus + Richtingfix + Correctielijst</div>
+  <div id="s-versie">V8.9.12 — Oranje Toggle + Camera Watchdog + Node Lock + CamStats</div>
   <div id="s-model-wrap">
     <div id="s-model-rij">
       <div id="s-model-label">🤖 YOLOv8 model laden…</div>
@@ -498,10 +498,15 @@
     </div>
     <div style="display:flex;gap:8px;flex-wrap:wrap">
       <button id="tf-toggle-btn" onclick="toggleTrainframes()" style="flex:1;padding:8px 12px;background:rgba(52,199,89,0.2);color:#34C759;border:1px solid rgba(52,199,89,0.4);border-radius:8px;font-size:12px;cursor:pointer;min-width:100px">▶ Verzamelen</button>
+      <button id="oranje-focus-btn" onclick="toggleOranjeFocus()" style="flex:1;padding:8px 12px;background:rgba(245,158,11,0.15);color:#f59e0b;border:1px solid rgba(245,158,11,0.3);border-radius:8px;font-size:12px;cursor:pointer;min-width:100px">🟠 Oranje uit</button>
       <button onclick="exporteerTrainframes()" style="flex:1;padding:8px 12px;background:rgba(191,90,242,0.2);color:#BF5AF2;border:1px solid rgba(191,90,242,0.4);border-radius:8px;font-size:12px;cursor:pointer;min-width:100px">📦 Exporteer</button>
       <button onclick="verwijderTrainframes()" style="padding:8px 12px;background:rgba(255,48,48,0.15);color:#FF3030;border:1px solid rgba(255,48,48,0.3);border-radius:8px;font-size:12px;cursor:pointer">🗑 Wis</button>
     </div>
     <div style="font-size:9px;color:rgba(255,255,255,0.3);line-height:1.4">Verzamelt 640x640 frames met YOLO labels tijdens detectie.</div>
+    <div style="margin-top:6px;display:flex;align-items:center;justify-content:space-between">
+      <div style="font-size:10px;color:rgba(255,255,255,0.35)">Camera-detecties zonder OSM-node</div>
+      <div id="cam-stats-teller" onclick="toonCamStats()" style="font-family:'Share Tech Mono',monospace;font-size:10px;color:rgba(255,255,255,0.45);cursor:pointer">0 locaties</div>
+    </div>
   </div>
   <div id="dash-zoek-wrap" style="padding:8px 18px 0">
     <input id="dash-zoek" type="text" placeholder="Zoek kruispunt of tagtype…" oninput="zoekDashboard(this.value)"
@@ -525,7 +530,7 @@
 
 <script>
 // ═══════════════════════════════════════════════════════════════
-//  StoplichtIQ V8.9.11
+//  StoplichtIQ V8.9.12
 //  Bug1: Oranje focus timing-gebaseerd (rood→groen buffer)
 //  Bug2: Richtingknop reset bij node-wissel
 //  Bug3: refreshHoofdschermVoorActieveNode centrale UI-refresh
@@ -891,6 +896,17 @@ let roodStartOranje = null;
 let orangeBufferLaatstToegevoegd = 0;
 const ORANGE_BUFFER_INTERVAL = 400; // ms tussen buffer-captures
 let orangeFocusVensterActief = false;
+// V8.9.12: Gebruikerstoggle voor oranje buffer
+let orangeFocusActief = false;
+
+// V8.9.12: Camera watchdog
+let cameraWatchdogInterval = null;
+let lastFrameTimestamp = 0;
+
+// V8.9.12: Handmatige node-selectie harde lock
+let handmatigGeselecteerdNodeId = null;
+let handmatigGeselecteerdTimestamp = 0;
+let handmatigLockActief = false;
 
 // Debug
 let debugWaarden={};
@@ -1289,6 +1305,20 @@ function _verwerkWorkerResultaat(detecties) {
            w:beste.w/lbScale, h:beste.h/lbScale, kleur }
   };
   nieuwAIResultaat = true;
+  // V8.9.12: Camera-node detectiestatistiek — registreer als conf≥0.60, geen OSM binnen 40m, rijdend
+  if (gesmoothedScore >= 0.60 && snelheidKmh > 5 && huidigePos) {
+    const heeftOSMDichtbij = osmCache.some(sl => afstand(huidigePos.lat, huidigePos.lon, sl.lat, sl.lon) < 40);
+    if (!heeftOSMDichtbij) {
+      try {
+        const stats = JSON.parse(localStorage.getItem('sl_cam_stats') || '[]');
+        if (stats.length < 100) {
+          stats.push({ lat: huidigePos.lat, lon: huidigePos.lon, kleur, score: Math.round(gesmoothedScore * 100), tijd: Date.now() });
+          localStorage.setItem('sl_cam_stats', JSON.stringify(stats));
+          updateCamStatsTeller();
+        }
+      } catch(e) {}
+    }
+  }
   verwerkS2(s2Rest); s1GebruikteNodesDezeRun.clear();
   // V8.8.1: Directe YOLO run bij kleurwissel — max 1 per wissel
   if (directeRunNodig && !aiBezig) {
@@ -1808,12 +1838,15 @@ function openDashboard() {
   if (zoekInput) zoekInput.value = '';
   laadDashboard();
   updateTrainframesTeller();
+  updateCamStatsTeller();
   document.getElementById('dashboard').classList.remove('verborgen');
 }
 
 function sluitDashboard() {
   document.getElementById('dashboard').classList.add('verborgen');
   uitgeklapteDD = null;
+  // V8.9.12: Herstel camera als bevroren na dashboard-interactie
+  if (video.paused) video.play().catch(() => {});
 }
 
 function toggleDagdeelDetail(nodeId, dd) {
@@ -2522,6 +2555,10 @@ function selecteerNodeHandmatig(nodeId) {
   resetRijrichtingState();
   // Bug 3: Hoofdscherm volledig vernieuwen
   refreshHoofdschermVoorActieveNode();
+  // V8.9.12: Harde lock — blokkeer auto-selectie tot GPS-voorbij
+  handmatigGeselecteerdNodeId = String(nodeId);
+  handmatigGeselecteerdTimestamp = Date.now();
+  handmatigLockActief = true;
 }
 
 function vindOsmMatchOpRichting(absoluteRichting, maxHoekGraden, maxAfstandMeter) {
@@ -2694,6 +2731,26 @@ function updateOranjeFramesTeller() {
   if (el) el.textContent = `${orangeFramesTeller}/${ORANGEFRAMES_MAX} oranje`;
 }
 
+function updateCamStatsTeller() {
+  const el = document.getElementById('cam-stats-teller');
+  if (!el) return;
+  try {
+    const stats = JSON.parse(localStorage.getItem('sl_cam_stats') || '[]');
+    el.textContent = `${stats.length}/100 locaties`;
+  } catch(e) {}
+}
+
+function toonCamStats() {
+  try {
+    const stats = JSON.parse(localStorage.getItem('sl_cam_stats') || '[]');
+    if (!stats.length) { alert('Nog geen camera-detecties zonder OSM-node geregistreerd.'); return; }
+    const recent = stats.slice(-5).reverse().map(s =>
+      `${s.kleur} ${s.score}% — ${s.lat.toFixed(5)},${s.lon.toFixed(5)}`
+    ).join('\n');
+    alert(`Camera-detecties zonder OSM-node: ${stats.length}/100\n\nLaatste 5:\n${recent}`);
+  } catch(e) {}
+}
+
 // twijfel=true: confidence 0.35-0.60 — apart markeren voor handmatige controle
 // twijfel=false: bevestigde frame ≥ AI_DREMPEL — directe trainingswaarde
 async function slaTrainframeOp(bron, klasse, ncx, ncy, nw, nh, twijfel = false) {
@@ -2730,6 +2787,16 @@ function toggleTrainframes() {
     btn.style.borderColor  = trainframesAan ? 'rgba(255,159,10,0.4)' : 'rgba(52,199,89,0.4)';
   }
   updateTrainframesTeller();
+}
+
+function toggleOranjeFocus() {
+  orangeFocusActief = !orangeFocusActief;
+  const btn = document.getElementById('oranje-focus-btn');
+  if (btn) {
+    btn.textContent    = orangeFocusActief ? '🟠 Oranje aan' : '🟠 Oranje uit';
+    btn.style.background  = orangeFocusActief ? 'rgba(245,158,11,0.3)' : 'rgba(245,158,11,0.15)';
+    btn.style.borderColor = orangeFocusActief ? 'rgba(245,158,11,0.6)' : 'rgba(245,158,11,0.3)';
+  }
 }
 
 function updateTrainframesTeller() {
@@ -2832,6 +2899,15 @@ async function forceerVerreFocus(stream) {
 // ── OSM HELPERS ───────────────────────────────────────────────
 function updateDichtbij(lat, lon) {
   if (!osmCache.length) { kNaam.textContent='Geen kaartdata'; kAf.textContent='—'; return; }
+  // V8.9.12: Harde lock — handmatige selectie blokkeert auto-selectie
+  if (handmatigLockActief && dichtstbijOSM) {
+    const af = afstand(lat, lon, dichtstbijOSM.lat, dichtstbijOSM.lon);
+    dichtstbijOSM = { ...dichtstbijOSM, afstand: af };
+    kNaam.textContent = (dichtstbijOSM.naam || 'Stoplicht') + ' 🔒';
+    kAf.textContent   = af < 1000 ? `${Math.round(af)}m` : `${(af/1000).toFixed(1)}km`;
+    kDD.textContent   = `${DD[huidigDDActief()].ic} ${huidigDDActief()}`;
+    return;
+  }
   const nieuw = vindDichtbij(lat, lon, huidigeRichting);
   if (!nieuw) return;
   kNaam.textContent = nieuw.naam || (nieuw.slim?'⚡ Slim':'Stoplicht');
@@ -2862,6 +2938,15 @@ async function onGPS(pos) {
   const snelheidMs = (pos.coords.speed!=null && !isNaN(pos.coords.speed)) ? pos.coords.speed : 0;
   snelheidKmh = snelheidMs * 3.6;
   gpsBuffer   = Math.min(10 + snelheidKmh*0.4, 40);
+  // V8.9.12: Handmatig lock vrijgeven als node voorbij of noodontgrendeling
+  if (handmatigLockActief && handmatigGeselecteerdNodeId) {
+    const lockedNode = osmCache.find(s => String(s.id) === handmatigGeselecteerdNodeId);
+    if (lockedNode && isStoplichtVoorbij({ lat: lockedNode.lat, lon: lockedNode.lon }, {lat, lon}, getSmoothedHeading())) {
+      handmatigLockActief = false; handmatigGeselecteerdNodeId = null;
+    } else if (Date.now() - handmatigGeselecteerdTimestamp > 180000 && snelheidKmh > 25) {
+      handmatigLockActief = false; handmatigGeselecteerdNodeId = null;
+    }
+  }
   // Zoom unlock via GPS-voorbij
   if (zoomVergrendeld && huidigActiefStoplichtPositie &&
       isStoplichtVoorbij(huidigActiefStoplichtPositie, {lat,lon}, getSmoothedHeading()) &&
@@ -2970,6 +3055,7 @@ setInterval(() => {
 
 // ── ANIMATIELUS ───────────────────────────────────────────────
 function lus() {
+  lastFrameTimestamp = Date.now();
   if (video.readyState >= 2) {
     const vw=video.videoWidth||window.innerWidth, vh=video.videoHeight||window.innerHeight;
     if (canvas.width!==vw)  canvas.width=vw;
@@ -3000,8 +3086,8 @@ function lus() {
   }
   verwerkDetecties();
 
-  // V8.9.11: Oranje kandidaat buffer bijvullen tijdens rode fase
-  if (fase === 'rood' && orangeFocusVensterActief) {
+  // V8.9.11/12: Oranje kandidaat buffer bijvullen tijdens rode fase (alleen als gebruiker activeerde)
+  if (fase === 'rood' && orangeFocusVensterActief && orangeFocusActief) {
     voegToeAanOranjeBuffer();
   }
 
@@ -3072,6 +3158,14 @@ async function startApp() {
   }
   bijwerkLeerkaart(null);
   bijwerkDashboardKnop();
+  // V8.9.12: Camera watchdog — herstart lus als >3s geen frame verwerkt
+  cameraWatchdogInterval = setInterval(() => {
+    if (Date.now() - lastFrameTimestamp > 3000) {
+      if (video.paused) video.play().catch(() => {});
+      lastFrameTimestamp = Date.now();
+      requestAnimationFrame(lus);
+    }
+  }, 3000);
   lus();
 }
 
