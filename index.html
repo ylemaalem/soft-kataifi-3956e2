@@ -3171,6 +3171,7 @@ function toonCamStats() {
 // twijfel=true: confidence 0.35-0.60 — apart markeren voor handmatige controle
 // twijfel=false: bevestigde frame ≥ AI_DREMPEL — directe trainingswaarde
 async function slaTrainframeOp(bron, klasse, ncx, ncy, nw, nh, twijfel = false) {
+  console.log('slaTrainframeOp aangeroepen, trainframesAan:', trainframesAan, 'yoloCanvas:', !!yoloCanvas);
   if (!trainframesAan) return;
   if (trainframesTeller >= TRAINFRAMES_MAX) return;
   if (!yoloCanvas) return;
