@@ -351,7 +351,7 @@
 <div id="startscherm">
   <div id="s-icoon">🚦</div>
   <div id="s-titel">Stoplicht<span>IQ</span></div>
-  <div id="s-versie">V9.0.3 — Rijrichting per stoplicht</div>
+  <div id="s-versie">V9.0.4 — Rijrichting per stoplicht</div>
   <div id="s-model-wrap">
     <div id="s-model-rij">
       <div id="s-model-label">🤖 YOLOv8 model laden…</div>
@@ -481,7 +481,7 @@
     <div class="dash-stat"><div class="dash-stat-getal" id="ds-kruispunten">0</div><div class="dash-stat-label">Kruispunten</div></div>
     <div class="dash-stat"><div class="dash-stat-getal" id="ds-metingen">0</div><div class="dash-stat-label">Metingen</div></div>
     <div class="dash-stat"><div class="dash-stat-getal" id="ds-gem-pct">0%</div><div class="dash-stat-label">Gem. geleerd</div></div>
-    <div class="dash-stat" onclick="toonV9Richtingen()" style="cursor:pointer"><div class="dash-stat-getal" id="ds-richtingen" style="color:var(--blauw)">0</div><div class="dash-stat-label">V9 richtingen</div></div>
+    <div class="dash-stat" onclick="toonV9Richtingen()" style="cursor:pointer"><div class="dash-stat-getal" id="ds-richtingen" style="color:var(--blauw)">0</div><div class="dash-stat-label">V9 RICHTINGEN</div><div id="ds-richtingen-sub" style="font-size:9px;color:var(--dim);margin-top:2px">(0 writes)</div></div>
   </div>
   <div style="display:flex;gap:10px;padding:12px 16px;background:rgba(255,255,255,0.05);border-radius:10px;margin:0 18px 12px;align-items:center;flex-wrap:wrap;">
     <button onclick="exporteerData()" style="flex:1;padding:10px 14px;background:rgba(99,199,99,0.2);color:#63c763;border:1px solid rgba(99,199,99,0.4);border-radius:8px;font-size:13px;cursor:pointer;min-width:120px;">📤 Exporteer backup</button>
@@ -532,7 +532,7 @@
 
 <script>
 // ═══════════════════════════════════════════════════════════════
-//  StoplichtIQ V9.0.3
+//  StoplichtIQ V9.0.4
 //  V9: Rijrichting per stoplicht — sl_v5_{nodeId}_{aanrij}_{afrij}_{dd}
 //  Delayed write architectuur voor afrijrichting bepaling
 //  Leerafstand begrenzing: >80m geen leren, 40-80m gewicht 0.6
@@ -2259,14 +2259,18 @@ function laadDashboard() {
   document.getElementById('ds-kruispunten').textContent = data.length;
   document.getElementById('ds-metingen').textContent    = totMetingen;
   document.getElementById('ds-gem-pct').textContent     = gemPct+'%';
-  // V9.0: Richtingen statistiek
-  let aantalRichtingen = 0;
+  // V9.0.4: Richtingen statistiek — knop-presses (sl_richting_) + delayed writes (sl_v5_)
+  let aantalKnopPresses = 0, aantalDelayedWrites = 0;
   for (let i = 0; i < localStorage.length; i++) {
     const k = localStorage.key(i);
-    if (k && k.startsWith(LS_PREFIX_V5)) aantalRichtingen++;
+    if (!k) continue;
+    if (k.startsWith('sl_richting_')) aantalKnopPresses++;
+    if (k.startsWith(LS_PREFIX_V5)) aantalDelayedWrites++;
   }
   const v9Stat = document.getElementById('ds-richtingen');
-  if (v9Stat) v9Stat.textContent = aantalRichtingen;
+  if (v9Stat) v9Stat.textContent = aantalKnopPresses;
+  const v9Sub = document.getElementById('ds-richtingen-sub');
+  if (v9Sub) v9Sub.textContent = `(${aantalDelayedWrites} writes)`;
 
   if (!gefilterd.length) {
     lijst.innerHTML=`<div style="text-align:center;padding:30px;color:var(--dim);font-size:13px">Geen stoplichten gevonden voor dit filter</div>`;
@@ -2346,7 +2350,7 @@ function tijdGeleden(ts) {
 // ── DATA EXPORT/IMPORT ────────────────────────────────────────
 function exporteerData() {
   try {
-    const exportData = { versie:'9.0.1', exportDatum:new Date().toISOString(), app:'StoplichtIQ', data:{} };
+    const exportData = { versie:'9.0.4', exportDatum:new Date().toISOString(), app:'StoplichtIQ', data:{} };
     for (const key of Object.keys(localStorage)) {
       if (key.startsWith('sl_v5_')||key.startsWith('sl_v4_')||key.startsWith('sl_v3_')||key.startsWith('sl_tag_')||key.startsWith('sl_naam_')||key.startsWith('sl_richting_')||key==='sl_stad_cache') {
         try { exportData.data[key] = JSON.parse(localStorage.getItem(key)); }
@@ -3189,7 +3193,6 @@ function toonCamStats() {
 async function slaTrainframeOp(bron, klasse, ncx, ncy, nw, nh, twijfel = false) {
   if (!trainframesAan) return;
   if (trainframesTeller >= TRAINFRAMES_MAX) return;
-  if (!yoloCanvas) return;
   const nu = Date.now();
   // Aparte throttle voor twijfelframes — minder frequent om ruimte te besparen
   if (twijfel) {
