@@ -351,7 +351,7 @@
 <div id="startscherm">
   <div id="s-icoon">🚦</div>
   <div id="s-titel">Stoplicht<span>IQ</span></div>
-  <div id="s-versie">V9.0.4 — Rijrichting per stoplicht</div>
+  <div id="s-versie">V9.0.5 — Rijrichting per stoplicht</div>
   <div id="s-model-wrap">
     <div id="s-model-rij">
       <div id="s-model-label">🤖 YOLOv8 model laden…</div>
@@ -496,6 +496,7 @@
       <div style="display:flex;flex-direction:column;align-items:flex-end;gap:2px">
         <div id="tf-teller" style="font-family:'Share Tech Mono',monospace;font-size:11px;color:var(--dim)">0/500 frames</div>
         <div id="of-teller" style="font-family:'Share Tech Mono',monospace;font-size:10px;color:var(--oranje)">0/200 oranje</div>
+        <div id="oranje-hint" style="font-size:9px;color:var(--oranje);font-style:italic;display:none"></div>
       </div>
     </div>
     <div style="display:flex;gap:8px;flex-wrap:wrap">
@@ -532,7 +533,7 @@
 
 <script>
 // ═══════════════════════════════════════════════════════════════
-//  StoplichtIQ V9.0.4
+//  StoplichtIQ V9.0.5
 //  V9: Rijrichting per stoplicht — sl_v5_{nodeId}_{aanrij}_{afrij}_{dd}
 //  Delayed write architectuur voor afrijrichting bepaling
 //  Leerafstand begrenzing: >80m geen leren, 40-80m gewicht 0.6
@@ -2350,7 +2351,7 @@ function tijdGeleden(ts) {
 // ── DATA EXPORT/IMPORT ────────────────────────────────────────
 function exporteerData() {
   try {
-    const exportData = { versie:'9.0.4', exportDatum:new Date().toISOString(), app:'StoplichtIQ', data:{} };
+    const exportData = { versie:'9.0.5', exportDatum:new Date().toISOString(), app:'StoplichtIQ', data:{} };
     for (const key of Object.keys(localStorage)) {
       if (key.startsWith('sl_v5_')||key.startsWith('sl_v4_')||key.startsWith('sl_v3_')||key.startsWith('sl_tag_')||key.startsWith('sl_naam_')||key.startsWith('sl_richting_')||key==='sl_stad_cache') {
         try { exportData.data[key] = JSON.parse(localStorage.getItem(key)); }
@@ -2742,8 +2743,8 @@ function verbergRichtingKnoppen() {
 }
 
 function tikRichting(richting) {
-  if (!richtingKnoppenNodeId) return;
-  const nodeId = richtingKnoppenNodeId;
+  const nodeId = richtingKnoppenNodeId || huidigBevestigdOsmNodeId;
+  if (!nodeId) return;
   const sleutel = `sl_richting_${nodeId}`;
   let data;
   try { data = JSON.parse(localStorage.getItem(sleutel)); } catch(e) { data = null; }
@@ -3166,6 +3167,15 @@ async function slaOranjeKandidatenOp() {
 function updateOranjeFramesTeller() {
   const el = document.getElementById('of-teller');
   if (el) el.textContent = `${orangeFramesTeller}/${ORANGEFRAMES_MAX} oranje`;
+  const hint = document.getElementById('oranje-hint');
+  if (hint) {
+    if (trainframesAan && !orangeFocusActief) {
+      hint.textContent = 'Zet 🟠 Oranje aan voor oranje frames';
+      hint.style.display = 'block';
+    } else {
+      hint.style.display = 'none';
+    }
+  }
 }
 
 function updateCamStatsTeller() {
@@ -3232,6 +3242,7 @@ function toggleTrainframes() {
     btn.style.borderColor  = trainframesAan ? 'rgba(255,159,10,0.4)' : 'rgba(52,199,89,0.4)';
   }
   updateTrainframesTeller();
+  updateOranjeFramesTeller();
 }
 
 function toggleOranjeFocus() {
@@ -3242,6 +3253,7 @@ function toggleOranjeFocus() {
     btn.style.background  = orangeFocusActief ? 'rgba(245,158,11,0.3)' : 'rgba(245,158,11,0.15)';
     btn.style.borderColor = orangeFocusActief ? 'rgba(245,158,11,0.6)' : 'rgba(245,158,11,0.3)';
   }
+  updateOranjeFramesTeller();
 }
 
 function updateTrainframesTeller() {
