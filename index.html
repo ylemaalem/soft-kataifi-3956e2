@@ -351,7 +351,7 @@
 <div id="startscherm">
   <div id="s-icoon">🚦</div>
   <div id="s-titel">Stoplicht<span>IQ</span></div>
-  <div id="s-versie">V9.0.1 — Rijrichting per stoplicht</div>
+  <div id="s-versie">V9.0.2 — Rijrichting per stoplicht</div>
   <div id="s-model-wrap">
     <div id="s-model-rij">
       <div id="s-model-label">🤖 YOLOv8 model laden…</div>
@@ -532,7 +532,7 @@
 
 <script>
 // ═══════════════════════════════════════════════════════════════
-//  StoplichtIQ V9.0.1
+//  StoplichtIQ V9.0.2
 //  V9: Rijrichting per stoplicht — sl_v5_{nodeId}_{aanrij}_{afrij}_{dd}
 //  Delayed write architectuur voor afrijrichting bepaling
 //  Leerafstand begrenzing: >80m geen leren, 40-80m gewicht 0.6
@@ -3120,6 +3120,10 @@ async function slaOranjeKandidatenOp() {
   const vierSecondenGeleden = nu - 4000;
   const teSlaan = orangeKandidaatBuffer.filter(f => f.timestamp >= vierSecondenGeleden);
   if (!teSlaan.length) { orangeKandidaatBuffer = []; return; }
+  // DEBUG V9.0.2: visuele flash — oranje = oranje kandidaten worden weggeschreven
+  const orEl = document.getElementById('of-teller');
+  if (orEl) orEl.style.background = 'rgba(255,165,0,0.3)';
+  setTimeout(() => { if (orEl) orEl.style.background = ''; }, 500);
   for (const frame of teSlaan) {
     if (orangeFramesTeller >= ORANGEFRAMES_MAX) break;
     try {
@@ -3171,7 +3175,6 @@ function toonCamStats() {
 // twijfel=true: confidence 0.35-0.60 — apart markeren voor handmatige controle
 // twijfel=false: bevestigde frame ≥ AI_DREMPEL — directe trainingswaarde
 async function slaTrainframeOp(bron, klasse, ncx, ncy, nw, nh, twijfel = false) {
-  console.log('slaTrainframeOp aangeroepen, trainframesAan:', trainframesAan, 'yoloCanvas:', !!yoloCanvas);
   if (!trainframesAan) return;
   if (trainframesTeller >= TRAINFRAMES_MAX) return;
   if (!yoloCanvas) return;
@@ -3182,6 +3185,10 @@ async function slaTrainframeOp(bron, klasse, ncx, ncy, nw, nh, twijfel = false) 
   } else {
     if (nu - trainframesLaatstOpgeslagen < TRAINFRAMES_MIN_INTERVAL) return;
   }
+  // DEBUG V9.0.2: visuele flash — rood = functie bereikt na alle guards
+  const debugEl = document.getElementById('tf-teller');
+  if (debugEl) debugEl.style.background = 'rgba(255,0,0,0.3)';
+  setTimeout(() => { if (debugEl) debugEl.style.background = ''; }, 500);
   try {
     const jpeg  = yoloCanvas.toDataURL('image/jpeg', TRAINFRAMES_JPEG_KWALITEIT);
     const label = `${klasse} ${ncx.toFixed(6)} ${ncy.toFixed(6)} ${nw.toFixed(6)} ${nh.toFixed(6)}`;
