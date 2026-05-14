@@ -351,7 +351,7 @@
 <div id="startscherm">
   <div id="s-icoon">🚦</div>
   <div id="s-titel">Stoplicht<span>IQ</span></div>
-  <div id="s-versie">V9.0 — Rijrichting per stoplicht</div>
+  <div id="s-versie">V9.0.1 — Rijrichting per stoplicht</div>
   <div id="s-model-wrap">
     <div id="s-model-rij">
       <div id="s-model-label">🤖 YOLOv8 model laden…</div>
@@ -481,7 +481,7 @@
     <div class="dash-stat"><div class="dash-stat-getal" id="ds-kruispunten">0</div><div class="dash-stat-label">Kruispunten</div></div>
     <div class="dash-stat"><div class="dash-stat-getal" id="ds-metingen">0</div><div class="dash-stat-label">Metingen</div></div>
     <div class="dash-stat"><div class="dash-stat-getal" id="ds-gem-pct">0%</div><div class="dash-stat-label">Gem. geleerd</div></div>
-    <div class="dash-stat"><div class="dash-stat-getal" id="ds-richtingen" style="color:var(--blauw)">0</div><div class="dash-stat-label">V9 richtingen</div></div>
+    <div class="dash-stat" onclick="toonV9Richtingen()" style="cursor:pointer"><div class="dash-stat-getal" id="ds-richtingen" style="color:var(--blauw)">0</div><div class="dash-stat-label">V9 richtingen</div></div>
   </div>
   <div style="display:flex;gap:10px;padding:12px 16px;background:rgba(255,255,255,0.05);border-radius:10px;margin:0 18px 12px;align-items:center;flex-wrap:wrap;">
     <button onclick="exporteerData()" style="flex:1;padding:10px 14px;background:rgba(99,199,99,0.2);color:#63c763;border:1px solid rgba(99,199,99,0.4);border-radius:8px;font-size:13px;cursor:pointer;min-width:120px;">📤 Exporteer backup</button>
@@ -532,7 +532,7 @@
 
 <script>
 // ═══════════════════════════════════════════════════════════════
-//  StoplichtIQ V9.0
+//  StoplichtIQ V9.0.1
 //  V9: Rijrichting per stoplicht — sl_v5_{nodeId}_{aanrij}_{afrij}_{dd}
 //  Delayed write architectuur voor afrijrichting bepaling
 //  Leerafstand begrenzing: >80m geen leren, 40-80m gewicht 0.6
@@ -888,6 +888,19 @@ function haalAlleV5MetingenVoorNode(nodeId, dd) {
   return resultaten.sort((a,b) => b.tijd-a.tijd).slice(0, MAX_METINGEN);
 }
 
+// FIX 5: controleert of een node slechts één aanrijrichting heeft in V5 data
+function isEenRichtingNode(nodeId) {
+  const aanrijRichtingen = new Set();
+  for (let i = 0; i < localStorage.length; i++) {
+    const k = localStorage.key(i);
+    if (!k || !k.startsWith(`${LS_PREFIX_V5}${nodeId}_`)) continue;
+    const rest = k.replace(`${LS_PREFIX_V5}${nodeId}_`, '');
+    const delen = rest.split('_');
+    if (delen.length >= 3) aanrijRichtingen.add(delen[0]);
+  }
+  return aanrijRichtingen.size <= 1;
+}
+
 // 5-stap leeslogica: welke data gebruiken voor countdown?
 function kiesCountdownBron(nodeId, dd, aanrijRichting, preSelectieAfrij) {
   if (!nodeId || !dd) return null;
@@ -921,10 +934,15 @@ function kiesCountdownBron(nodeId, dd, aanrijRichting, preSelectieAfrij) {
     if (gem) return { gem, bron: 'V5 alle', metingen: alleV5.length, v5: true };
   }
 
-  // Stap 4: val terug op V4
+  // Stap 4: val terug op V4 — alleen als node één aanrijrichting heeft
   const m4 = laadM(nodeId, dd);
   const gem4 = gewGem(m4);
-  if (gem4) return { gem: gem4, bron: 'V4', metingen: m4.length, v5: false };
+  if (gem4) {
+    if (isEenRichtingNode(nodeId)) {
+      return { gem: gem4, bron: 'V4', metingen: m4.length, v5: false };
+    }
+    return { gem: null, bron: 'lerend', tekst: '↻ Lerende richting', metingen: 0, v5: false, lerend: true };
+  }
 
   // Stap 5: geen data
   return null;
@@ -942,13 +960,18 @@ function voerV9DelayedWriteUit(huidigeHeading) {
     : (v9AanrijHeading != null ? gpsHeadingNaarWindrichting(v9AanrijHeading) : null);
   if (!aanrijRichting) { resetV9Staat(); return; }
 
+  // FIX 1: button wint over GPS als geldig windrichting; GPS is fallback
   const afrijHeading = huidigeHeading ?? getSmoothedHeading();
-  if (afrijHeading == null) { resetV9Staat(); return; }
-  const afrijRichting = gpsHeadingNaarWindrichting(afrijHeading);
+  const gpsAfrijRichting = afrijHeading != null ? gpsHeadingNaarWindrichting(afrijHeading) : null;
+  const WINDRICHTINGEN = ['N','NO','O','ZO','Z','ZW','W','NW'];
+  const afrijRichting = (v9PreSelectieAfrij && WINDRICHTINGEN.includes(v9PreSelectieAfrij))
+    ? v9PreSelectieAfrij
+    : gpsAfrijRichting;
+  if (!afrijRichting) { resetV9Staat(); return; }
 
-  // Edge case: u-bocht
+  // Edge case: u-bocht (alleen als GPS heading bekend is)
   const aanrijNum = v9AanrijSnelheidHeading ?? v9AanrijHeading;
-  if (aanrijNum != null && headingVerschil(aanrijNum, afrijHeading) > V9_U_BOCHT_GRADEN) {
+  if (afrijHeading != null && aanrijNum != null && headingVerschil(aanrijNum, afrijHeading) > V9_U_BOCHT_GRADEN) {
     resetV9Staat();
     return;
   }
@@ -956,10 +979,15 @@ function voerV9DelayedWriteUit(huidigeHeading) {
   const dd = v9KandidaatDagdeel || huidigDDActief();
   const duur = v9KandidaatDuur;
 
-  // Gewicht: pre-selectie match → 1.0, afwijkend → 0.7, geen pre-selectie → 1.0
-  let gewicht = 1.0;
-  if (v9PreSelectieAfrij) {
-    gewicht = (v9PreSelectieAfrij === afrijRichting) ? 1.0 : 0.7;
+  // FIX 2: afstandsgewicht — >80m skip, 40-80m VER (0.6), <40m DICHTBIJ (1.0)
+  let gewicht = V9_GEWICHT_DICHTBIJ;
+  if (huidigePos) {
+    const kandidaatSl = osmCache.find(s => String(s.id) === v9KandidaatNode);
+    if (kandidaatSl) {
+      const afstandNu = afstand(huidigePos.lat, huidigePos.lon, kandidaatSl.lat, kandidaatSl.lon);
+      if (afstandNu > V9_MAX_LEER_AFSTAND) { resetV9Staat(); return; }
+      if (afstandNu > V9_DICHTBIJ_AFSTAND) gewicht = V9_GEWICHT_VER;
+    }
   }
 
   // Schrijf V5
@@ -1927,6 +1955,13 @@ function startCd() {
       activeCdDoel = v9bron.gem;
       const bronLabel = v9bron.v5 ? `V9 ${v9bron.bron} · ${v9bron.metingen}x` : `V4 · ${v9bron.metingen}x`;
       cdLabel.textContent = `Groen over (~${Math.round(v9bron.gem)}s — ${bronLabel})`;
+    } else if (v9bron && v9bron.lerend) {
+      cdStart = null;
+      activeCdDoel = 0;
+      cdLabel.textContent = '↻ Lerende richting — rijd langs voor voorspelling';
+      cdLabel.style.color = 'rgba(255,255,255,0.45)';
+      cdGetal.textContent = '—'; cdGetal.className = 'leeg';
+      cdEenheid.textContent = '';
     } else {
       const m = laadM(dichtstbijOSM.id, dd);
       const duurs = m.filter(x=>x.duur>0).map(x=>x.duur);
@@ -2036,6 +2071,7 @@ function checkOsmVoorspelling() {
     // V9.0: Probeer V5 data eerst voor pre-emptive countdown
     const aanrij = v9AanrijHeading != null ? gpsHeadingNaarWindrichting(v9AanrijSnelheidHeading ?? v9AanrijHeading) : null;
     const v9bron = kiesCountdownBron(dichtstbijOSM.id, dd, aanrij, v9PreSelectieAfrij);
+    if (v9bron && v9bron.lerend) return; // meerdere aanrijrichtingen — OSM voorspelling overslaan
     activeCdDoel = (v9bron && v9bron.gem) ? v9bron.gem : gem;
     osmVoorspellingActief = true;
     startCd();
@@ -2310,7 +2346,7 @@ function tijdGeleden(ts) {
 // ── DATA EXPORT/IMPORT ────────────────────────────────────────
 function exporteerData() {
   try {
-    const exportData = { versie:'9.0', exportDatum:new Date().toISOString(), app:'StoplichtIQ', data:{} };
+    const exportData = { versie:'9.0.1', exportDatum:new Date().toISOString(), app:'StoplichtIQ', data:{} };
     for (const key of Object.keys(localStorage)) {
       if (key.startsWith('sl_v5_')||key.startsWith('sl_v4_')||key.startsWith('sl_v3_')||key.startsWith('sl_tag_')||key.startsWith('sl_naam_')||key.startsWith('sl_richting_')||key==='sl_stad_cache') {
         try { exportData.data[key] = JSON.parse(localStorage.getItem(key)); }
@@ -2450,7 +2486,13 @@ function vindDichtbij(lat, lon, heading) {
     const x2=Math.cos(lat*Math.PI/180)*Math.sin(sl.lat*Math.PI/180)-Math.sin(lat*Math.PI/180)*Math.cos(sl.lat*Math.PI/180)*Math.cos(dLon);
     const hoek=(Math.atan2(y2,x2)*180/Math.PI+360)%360;
     let rv=Math.abs(heading-hoek); if(rv>180)rv=360-rv;
-    const s=(1/(af*af+1))*0.5+Math.cos(rv*Math.PI/180)*0.5;
+    const normAf = 1/(af/100+1);
+    const normHoek = Math.cos(rv*Math.PI/180);
+    const conf = Math.min(1.0, (s2BboxTeller.get(String(sl.id)) || 0) / 5);
+    const bboxOffset = vorigeDetectie ? (vorigeDetectie.cx/YOLO_SIZE - 0.5) * 77 : 0;
+    const hoekSigned = ((hoek - heading + 540) % 360) - 180;
+    const bboxCentrering = 1 - Math.min(1, Math.abs(hoekSigned - bboxOffset) / 77);
+    const s = normAf*0.50 + normHoek*0.35 + conf*0.15 + bboxCentrering*0.01;
     if (s>bestS) { bestS=s; beste={...sl, afstand:af}; }
   }
   if (!beste) {
@@ -2787,6 +2829,45 @@ function renderV9RichtingenVoorNode(nodeId, dd) {
     <span style="font-size:8px;color:var(--dim);text-transform:uppercase;letter-spacing:0.06em;align-self:center;margin-right:2px">V9</span>
     ${richtingItems.join('')}
   </div>`;
+}
+
+// FIX 3: V9 richtingen overzicht — alle opgeslagen rijrichtingen per kruispunt
+function toonV9Richtingen() {
+  const richtingPijlen = { N:'↑N', NO:'↗NO', O:'→O', ZO:'↘ZO', Z:'↓Z', ZW:'↙ZW', W:'←W', NW:'↖NW' };
+  const nodeGroepen = {};
+  let aantalSleutels = 0;
+  for (let i = 0; i < localStorage.length; i++) {
+    const k = localStorage.key(i);
+    if (!k || !k.startsWith(LS_PREFIX_V5)) continue;
+    aantalSleutels++;
+    const rest = k.replace(LS_PREFIX_V5, '');
+    const delen = rest.split('_');
+    if (delen.length < 4) continue;
+    const nodeId = delen[0];
+    const aanrij = delen[1];
+    const afrij = delen[2];
+    const sleutelDd = delen[3];
+    if (!nodeGroepen[nodeId]) nodeGroepen[nodeId] = [];
+    const m = laadMV5(nodeId, aanrij, afrij, sleutelDd);
+    if (m.length) {
+      const gem = gewGem(m);
+      nodeGroepen[nodeId].push({ aanrij, afrij, dd: sleutelDd, gem, metingen: m.length });
+    }
+  }
+  const nodeIds = Object.keys(nodeGroepen);
+  if (!nodeIds.length) { alert('Geen V9 richtingsdata opgeslagen.'); return; }
+  let tekst = `V9 Richtingen — ${aantalSleutels} sleutels, ${nodeIds.length} kruispunten\n\n`;
+  for (const nodeId of nodeIds.slice(0, 8)) {
+    tekst += `\u{1F4CD} ${vindNaamVoorId(nodeId)}\n`;
+    for (const r of nodeGroepen[nodeId]) {
+      const pijlA = richtingPijlen[r.aanrij] || r.aanrij;
+      const pijlF = richtingPijlen[r.afrij] || r.afrij;
+      tekst += `  ${pijlA}→${pijlF} [${r.dd}]: ${r.metingen}x${r.gem ? ` ~${Math.round(r.gem)}s` : ''}\n`;
+    }
+    tekst += '\n';
+  }
+  if (nodeIds.length > 8) tekst += `... en ${nodeIds.length - 8} meer kruispunten.`;
+  alert(tekst);
 }
 
 // ── V8.9.11: CORRECTIELIJST + RIJRICHTING RESET ──────────────
