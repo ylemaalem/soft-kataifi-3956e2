@@ -351,7 +351,7 @@
 <div id="startscherm">
   <div id="s-icoon">🚦</div>
   <div id="s-titel">Stoplicht<span>IQ</span></div>
-  <div id="s-versie">V9.0.2 — Rijrichting per stoplicht</div>
+  <div id="s-versie">V9.0.3 — Rijrichting per stoplicht</div>
   <div id="s-model-wrap">
     <div id="s-model-rij">
       <div id="s-model-label">🤖 YOLOv8 model laden…</div>
@@ -532,7 +532,7 @@
 
 <script>
 // ═══════════════════════════════════════════════════════════════
-//  StoplichtIQ V9.0.2
+//  StoplichtIQ V9.0.3
 //  V9: Rijrichting per stoplicht — sl_v5_{nodeId}_{aanrij}_{afrij}_{dd}
 //  Delayed write architectuur voor afrijrichting bepaling
 //  Leerafstand begrenzing: >80m geen leren, 40-80m gewicht 0.6
@@ -3062,14 +3062,26 @@ function renderTagInDashboard(nodeId) {
 
 // ── V8.5: TRAININGSDATA ──────────────────────────────────────
 function openTrainframesDB() {
-  return new Promise((resolve,reject) => {
-    const req = indexedDB.open('StoplichtIQ_Trainframes', 1);
-    req.onupgradeneeded = (e) => {
-      const db=e.target.result;
-      if (!db.objectStoreNames.contains('frames')) db.createObjectStore('frames', { keyPath:'id', autoIncrement:true });
+  return new Promise((resolve, reject) => {
+    const req = indexedDB.open('StoplichtIQ_Trainframes', 2);
+    req.onupgradeneeded = function(e) {
+      const db = e.target.result;
+      const oldVersion = e.oldVersion;
+      if (oldVersion < 1) {
+        if (!db.objectStoreNames.contains('frames')) {
+          db.createObjectStore('frames', { keyPath: 'id', autoIncrement: true });
+        }
+      }
+      if (oldVersion < 2) {
+        // versie 2: geen nieuwe stores — alle frames (incl. oranje) gaan naar 'frames'
+        // guard voor het geval 'frames' ontbreekt bij directe v2-installatie
+        if (!db.objectStoreNames.contains('frames')) {
+          db.createObjectStore('frames', { keyPath: 'id', autoIncrement: true });
+        }
+      }
     };
-    req.onsuccess = (e) => { trainframesDB=e.target.result; resolve(trainframesDB); };
-    req.onerror   = (e) => reject(e);
+    req.onsuccess = (e) => { trainframesDB = e.target.result; resolve(trainframesDB); };
+    req.onerror   = (e) => reject(e.target.error);
   });
 }
 
