@@ -351,7 +351,7 @@
 <div id="startscherm">
   <div id="s-icoon">🚦</div>
   <div id="s-titel">Stoplicht<span>IQ</span></div>
-  <div id="s-versie">V8.9.13 — Oranje buffer groen→rood fix</div>
+  <div id="s-versie">V8.9.14 — IndexedDB write fixes</div>
   <div id="s-model-wrap">
     <div id="s-model-rij">
       <div id="s-model-label">🤖 YOLOv8 model laden…</div>
@@ -530,7 +530,7 @@
 
 <script>
 // ═══════════════════════════════════════════════════════════════
-//  StoplichtIQ V8.9.13
+//  StoplichtIQ V8.9.14
 //  Bug1: Oranje focus timing-gebaseerd (rood→groen buffer)
 //  Bug2: Richtingknop reset bij node-wissel
 //  Bug3: refreshHoofdschermVoorActieveNode centrale UI-refresh
@@ -1056,7 +1056,7 @@ if (aantalKP > 0) {
   sGehInfo.textContent = 'Eerste gebruik — leergeheugen wordt opgebouwd';
   sGehInfo.style.color = 'var(--dim)';
 }
-openTrainframesDB().then(async ()=>{ await laadTrainframesTeller(); laadOranjeFramesTeller(); }).catch(()=>{});
+openTrainframesDB().then(async ()=>{ await laadTrainframesTeller(); laadOranjeFramesTeller(); }).catch((e)=>{ console.error('IndexedDB open mislukt bij start:', e); const el = document.getElementById('tf-teller'); if (el) el.textContent = 'DB fout — herlaad app'; });
 
 // ── YOLO PRE-PROCESSING ───────────────────────────────────────
 function preprocessVoorYOLO() {
@@ -2710,13 +2710,17 @@ async function slaOranjeKandidatenOp() {
     if (orangeFramesTeller >= ORANGEFRAMES_MAX) break;
     try {
       const tx = trainframesDB.transaction('frames', 'readwrite');
-      tx.objectStore('frames').add({
-        jpeg: frame.jpeg,
-        label: 'oranje_kandidaat',
-        tijd: frame.timestamp,
-        bron: 'oranje_kandidaat',
-        nodeId: frame.nodeId,
-        twijfel: false
+      await new Promise((resolve, reject) => {
+        const req = tx.objectStore('frames').add({
+          jpeg: frame.jpeg,
+          label: 'oranje_kandidaat',
+          tijd: frame.timestamp,
+          bron: 'oranje_kandidaat',
+          nodeId: frame.nodeId,
+          twijfel: false
+        });
+        req.onsuccess = () => resolve();
+        req.onerror = (e) => reject(e.target.error);
       });
       orangeFramesTeller++;
     } catch(e) {}
@@ -2768,7 +2772,12 @@ async function slaTrainframeOp(bron, klasse, ncx, ncy, nw, nh, twijfel = false) 
     const label = `${klasse} ${ncx.toFixed(6)} ${ncy.toFixed(6)} ${nw.toFixed(6)} ${nh.toFixed(6)}`;
     if (!trainframesDB) await openTrainframesDB();
     const tx = trainframesDB.transaction('frames','readwrite');
-    tx.objectStore('frames').add({ jpeg, label, tijd:nu, bron: bron+(twijfel?'_twijfel':'_hoog'), twijfel });
+    await new Promise((resolve, reject) => {
+      const req = tx.objectStore('frames').add({ jpeg, label, tijd:nu,
+        bron: bron+(twijfel?'_twijfel':'_hoog'), twijfel });
+      req.onsuccess = () => resolve();
+      req.onerror = (e) => reject(e.target.error);
+    });
     trainframesTeller++;
     if (twijfel) trainframesLaatstTwijfelOpgeslagen = nu;
     else         trainframesLaatstOpgeslagen = nu;
