@@ -289,6 +289,39 @@
     .correctie-item-afstand{font-size:22px;font-weight:700;color:#f59e0b;font-family:'Share Tech Mono',monospace;margin-top:2px;line-height:1}
     .correctie-item-hoek{font-size:13px;color:rgba(255,255,255,0.4);margin-top:2px}
     .correctie-item-badge{font-size:10px;font-weight:600;padding:2px 6px;border-radius:6px;background:rgba(52,199,89,0.2);color:var(--groen);border:1px solid rgba(52,199,89,0.3);letter-spacing:0.06em;align-self:flex-start;flex-shrink:0;text-transform:uppercase}
+    /* ── V10.0.2: V9 Richtingen Modal ── */
+    #v9-overlay{position:fixed;inset:0;z-index:250;background:#080A0C;
+      display:flex;flex-direction:column;
+      padding:env(safe-area-inset-top,48px) 0 env(safe-area-inset-bottom,20px);
+      transition:opacity .4s,transform .4s}
+    #v9-overlay.verborgen{opacity:0;pointer-events:none;transform:translateY(30px)}
+    #v9-header{display:flex;align-items:center;justify-content:space-between;
+      padding:0 18px 12px;border-bottom:1px solid var(--border)}
+    #v9-titel{font-size:16px;font-weight:700;letter-spacing:0.08em;text-transform:uppercase}
+    #v9-titel span{color:var(--blauw)}
+    #v9-sluiten{background:rgba(255,255,255,0.08);border:1px solid var(--border);
+      border-radius:20px;padding:5px 14px;font-size:11px;font-weight:600;
+      letter-spacing:0.1em;text-transform:uppercase;color:var(--dim);cursor:pointer}
+    #v9-zoek-wrap{padding:8px 18px 0}
+    #v9-zoek{width:100%;padding:9px 14px;background:rgba(255,255,255,0.06);color:#fff;
+      border:1px solid var(--border);border-radius:10px;font-size:13px;
+      font-family:'Rajdhani',sans-serif;letter-spacing:0.04em;outline:none}
+    #v9-filter{display:flex;gap:6px;padding:10px 18px;overflow-x:auto;flex-shrink:0}
+    #v9-lijst{flex:1;overflow-y:auto;padding:8px 18px 16px;display:flex;flex-direction:column;gap:8px}
+    .v9-kaart{background:rgba(255,255,255,0.04);border:1px solid var(--border);
+      border-radius:14px;padding:12px 14px;display:flex;flex-direction:column;gap:6px}
+    .v9-kaart-top{display:flex;align-items:center;justify-content:space-between}
+    .v9-kaart-naam{font-size:13px;font-weight:600;color:#fff;white-space:nowrap;
+      overflow:hidden;text-overflow:ellipsis;max-width:220px}
+    .v9-kaart-id{font-family:'Share Tech Mono',monospace;font-size:10px;color:rgba(255,255,255,0.25)}
+    .v9-kaart-rij{display:flex;flex-wrap:wrap;gap:6px;align-items:center}
+    .v9-chip{font-size:10px;padding:2px 8px;border-radius:6px;
+      background:rgba(255,255,255,0.06);color:rgba(255,255,255,0.5);white-space:nowrap}
+    .v9-chip.blauw{background:rgba(10,132,255,.12);color:#0A84FF}
+    .v9-chip.groen{background:rgba(52,199,89,.12);color:#34C759}
+    .v9-chip.oranje{background:rgba(255,159,10,.12);color:#FF9F0A}
+    .v9-chip.paars{background:rgba(191,90,242,.12);color:#BF5AF2}
+    #v9-telling{font-size:10px;color:var(--dim);padding:4px 18px 0;letter-spacing:0.06em}
   </style>
 </head>
 <body>
@@ -351,7 +384,7 @@
 <div id="startscherm">
   <div id="s-icoon">🚦</div>
   <div id="s-titel">Stoplicht<span>IQ</span></div>
-  <div id="s-versie">V10.0.1 — Oranje buffer fix + V9 richtingen</div>
+  <div id="s-versie">V10.0.2 — Delayed write fix + V9 richtingen modal</div>
   <div id="s-model-wrap">
     <div id="s-model-rij">
       <div id="s-model-label">🤖 YOLOv8 model laden…</div>
@@ -531,9 +564,23 @@
   <div id="dash-lijst"></div>
 </div>
 
+<!-- V10.0.2: V9 Richtingen Modal -->
+<div id="v9-overlay" class="verborgen">
+  <div id="v9-header">
+    <div id="v9-titel">V9 <span>Richtingen</span></div>
+    <div id="v9-sluiten" onclick="sluitV9Modal()">✕ Sluiten</div>
+  </div>
+  <div id="v9-zoek-wrap">
+    <input id="v9-zoek" type="text" placeholder="Zoek op straatnaam…" oninput="filterV9Lijst()">
+  </div>
+  <div id="v9-telling"></div>
+  <div id="v9-filter"></div>
+  <div id="v9-lijst"></div>
+</div>
+
 <script>
 // ═══════════════════════════════════════════════════════════════
-//  StoplichtIQ V10.0.1
+//  StoplichtIQ V10.0.2
 //  V10: Leergeheugen structurele upgrade
 //  — Drie interne scores: voorspelbaarheid, dekking, patroon_zekerheid
 //  — Groene fase metingen + partiële rode observaties (sl_v10_ prefix)
@@ -2504,7 +2551,7 @@ function tijdGeleden(ts) {
 // ── DATA EXPORT/IMPORT ────────────────────────────────────────
 function exporteerData() {
   try {
-    const exportData = { versie:'10.0.0', exportDatum:new Date().toISOString(), app:'StoplichtIQ', data:{}, scores:{} };
+    const exportData = { versie:'10.0.2', exportDatum:new Date().toISOString(), app:'StoplichtIQ', data:{}, scores:{} };
     for (const key of Object.keys(localStorage)) {
       if (key.startsWith('sl_v10_')||key.startsWith('sl_v5_')||key.startsWith('sl_v4_')||key.startsWith('sl_v3_')||key.startsWith('sl_tag_')||key.startsWith('sl_naam_')||key.startsWith('sl_richting_')||key==='sl_stad_cache') {
         try { exportData.data[key] = JSON.parse(localStorage.getItem(key)); }
@@ -2870,11 +2917,16 @@ let richtingKnoppenTimer = null;
 // V8.8.1: Toon bij rood fase of eerste rood detectie, geen bevestigingslimiet
 function toonRichtingKnoppen(nodeId) {
   if (!nodeId) return;
-  // V8.8.2: Al gedrukt voor dit kruispunt in deze rode fase → niet opnieuw tonen
   if (richtingGedruktVoorNode === nodeId) return;
   richtingKnoppenNodeId = nodeId;
-  // Reset visuele staat
   document.querySelectorAll('.richting-btn').forEach(b => b.classList.remove('gekozen'));
+  // V10.0.2: Pre-highlight opgeslagen tikrichting zodat gebruiker ziet wat actief is
+  const richtingData = laadRichtingData(nodeId);
+  if (richtingData && richtingData.tikrichting) {
+    document.querySelectorAll('.richting-btn').forEach(b => {
+      if (b.classList.contains(richtingData.tikrichting)) b.classList.add('gekozen');
+    });
+  }
   const el = document.getElementById('richting-knoppen');
   if (el) el.style.display = 'flex';
   // Auto-verberg na 45 seconden (subtiel)
@@ -2988,9 +3040,13 @@ function renderV9RichtingenVoorNode(nodeId, dd) {
   </div>`;
 }
 
-// FIX 3: V9 richtingen overzicht — alle opgeslagen rijrichtingen per kruispunt
+// V10.0.2: V9 richtingen modal — vervangt alert
+let v9ModalNodes = [];
+let v9ModalFilter = 'alle';
+
 function toonV9Richtingen() {
-  const nodes = [];
+  v9ModalNodes = [];
+  const steden = new Set();
   for (let i = 0; i < localStorage.length; i++) {
     const k = localStorage.key(i);
     if (!k || !k.startsWith('sl_richting_')) continue;
@@ -2998,33 +3054,111 @@ function toonV9Richtingen() {
     let d;
     try { d = JSON.parse(localStorage.getItem(k)); } catch(e) { continue; }
     if (!d || typeof d !== 'object') continue;
-    nodes.push({ nodeId, d });
-  }
-  if (!nodes.length) { alert('Geen V9 richtingsdata opgeslagen.'); return; }
-  // Sorteer op meest recent
-  nodes.sort((a, b) => (b.d.laatste_update || 0) - (a.d.laatste_update || 0));
-  let tekst = `V9 Richtingen — ${nodes.length} kruispunten\n\n`;
-  for (const { nodeId, d } of nodes.slice(0, 10)) {
     const naam = vindNaamVoorId(nodeId) || nodeId;
+    const cachedNaam = localStorage.getItem('sl_naam_' + nodeId) || '';
+    const delen = cachedNaam.split(', ');
+    const stad = delen.length >= 2 ? delen[delen.length - 1] : '';
+    const straat = delen.length >= 2 ? delen.slice(0, -1).join(', ') : cachedNaam;
+    if (stad) steden.add(stad);
+    v9ModalNodes.push({ nodeId, d, naam, stad, straat });
+  }
+  if (!v9ModalNodes.length) { alert('Geen V9 richtingsdata opgeslagen.'); return; }
+  v9ModalNodes.sort((a, b) => (b.d.laatste_update || 0) - (a.d.laatste_update || 0));
+  // Filter knoppen opbouwen
+  const filterEl = document.getElementById('v9-filter');
+  const stadLijst = [...steden].sort();
+  let filterHTML = '<div class="filter-btn actief" onclick="v9FilterKlik(\'alle\',this)">Alle</div>';
+  for (const s of stadLijst.slice(0, 6)) {
+    filterHTML += `<div class="filter-btn" onclick="v9FilterKlik('${escapeHTML(s)}',this)">${escapeHTML(s)}</div>`;
+  }
+  filterEl.innerHTML = filterHTML;
+  v9ModalFilter = 'alle';
+  document.getElementById('v9-zoek').value = '';
+  renderV9Lijst();
+  document.getElementById('v9-overlay').classList.remove('verborgen');
+}
+
+function sluitV9Modal() {
+  document.getElementById('v9-overlay').classList.add('verborgen');
+}
+
+function v9FilterKlik(filter, btn) {
+  v9ModalFilter = filter;
+  document.querySelectorAll('#v9-filter .filter-btn').forEach(b => b.classList.remove('actief'));
+  if (btn) btn.classList.add('actief');
+  renderV9Lijst();
+}
+
+function filterV9Lijst() { renderV9Lijst(); }
+
+function renderV9Lijst() {
+  const zoek = (document.getElementById('v9-zoek').value || '').toLowerCase().trim();
+  const kompas = { N:'↑ Noord', NO:'↗ Noordoost', O:'→ Oost', ZO:'↘ Zuidoost',
+                   Z:'↓ Zuid', ZW:'↙ Zuidwest', W:'← West', NW:'↖ Noordwest' };
+  const tikPijlen = { links:'↖ Links', rechtdoor:'↑ Rechtdoor', rechts:'↗ Rechts' };
+  const zonePijlen = { links:'←', midden:'↑', rechts:'→' };
+  let gefilterd = v9ModalNodes;
+  if (v9ModalFilter !== 'alle') {
+    gefilterd = gefilterd.filter(n => n.stad === v9ModalFilter);
+  }
+  if (zoek) {
+    gefilterd = gefilterd.filter(n =>
+      n.naam.toLowerCase().includes(zoek) ||
+      n.straat.toLowerCase().includes(zoek) ||
+      n.nodeId.includes(zoek)
+    );
+  }
+  document.getElementById('v9-telling').textContent =
+    `${gefilterd.length} van ${v9ModalNodes.length} kruispunten`;
+  const lijst = document.getElementById('v9-lijst');
+  if (!gefilterd.length) {
+    lijst.innerHTML = '<div style="text-align:center;padding:40px;color:var(--dim)">Geen resultaten</div>';
+    return;
+  }
+  lijst.innerHTML = gefilterd.map(({ nodeId, d }) => {
+    const naam = vindNaamVoorId(nodeId) || nodeId;
+    const kortId = nodeId.length > 6 ? nodeId.slice(-6) : nodeId;
     const bev = d.bevestigingen || 0;
     const tikBev = d.tik_bevestigingen || 0;
-    tekst += `\u{1F4CD} ${naam}\n`;
-    // Dominante cx-zone
-    if (Array.isArray(d.cx_zones) && d.cx_zones.length) {
-      const dom = d.cx_zones.reduce((a, b) => b.count > a.count ? b : a);
-      if (dom.count > 0) tekst += `  zone: ${dom.zone} (${dom.count}x)\n`;
-    }
-    // Gemiddelde heading
+    // Heading
+    let headingChip = '';
     if (Array.isArray(d.headings) && d.headings.length) {
       const gem = Math.round(d.headings.reduce((s, h) => s + h, 0) / d.headings.length);
-      tekst += `  heading: ~${gem}°\n`;
+      const wr = gpsHeadingNaarWindrichting(gem);
+      headingChip = `<span class="v9-chip blauw">${kompas[wr] || wr} (${gem}°)</span>`;
+    }
+    // Zone
+    let zoneChip = '';
+    if (Array.isArray(d.cx_zones) && d.cx_zones.length) {
+      const dom = d.cx_zones.reduce((a, b) => b.count > a.count ? b : a);
+      if (dom.count > 0) zoneChip = `<span class="v9-chip">${zonePijlen[dom.zone]||'↑'} ${dom.zone} ${dom.count}x</span>`;
     }
     // Tikrichting
-    if (d.tikrichting) tekst += `  tikrichting: ${d.tikrichting} (${tikBev}x)\n`;
-    tekst += `  bevestigingen: ${bev}\n\n`;
-  }
-  if (nodes.length > 10) tekst += `... en ${nodes.length - 10} meer kruispunten.`;
-  alert(tekst);
+    let tikChip = '';
+    if (d.tikrichting) {
+      tikChip = `<span class="v9-chip oranje">${tikPijlen[d.tikrichting]||d.tikrichting} (${tikBev}x)</span>`;
+    }
+    // Bevestigingen
+    const bevChip = `<span class="v9-chip groen">${bev} bevestigingen</span>`;
+    // Laatste update
+    const update = d.laatste_update ? tijdGeleden(d.laatste_update) : '';
+    const updateChip = update ? `<span class="v9-chip paars">${update}</span>` : '';
+    // V5 delayed writes teller
+    let v5Chip = '';
+    let v5Count = 0;
+    for (let i = 0; i < localStorage.length; i++) {
+      const k = localStorage.key(i);
+      if (k && k.startsWith(`${LS_PREFIX_V5}${nodeId}_`)) v5Count++;
+    }
+    if (v5Count > 0) v5Chip = `<span class="v9-chip groen">V5: ${v5Count} writes</span>`;
+    return `<div class="v9-kaart">
+      <div class="v9-kaart-top">
+        <div class="v9-kaart-naam">${naam}</div>
+        <div class="v9-kaart-id">#${kortId}</div>
+      </div>
+      <div class="v9-kaart-rij">${headingChip}${zoneChip}${tikChip}${bevChip}${v5Chip}${updateChip}</div>
+    </div>`;
+  }).join('');
 }
 
 // ── V8.9.11: CORRECTIELIJST + RIJRICHTING RESET ──────────────
@@ -3610,9 +3744,14 @@ async function onGPS(pos) {
       }
     }
 
-    // 2. Node-wissel → kandidaat resetten als vorige node verlaten
+    // 2. Node-wissel → delayed write starten als duur bekend, anders resetten
     if (v9KandidaatNode && v9KandidaatNode !== nodeId && !v9DelayedWriteActief) {
-      resetV9Staat();
+      if (v9KandidaatDuur) {
+        v9PassageStartTijd = Date.now();
+        v9DelayedWriteActief = true;
+      } else {
+        resetV9Staat();
+      }
     }
 
     // 3. Delayed write triggers: node is voorbij
