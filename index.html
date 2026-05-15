@@ -351,7 +351,7 @@
 <div id="startscherm">
   <div id="s-icoon">🚦</div>
   <div id="s-titel">Stoplicht<span>IQ</span></div>
-  <div id="s-versie">V10.0.0 — Leergeheugen structurele upgrade</div>
+  <div id="s-versie">V10.0.1 — Oranje buffer fix + V9 richtingen</div>
   <div id="s-model-wrap">
     <div id="s-model-rij">
       <div id="s-model-label">🤖 YOLOv8 model laden…</div>
@@ -533,7 +533,7 @@
 
 <script>
 // ═══════════════════════════════════════════════════════════════
-//  StoplichtIQ V10.0.0
+//  StoplichtIQ V10.0.1
 //  V10: Leergeheugen structurele upgrade
 //  — Drie interne scores: voorspelbaarheid, dekking, patroon_zekerheid
 //  — Groene fase metingen + partiële rode observaties (sl_v10_ prefix)
@@ -2990,40 +2990,40 @@ function renderV9RichtingenVoorNode(nodeId, dd) {
 
 // FIX 3: V9 richtingen overzicht — alle opgeslagen rijrichtingen per kruispunt
 function toonV9Richtingen() {
-  const richtingPijlen = { N:'↑N', NO:'↗NO', O:'→O', ZO:'↘ZO', Z:'↓Z', ZW:'↙ZW', W:'←W', NW:'↖NW' };
-  const nodeGroepen = {};
-  let aantalSleutels = 0;
+  const nodes = [];
   for (let i = 0; i < localStorage.length; i++) {
     const k = localStorage.key(i);
-    if (!k || !k.startsWith(LS_PREFIX_V5)) continue;
-    aantalSleutels++;
-    const rest = k.replace(LS_PREFIX_V5, '');
-    const delen = rest.split('_');
-    if (delen.length < 4) continue;
-    const nodeId = delen[0];
-    const aanrij = delen[1];
-    const afrij = delen[2];
-    const sleutelDd = delen[3];
-    if (!nodeGroepen[nodeId]) nodeGroepen[nodeId] = [];
-    const m = laadMV5(nodeId, aanrij, afrij, sleutelDd);
-    if (m.length) {
-      const gem = gewGem(m);
-      nodeGroepen[nodeId].push({ aanrij, afrij, dd: sleutelDd, gem, metingen: m.length });
-    }
+    if (!k || !k.startsWith('sl_richting_')) continue;
+    const nodeId = k.replace('sl_richting_', '');
+    let d;
+    try { d = JSON.parse(localStorage.getItem(k)); } catch(e) { continue; }
+    if (!d || typeof d !== 'object') continue;
+    nodes.push({ nodeId, d });
   }
-  const nodeIds = Object.keys(nodeGroepen);
-  if (!nodeIds.length) { alert('Geen V9 richtingsdata opgeslagen.'); return; }
-  let tekst = `V9 Richtingen — ${aantalSleutels} sleutels, ${nodeIds.length} kruispunten\n\n`;
-  for (const nodeId of nodeIds.slice(0, 8)) {
-    tekst += `\u{1F4CD} ${vindNaamVoorId(nodeId)}\n`;
-    for (const r of nodeGroepen[nodeId]) {
-      const pijlA = richtingPijlen[r.aanrij] || r.aanrij;
-      const pijlF = richtingPijlen[r.afrij] || r.afrij;
-      tekst += `  ${pijlA}→${pijlF} [${r.dd}]: ${r.metingen}x${r.gem ? ` ~${Math.round(r.gem)}s` : ''}\n`;
+  if (!nodes.length) { alert('Geen V9 richtingsdata opgeslagen.'); return; }
+  // Sorteer op meest recent
+  nodes.sort((a, b) => (b.d.laatste_update || 0) - (a.d.laatste_update || 0));
+  let tekst = `V9 Richtingen — ${nodes.length} kruispunten\n\n`;
+  for (const { nodeId, d } of nodes.slice(0, 10)) {
+    const naam = vindNaamVoorId(nodeId) || nodeId;
+    const bev = d.bevestigingen || 0;
+    const tikBev = d.tik_bevestigingen || 0;
+    tekst += `\u{1F4CD} ${naam}\n`;
+    // Dominante cx-zone
+    if (Array.isArray(d.cx_zones) && d.cx_zones.length) {
+      const dom = d.cx_zones.reduce((a, b) => b.count > a.count ? b : a);
+      if (dom.count > 0) tekst += `  zone: ${dom.zone} (${dom.count}x)\n`;
     }
-    tekst += '\n';
+    // Gemiddelde heading
+    if (Array.isArray(d.headings) && d.headings.length) {
+      const gem = Math.round(d.headings.reduce((s, h) => s + h, 0) / d.headings.length);
+      tekst += `  heading: ~${gem}°\n`;
+    }
+    // Tikrichting
+    if (d.tikrichting) tekst += `  tikrichting: ${d.tikrichting} (${tikBev}x)\n`;
+    tekst += `  bevestigingen: ${bev}\n\n`;
   }
-  if (nodeIds.length > 8) tekst += `... en ${nodeIds.length - 8} meer kruispunten.`;
+  if (nodes.length > 10) tekst += `... en ${nodes.length - 10} meer kruispunten.`;
   alert(tekst);
 }
 
@@ -3269,12 +3269,13 @@ async function laadOranjeFramesTeller() {
 }
 
 function voegToeAanOranjeBuffer() {
-  if (!trainframesAan || !yoloCanvas) return;
+  if (!trainframesAan) return;
   if (orangeFramesTeller >= ORANGEFRAMES_MAX) return;
   const nu = Date.now();
   if (nu - orangeBufferLaatstToegevoegd < ORANGE_BUFFER_INTERVAL) return;
   orangeBufferLaatstToegevoegd = nu;
-  const jpeg = yoloCanvas.toDataURL('image/jpeg', 0.80);
+  let jpeg;
+  try { jpeg = yoloCanvas.toDataURL('image/jpeg', 0.80); } catch(e) { return; }
   const nodeId = dichtstbijOSM ? String(dichtstbijOSM.id) : null;
   orangeKandidaatBuffer.push({ jpeg, timestamp: nu, nodeId });
   if (orangeKandidaatBuffer.length > 10) orangeKandidaatBuffer.shift();
@@ -3763,7 +3764,7 @@ function lus() {
   verwerkDetecties();
 
   // V8.9.13: Oranje kandidaat buffer bijvullen tijdens groene fase (voor het oranje moment)
-  if (fase === 'groen' && orangeFocusVensterActief && orangeFocusActief) {
+  if (fase === 'groen' && orangeFocusActief) {
     voegToeAanOranjeBuffer();
   }
 
