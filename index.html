@@ -384,7 +384,7 @@
 <div id="startscherm">
   <div id="s-icoon">🚦</div>
   <div id="s-titel">Stoplicht<span>IQ</span></div>
-  <div id="s-versie">V10.0.3 — Node lock + richtingkeuze lock + debug</div>
+  <div id="s-versie">V10.0.4 — Straatnaam fallback + cx-zone cleanup</div>
   <div id="s-model-wrap">
     <div id="s-model-rij">
       <div id="s-model-label">🤖 YOLOv8 model laden…</div>
@@ -580,7 +580,7 @@
 
 <script>
 // ═══════════════════════════════════════════════════════════════
-//  StoplichtIQ V10.0.3
+//  StoplichtIQ V10.0.4
 //  V10: Leergeheugen structurele upgrade
 //  — Drie interne scores: voorspelbaarheid, dekking, patroon_zekerheid
 //  — Groene fase metingen + partiële rode observaties (sl_v10_ prefix)
@@ -2539,7 +2539,14 @@ function vindNaamVoorId(id) {
     return escapeHTML(gevonden.naam);
   }
   if (gevonden) return `${gevonden.lat.toFixed(4)}, ${gevonden.lon.toFixed(4)}`;
-  try { const cached=localStorage.getItem('sl_naam_'+id); if(cached)return escapeHTML(cached); } catch(e) {}
+  try {
+    const cached=localStorage.getItem('sl_naam_'+id);
+    if (cached) {
+      // V10.0.4: Als alleen stad (geen komma) → "Onbekende weg, stad"
+      if (!cached.includes(',') && cached.length > 2) return escapeHTML(`Onbekende weg, ${cached}`);
+      return escapeHTML(cached);
+    }
+  } catch(e) {}
   const inCache = osmCache.find(sl=>String(sl.id)===String(id));
   if (inCache) return `${inCache.lat.toFixed(4)}, ${inCache.lon.toFixed(4)}`;
   return `ID ${id}`;
@@ -2557,7 +2564,7 @@ function tijdGeleden(ts) {
 // ── DATA EXPORT/IMPORT ────────────────────────────────────────
 function exporteerData() {
   try {
-    const exportData = { versie:'10.0.3', exportDatum:new Date().toISOString(), app:'StoplichtIQ', data:{}, scores:{} };
+    const exportData = { versie:'10.0.4', exportDatum:new Date().toISOString(), app:'StoplichtIQ', data:{}, scores:{} };
     for (const key of Object.keys(localStorage)) {
       if (key.startsWith('sl_v10_')||key.startsWith('sl_v5_')||key.startsWith('sl_v4_')||key.startsWith('sl_v3_')||key.startsWith('sl_tag_')||key.startsWith('sl_naam_')||key.startsWith('sl_richting_')||key==='sl_stad_cache') {
         try { exportData.data[key] = JSON.parse(localStorage.getItem(key)); }
@@ -2645,7 +2652,7 @@ async function downloadOSM(lat, lon) {
     osmCache = nodes.map(el => {
       const besteWeg = kiesBesteWeg(nodeWegen.get(el.id)||[], huidigeRichting);
       const straat=besteWeg?.tags?.name||null, stad=huidigeStad;
-      const naam = straat ? (stad?`${straat}, ${stad}`:straat) : (stad||`${el.lat.toFixed(4)}, ${el.lon.toFixed(4)}`);
+      const naam = straat ? (stad?`${straat}, ${stad}`:straat) : (stad?`Onbekende weg, ${stad}`:`${el.lat.toFixed(4)}, ${el.lon.toFixed(4)}`);
       return { id:el.id, lat:el.lat, lon:el.lon, naam, straat, stad,
                slim:!!(el.tags?.['traffic_signals:sound']||el.tags?.description?.toLowerCase().includes('ivri')) };
     });
@@ -2886,18 +2893,9 @@ function slaRichtingOp(nodeId, cx, heading) {
   let data;
   try { data = JSON.parse(localStorage.getItem(sleutel)); } catch(e) { data = null; }
   if (!data || typeof data !== 'object') {
-    data = {
-      cx_zones: [{ zone:'links', count:0 }, { zone:'midden', count:0 }, { zone:'rechts', count:0 }],
-      headings: [], laatste_update: Date.now(), bevestigingen: 0
-    };
+    data = { headings: [], laatste_update: Date.now(), bevestigingen: 0 };
   }
-  // Zone bepaling op origineel YOLO canvas (cx is 0-1 genormaliseerd)
-  const normCx = (typeof cx === 'number' && !isNaN(cx)) ? cx : 0.5;
-  let zone = 'midden';
-  if (normCx < 0.33) zone = 'links';
-  else if (normCx > 0.67) zone = 'rechts';
-  const zoneObj = data.cx_zones.find(z => z.zone === zone);
-  if (zoneObj) zoneObj.count++;
+  // V10.0.4: cx_zones niet meer opslaan (verouderd — tikrichting vervangt dit)
   // Heading opslaan (max 20)
   if (typeof heading === 'number' && !isNaN(heading)) {
     data.headings.push(Math.round(heading));
@@ -3138,12 +3136,6 @@ function renderV9Lijst() {
       const wr = gpsHeadingNaarWindrichting(gem);
       headingChip = `<span class="v9-chip blauw">${kompas[wr] || wr} (${gem}°)</span>`;
     }
-    // Zone
-    let zoneChip = '';
-    if (Array.isArray(d.cx_zones) && d.cx_zones.length) {
-      const dom = d.cx_zones.reduce((a, b) => b.count > a.count ? b : a);
-      if (dom.count > 0) zoneChip = `<span class="v9-chip">${zonePijlen[dom.zone]||'↑'} ${dom.zone} ${dom.count}x</span>`;
-    }
     // Tikrichting
     let tikChip = '';
     if (d.tikrichting) {
@@ -3162,12 +3154,18 @@ function renderV9Lijst() {
       if (k && k.startsWith(`${LS_PREFIX_V5}${nodeId}_`)) v5Count++;
     }
     if (v5Count > 0) v5Chip = `<span class="v9-chip groen">V5: ${v5Count} writes</span>`;
+    // GPS coordinaten als subtext bij ontbrekende straatnaam
+    const cachedN = localStorage.getItem('sl_naam_' + nodeId) || '';
+    const heeftStraat = cachedN.includes(',');
+    const nodeInCache = osmCache.find(s => String(s.id) === nodeId);
+    const coordTekst = nodeInCache ? `${nodeInCache.lat.toFixed(4)}, ${nodeInCache.lon.toFixed(4)}` : '';
+    const coordChip = (!heeftStraat && coordTekst) ? `<span class="v9-chip" style="color:rgba(255,255,255,0.3)">${coordTekst}</span>` : '';
     return `<div class="v9-kaart">
       <div class="v9-kaart-top">
         <div class="v9-kaart-naam">${naam}</div>
         <div class="v9-kaart-id">#${kortId}</div>
       </div>
-      <div class="v9-kaart-rij">${headingChip}${zoneChip}${tikChip}${bevChip}${v5Chip}${updateChip}</div>
+      <div class="v9-kaart-rij">${headingChip}${tikChip}${bevChip}${v5Chip}${updateChip}${coordChip}</div>
     </div>`;
   }).join('');
 }
