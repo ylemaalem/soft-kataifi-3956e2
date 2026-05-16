@@ -384,7 +384,7 @@
 <div id="startscherm">
   <div id="s-icoon">🚦</div>
   <div id="s-titel">Stoplicht<span>IQ</span></div>
-  <div id="s-versie">V10.0.2 — Delayed write fix + V9 richtingen modal</div>
+  <div id="s-versie">V10.0.3 — Node lock + richtingkeuze lock + debug</div>
   <div id="s-model-wrap">
     <div id="s-model-rij">
       <div id="s-model-label">🤖 YOLOv8 model laden…</div>
@@ -580,7 +580,7 @@
 
 <script>
 // ═══════════════════════════════════════════════════════════════
-//  StoplichtIQ V10.0.2
+//  StoplichtIQ V10.0.3
 //  V10: Leergeheugen structurele upgrade
 //  — Drie interne scores: voorspelbaarheid, dekking, patroon_zekerheid
 //  — Groene fase metingen + partiële rode observaties (sl_v10_ prefix)
@@ -1122,6 +1122,7 @@ function kiesCountdownBron(nodeId, dd, aanrijRichting, preSelectieAfrij) {
 // ── V9.0: DELAYED WRITE ───────────────────────────────────────
 function voerV9DelayedWriteUit(huidigeHeading) {
   if (!v9DelayedWriteActief || !v9KandidaatNode || !v9KandidaatDuur) {
+    console.log('V9 write GEBLOKKEERD (entry guard):', { actief: v9DelayedWriteActief, node: v9KandidaatNode, duur: v9KandidaatDuur });
     resetV9Staat();
     return;
   }
@@ -1129,7 +1130,7 @@ function voerV9DelayedWriteUit(huidigeHeading) {
   const aanrijRichting = v9AanrijSnelheidHeading != null
     ? gpsHeadingNaarWindrichting(v9AanrijSnelheidHeading)
     : (v9AanrijHeading != null ? gpsHeadingNaarWindrichting(v9AanrijHeading) : null);
-  if (!aanrijRichting) { resetV9Staat(); return; }
+  if (!aanrijRichting) { console.log('V9 write GEBLOKKEERD (geen aanrijrichting):', { snelheidH: v9AanrijSnelheidHeading, aanrijH: v9AanrijHeading }); resetV9Staat(); return; }
 
   // FIX 1: button wint over GPS als geldig windrichting; GPS is fallback
   const afrijHeading = huidigeHeading ?? getSmoothedHeading();
@@ -1162,6 +1163,7 @@ function voerV9DelayedWriteUit(huidigeHeading) {
   }
 
   // Schrijf V5
+  console.log('V9 WRITE SUCCES:', { node: v9KandidaatNode, aanrij: aanrijRichting, afrij: afrijRichting, dd, duur: Math.round(duur), gewicht });
   slaOpV5(v9KandidaatNode, aanrijRichting, afrijRichting, dd, duur, gewicht);
 
   // Schrijf ook V4 parallel (backward compatibility)
@@ -1318,6 +1320,10 @@ let lastFrameTimestamp = 0;
 let handmatigGeselecteerdNodeId = null;
 let handmatigGeselecteerdTimestamp = 0;
 let handmatigLockActief = false;
+
+// V10.0.3: Richtingkeuze lock — houdt tikrichting vast bij stilstand/GPS-drift
+let richtingLockNodeId = null;
+let richtingLockKeuze = null;
 
 // Debug
 let debugWaarden={};
@@ -2551,7 +2557,7 @@ function tijdGeleden(ts) {
 // ── DATA EXPORT/IMPORT ────────────────────────────────────────
 function exporteerData() {
   try {
-    const exportData = { versie:'10.0.2', exportDatum:new Date().toISOString(), app:'StoplichtIQ', data:{}, scores:{} };
+    const exportData = { versie:'10.0.3', exportDatum:new Date().toISOString(), app:'StoplichtIQ', data:{}, scores:{} };
     for (const key of Object.keys(localStorage)) {
       if (key.startsWith('sl_v10_')||key.startsWith('sl_v5_')||key.startsWith('sl_v4_')||key.startsWith('sl_v3_')||key.startsWith('sl_tag_')||key.startsWith('sl_naam_')||key.startsWith('sl_richting_')||key==='sl_stad_cache') {
         try { exportData.data[key] = JSON.parse(localStorage.getItem(key)); }
@@ -2918,6 +2924,8 @@ let richtingKnoppenTimer = null;
 function toonRichtingKnoppen(nodeId) {
   if (!nodeId) return;
   if (richtingGedruktVoorNode === nodeId) return;
+  // V10.0.3: Richtingkeuze lock — niet opnieuw tonen als keuze al gemaakt voor deze node
+  if (richtingLockNodeId === nodeId && richtingLockKeuze) return;
   richtingKnoppenNodeId = nodeId;
   document.querySelectorAll('.richting-btn').forEach(b => b.classList.remove('gekozen'));
   // V10.0.2: Pre-highlight opgeslagen tikrichting zodat gebruiker ziet wat actief is
@@ -2963,6 +2971,9 @@ function tikRichting(richting) {
   data.laatste_update = Date.now();
   try { localStorage.setItem(sleutel, JSON.stringify(data)); } catch(e) {}
   richtingGedruktVoorNode = nodeId;
+  // V10.0.3: Richtingkeuze lock — voorkom overschrijving bij GPS-drift
+  richtingLockNodeId = nodeId;
+  richtingLockKeuze = richting;
 
   // V9.0: Pre-selectie afrijrichting berekenen voor countdown
   if (v9AanrijHeading != null || v9AanrijSnelheidHeading != null) {
@@ -3263,6 +3274,11 @@ function selecteerNodeHandmatig(nodeId) {
   handmatigGeselecteerdNodeId = String(nodeId);
   handmatigGeselecteerdTimestamp = Date.now();
   handmatigLockActief = true;
+  // V10.0.3: Richtingkeuze lock resetten bij handmatige node-wissel
+  if (richtingLockNodeId && richtingLockNodeId !== String(nodeId)) {
+    richtingLockNodeId = null;
+    richtingLockKeuze = null;
+  }
 }
 
 function vindOsmMatchOpRichting(absoluteRichting, maxHoekGraden, maxAfstandMeter) {
@@ -3663,6 +3679,15 @@ function updateDichtbij(lat, lon) {
     bijwerkLeerkaart(nieuw); bijwerkDashboardKnop();
     // V8.9.11: Rijrichtingstaat direct resetten bij kruispuntwissel (Bug 2)
     resetRijrichtingState();
+    // V10.0.3: Richtingkeuze lock vervalt alleen bij echte node-wissel (>60m van locked node + snelheid)
+    if (richtingLockNodeId && richtingLockNodeId !== String(nieuw.id)) {
+      const lockNode = osmCache.find(s => String(s.id) === richtingLockNodeId);
+      const lockAf = lockNode ? afstand(lat, lon, lockNode.lat, lockNode.lon) : 999;
+      if (lockAf > 60 && snelheidKmh > 5) {
+        richtingLockNodeId = null;
+        richtingLockKeuze = null;
+      }
+    }
   } else {
     dichtstbijOSM = nieuw;
   }
@@ -3682,13 +3707,16 @@ async function onGPS(pos) {
   const snelheidMs = (pos.coords.speed!=null && !isNaN(pos.coords.speed)) ? pos.coords.speed : 0;
   snelheidKmh = snelheidMs * 3.6;
   gpsBuffer   = Math.min(10 + snelheidKmh*0.4, 40);
-  // V8.9.12: Handmatig lock vrijgeven als node voorbij of noodontgrendeling
+  // V10.0.3: Handmatig lock — vervalt ALLEEN bij >100m voorbij + snelheid >5
   if (handmatigLockActief && handmatigGeselecteerdNodeId) {
     const lockedNode = osmCache.find(s => String(s.id) === handmatigGeselecteerdNodeId);
-    if (lockedNode && isStoplichtVoorbij({ lat: lockedNode.lat, lon: lockedNode.lon }, {lat, lon}, getSmoothedHeading())) {
-      handmatigLockActief = false; handmatigGeselecteerdNodeId = null;
-    } else if (Date.now() - handmatigGeselecteerdTimestamp > 180000 && snelheidKmh > 25) {
-      handmatigLockActief = false; handmatigGeselecteerdNodeId = null;
+    if (lockedNode) {
+      const lockAfstand = afstand(lat, lon, lockedNode.lat, lockedNode.lon);
+      const isVoorbij = isStoplichtVoorbij({ lat: lockedNode.lat, lon: lockedNode.lon }, {lat, lon}, getSmoothedHeading());
+      // Alleen vrijgeven als >100m weg EN voorbij EN snelheid >5 (geen GPS-drift)
+      if (lockAfstand > 100 && isVoorbij && snelheidKmh > 5) {
+        handmatigLockActief = false; handmatigGeselecteerdNodeId = null;
+      }
     }
   }
   // Zoom unlock via GPS-voorbij
@@ -3747,6 +3775,7 @@ async function onGPS(pos) {
     // 2. Node-wissel → delayed write starten als duur bekend, anders resetten
     if (v9KandidaatNode && v9KandidaatNode !== nodeId && !v9DelayedWriteActief) {
       if (v9KandidaatDuur) {
+        console.log('V9 delayed-write GEACTIVEERD via node-wissel:', { van: v9KandidaatNode, naar: nodeId, duur: v9KandidaatDuur });
         v9PassageStartTijd = Date.now();
         v9DelayedWriteActief = true;
       } else {
@@ -3756,20 +3785,33 @@ async function onGPS(pos) {
 
     // 3. Delayed write triggers: node is voorbij
     if (v9DelayedWriteActief && v9KandidaatNode) {
+      const kandidaatPos = osmCache.find(s => String(s.id) === v9KandidaatNode);
+      const kandidaatAfst = kandidaatPos ? afstand(lat, lon, kandidaatPos.lat, kandidaatPos.lon) : null;
       const voorbij = isStoplichtVoorbij(
-        osmCache.find(s => String(s.id) === v9KandidaatNode) ?? { lat: dichtstbijOSM.lat, lon: dichtstbijOSM.lon },
+        kandidaatPos ?? { lat: dichtstbijOSM.lat, lon: dichtstbijOSM.lon },
         { lat, lon }, smoothedH
       );
-      const verGenoeg = afst > V9_VOORBIJ_AFSTAND;
+      const verGenoeg = kandidaatAfst != null ? kandidaatAfst > V9_VOORBIJ_AFSTAND : afst > V9_VOORBIJ_AFSTAND;
       const tijdVerstreken = v9PassageStartTijd && (Date.now() - v9PassageStartTijd) > V9_WRITE_VENSTER;
       const headingVeranderd = v9AanrijHeading != null && smoothedH != null &&
         headingVerschil(v9AanrijHeading, smoothedH) > V9_HEADING_DREMPEL;
       // Parkeer-check: >120s stilstand = niet opslaan
       const geparkeerd = v9LaatstLageSnelheid > 0 && (Date.now() - v9LaatstLageSnelheid) > V9_PARKEER_DREMPEL_MS;
 
+      // V10.0.3: Debug logging voor delayed write diagnose
+      console.log('V9 write-check:', {
+        actief: v9DelayedWriteActief, duur: v9KandidaatDuur, node: v9KandidaatNode,
+        kandidaatAfst: kandidaatAfst ? Math.round(kandidaatAfst) : null,
+        voorbij, verGenoeg, tijdVerstreken, headingVeranderd, geparkeerd,
+        snelheid: Math.round(snelheidKmh), heading: smoothedH ? Math.round(smoothedH) : null,
+        aanrijH: v9AanrijHeading ? Math.round(v9AanrijHeading) : null,
+        passageTijd: v9PassageStartTijd ? Math.round((Date.now() - v9PassageStartTijd)/1000) + 's' : null
+      });
+
       if (geparkeerd) {
         resetV9Staat();
       } else if (voorbij || verGenoeg || tijdVerstreken || headingVeranderd) {
+        console.log('V9 WRITE TRIGGERED:', { trigger: voorbij?'voorbij':verGenoeg?'verGenoeg':tijdVerstreken?'tijdVerstreken':'headingVeranderd' });
         voerV9DelayedWriteUit(smoothedH);
       }
     }
