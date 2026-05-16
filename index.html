@@ -322,6 +322,18 @@
     .v9-chip.oranje{background:rgba(255,159,10,.12);color:#FF9F0A}
     .v9-chip.paars{background:rgba(191,90,242,.12);color:#BF5AF2}
     #v9-telling{font-size:10px;color:var(--dim);padding:4px 18px 0;letter-spacing:0.06em}
+    /* V10.0.5: Mini-kaart canvas */
+    #mini-kaart-container{position:fixed;bottom:80px;right:12px;width:180px;height:180px;
+      border-radius:12px;overflow:hidden;border:2px solid rgba(255,255,255,0.15);
+      box-shadow:0 4px 20px rgba(0,0,0,0.7);z-index:8000;display:none;
+      touch-action:none;user-select:none;-webkit-user-select:none;
+      transition:width 0.2s ease,height 0.2s ease,border-radius 0.2s ease}
+    #mini-kaart-container.ingeklapt{width:36px;height:36px;border-radius:18px}
+    #mini-kaart{width:100%;height:100%;display:block}
+    #mini-kaart-container.ingeklapt #mini-kaart{display:none}
+    #mk-icoon{position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);
+      font-size:18px;pointer-events:none;display:none}
+    #mini-kaart-container.ingeklapt #mk-icoon{display:block}
   </style>
 </head>
 <body>
@@ -384,7 +396,7 @@
 <div id="startscherm">
   <div id="s-icoon">🚦</div>
   <div id="s-titel">Stoplicht<span>IQ</span></div>
-  <div id="s-versie">V10.0.4 — Straatnaam fallback + cx-zone cleanup</div>
+  <div id="s-versie">V10.0.5 — Green collapse oranje + mini-kaart</div>
   <div id="s-model-wrap">
     <div id="s-model-rij">
       <div id="s-model-label">🤖 YOLOv8 model laden…</div>
@@ -580,7 +592,7 @@
 
 <script>
 // ═══════════════════════════════════════════════════════════════
-//  StoplichtIQ V10.0.4
+//  StoplichtIQ V10.0.5
 //  V10: Leergeheugen structurele upgrade
 //  — Drie interne scores: voorspelbaarheid, dekking, patroon_zekerheid
 //  — Groene fase metingen + partiële rode observaties (sl_v10_ prefix)
@@ -1301,16 +1313,21 @@ let bboxDichtbij = false;
 // V8.8.2: Richtingknop éénmalig per rode fase
 let richtingGedruktVoorNode = null;
 
-// V8.9.11: Oranje focus — timing-gebaseerde kandidaat buffer
+// V10.0.5: Green Confidence Collapse — oranje detectie via groen-instort
 const ORANGEFRAMES_MAX = 200;
 let orangeFramesTeller = 0;
-let orangeKandidaatBuffer = []; // { jpeg, timestamp, nodeId }
-let roodStartOranje = null;
 let orangeBufferLaatstToegevoegd = 0;
 const ORANGE_BUFFER_INTERVAL = 400; // ms tussen buffer-captures
-let orangeFocusVensterActief = false;
-// V8.9.12: Gebruikerstoggle voor oranje buffer
+// Gebruikerstoggle voor oranje buffer
 let orangeFocusActief = false;
+// Green collapse state
+let greenConfHistory = [];           // laatste 5 groene confidence waarden
+let oranjeCollapseBuffer = [];       // rolling frames tijdens collapse
+let oranjeCollapseTrigger = false;
+let oranjeCollapseTijd = 0;
+const ORANJE_COLLAPSE_WINDOW_MS = 3000;
+const GREEN_STABIEL_DREMPEL = 0.55;  // was stabiel boven dit
+const GREEN_COLLAPSE_DREMPEL = 0.25; // nu onder dit = collapse
 
 // V8.9.12: Camera watchdog
 let cameraWatchdogInterval = null;
@@ -1708,6 +1725,8 @@ function _verwerkWorkerResultaat(detecties) {
     laatsteAI = null; nieuwAIResultaat = true;
     bboxDichtbij = false; // V8.8.2
     s1GebruikteNodesDezeRun.clear();
+    // V10.0.5: Green collapse check bij geen detectie
+    verwerkGreenCollapse(detecties, 0);
     return;
   }
   const { s1:beste, s2Rest } = selecteerBesteDetectie(detecties);
@@ -1753,6 +1772,8 @@ function _verwerkWorkerResultaat(detecties) {
     }
   }
   verwerkS2(s2Rest); s1GebruikteNodesDezeRun.clear();
+  // V10.0.5: Green collapse check na elke detectie
+  verwerkGreenCollapse(detecties, gesmoothedScore);
   // V8.8.1: Directe YOLO run bij kleurwissel — max 1 per wissel
   if (directeRunNodig && !aiBezig) {
     directeRunNodig = false;
@@ -2026,10 +2047,13 @@ function resetNeutraal() {
   // V8.8.2: Bbox zoom + richtingknop reset
   bboxDichtbij = false;
   richtingGedruktVoorNode = null;
-  // V8.9.11: Oranje buffer leegmaken
-  orangeKandidaatBuffer = [];
-  roodStartOranje = null;
-  orangeFocusVensterActief = false;
+  // V10.0.5: Green collapse oranje buffer leegmaken
+  if (oranjeCollapseBuffer.length > 0 && trainframesAan && orangeFocusActief) {
+    slaGreenCollapseFramesOp();
+  }
+  oranjeCollapseBuffer = [];
+  oranjeCollapseTrigger = false;
+  greenConfHistory = [];
   // Stale teller resetten
   staleFaseFrameTeller=0;
   // Tolerantie teller resetten
@@ -2095,14 +2119,19 @@ function verwerkFase(nieuw, horizontaal) {
       }
     }
   }
-  // V8.9.13: Oranje kandidaat frames flushen bij groen→rood overgang
-  if (fase === 'groen' && nieuw === 'rood') {
-    slaOranjeKandidatenOp();
-    orangeKandidaatBuffer = [];
-    orangeFocusVensterActief = false;
+  // V10.0.5: Bij rood detectie → flush collapse buffer
+  if (nieuw === 'rood') {
+    if (oranjeCollapseBuffer.length > 0 && trainframesAan && orangeFocusActief) {
+      slaGreenCollapseFramesOp();
+    }
+    oranjeCollapseBuffer = [];
+    oranjeCollapseTrigger = false;
+    greenConfHistory = [];
   } else if (nieuw === 'groen') {
-    orangeKandidaatBuffer = [];
-    orangeFocusVensterActief = true;
+    // Begin met vers bijhouden van groene confidence
+    greenConfHistory = [];
+    oranjeCollapseBuffer = [];
+    oranjeCollapseTrigger = false;
   }
   fase = nieuw; faseStart = nu; geenTeller = 0; aiTeller = 0; aiKleur = nieuw;
   updateUI(nieuw, horizontaal);
@@ -2342,12 +2371,14 @@ function openDashboard() {
   laadDashboard();
   updateTrainframesTeller();
   updateCamStatsTeller();
+  verbergMiniKaart();
   document.getElementById('dashboard').classList.remove('verborgen');
 }
 
 function sluitDashboard() {
   document.getElementById('dashboard').classList.add('verborgen');
   uitgeklapteDD = null;
+  toonMiniKaart();
   // V8.9.12: Herstel camera als bevroren na dashboard-interactie
   if (video.paused) video.play().catch(() => {});
 }
@@ -2564,7 +2595,7 @@ function tijdGeleden(ts) {
 // ── DATA EXPORT/IMPORT ────────────────────────────────────────
 function exporteerData() {
   try {
-    const exportData = { versie:'10.0.4', exportDatum:new Date().toISOString(), app:'StoplichtIQ', data:{}, scores:{} };
+    const exportData = { versie:'10.0.5', exportDatum:new Date().toISOString(), app:'StoplichtIQ', data:{}, scores:{} };
     for (const key of Object.keys(localStorage)) {
       if (key.startsWith('sl_v10_')||key.startsWith('sl_v5_')||key.startsWith('sl_v4_')||key.startsWith('sl_v3_')||key.startsWith('sl_tag_')||key.startsWith('sl_naam_')||key.startsWith('sl_richting_')||key==='sl_stad_cache') {
         try { exportData.data[key] = JSON.parse(localStorage.getItem(key)); }
@@ -2619,6 +2650,7 @@ function importeerData(bestand) {
 
 // ── STARTSCHERM / TERUG ───────────────────────────────────────
 function naarStartscherm() {
+  verbergMiniKaart();
   try { const stream=video.srcObject; if(stream)stream.getTracks().forEach(t=>t.stop()); video.srcObject=null; } catch(e) {}
   resetNeutraal();
   document.getElementById('startscherm').classList.remove('weg');
@@ -3407,7 +3439,7 @@ async function laadOranjeFramesTeller() {
     const req = tx.objectStore('frames').getAll();
     return new Promise(r => {
       req.onsuccess = () => {
-        orangeFramesTeller = (req.result || []).filter(f => f.bron === 'oranje_kandidaat').length;
+        orangeFramesTeller = (req.result || []).filter(f => f.bron === 'oranje_kandidaat' || f.bron === 'green_collapse').length;
         updateOranjeFramesTeller();
         r(orangeFramesTeller);
       };
@@ -3416,33 +3448,70 @@ async function laadOranjeFramesTeller() {
   } catch(e) { return 0; }
 }
 
-function voegToeAanOranjeBuffer() {
-  if (!trainframesAan) return;
+// V10.0.5: Green Confidence Collapse — detectie + capture
+function verwerkGreenCollapse(detecties, gesmoothedScore) {
+  if (!trainframesAan || !orangeFocusActief) return;
   if (orangeFramesTeller >= ORANGEFRAMES_MAX) return;
-  const nu = Date.now();
-  if (nu - orangeBufferLaatstToegevoegd < ORANGE_BUFFER_INTERVAL) return;
-  orangeBufferLaatstToegevoegd = nu;
-  let jpeg;
-  try { jpeg = yoloCanvas.toDataURL('image/jpeg', 0.80); } catch(e) { return; }
-  const nodeId = dichtstbijOSM ? String(dichtstbijOSM.id) : null;
-  orangeKandidaatBuffer.push({ jpeg, timestamp: nu, nodeId });
-  if (orangeKandidaatBuffer.length > 10) orangeKandidaatBuffer.shift();
+
+  const heeftGroen = detecties.some(d => KLASSE_MAP[d.klasse] === 'groen');
+
+  if (heeftGroen && gesmoothedScore > 0) {
+    // Groene detectie aanwezig — history bijwerken
+    greenConfHistory.push(gesmoothedScore);
+    if (greenConfHistory.length > 5) greenConfHistory.shift();
+  } else {
+    // Geen groene detectie — check collapse conditie
+    const gemGreen = greenConfHistory.length > 0
+      ? greenConfHistory.reduce((s,v) => s+v, 0) / greenConfHistory.length : 0;
+    const wasStabiel = greenConfHistory.length >= 3 && gemGreen > GREEN_STABIEL_DREMPEL;
+
+    if (wasStabiel && !oranjeCollapseTrigger) {
+      oranjeCollapseTrigger = true;
+      oranjeCollapseTijd = Date.now();
+      greenConfHistory = [];
+      console.log('V10.0.5 GREEN COLLAPSE TRIGGER:', { gemGreen: gemGreen.toFixed(3), nu: Date.now() });
+    }
+  }
+
+  // Collapse actief — capture frames
+  if (oranjeCollapseTrigger) {
+    const nu = Date.now();
+    if (nu - oranjeCollapseTijd < ORANJE_COLLAPSE_WINDOW_MS) {
+      // Capture frame elke 400ms
+      if (nu - orangeBufferLaatstToegevoegd > ORANGE_BUFFER_INTERVAL) {
+        try {
+          const jpeg = yoloCanvas.toDataURL('image/jpeg', 0.7);
+          oranjeCollapseBuffer.push({
+            jpeg,
+            timestamp: nu,
+            nodeId: huidigBevestigdOsmNodeId,
+            type: 'green_collapse'
+          });
+          orangeBufferLaatstToegevoegd = nu;
+        } catch(e) {}
+      }
+    } else {
+      // Window verlopen — flush naar IndexedDB
+      if (oranjeCollapseBuffer.length > 0) {
+        slaGreenCollapseFramesOp();
+      }
+      oranjeCollapseTrigger = false;
+      oranjeCollapseBuffer = [];
+    }
+  }
 }
 
-async function slaOranjeKandidatenOp() {
-  if (!trainframesAan || !orangeKandidaatBuffer.length) return;
+async function slaGreenCollapseFramesOp() {
+  if (!oranjeCollapseBuffer.length) return;
   if (!trainframesDB) {
     try { await openTrainframesDB(); } catch(e) { return; }
   }
-  const nu = Date.now();
-  const vierSecondenGeleden = nu - 4000;
-  const teSlaan = orangeKandidaatBuffer.filter(f => f.timestamp >= vierSecondenGeleden);
-  if (!teSlaan.length) { orangeKandidaatBuffer = []; return; }
-  // DEBUG V9.0.2: visuele flash — oranje = oranje kandidaten worden weggeschreven
+  // DEBUG: visuele flash — oranje collapse frames worden weggeschreven
   const orEl = document.getElementById('of-teller');
   if (orEl) orEl.style.background = 'rgba(255,165,0,0.3)';
   setTimeout(() => { if (orEl) orEl.style.background = ''; }, 500);
-  for (const frame of teSlaan) {
+  console.log('V10.0.5 GREEN COLLAPSE FLUSH:', oranjeCollapseBuffer.length, 'frames');
+  for (const frame of oranjeCollapseBuffer) {
     if (orangeFramesTeller >= ORANGEFRAMES_MAX) break;
     try {
       const tx = trainframesDB.transaction('frames', 'readwrite');
@@ -3451,7 +3520,7 @@ async function slaOranjeKandidatenOp() {
           jpeg: frame.jpeg,
           label: 'oranje_kandidaat',
           tijd: frame.timestamp,
-          bron: 'oranje_kandidaat',
+          bron: 'green_collapse',
           nodeId: frame.nodeId,
           twijfel: false
         });
@@ -3461,7 +3530,7 @@ async function slaOranjeKandidatenOp() {
       orangeFramesTeller++;
     } catch(e) {}
   }
-  orangeKandidaatBuffer = [];
+  oranjeCollapseBuffer = [];
   updateOranjeFramesTeller();
 }
 
@@ -3942,10 +4011,7 @@ function lus() {
   }
   verwerkDetecties();
 
-  // V8.9.13: Oranje kandidaat buffer bijvullen tijdens groene fase (voor het oranje moment)
-  if (fase === 'groen' && orangeFocusActief) {
-    voegToeAanOranjeBuffer();
-  }
+  // V10.0.5: Green collapse wordt getriggerd in _verwerkWorkerResultaat (na elke YOLO run)
 
   // V8.7 FIX: Stale fase reset — dynamische grens op basis van inferentietijd
   // Voorkomt "GROEN ACTIEF" bij rood doordat YOLO niet snel genoeg bevestigt
@@ -3988,6 +4054,163 @@ function lus() {
   requestAnimationFrame(lus);
 }
 
+// ── V10.0.5: MINI-KAART CANVAS VECTORKAART ───────────────────
+let mkZichtbaar = false;
+let mkRafId = null;
+let mkDragMoved = false, mkDragStartX = 0, mkDragStartY = 0, mkDragOrigR = 0, mkDragOrigB = 0;
+const MK_SCALE = 3;
+
+function mkLatLonNaarCanvas(gLat, gLon, cosLat, h, nLat, nLon, cx, cy) {
+  const dLat = (nLat - gLat) * 111320;
+  const dLon = (nLon - gLon) * 111320 * cosLat;
+  return [cx + (dLon * Math.cos(h) - dLat * Math.sin(h)) / MK_SCALE,
+          cy - (dLat * Math.cos(h) + dLon * Math.sin(h)) / MK_SCALE];
+}
+
+function tekenVectorKaart() {
+  if (!mkZichtbaar) { mkRafId = null; return; }
+  mkRafId = requestAnimationFrame(tekenVectorKaart);
+  const container = document.getElementById('mini-kaart-container');
+  if (!container || container.classList.contains('ingeklapt')) return;
+  const mkCanvas = document.getElementById('mini-kaart');
+  if (!mkCanvas || !huidigePos) return;
+  const mkCtx = mkCanvas.getContext('2d');
+  const W = mkCanvas.width, H = mkCanvas.height, cx = W/2, cy = H/2;
+  const gLat = huidigePos.lat, gLon = huidigePos.lon;
+  const cosLat = Math.cos(gLat * Math.PI / 180);
+  const smoothedH = getSmoothedHeading();
+  const h = (smoothedH != null ? smoothedH : huidigeRichting) * Math.PI / 180;
+  const nu = Date.now();
+
+  mkCtx.fillStyle = '#1C1C1E';
+  mkCtx.fillRect(0, 0, W, H);
+
+  const huidigId = handmatigGeselecteerdNodeId || (dichtstbijOSM ? String(dichtstbijOSM.id) : null);
+
+  for (const node of osmCache) {
+    const [px, py] = mkLatLonNaarCanvas(gLat, gLon, cosLat, h, node.lat, node.lon, cx, cy);
+    if (px < -12 || px > W+12 || py < -12 || py > H+12) continue;
+    const isDichtbij = dichtstbijOSM && node.id === dichtstbijOSM.id;
+    const isActief = huidigId === String(node.id);
+    const pct = berekenLeerPct(node.id);
+    let r = isDichtbij ? 6 : 4;
+    const kleur = isActief ? '#0A84FF' : (pct >= 80 ? '#30D158' : pct >= 40 ? '#FF9500' : '#8E8E93');
+    if (isActief) {
+      const pulse = 0.5 + 0.5 * Math.sin(nu / 400);
+      r = 5 + pulse * 3;
+      mkCtx.globalAlpha = 0.7 + 0.3 * pulse;
+    }
+    mkCtx.beginPath();
+    mkCtx.arc(px, py, r, 0, Math.PI * 2);
+    mkCtx.fillStyle = kleur;
+    mkCtx.fill();
+    mkCtx.globalAlpha = 1;
+    if (isDichtbij && !isActief) {
+      mkCtx.strokeStyle = '#fff';
+      mkCtx.lineWidth = 1.5;
+      mkCtx.stroke();
+    }
+  }
+
+  // Gebruikerspositie — blauwe pijl midden
+  mkCtx.save();
+  mkCtx.translate(cx, cy);
+  mkCtx.shadowColor = '#0A84FF';
+  mkCtx.shadowBlur = 8;
+  mkCtx.beginPath();
+  mkCtx.moveTo(0, -10);
+  mkCtx.lineTo(-6, 7);
+  mkCtx.lineTo(0, 3);
+  mkCtx.lineTo(6, 7);
+  mkCtx.closePath();
+  mkCtx.fillStyle = '#0A84FF';
+  mkCtx.fill();
+  mkCtx.restore();
+
+  // Noord-indicator
+  mkCtx.save();
+  mkCtx.translate(16, 16);
+  mkCtx.rotate(-h);
+  mkCtx.fillStyle = '#FF3B30';
+  mkCtx.font = 'bold 9px sans-serif';
+  mkCtx.textAlign = 'center';
+  mkCtx.textBaseline = 'alphabetic';
+  mkCtx.fillText('N', 0, -5);
+  mkCtx.beginPath();
+  mkCtx.moveTo(0, -3);
+  mkCtx.lineTo(0, 6);
+  mkCtx.strokeStyle = 'rgba(255,59,48,0.6)';
+  mkCtx.lineWidth = 1.5;
+  mkCtx.stroke();
+  mkCtx.restore();
+}
+
+function mkInitDrag() {
+  const container = document.getElementById('mini-kaart-container');
+  if (!container) return;
+  try {
+    const p = JSON.parse(sessionStorage.getItem('mk_pos') || 'null');
+    if (p) { container.style.right = p.r + 'px'; container.style.bottom = p.b + 'px'; }
+  } catch(e) {}
+  if (sessionStorage.getItem('mk_ingeklapt') === '1') container.classList.add('ingeklapt');
+  container.addEventListener('touchstart', (e) => {
+    mkDragStartX = e.touches[0].clientX; mkDragStartY = e.touches[0].clientY; mkDragMoved = false;
+    const rect = container.getBoundingClientRect();
+    mkDragOrigR = window.innerWidth - rect.right; mkDragOrigB = window.innerHeight - rect.bottom;
+  }, {passive:true});
+  container.addEventListener('touchmove', (e) => {
+    const dx = e.touches[0].clientX - mkDragStartX, dy = e.touches[0].clientY - mkDragStartY;
+    if (!mkDragMoved && (Math.abs(dx) > 5 || Math.abs(dy) > 5)) mkDragMoved = true;
+    if (mkDragMoved) {
+      container.style.right = Math.max(0, mkDragOrigR - dx) + 'px';
+      container.style.bottom = Math.max(0, mkDragOrigB - dy) + 'px';
+    }
+  }, {passive:true});
+  container.addEventListener('touchend', () => {
+    if (!mkDragMoved) {
+      const ingeklapt = container.classList.toggle('ingeklapt');
+      sessionStorage.setItem('mk_ingeklapt', ingeklapt ? '1' : '0');
+    } else {
+      sessionStorage.setItem('mk_pos', JSON.stringify({r:parseInt(container.style.right)||12, b:parseInt(container.style.bottom)||80}));
+    }
+  }, {passive:true});
+  // Tap op node = selecteer
+  const mkCanvas = document.getElementById('mini-kaart');
+  if (mkCanvas) {
+    mkCanvas.addEventListener('click', (e) => {
+      if (!huidigePos || !osmCache.length) return;
+      const rect = mkCanvas.getBoundingClientRect();
+      const mx = (e.clientX - rect.left) * (mkCanvas.width / rect.width);
+      const my = (e.clientY - rect.top) * (mkCanvas.height / rect.height);
+      const W = mkCanvas.width, H = mkCanvas.height, cx = W/2, cy = H/2;
+      const cosLat = Math.cos(huidigePos.lat * Math.PI / 180);
+      const smoothedH = getSmoothedHeading();
+      const h = (smoothedH != null ? smoothedH : huidigeRichting) * Math.PI / 180;
+      let bestDist = 28, bestId = null;
+      for (const node of osmCache) {
+        const [px, py] = mkLatLonNaarCanvas(huidigePos.lat, huidigePos.lon, cosLat, h, node.lat, node.lon, cx, cy);
+        const d = Math.hypot(mx - px, my - py);
+        if (d < bestDist) { bestDist = d; bestId = String(node.id); }
+      }
+      if (bestId) selecteerNodeHandmatig(bestId);
+    });
+  }
+}
+
+function toonMiniKaart() {
+  mkZichtbaar = true;
+  const container = document.getElementById('mini-kaart-container');
+  if (container) container.style.display = 'block';
+  if (!mkRafId) mkRafId = requestAnimationFrame(tekenVectorKaart);
+}
+
+function verbergMiniKaart() {
+  mkZichtbaar = false;
+  const container = document.getElementById('mini-kaart-container');
+  if (container) container.style.display = 'none';
+  if (mkRafId) { cancelAnimationFrame(mkRafId); mkRafId = null; }
+}
+
 // ── START ─────────────────────────────────────────────────────
 async function startApp() {
   initialiseerAudio();
@@ -4009,6 +4232,9 @@ async function startApp() {
   }
   await activeerWakeLock();
   checkNacht();
+  // V10.0.5: Mini-kaart initialiseren en tonen
+  mkInitDrag();
+  toonMiniKaart();
   if (navigator.geolocation) {
     navigator.geolocation.watchPosition(onGPS, ()=>{ pGPS.className='pill-dot o'; }, { enableHighAccuracy:true, maximumAge:5000, timeout:12000 });
   }
@@ -4028,6 +4254,8 @@ async function startApp() {
 document.getElementById('geluid-toggle').classList.remove('uit');
 bijwerkDashboardKnop();
 </script>
+
+<div id="mini-kaart-container"><canvas id="mini-kaart" width="180" height="180"></canvas><span id="mk-icoon">🗺</span></div>
 
 <div style="position:fixed;bottom:0;left:0;right:0;z-index:5;text-align:center;font-size:9px;color:rgba(255,255,255,0.18);padding-bottom:env(safe-area-inset-bottom,8px);pointer-events:none;font-family:'Rajdhani',sans-serif;letter-spacing:0.08em">
   © 2026 StoplichtIQ — Y. Lemaalem
