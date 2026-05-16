@@ -9,6 +9,8 @@
   <meta name="apple-mobile-web-app-title" content="StoplichtIQ"/>
   <title>StoplichtIQ</title>
   <script src="https://cdn.jsdelivr.net/npm/onnxruntime-web@1.17.1/dist/ort.min.js"></script>
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/>
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
   <link href="https://fonts.googleapis.com/css2?family=Rajdhani:wght@300;400;600;700&family=Share+Tech+Mono&display=swap" rel="stylesheet"/>
   <style>
     *,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
@@ -322,18 +324,17 @@
     .v9-chip.oranje{background:rgba(255,159,10,.12);color:#FF9F0A}
     .v9-chip.paars{background:rgba(191,90,242,.12);color:#BF5AF2}
     #v9-telling{font-size:10px;color:var(--dim);padding:4px 18px 0;letter-spacing:0.06em}
-    /* V10.0.5: Mini-kaart canvas */
-    #mini-kaart-container{position:fixed;bottom:80px;right:12px;width:180px;height:180px;
-      border-radius:12px;overflow:hidden;border:2px solid rgba(255,255,255,0.15);
-      box-shadow:0 4px 20px rgba(0,0,0,0.7);z-index:8000;display:none;
-      touch-action:none;user-select:none;-webkit-user-select:none;
-      transition:width 0.2s ease,height 0.2s ease,border-radius 0.2s ease}
-    #mini-kaart-container.ingeklapt{width:36px;height:36px;border-radius:18px}
-    #mini-kaart{width:100%;height:100%;display:block}
-    #mini-kaart-container.ingeklapt #mini-kaart{display:none}
-    #mk-icoon{position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);
-      font-size:18px;pointer-events:none;display:none}
-    #mini-kaart-container.ingeklapt #mk-icoon{display:block}
+    /* V10.0.6: Dashboard kaart overlay */
+    #kaart-overlay{position:fixed;inset:0;z-index:260;background:#080A0C;
+      display:flex;flex-direction:column;transition:opacity .3s,transform .3s}
+    #kaart-overlay.verborgen{opacity:0;pointer-events:none;transform:translateY(20px)}
+    #kaart-header{display:flex;align-items:center;justify-content:space-between;
+      padding:env(safe-area-inset-top,48px) 18px 10px;background:#080A0C;z-index:1}
+    #kaart-titel{font-size:16px;font-weight:700;letter-spacing:0.08em;text-transform:uppercase}
+    #kaart-sluiten{background:rgba(255,255,255,0.08);border:1px solid var(--border);
+      border-radius:20px;padding:5px 14px;font-size:11px;font-weight:600;
+      letter-spacing:0.1em;text-transform:uppercase;color:var(--dim);cursor:pointer}
+    #kaart-map{flex:1;width:100%;background:#1C1C1E}
   </style>
 </head>
 <body>
@@ -396,7 +397,7 @@
 <div id="startscherm">
   <div id="s-icoon">🚦</div>
   <div id="s-titel">Stoplicht<span>IQ</span></div>
-  <div id="s-versie">V10.0.5 — Green collapse oranje + mini-kaart</div>
+  <div id="s-versie">V10.0.6 — Dashboard kaart + green collapse</div>
   <div id="s-model-wrap">
     <div id="s-model-rij">
       <div id="s-model-label">🤖 YOLOv8 model laden…</div>
@@ -529,6 +530,7 @@
     <div class="dash-stat" onclick="toonV9Richtingen()" style="cursor:pointer"><div class="dash-stat-getal" id="ds-richtingen" style="color:var(--blauw)">0</div><div class="dash-stat-label">V9 RICHTINGEN</div><div id="ds-richtingen-sub" style="font-size:9px;color:var(--dim);margin-top:2px">(0 writes)</div></div>
   </div>
   <div style="display:flex;gap:10px;padding:12px 16px;background:rgba(255,255,255,0.05);border-radius:10px;margin:0 18px 12px;align-items:center;flex-wrap:wrap;">
+    <button onclick="openKaartOverlay()" style="flex:1;padding:10px 14px;background:rgba(10,132,255,0.2);color:#0A84FF;border:1px solid rgba(10,132,255,0.4);border-radius:8px;font-size:13px;cursor:pointer;min-width:100px;">🗺 Toon kaart</button>
     <button onclick="exporteerData()" style="flex:1;padding:10px 14px;background:rgba(99,199,99,0.2);color:#63c763;border:1px solid rgba(99,199,99,0.4);border-radius:8px;font-size:13px;cursor:pointer;min-width:120px;">📤 Exporteer backup</button>
     <label style="flex:1;min-width:120px;">
       <input type="file" accept=".json" style="display:none;" onchange="importeerData(this.files[0]);this.value=''">
@@ -592,7 +594,7 @@
 
 <script>
 // ═══════════════════════════════════════════════════════════════
-//  StoplichtIQ V10.0.5
+//  StoplichtIQ V10.0.6
 //  V10: Leergeheugen structurele upgrade
 //  — Drie interne scores: voorspelbaarheid, dekking, patroon_zekerheid
 //  — Groene fase metingen + partiële rode observaties (sl_v10_ prefix)
@@ -2371,14 +2373,12 @@ function openDashboard() {
   laadDashboard();
   updateTrainframesTeller();
   updateCamStatsTeller();
-  verbergMiniKaart();
   document.getElementById('dashboard').classList.remove('verborgen');
 }
 
 function sluitDashboard() {
   document.getElementById('dashboard').classList.add('verborgen');
   uitgeklapteDD = null;
-  toonMiniKaart();
   // V8.9.12: Herstel camera als bevroren na dashboard-interactie
   if (video.paused) video.play().catch(() => {});
 }
@@ -2595,7 +2595,7 @@ function tijdGeleden(ts) {
 // ── DATA EXPORT/IMPORT ────────────────────────────────────────
 function exporteerData() {
   try {
-    const exportData = { versie:'10.0.5', exportDatum:new Date().toISOString(), app:'StoplichtIQ', data:{}, scores:{} };
+    const exportData = { versie:'10.0.6', exportDatum:new Date().toISOString(), app:'StoplichtIQ', data:{}, scores:{} };
     for (const key of Object.keys(localStorage)) {
       if (key.startsWith('sl_v10_')||key.startsWith('sl_v5_')||key.startsWith('sl_v4_')||key.startsWith('sl_v3_')||key.startsWith('sl_tag_')||key.startsWith('sl_naam_')||key.startsWith('sl_richting_')||key==='sl_stad_cache') {
         try { exportData.data[key] = JSON.parse(localStorage.getItem(key)); }
@@ -2650,7 +2650,6 @@ function importeerData(bestand) {
 
 // ── STARTSCHERM / TERUG ───────────────────────────────────────
 function naarStartscherm() {
-  verbergMiniKaart();
   try { const stream=video.srcObject; if(stream)stream.getTracks().forEach(t=>t.stop()); video.srcObject=null; } catch(e) {}
   resetNeutraal();
   document.getElementById('startscherm').classList.remove('weg');
@@ -4054,161 +4053,116 @@ function lus() {
   requestAnimationFrame(lus);
 }
 
-// ── V10.0.5: MINI-KAART CANVAS VECTORKAART ───────────────────
-let mkZichtbaar = false;
-let mkRafId = null;
-let mkDragMoved = false, mkDragStartX = 0, mkDragStartY = 0, mkDragOrigR = 0, mkDragOrigB = 0;
-const MK_SCALE = 3;
+// ── V10.0.6: LEAFLET DASHBOARD KAART ─────────────────────────
+let kaartMap = null;
+let kaartGpsMarker = null;
 
-function mkLatLonNaarCanvas(gLat, gLon, cosLat, h, nLat, nLon, cx, cy) {
-  const dLat = (nLat - gLat) * 111320;
-  const dLon = (nLon - gLon) * 111320 * cosLat;
-  return [cx + (dLon * Math.cos(h) - dLat * Math.sin(h)) / MK_SCALE,
-          cy - (dLat * Math.cos(h) + dLon * Math.sin(h)) / MK_SCALE];
-}
+function openKaartOverlay() {
+  const overlay = document.getElementById('kaart-overlay');
+  if (!overlay) return;
+  overlay.classList.remove('verborgen');
 
-function tekenVectorKaart() {
-  if (!mkZichtbaar) { mkRafId = null; return; }
-  mkRafId = requestAnimationFrame(tekenVectorKaart);
-  const container = document.getElementById('mini-kaart-container');
-  if (!container || container.classList.contains('ingeklapt')) return;
-  const mkCanvas = document.getElementById('mini-kaart');
-  if (!mkCanvas || !huidigePos) return;
-  const mkCtx = mkCanvas.getContext('2d');
-  const W = mkCanvas.width, H = mkCanvas.height, cx = W/2, cy = H/2;
-  const gLat = huidigePos.lat, gLon = huidigePos.lon;
-  const cosLat = Math.cos(gLat * Math.PI / 180);
-  const smoothedH = getSmoothedHeading();
-  const h = (smoothedH != null ? smoothedH : huidigeRichting) * Math.PI / 180;
-  const nu = Date.now();
-
-  mkCtx.fillStyle = '#1C1C1E';
-  mkCtx.fillRect(0, 0, W, H);
-
-  const huidigId = handmatigGeselecteerdNodeId || (dichtstbijOSM ? String(dichtstbijOSM.id) : null);
-
-  for (const node of osmCache) {
-    const [px, py] = mkLatLonNaarCanvas(gLat, gLon, cosLat, h, node.lat, node.lon, cx, cy);
-    if (px < -12 || px > W+12 || py < -12 || py > H+12) continue;
-    const isDichtbij = dichtstbijOSM && node.id === dichtstbijOSM.id;
-    const isActief = huidigId === String(node.id);
-    const pct = berekenLeerPct(node.id);
-    let r = isDichtbij ? 6 : 4;
-    const kleur = isActief ? '#0A84FF' : (pct >= 80 ? '#30D158' : pct >= 40 ? '#FF9500' : '#8E8E93');
-    if (isActief) {
-      const pulse = 0.5 + 0.5 * Math.sin(nu / 400);
-      r = 5 + pulse * 3;
-      mkCtx.globalAlpha = 0.7 + 0.3 * pulse;
-    }
-    mkCtx.beginPath();
-    mkCtx.arc(px, py, r, 0, Math.PI * 2);
-    mkCtx.fillStyle = kleur;
-    mkCtx.fill();
-    mkCtx.globalAlpha = 1;
-    if (isDichtbij && !isActief) {
-      mkCtx.strokeStyle = '#fff';
-      mkCtx.lineWidth = 1.5;
-      mkCtx.stroke();
+  // Verzamel alle geleerde nodes
+  const nodeIds = haalAlleOsmIds();
+  const nodes = [];
+  for (const id of nodeIds) {
+    // Zoek in osmCache
+    const cached = osmCache.find(s => String(s.id) === String(id));
+    // Zoek naam
+    const naam = vindNaamVoorId(id);
+    const pct = berekenLeerPct(id);
+    const alleM = Object.keys(DD).reduce((s,d) => s + laadM(id,d).length, 0);
+    const dd = huidigDDActief();
+    if (cached) {
+      nodes.push({ id, lat: cached.lat, lon: cached.lon, naam, pct, metingen: alleM, dd });
+    } else {
+      // Probeer uit localStorage naam met coords
+      try {
+        const naamRaw = localStorage.getItem('sl_naam_'+id);
+        if (naamRaw && naamRaw.includes(',')) {
+          const parts = naamRaw.split(',').map(s => parseFloat(s.trim()));
+          if (parts.length >= 2 && !isNaN(parts[0]) && !isNaN(parts[1])) {
+            nodes.push({ id, lat: parts[0], lon: parts[1], naam, pct, metingen: alleM, dd });
+          }
+        }
+      } catch(e) {}
     }
   }
 
-  // Gebruikerspositie — blauwe pijl midden
-  mkCtx.save();
-  mkCtx.translate(cx, cy);
-  mkCtx.shadowColor = '#0A84FF';
-  mkCtx.shadowBlur = 8;
-  mkCtx.beginPath();
-  mkCtx.moveTo(0, -10);
-  mkCtx.lineTo(-6, 7);
-  mkCtx.lineTo(0, 3);
-  mkCtx.lineTo(6, 7);
-  mkCtx.closePath();
-  mkCtx.fillStyle = '#0A84FF';
-  mkCtx.fill();
-  mkCtx.restore();
+  // Bereken centrum
+  let centerLat = 52.1, centerLon = 5.1, zoom = 14;
+  if (huidigePos) {
+    centerLat = huidigePos.lat; centerLon = huidigePos.lon;
+  } else if (nodes.length > 0) {
+    centerLat = nodes.reduce((s,n) => s+n.lat, 0) / nodes.length;
+    centerLon = nodes.reduce((s,n) => s+n.lon, 0) / nodes.length;
+  }
 
-  // Noord-indicator
-  mkCtx.save();
-  mkCtx.translate(16, 16);
-  mkCtx.rotate(-h);
-  mkCtx.fillStyle = '#FF3B30';
-  mkCtx.font = 'bold 9px sans-serif';
-  mkCtx.textAlign = 'center';
-  mkCtx.textBaseline = 'alphabetic';
-  mkCtx.fillText('N', 0, -5);
-  mkCtx.beginPath();
-  mkCtx.moveTo(0, -3);
-  mkCtx.lineTo(0, 6);
-  mkCtx.strokeStyle = 'rgba(255,59,48,0.6)';
-  mkCtx.lineWidth = 1.5;
-  mkCtx.stroke();
-  mkCtx.restore();
-}
-
-function mkInitDrag() {
-  const container = document.getElementById('mini-kaart-container');
-  if (!container) return;
-  try {
-    const p = JSON.parse(sessionStorage.getItem('mk_pos') || 'null');
-    if (p) { container.style.right = p.r + 'px'; container.style.bottom = p.b + 'px'; }
-  } catch(e) {}
-  if (sessionStorage.getItem('mk_ingeklapt') === '1') container.classList.add('ingeklapt');
-  container.addEventListener('touchstart', (e) => {
-    mkDragStartX = e.touches[0].clientX; mkDragStartY = e.touches[0].clientY; mkDragMoved = false;
-    const rect = container.getBoundingClientRect();
-    mkDragOrigR = window.innerWidth - rect.right; mkDragOrigB = window.innerHeight - rect.bottom;
-  }, {passive:true});
-  container.addEventListener('touchmove', (e) => {
-    const dx = e.touches[0].clientX - mkDragStartX, dy = e.touches[0].clientY - mkDragStartY;
-    if (!mkDragMoved && (Math.abs(dx) > 5 || Math.abs(dy) > 5)) mkDragMoved = true;
-    if (mkDragMoved) {
-      container.style.right = Math.max(0, mkDragOrigR - dx) + 'px';
-      container.style.bottom = Math.max(0, mkDragOrigB - dy) + 'px';
-    }
-  }, {passive:true});
-  container.addEventListener('touchend', () => {
-    if (!mkDragMoved) {
-      const ingeklapt = container.classList.toggle('ingeklapt');
-      sessionStorage.setItem('mk_ingeklapt', ingeklapt ? '1' : '0');
-    } else {
-      sessionStorage.setItem('mk_pos', JSON.stringify({r:parseInt(container.style.right)||12, b:parseInt(container.style.bottom)||80}));
-    }
-  }, {passive:true});
-  // Tap op node = selecteer
-  const mkCanvas = document.getElementById('mini-kaart');
-  if (mkCanvas) {
-    mkCanvas.addEventListener('click', (e) => {
-      if (!huidigePos || !osmCache.length) return;
-      const rect = mkCanvas.getBoundingClientRect();
-      const mx = (e.clientX - rect.left) * (mkCanvas.width / rect.width);
-      const my = (e.clientY - rect.top) * (mkCanvas.height / rect.height);
-      const W = mkCanvas.width, H = mkCanvas.height, cx = W/2, cy = H/2;
-      const cosLat = Math.cos(huidigePos.lat * Math.PI / 180);
-      const smoothedH = getSmoothedHeading();
-      const h = (smoothedH != null ? smoothedH : huidigeRichting) * Math.PI / 180;
-      let bestDist = 28, bestId = null;
-      for (const node of osmCache) {
-        const [px, py] = mkLatLonNaarCanvas(huidigePos.lat, huidigePos.lon, cosLat, h, node.lat, node.lon, cx, cy);
-        const d = Math.hypot(mx - px, my - py);
-        if (d < bestDist) { bestDist = d; bestId = String(node.id); }
-      }
-      if (bestId) selecteerNodeHandmatig(bestId);
+  // Initialiseer of hergebruik kaart
+  if (!kaartMap) {
+    kaartMap = L.map('kaart-map', {
+      zoomControl: true,
+      attributionControl: true
+    }).setView([centerLat, centerLon], zoom);
+    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+      maxZoom: 19,
+      attribution: '© OpenStreetMap'
+    }).addTo(kaartMap);
+  } else {
+    kaartMap.setView([centerLat, centerLon], zoom);
+    // Verwijder oude markers
+    kaartMap.eachLayer(layer => {
+      if (layer instanceof L.CircleMarker) kaartMap.removeLayer(layer);
     });
   }
+
+  // Fix voor Leaflet container size issue
+  setTimeout(() => { kaartMap.invalidateSize(); }, 100);
+
+  // Voeg node markers toe
+  for (const node of nodes) {
+    const kleur = node.pct >= 80 ? '#34C759' : node.pct >= 40 ? '#FF9F0A' : '#FF3030';
+    const marker = L.circleMarker([node.lat, node.lon], {
+      radius: 8,
+      fillColor: kleur,
+      color: '#fff',
+      weight: 2,
+      fillOpacity: 0.85
+    }).addTo(kaartMap);
+    marker.bindPopup(
+      `<div style="font-family:'Rajdhani',sans-serif;min-width:140px">` +
+      `<strong>${node.naam}</strong><br>` +
+      `<span style="color:${kleur};font-weight:700">${node.pct}% geleerd</span><br>` +
+      `${node.metingen} metingen<br>` +
+      `<span style="color:#888;font-size:11px">Dagdeel: ${node.dd}</span>` +
+      `</div>`
+    );
+  }
+
+  // Gebruikerspositie als blauwe stip
+  if (huidigePos) {
+    if (kaartGpsMarker) kaartMap.removeLayer(kaartGpsMarker);
+    kaartGpsMarker = L.circleMarker([huidigePos.lat, huidigePos.lon], {
+      radius: 7,
+      fillColor: '#0A84FF',
+      color: '#fff',
+      weight: 2,
+      fillOpacity: 1
+    }).addTo(kaartMap);
+    kaartGpsMarker.bindPopup('<strong>Jouw positie</strong>');
+  }
+
+  // Fit bounds als er meerdere nodes zijn
+  if (nodes.length > 1) {
+    const bounds = L.latLngBounds(nodes.map(n => [n.lat, n.lon]));
+    if (huidigePos) bounds.extend([huidigePos.lat, huidigePos.lon]);
+    kaartMap.fitBounds(bounds, { padding: [30, 30], maxZoom: 16 });
+  }
 }
 
-function toonMiniKaart() {
-  mkZichtbaar = true;
-  const container = document.getElementById('mini-kaart-container');
-  if (container) container.style.display = 'block';
-  if (!mkRafId) mkRafId = requestAnimationFrame(tekenVectorKaart);
-}
-
-function verbergMiniKaart() {
-  mkZichtbaar = false;
-  const container = document.getElementById('mini-kaart-container');
-  if (container) container.style.display = 'none';
-  if (mkRafId) { cancelAnimationFrame(mkRafId); mkRafId = null; }
+function sluitKaartOverlay() {
+  const overlay = document.getElementById('kaart-overlay');
+  if (overlay) overlay.classList.add('verborgen');
 }
 
 // ── START ─────────────────────────────────────────────────────
@@ -4232,9 +4186,6 @@ async function startApp() {
   }
   await activeerWakeLock();
   checkNacht();
-  // V10.0.5: Mini-kaart initialiseren en tonen
-  mkInitDrag();
-  toonMiniKaart();
   if (navigator.geolocation) {
     navigator.geolocation.watchPosition(onGPS, ()=>{ pGPS.className='pill-dot o'; }, { enableHighAccuracy:true, maximumAge:5000, timeout:12000 });
   }
@@ -4255,7 +4206,14 @@ document.getElementById('geluid-toggle').classList.remove('uit');
 bijwerkDashboardKnop();
 </script>
 
-<div id="mini-kaart-container"><canvas id="mini-kaart" width="180" height="180"></canvas><span id="mk-icoon">🗺</span></div>
+<!-- V10.0.6: Dashboard kaart overlay -->
+<div id="kaart-overlay" class="verborgen">
+  <div id="kaart-header">
+    <div id="kaart-titel">🗺 Stoplichten kaart</div>
+    <div id="kaart-sluiten" onclick="sluitKaartOverlay()">✕ Sluiten</div>
+  </div>
+  <div id="kaart-map"></div>
+</div>
 
 <div style="position:fixed;bottom:0;left:0;right:0;z-index:5;text-align:center;font-size:9px;color:rgba(255,255,255,0.18);padding-bottom:env(safe-area-inset-bottom,8px);pointer-events:none;font-family:'Rajdhani',sans-serif;letter-spacing:0.08em">
   © 2026 StoplichtIQ — Y. Lemaalem
