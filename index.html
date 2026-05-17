@@ -397,7 +397,7 @@
 <div id="startscherm">
   <div id="s-icoon">🚦</div>
   <div id="s-titel">Stoplicht<span>IQ</span></div>
-  <div id="s-versie">V10.0.7 — Kwaliteitsgewogen leerproces</div>
+  <div id="s-versie">V10.0.8 — Migratie bodem fix</div>
   <div id="s-model-wrap">
     <div id="s-model-rij">
       <div id="s-model-label">🤖 YOLOv8 model laden…</div>
@@ -797,23 +797,36 @@ function gewSpreiding(m) {
 }
 
 function berekenLeerPct(osmId) {
-  // V10.0.7: Kwaliteitsgewogen leerpercentage op basis van tiers
+  // V10.0.8: Kwaliteitsgewogen leerpercentage met legacy bodem
   const alleM = [];
   for (const d of Object.keys(DD)) {
     const m = laadM(osmId, d);
     alleM.push(...m);
   }
   if (!alleM.length) return 0;
-  let t1=0, t2=0, t3=0, t4=0;
+  // Legacy bodem: behoud historisch percentage op basis van totaal metingen
+  const aantalMetingen = alleM.length;
+  const legacyPct = Math.min(60,
+    aantalMetingen >= 50 ? 60 :
+    aantalMetingen >= 20 ? 45 :
+    aantalMetingen >= 10 ? 35 :
+    aantalMetingen >= 5  ? 25 :
+    aantalMetingen * 4
+  );
+  // Tier-telling met onderscheid legacy (geen tier-veld) vs nieuw (met tier-veld)
+  let t1=0, t2=0, t3Nieuw=0, t3Legacy=0, t4=0;
   for (const m of alleM) {
-    const tier = m.tier || 3; // Bestaande metingen zonder tier = Tier 3
-    if (tier === 1) t1++;
-    else if (tier === 2) t2++;
-    else if (tier === 4) t4++;
-    else t3++;
+    if (!m.tier) { t3Legacy++; continue; } // legacy meting zonder tier-veld
+    if (m.tier === 1) t1++;
+    else if (m.tier === 2) t2++;
+    else if (m.tier === 4) t4++;
+    else t3Nieuw++;
   }
-  const pct = Math.min(t1,3)*25 + Math.min(t2,2)*10 + Math.min(t3,5)*3 + Math.min(t4,5)*1;
-  return Math.min(95, pct);
+  // Nieuwe tier-score: legacy T3 cap=15, nieuw T3 cap=5
+  const tierPct = Math.min(t1,3)*25 + Math.min(t2,2)*10
+    + Math.min(t3Legacy,15)*3 + Math.min(t3Nieuw,5)*3 + Math.min(t4,5)*1;
+  // Eindpercentage = hoogste van legacy bodem en nieuwe tier-score
+  return Math.min(95, Math.max(legacyPct, tierPct));
 }
 
 function leerKleur(pct) {
