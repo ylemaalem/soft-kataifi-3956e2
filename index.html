@@ -397,7 +397,7 @@
 <div id="startscherm">
   <div id="s-icoon">🚦</div>
   <div id="s-titel">Stoplicht<span>IQ</span></div>
-  <div id="s-versie">V10.0.6 — Dashboard kaart + green collapse</div>
+  <div id="s-versie">V10.0.7 — Kwaliteitsgewogen leerproces</div>
   <div id="s-model-wrap">
     <div id="s-model-rij">
       <div id="s-model-label">🤖 YOLOv8 model laden…</div>
@@ -666,6 +666,12 @@ const KLEURCHECK_GRID = 8;
 // V8.8.1: Nieuw kruispunt drempel — soepeler filter voor eerste metingen
 const NIEUW_KRUISPUNT_DREMPEL = 5;
 
+// V10.0.7: Kwaliteitstiers voor metingen
+const TIER1_GEWICHT = 1.0;  // volledige cyclus (rood+groen volledig)
+const TIER2_GEWICHT = 0.6;  // één fase volledig (begin EN eind gezien)
+const TIER3_GEWICHT = 0.3;  // partiële observatie (enkel passing)
+const TIER4_GEWICHT = 0.1;  // proxy/stilstand/S2
+
 // V9.0: Rijrichting per stoplicht constanten
 const V9_NADERING_AFSTAND      = 60;    // meter — aanrijrichting vastleggen
 const V9_VOORBIJ_AFSTAND       = 40;    // meter — delayed write trigger
@@ -791,29 +797,23 @@ function gewSpreiding(m) {
 }
 
 function berekenLeerPct(osmId) {
-  const dd = huidigDDActief();
+  // V10.0.7: Kwaliteitsgewogen leerpercentage op basis van tiers
   const alleM = [];
-  let huidigAantal = 0;
   for (const d of Object.keys(DD)) {
     const m = laadM(osmId, d);
     alleM.push(...m);
-    if (d === dd) huidigAantal = m.length;
   }
   if (!alleM.length) return 0;
-  const gewAantal = huidigAantal*2 + (alleM.length - huidigAantal);
-  const aantalScore = Math.min(100, (gewAantal/20)*100);
-  const huidigM = laadM(osmId, dd);
-  let consistScore = 0;
-  if (huidigM.length >= 2) {
-    const gem = gewGem(huidigM, HALFWAARDETIJD_PATROON);
-    if (gem) {
-      let wS=0, vS=0;
-      for (const x of huidigM) { const w=gew(x.tijd, HALFWAARDETIJD_PATROON); vS+=w*Math.pow(x.duur-gem,2); wS+=w; }
-      const sp = Math.sqrt(wS > 0 ? vS/wS : 0);
-      consistScore = Math.max(0, 100 - (sp/gem*200));
-    }
+  let t1=0, t2=0, t3=0, t4=0;
+  for (const m of alleM) {
+    const tier = m.tier || 3; // Bestaande metingen zonder tier = Tier 3
+    if (tier === 1) t1++;
+    else if (tier === 2) t2++;
+    else if (tier === 4) t4++;
+    else t3++;
   }
-  return Math.min(100, Math.round(aantalScore*0.5 + consistScore*0.5));
+  const pct = Math.min(t1,3)*25 + Math.min(t2,2)*10 + Math.min(t3,5)*3 + Math.min(t4,5)*1;
+  return Math.min(95, pct);
 }
 
 function leerKleur(pct) {
@@ -856,6 +856,14 @@ function laadM(osmId, dd) {
   } catch(e) { return []; }
 }
 
+function bepaalTier(osmId) {
+  // V10.0.7: Bepaal kwaliteitstier op basis van sessie-observatie
+  const sessie = sessieFasenGezien[osmId];
+  if (sessie && sessie.roodVolledig && sessie.groenVolledig) return 1;
+  if (sessie && (sessie.roodVolledig || sessie.groenVolledig)) return 2;
+  return 3; // partieel — standaard voor camera-meting zonder volledige cyclus
+}
+
 function slaOp(osmId, richting, duur) {
   if (!osmId || duur < 4 || duur > 300) return false;
   // V9.0: Leerafstand begrenzing — boven 80m: niet leren, 40-80m: lagere gewicht maar V4 schrijft wel
@@ -875,7 +883,9 @@ function slaOp(osmId, richting, duur) {
   if (!isMetingBetrouwbaar(duur, m)) return false;
   const gewijzigd = checkAfwijking(duur, gewGem(m), m);
   if (gewijzigd) m = [];
-  m.push({ duur:Math.round(duur), tijd:Date.now(), richting:Math.round(richting||0) });
+  const tier = bepaalTier(osmId);
+  const gewicht = tier === 1 ? TIER1_GEWICHT : tier === 2 ? TIER2_GEWICHT : TIER3_GEWICHT;
+  m.push({ duur:Math.round(duur), tijd:Date.now(), richting:Math.round(richting||0), tier, gewicht });
   if (m.length > MAX_METINGEN) { m.sort((a,b)=>gew(b.tijd)-gew(a.tijd)); m=m.slice(0,MAX_METINGEN); }
   try { localStorage.setItem(`${LS_PREFIX}${osmId}_${dd}`, JSON.stringify(m)); } catch(e) {}
   checkLocalStorageRuimte();
@@ -1394,6 +1404,9 @@ let v9LaatstPassageTijd     = 0;      // cooldown: tijdstip van laatste passage
 
 // V10: Partiële rode meting tracking
 let roodStartWasPartieel    = false;  // true als rood zichtbaar werd zonder voorafgaande overgang
+
+// V10.0.7: Cyclus tracking per sessie per node
+let sessieFasenGezien       = {};     // { nodeId: { roodVolledig: bool, groenVolledig: bool } }
 
 // V8.7: Camera exposure compensatie bij nacht
 let nachtExposureActief=false;
@@ -2083,6 +2096,9 @@ function verwerkFase(nieuw, horizontaal) {
     groenDuur = (nu - groenStart) / 1000;
     if (groenDuur > 3 && groenDuur < 300 && nodeId) {
       slaGroenFaseOp(nodeId, groenDuur, false); // volledige meting, transitie gezien
+      // V10.0.7: Markeer groene fase als volledig voor tier-bepaling
+      if (!sessieFasenGezien[nodeId]) sessieFasenGezien[nodeId] = {};
+      sessieFasenGezien[nodeId].groenVolledig = true;
     }
   }
   if (nieuw === 'groen') {
@@ -2111,6 +2127,11 @@ function verwerkFase(nieuw, horizontaal) {
           if (nodeId) slaRoodPartieleOp(nodeId, dur);
         } else {
           // Volledige meting — V4 + V5 delayed write
+          // V10.0.7: Markeer rode fase als volledig voor tier-bepaling
+          if (nodeId) {
+            if (!sessieFasenGezien[nodeId]) sessieFasenGezien[nodeId] = {};
+            sessieFasenGezien[nodeId].roodVolledig = true;
+          }
           if (!v9DelayedWriteActief) slaOp(nodeId, huidigeRichting, dur);
           if (v9KandidaatNode === nodeId) {
             v9KandidaatDuur = dur;
@@ -3329,7 +3350,7 @@ function slaLeergeheugenOpS2(nodeId, kleur) {
   if (!nodeId) return;
   const dd=huidigDDActief();
   let m=laadM(nodeId,dd);
-  m.push({ duur:0, tijd:Date.now(), richting:Math.round(huidigeRichting||0), s2:true, gewicht:0.3, kleur });
+  m.push({ duur:0, tijd:Date.now(), richting:Math.round(huidigeRichting||0), s2:true, tier:4, gewicht:TIER4_GEWICHT, kleur });
   if (m.length>MAX_METINGEN) { m.sort((a,b)=>gew(b.tijd)-gew(a.tijd)); m=m.slice(0,MAX_METINGEN); }
   try { localStorage.setItem(`${LS_PREFIX}${nodeId}_${dd}`, JSON.stringify(m)); } catch(e) {}
   checkLocalStorageRuimte();
