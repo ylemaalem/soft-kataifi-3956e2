@@ -397,7 +397,7 @@
 <div id="startscherm">
   <div id="s-icoon">🚦</div>
   <div id="s-titel">Stoplicht<span>IQ</span></div>
-  <div id="s-versie">V11.0.1 — Dagdeel astronomisch + stilstand lock</div>
+  <div id="s-versie">V11.0.2 — Hysterese node-selectie</div>
   <div id="s-model-wrap">
     <div id="s-model-rij">
       <div id="s-model-label">🤖 YOLOv8 model laden…</div>
@@ -595,7 +595,7 @@
 
 <script>
 // ═══════════════════════════════════════════════════════════════
-//  StoplichtIQ V11.0.1
+//  StoplichtIQ V11.0.2
 //  V11: Leergeheugen audit + genius implementaties
 //  — S1+S2 bevestiging (kruispunt-level confidence)
 //  — Route-herkenning basis (sequentie-opslag)
@@ -2772,37 +2772,52 @@ async function haalStraatnamenOp() {
   }
 }
 
+function vindDichtbijScore(lat, lon, heading, sl) {
+  const af = afstand(lat,lon,sl.lat,sl.lon);
+  if (af > 400) return null;
+  const normAf = 1/(af/100+1);
+  const conf = Math.min(1.0, (s2BboxTeller.get(String(sl.id)) || 0) / 5);
+  let s;
+  if (snelheidKmh < 5) {
+    s = normAf * 0.95 + conf * 0.05;
+  } else {
+    const dLon=(sl.lon-lon)*Math.PI/180;
+    const y2=Math.sin(dLon)*Math.cos(sl.lat*Math.PI/180);
+    const x2=Math.cos(lat*Math.PI/180)*Math.sin(sl.lat*Math.PI/180)-Math.sin(lat*Math.PI/180)*Math.cos(sl.lat*Math.PI/180)*Math.cos(dLon);
+    const hoek=(Math.atan2(y2,x2)*180/Math.PI+360)%360;
+    let rv=Math.abs(heading-hoek); if(rv>180)rv=360-rv;
+    const normHoek = Math.cos(rv*Math.PI/180);
+    const bboxOffset = vorigeDetectie ? (vorigeDetectie.cx/YOLO_SIZE - 0.5) * 77 : 0;
+    const hoekSigned = ((hoek - heading + 540) % 360) - 180;
+    const bboxCentrering = 1 - Math.min(1, Math.abs(hoekSigned - bboxOffset) / 77);
+    s = normAf*0.50 + normHoek*0.35 + conf*0.15 + bboxCentrering*0.01;
+  }
+  return { score: s, afstand: af };
+}
+
 function vindDichtbij(lat, lon, heading) {
   if (!osmCache.length) return null;
-  const stilstand = snelheidKmh < 5;
   let beste=null, bestS=-Infinity;
   for (const sl of osmCache) {
-    const af = afstand(lat,lon,sl.lat,sl.lon);
-    if (af > 400) continue;
-    const normAf = 1/(af/100+1);
-    const conf = Math.min(1.0, (s2BboxTeller.get(String(sl.id)) || 0) / 5);
-    let s;
-    if (stilstand) {
-      s = normAf * 0.95 + conf * 0.05;
-    } else {
-      const dLon=(sl.lon-lon)*Math.PI/180;
-      const y2=Math.sin(dLon)*Math.cos(sl.lat*Math.PI/180);
-      const x2=Math.cos(lat*Math.PI/180)*Math.sin(sl.lat*Math.PI/180)-Math.sin(lat*Math.PI/180)*Math.cos(sl.lat*Math.PI/180)*Math.cos(dLon);
-      const hoek=(Math.atan2(y2,x2)*180/Math.PI+360)%360;
-      let rv=Math.abs(heading-hoek); if(rv>180)rv=360-rv;
-      const normHoek = Math.cos(rv*Math.PI/180);
-      const bboxOffset = vorigeDetectie ? (vorigeDetectie.cx/YOLO_SIZE - 0.5) * 77 : 0;
-      const hoekSigned = ((hoek - heading + 540) % 360) - 180;
-      const bboxCentrering = 1 - Math.min(1, Math.abs(hoekSigned - bboxOffset) / 77);
-      s = normAf*0.50 + normHoek*0.35 + conf*0.15 + bboxCentrering*0.01;
-    }
-    if (s>bestS) { bestS=s; beste={...sl, afstand:af}; }
+    const r = vindDichtbijScore(lat, lon, heading, sl);
+    if (!r) continue;
+    if (r.score > bestS) { bestS=r.score; beste={...sl, afstand:r.afstand}; }
   }
   if (!beste) {
     let minA=Infinity;
     for (const sl of osmCache) {
       const a=afstand(lat,lon,sl.lat,sl.lon);
       if (a<minA) { minA=a; beste={...sl, afstand:a}; }
+    }
+  }
+  // Hysterese: huidige node behoudt voorsprong
+  if (beste && dichtstbijOSM && String(beste.id) !== String(dichtstbijOSM.id)) {
+    const huidigAf = afstand(lat, lon, dichtstbijOSM.lat, dichtstbijOSM.lon);
+    if (huidigAf < 150) {
+      const hr = vindDichtbijScore(lat, lon, heading, dichtstbijOSM);
+      if (hr && bestS < hr.score * 1.20) {
+        return { ...dichtstbijOSM, afstand: huidigAf };
+      }
     }
   }
   return beste;
@@ -3846,11 +3861,14 @@ function updateDichtbij(lat, lon) {
   kNaam.textContent = nieuw.naam || (nieuw.slim?'⚡ Slim':'Stoplicht');
   kAf.textContent   = nieuw.afstand<1000 ? `${Math.round(nieuw.afstand)}m` : `${(nieuw.afstand/1000).toFixed(1)}km`;
   kDD.textContent   = `${DD[huidigDDActief()].ic} ${huidigDDActief()}`;
+  // V11.0.2: Directe lock bij eerste selectie (dichtstbijOSM was null)
+  if (!vorigOsmId && nieuw) {
+    stilstandSinds = Date.now() - 6000;
+  }
   if (nieuw.id !== vorigOsmId) {
     vorigOsmId=nieuw.id; dichtstbijOSM=nieuw; afwijkBuf=[];
     activeCdDoel = gewGem(laadM(nieuw.id, huidigDDActief())) || 0;
     bijwerkLeerkaart(nieuw); bijwerkDashboardKnop();
-    // V8.9.11: Rijrichtingstaat direct resetten bij kruispuntwissel (Bug 2)
     resetRijrichtingState();
     // V10.0.3: Richtingkeuze lock vervalt alleen bij echte node-wissel (>60m van locked node + snelheid)
     if (richtingLockNodeId && richtingLockNodeId !== String(nieuw.id)) {
