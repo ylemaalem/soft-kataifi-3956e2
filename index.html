@@ -397,7 +397,7 @@
 <div id="startscherm">
   <div id="s-icoon">🚦</div>
   <div id="s-titel">Stoplicht<span>IQ</span></div>
-  <div id="s-versie">V11.0.2 — Hysterese node-selectie</div>
+  <div id="s-versie">V11.1.0 — Architectuur correcties + V5 UI</div>
   <div id="s-model-wrap">
     <div id="s-model-rij">
       <div id="s-model-label">🤖 YOLOv8 model laden…</div>
@@ -595,7 +595,7 @@
 
 <script>
 // ═══════════════════════════════════════════════════════════════
-//  StoplichtIQ V11.0.2
+//  StoplichtIQ V11.1.0
 //  V11: Leergeheugen audit + genius implementaties
 //  — S1+S2 bevestiging (kruispunt-level confidence)
 //  — Route-herkenning basis (sequentie-opslag)
@@ -742,25 +742,23 @@ function updateZonsondergang() {
   }
 }
 
-// V11.0.1: Puur astronomisch dagdeel — geen camera-helderheid meer
-function updateDagdeel() {
-  const uur = new Date().getHours();
-  const uurDecimaal = uur + new Date().getMinutes() / 60;
-  // 1. Nacht: 22:00–06:00 (harde regel)
-  if (uur >= 22 || uur < 6) { huidigDagdeelFinaal = 'nacht'; return; }
-  // 2. Zonsondergang berekenen
-  updateZonsondergang();
+// V11.1.0: Astronomisch dagdeel voor willekeurig tijdstip
+function huidigDDVoorTijd(timestamp) {
+  const d = new Date(timestamp);
+  const uur = d.getHours();
+  const uurDecimaal = uur + d.getMinutes() / 60;
+  if (uur >= 22 || uur < 6) return 'nacht';
   const zg = laatsteZonsondergang;
-  if (zg !== null) {
-    // Voor zonsondergang → ochtend/dag via huidigDD()
-    if (uurDecimaal < zg) { huidigDagdeelFinaal = huidigDD(); return; }
-    // Na zonsondergang tot 22:00 → altijd avond
-    huidigDagdeelFinaal = 'avond';
-    return;
+  if (zg !== null && uurDecimaal >= zg) return 'avond';
+  for (const [k,dd] of Object.entries(DD)) {
+    if (k !== 'nacht' && dd.uren.includes(uur)) return k;
   }
-  // Fallback zonder GPS: vaste grens 21:00
-  if (uurDecimaal < 21) { huidigDagdeelFinaal = huidigDD(); return; }
-  huidigDagdeelFinaal = 'avond';
+  return 'avond';
+}
+
+function updateDagdeel() {
+  updateZonsondergang();
+  huidigDagdeelFinaal = huidigDDVoorTijd(Date.now());
 }
 
 function huidigDD() {
@@ -770,13 +768,8 @@ function huidigDD() {
 }
 
 function huidigDDActief(timestamp=null) {
-  if (timestamp) {
-    const d = new Date(timestamp);
-    const u = d.getHours();
-    for (const [k,dd] of Object.entries(DD)) if (dd.uren.includes(u)) return k;
-    return 'dag';
-  }
-  return huidigDagdeelFinaal || huidigDD();
+  if (timestamp !== null) return huidigDDVoorTijd(timestamp);
+  return huidigDagdeelFinaal || huidigDDVoorTijd(Date.now());
 }
 
 // ── GEWOGEN GEMIDDELDE ────────────────────────────────────────
@@ -825,12 +818,15 @@ function berekenLeerPct(osmId) {
   let basePct = Math.min(95, Math.max(legacyPct, tierPct));
   // V11: S2 bevestiging bonus
   const gem = gewGem(alleM);
-  if (gem) {
-    const s2Conf = zoekS2BevestigingScore(osmId, gem);
-    const s2Bonus = Math.min(15, s2Conf * 5);
-    basePct = Math.min(95, basePct + s2Bonus);
+  const s2Bonus = gem ? Math.min(15, zoekS2BevestigingScore(osmId, gem) * 5) : 0;
+  // V11.1: Groene fase observaties als extra Tier 2 bewijs
+  let groenObservaties = 0;
+  for (const dd of Object.keys(DD)) {
+    const groenM = laadGroenFaseM(osmId, dd);
+    groenObservaties += groenM.filter(g => !g.minimaal).length;
   }
-  return basePct;
+  const groenBonus = Math.min(groenObservaties, 5) * 8;
+  return Math.min(95, basePct + s2Bonus + groenBonus);
 }
 
 function leerKleur(pct) {
@@ -894,24 +890,49 @@ function slaOp(osmId, richting, duur, gewichtOverride=null, forceerDD=null) {
     } catch(e) {}
     return false;
   }
-  const dd = forceerDD || huidigDDActief();
+  let result;
+  if (!forceerDD && faseStart) {
+    const faseStartTs = Date.now() - (performance.now() - faseStart);
+    const ddStart = huidigDDActief(faseStartTs);
+    const ddEinde = huidigDDActief();
+    if (ddStart !== ddEinde) {
+      slaOpIntern(osmId, richting, duur, 0.5, ddStart);
+      result = slaOpIntern(osmId, richting, duur, 0.5, ddEinde);
+    } else {
+      result = slaOpIntern(osmId, richting, duur, gewichtOverride, ddStart);
+    }
+  } else {
+    result = slaOpIntern(osmId, richting, duur, gewichtOverride, forceerDD || huidigDDActief());
+  }
+  voegToeAanRouteBuffer(osmId, duur);
+  return result;
+}
+
+function slaOpIntern(osmId, richting, duur, gewichtOverride, dd) {
   let m = laadM(osmId, dd);
   if (!isMetingBetrouwbaar(duur, m)) return false;
   const gewijzigd = checkAfwijking(duur, gewGem(m), m);
   if (gewijzigd) m = [];
   const tier = bepaalTier(osmId);
-  const gewicht = gewichtOverride != null ? gewichtOverride : (tier === 1 ? TIER1_GEWICHT : tier === 2 ? TIER2_GEWICHT : TIER3_GEWICHT);
-  const obs = faseStart ? Math.round((performance.now() - faseStart) / 1000) : 10;
+  const gewicht = gewichtOverride != null ? gewichtOverride :
+    tier === 1 ? TIER1_GEWICHT :
+    tier === 2 ? TIER2_GEWICHT :
+    tier === 4 ? TIER4_GEWICHT :
+    TIER3_GEWICHT;
+  const obs = faseStart ? Math.round((performance.now() - faseStart) / 1000) : null;
   m.push({ duur:Math.round(duur), tijd:Date.now(), richting:Math.round(richting||0), tier, gewicht, obs });
   if (m.length > MAX_METINGEN) { m.sort((a,b)=>gew(b.tijd)-gew(a.tijd)); m=m.slice(0,MAX_METINGEN); }
   try { localStorage.setItem(`${LS_PREFIX}${osmId}_${dd}`, JSON.stringify(m)); } catch(e) {}
   checkLocalStorageRuimte();
-  // V11: Route buffer bijwerken
-  routeBuffer.push({ nodeId: osmId, timestamp: Date.now(), cyclustijd: duur, dd });
+  return gewijzigd;
+}
+
+function voegToeAanRouteBuffer(osmId, cyclustijd) {
+  if (!osmId || !cyclustijd) return;
+  routeBuffer.push({ nodeId: String(osmId), timestamp: Date.now(), cyclustijd: Math.round(cyclustijd), dd: huidigDDActief() });
   routeBuffer = routeBuffer.filter(x => Date.now() - x.timestamp < ROUTE_TIMEOUT);
   if (routeBuffer.length > ROUTE_MAX) routeBuffer = routeBuffer.slice(-ROUTE_MAX);
   if (routeBuffer.length >= 3) slaRouteSequentieOp(routeBuffer);
-  return gewijzigd;
 }
 
 
@@ -981,7 +1002,18 @@ function berekenDekkingScore(osmId) {
   for (const dd of ddKeys) {
     const m = laadM(osmId, dd);
     const bezoek = laadBezoekPerFase(osmId, dd);
-    const richtingen = new Set(m.filter(x => x.richting != null).map(x => Math.round(x.richting / 45) * 45)).size;
+    const v5Combos = new Set();
+    for (let i = 0; i < localStorage.length; i++) {
+      const k = localStorage.key(i);
+      if (!k || !k.startsWith(`${LS_PREFIX_V5}${osmId}_`)) continue;
+      const rest = k.replace(`${LS_PREFIX_V5}${osmId}_`, '');
+      const delen = rest.split('_');
+      if (delen.length >= 3 && delen[2] === dd) {
+        v5Combos.add(`${delen[0]}_${delen[1]}`);
+      }
+    }
+    const v4Richtingen = new Set(m.filter(x => x.richting != null).map(x => Math.round(x.richting / 45) * 45)).size;
+    const richtingen = Math.max(v5Combos.size, v4Richtingen);
     totaalScore += Math.min(1, m.length / 10) * 40
                  + Math.min(1, richtingen / 4) * 30
                  + Math.min(1, ((bezoek.groen || 0) + (bezoek.rood || 0)) / 10) * 30;
@@ -1011,15 +1043,17 @@ function berekenPatroonZekerheid(osmId) {
 
 // V11: S1+S2 bevestiging — kruispunt-level confidence
 function zoekS2BevestigingScore(osmId, cyclustijd) {
+  if (!cyclustijd || cyclustijd < 10) return 0;
   const sl = osmCache.find(s => String(s.id) === String(osmId));
-  if (!sl || !cyclustijd) return 0;
+  if (!sl) return 0;
   let bevestigingen = 0;
+  const dd = huidigDDActief();
   for (const ander of osmCache) {
     if (String(ander.id) === String(osmId)) continue;
     const af = afstand(sl.lat, sl.lon, ander.lat, ander.lon);
     if (af > 80) continue;
-    const anderM = laadM(String(ander.id), huidigDDActief());
-    if (!anderM.length) continue;
+    const anderM = laadM(String(ander.id), dd);
+    if (anderM.length < 3) continue;
     const anderGem = gewGem(anderM);
     if (!anderGem) continue;
     if (Math.abs(cyclustijd - anderGem) / anderGem < 0.20) {
@@ -1054,6 +1088,14 @@ function slaRouteSequentieOp(buffer) {
   });
   if (data.length > 20) data = data.slice(-20);
   try { localStorage.setItem(sleutel, JSON.stringify(data)); } catch(e) {}
+}
+
+function nodeIsInBekendeRoute(nodeId) {
+  for (let i = 0; i < localStorage.length; i++) {
+    const k = localStorage.key(i);
+    if (k && k.startsWith('sl_route_') && k.includes(nodeId)) return true;
+  }
+  return false;
 }
 
 function vindRouteDataVoorNode(nodeId) {
@@ -1124,6 +1166,35 @@ function slaOpV5(nodeId, aanrij, afrij, dd, duur, gewicht) {
   m.push({ duur: Math.round(duur), tijd: Date.now(), gewicht: gewicht ?? 1.0 });
   if (m.length > MAX_METINGEN) { m.sort((a,b) => gew(b.tijd)-gew(a.tijd)); m = m.slice(0, MAX_METINGEN); }
   try { localStorage.setItem(sleutel, JSON.stringify(m)); } catch(e) {}
+}
+
+function berekenRichtingPct(nodeId, aanrij, afrij, dd) {
+  const m = laadMV5(nodeId, aanrij, afrij, dd);
+  if (!m.length) return null;
+  const aantal = m.length;
+  const legacyPct = Math.min(60,
+    aantal >= 30 ? 60 :
+    aantal >= 15 ? 45 :
+    aantal >= 8  ? 35 :
+    aantal >= 3  ? 25 :
+    aantal * 6
+  );
+  return { pct: legacyPct, metingen: aantal };
+}
+
+function verzamelV5Richtingen(nodeId) {
+  const richtingen = [];
+  for (let i = 0; i < localStorage.length; i++) {
+    const k = localStorage.key(i);
+    if (!k || !k.startsWith(`${LS_PREFIX_V5}${nodeId}_`)) continue;
+    const rest = k.replace(`${LS_PREFIX_V5}${nodeId}_`, '');
+    const delen = rest.split('_');
+    if (delen.length < 3) continue;
+    const [aanrij, afrij, dd] = [delen[0], delen[1], delen[2]];
+    const r = berekenRichtingPct(nodeId, aanrij, afrij, dd);
+    if (r) richtingen.push({ aanrij, afrij, dd, ...r });
+  }
+  return richtingen;
 }
 
 // Alle V5 sleutels voor een node + alle richtingen samen als fallback
@@ -2139,15 +2210,7 @@ function verwerkFase(nieuw, horizontaal) {
             sessieFasenGezien[nodeId].roodVolledig = true;
           }
           if (!v9DelayedWriteActief) {
-            const faseStartTs = Date.now() - (performance.now() - faseStart);
-            const dagdeelStart = huidigDDActief(faseStartTs);
-            const dagdeelEinde = huidigDDActief(Date.now());
-            if (dagdeelStart !== dagdeelEinde) {
-              slaOp(nodeId, huidigeRichting, dur, 0.5, dagdeelStart);
-              slaOp(nodeId, huidigeRichting, dur, 0.5, dagdeelEinde);
-            } else {
-              slaOp(nodeId, huidigeRichting, dur, null, dagdeelStart);
-            }
+            slaOp(nodeId, huidigeRichting, dur);
           }
           if (v9KandidaatNode === nodeId) {
             v9KandidaatDuur = dur;
@@ -2335,7 +2398,7 @@ function checkOsmVoorspelling() {
   if (typeof afstandM !== 'number' || isNaN(afstandM) || afstandM>50) return;
   const pct = berekenLeerPct(dichtstbijOSM.id);
   if (pct < 50) return;
-  const dd = huidigDagdeelFinaal || huidigDD();
+  const dd = huidigDDActief();
   const m  = laadM(dichtstbijOSM.id, dd);
   const gem = gewGem(m);
   if (!gem || gem<=0) return;
@@ -2580,6 +2643,9 @@ function laadDashboard() {
     const v9RichtingenHTML = renderV9RichtingenVoorNode(d.id, actiefDD);
     const routeData = vindRouteDataVoorNode(d.id);
     const routeHTML = routeData ? `<div style="font-size:9px;color:var(--blauw);margin-top:4px">📍 Deel van bekende route — gem. totaal ${routeData.gemTotaal}s</div>` : '';
+    // V11.1: V5 richtings-% per rijrichting
+    const v5Richt = verzamelV5Richtingen(d.id);
+    const v5HTML = v5Richt.length > 0 ? `<div style="font-size:9px;color:rgba(255,255,255,0.4);margin-top:4px;display:flex;flex-direction:column;gap:2px"><div style="color:rgba(255,255,255,0.5);font-weight:600">Per rijrichting:</div>${v5Richt.map(r => `<div>${r.aanrij} → ${r.afrij} (${DD[r.dd]?.ic||''} ${r.dd}): <span style="color:${r.pct>=60?'var(--groen)':r.pct>=30?'var(--oranje)':'var(--rood)'}">${r.pct}%</span> (${r.metingen}x)</div>`).join('')}</div>` : '';
     return `<div class="sl-kaart">
       <div class="sl-kaart-header">
         <div class="sl-kaart-naam">${d.naam}${tagLabel}${vriLabel}${richtingBadge}</div>
@@ -2591,6 +2657,7 @@ function laadDashboard() {
         <div style="font-size:9px;color:rgba(255,255,255,0.25)">${tijdGeleden(d.laatste)} · ${d.totM}x${spreidHTML?' · '+spreidHTML:''}</div>
       </div>
       ${v9RichtingenHTML}
+      ${v5HTML}
       ${routeHTML}
       <div id="dd-container-${d.id}"></div>
       <div style="display:flex;justify-content:space-between;align-items:center;margin-top:4px">
@@ -2642,7 +2709,7 @@ function tijdGeleden(ts) {
 // ── DATA EXPORT/IMPORT ────────────────────────────────────────
 function exporteerData() {
   try {
-    const exportData = { versie:'11.0.0', exportDatum:new Date().toISOString(), app:'StoplichtIQ', data:{}, scores:{} };
+    const exportData = { versie:'11.1.0', exportDatum:new Date().toISOString(), app:'StoplichtIQ', data:{}, scores:{} };
     for (const key of Object.keys(localStorage)) {
       if (key.startsWith('sl_v10_')||key.startsWith('sl_v5_')||key.startsWith('sl_v4_')||key.startsWith('sl_v3_')||key.startsWith('sl_tag_')||key.startsWith('sl_naam_')||key.startsWith('sl_richting_')||key.startsWith('sl_route_')||key==='sl_stad_cache') {
         try { exportData.data[key] = JSON.parse(localStorage.getItem(key)); }
