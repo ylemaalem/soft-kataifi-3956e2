@@ -397,7 +397,7 @@
 <div id="startscherm">
   <div id="s-icoon">🚦</div>
   <div id="s-titel">Stoplicht<span>IQ</span></div>
-  <div id="s-versie">V11.2.0 — Richtinglogica + bron-veld + confidence + dagdeel</div>
+  <div id="s-versie">V11.2.1 — Oranje frames capture fix</div>
   <div id="s-model-wrap">
     <div id="s-model-rij">
       <div id="s-model-label">🤖 YOLOv8 model laden…</div>
@@ -595,7 +595,7 @@
 
 <script>
 // ═══════════════════════════════════════════════════════════════
-//  StoplichtIQ V11.2.0
+//  StoplichtIQ V11.2.1
 //  V11: Leergeheugen audit + genius implementaties
 //  — S1+S2 bevestiging (kruispunt-level confidence)
 //  — Route-herkenning basis (sequentie-opslag)
@@ -1489,7 +1489,7 @@ let richtingGedruktVoorNode = null;
 const ORANGEFRAMES_MAX = 200;
 let orangeFramesTeller = 0;
 let orangeBufferLaatstToegevoegd = 0;
-const ORANGE_BUFFER_INTERVAL = 400; // ms tussen buffer-captures
+const ORANGE_BUFFER_INTERVAL = 250; // V11.2.1: verlaagd van 400ms
 // Gebruikerstoggle voor oranje buffer
 let orangeFocusActief = false;
 // Green collapse state
@@ -1497,8 +1497,8 @@ let greenConfHistory = [];           // laatste 5 groene confidence waarden
 let oranjeCollapseBuffer = [];       // rolling frames tijdens collapse
 let oranjeCollapseTrigger = false;
 let oranjeCollapseTijd = 0;
-const ORANJE_COLLAPSE_WINDOW_MS = 3000;
-const GREEN_STABIEL_DREMPEL = 0.55;  // was stabiel boven dit
+const ORANJE_COLLAPSE_WINDOW_MS = 5000; // V11.2.1: verlengd van 3000ms
+const GREEN_STABIEL_DREMPEL = 0.40;  // V11.2.1: verlaagd van 0.55 — bewolking/afstand
 const GREEN_COLLAPSE_DREMPEL = 0.25; // nu onder dit = collapse
 
 // V8.9.12: Camera watchdog
@@ -2181,7 +2181,7 @@ function resetNeutraal() {
   bboxDichtbij = false;
   richtingGedruktVoorNode = null;
   // V10.0.5: Green collapse oranje buffer leegmaken
-  if (oranjeCollapseBuffer.length > 0 && trainframesAan && orangeFocusActief) {
+  if (oranjeCollapseBuffer.length > 0 && trainframesAan) {
     slaGreenCollapseFramesOp();
   }
   oranjeCollapseBuffer = [];
@@ -2258,15 +2258,14 @@ function verwerkFase(nieuw, horizontaal, conf=null) {
   }
   // V10.0.5: Bij rood detectie → flush collapse buffer
   if (nieuw === 'rood') {
-    if (oranjeCollapseBuffer.length > 0 && trainframesAan && orangeFocusActief) {
+    if (oranjeCollapseBuffer.length > 0 && trainframesAan) {
       slaGreenCollapseFramesOp();
     }
     oranjeCollapseBuffer = [];
     oranjeCollapseTrigger = false;
     greenConfHistory = [];
   } else if (nieuw === 'groen') {
-    // Begin met vers bijhouden van groene confidence
-    greenConfHistory = [];
+    // V11.2.1: greenConfHistory NIET resetten — collapse kan nog triggeren bij wegrijden
     oranjeCollapseBuffer = [];
     oranjeCollapseTrigger = false;
   }
@@ -2754,7 +2753,7 @@ function tijdGeleden(ts) {
 // ── DATA EXPORT/IMPORT ────────────────────────────────────────
 function exporteerData() {
   try {
-    const exportData = { versie:'11.2.0', exportDatum:new Date().toISOString(), app:'StoplichtIQ', data:{}, scores:{} };
+    const exportData = { versie:'11.2.1', exportDatum:new Date().toISOString(), app:'StoplichtIQ', data:{}, scores:{} };
     for (const key of Object.keys(localStorage)) {
       if (key.startsWith('sl_v10_')||key.startsWith('sl_v5_')||key.startsWith('sl_v4_')||key.startsWith('sl_v3_')||key.startsWith('sl_tag_')||key.startsWith('sl_naam_')||key.startsWith('sl_richting_')||key.startsWith('sl_route_')||key==='sl_stad_cache') {
         try { exportData.data[key] = JSON.parse(localStorage.getItem(key)); }
@@ -3724,15 +3723,19 @@ function verwerkGreenCollapse(detecties, gesmoothedScore) {
 
   const heeftGroen = detecties.some(d => KLASSE_MAP[d.klasse] === 'groen');
 
-  if (heeftGroen && gesmoothedScore > 0) {
-    // Groene detectie aanwezig — history bijwerken
-    greenConfHistory.push(gesmoothedScore);
-    if (greenConfHistory.length > 5) greenConfHistory.shift();
+  if (heeftGroen) {
+    const groeneDet = detecties
+      .filter(d => KLASSE_MAP[d.klasse] === 'groen')
+      .sort((a,b) => b.score - a.score)[0];
+    if (groeneDet && groeneDet.score > 0) {
+      greenConfHistory.push(groeneDet.score);
+      if (greenConfHistory.length > 5) greenConfHistory.shift();
+    }
   } else {
     // Geen groene detectie — check collapse conditie
     const gemGreen = greenConfHistory.length > 0
       ? greenConfHistory.reduce((s,v) => s+v, 0) / greenConfHistory.length : 0;
-    const wasStabiel = greenConfHistory.length >= 3 && gemGreen > GREEN_STABIEL_DREMPEL;
+    const wasStabiel = greenConfHistory.length >= 2 && gemGreen > GREEN_STABIEL_DREMPEL;
 
     if (wasStabiel && !oranjeCollapseTrigger) {
       oranjeCollapseTrigger = true;
