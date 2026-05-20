@@ -397,7 +397,7 @@
 <div id="startscherm">
   <div id="s-icoon">🚦</div>
   <div id="s-titel">Stoplicht<span>IQ</span></div>
-  <div id="s-versie">V11.1.0 — Architectuur correcties + V5 UI</div>
+  <div id="s-versie">V11.2.0 — Richtinglogica + bron-veld + confidence + dagdeel</div>
   <div id="s-model-wrap">
     <div id="s-model-rij">
       <div id="s-model-label">🤖 YOLOv8 model laden…</div>
@@ -595,7 +595,7 @@
 
 <script>
 // ═══════════════════════════════════════════════════════════════
-//  StoplichtIQ V11.1.0
+//  StoplichtIQ V11.2.0
 //  V11: Leergeheugen audit + genius implementaties
 //  — S1+S2 bevestiging (kruispunt-level confidence)
 //  — Route-herkenning basis (sequentie-opslag)
@@ -694,6 +694,17 @@ const VRI_MIN_METINGEN = 10;
 const VRI_MIN_SPREIDING = 20; // seconden
 const VRI_BETROUWBAARHEID_GLOSA = 70; // percentage
 const VRI_BETROUWBAARHEID_SUGGESTIE = 85; // percentage
+
+// V11.2.0: Confidence floor — bekende nodes krijgen hogere effectieve confidence
+const CONF_FLOOR_BEKEND = 0.45;  // floor voor nodes met ≥5 metingen
+const CONF_FLOOR_GOED   = 0.35;  // floor voor nodes met ≥20 metingen
+
+function effectieveConf(rawConf, nodeId) {
+  if (!nodeId) return rawConf;
+  const alleM = Object.keys(DD).reduce((s, d) => s + laadM(nodeId, d).length, 0);
+  const floor = alleM >= 20 ? CONF_FLOOR_GOED : alleM >= 5 ? CONF_FLOOR_BEKEND : 0;
+  return Math.max(rawConf, floor);
+}
 
 const KLASSE_MAP = { 0:'rood', 1:'groen', 3:'oranje' };
 
@@ -877,7 +888,7 @@ function bepaalTier(osmId) {
   return 3; // partieel — standaard voor camera-meting zonder volledige cyclus
 }
 
-function slaOp(osmId, richting, duur, gewichtOverride=null, forceerDD=null) {
+function slaOp(osmId, richting, duur, gewichtOverride=null, forceerDD=null, conf=null) {
   if (!osmId || duur < 4 || duur > 300) return false;
   const afstandM = dichtstbijOSM?.afstand;
   if (typeof afstandM === 'number' && !isNaN(afstandM) && afstandM > V9_MAX_LEER_AFSTAND) {
@@ -896,19 +907,19 @@ function slaOp(osmId, richting, duur, gewichtOverride=null, forceerDD=null) {
     const ddStart = huidigDDActief(faseStartTs);
     const ddEinde = huidigDDActief();
     if (ddStart !== ddEinde) {
-      slaOpIntern(osmId, richting, duur, 0.5, ddStart);
-      result = slaOpIntern(osmId, richting, duur, 0.5, ddEinde);
+      slaOpIntern(osmId, richting, duur, 0.5, ddStart, 's1', conf);
+      result = slaOpIntern(osmId, richting, duur, 0.5, ddEinde, 's1', conf);
     } else {
-      result = slaOpIntern(osmId, richting, duur, gewichtOverride, ddStart);
+      result = slaOpIntern(osmId, richting, duur, gewichtOverride, ddStart, 's1', conf);
     }
   } else {
-    result = slaOpIntern(osmId, richting, duur, gewichtOverride, forceerDD || huidigDDActief());
+    result = slaOpIntern(osmId, richting, duur, gewichtOverride, forceerDD || huidigDDActief(), 's1', conf);
   }
   voegToeAanRouteBuffer(osmId, duur);
   return result;
 }
 
-function slaOpIntern(osmId, richting, duur, gewichtOverride, dd) {
+function slaOpIntern(osmId, richting, duur, gewichtOverride, dd, bron='s1', conf=null) {
   let m = laadM(osmId, dd);
   if (!isMetingBetrouwbaar(duur, m)) return false;
   const gewijzigd = checkAfwijking(duur, gewGem(m), m);
@@ -920,7 +931,9 @@ function slaOpIntern(osmId, richting, duur, gewichtOverride, dd) {
     tier === 4 ? TIER4_GEWICHT :
     TIER3_GEWICHT;
   const obs = faseStart ? Math.round((performance.now() - faseStart) / 1000) : null;
-  m.push({ duur:Math.round(duur), tijd:Date.now(), richting:Math.round(richting||0), tier, gewicht, obs });
+  const entry = { duur:Math.round(duur), tijd:Date.now(), richting:Math.round(richting||0), tier, gewicht, obs, bron };
+  if (conf != null) entry.conf = Math.round(conf * 100) / 100;
+  m.push(entry);
   if (m.length > MAX_METINGEN) { m.sort((a,b)=>gew(b.tijd)-gew(a.tijd)); m=m.slice(0,MAX_METINGEN); }
   try { localStorage.setItem(`${LS_PREFIX}${osmId}_${dd}`, JSON.stringify(m)); } catch(e) {}
   checkLocalStorageRuimte();
@@ -1325,6 +1338,20 @@ function voerV9DelayedWriteUit(huidigeHeading) {
 
   // Schrijf ook V4 parallel (backward compatibility)
   slaOp(v9KandidaatNode, huidigeRichting, duur);
+
+  // V11.2.0: Auto-richting GPS opslaan als geen handmatige tik
+  const sleutelR = `sl_richting_${v9KandidaatNode}`;
+  let rData;
+  try { rData = JSON.parse(localStorage.getItem(sleutelR)); } catch(e) { rData = null; }
+  if (!rData || typeof rData !== 'object') {
+    rData = { cx_zones: [{ zone:'links', count:0 }, { zone:'midden', count:0 }, { zone:'rechts', count:0 }],
+              headings: [], laatste_update: Date.now(), bevestigingen: 0 };
+  }
+  rData.auto_aanrij = aanrijRichting;
+  rData.auto_afrij = afrijRichting;
+  rData.auto_tijd = Date.now();
+  if (!rData.tikrichting) rData.auto_bron = 'gps';
+  try { localStorage.setItem(sleutelR, JSON.stringify(rData)); } catch(e) {}
 
   // Cooldown bijwerken
   v9LaatstPassageNode = v9KandidaatNode;
@@ -2064,9 +2091,17 @@ function verwerkDetecties() {
         }
         // V8.8.1: Tikinterface tonen bij rood detectie (geen afstands/bevestigingslimiet)
         if (aiR.kleur === 'rood') {
+          if (richtingGroenDelayTimer) { clearTimeout(richtingGroenDelayTimer); richtingGroenDelayTimer = null; }
           toonRichtingKnoppen(huidigBevestigdOsmNodeId);
         } else if (aiR.kleur === 'groen') {
-          verbergRichtingKnoppen();
+          // V11.2.0: Bij groen — toon knoppen na 3s delay voor afrij-bevestiging
+          if (!richtingGroenDelayTimer && !richtingGedruktVoorNode) {
+            richtingGroenDelayTimer = setTimeout(() => {
+              richtingGroenDelayTimer = null;
+              const snelheid = huidigePos?.speed != null ? huidigePos.speed * 3.6 : 0;
+              if (snelheid <= 30) toonRichtingKnoppen(huidigBevestigdOsmNodeId);
+            }, 3000);
+          }
         }
       }
       if (trainframesAan && aiR.box) {
@@ -2075,7 +2110,7 @@ function verwerkDetecties() {
         const yw=aiR.box.w*lbScale, yh=aiR.box.h*lbScale;
         slaTrainframeOp('s1', kNr, (yx+yw/2)/YOLO_SIZE, (yy+yh/2)/YOLO_SIZE, yw/YOLO_SIZE, yh/YOLO_SIZE, false);
       }
-      verwerkFase(aiR.kleur, aiR.horizontaal);
+      verwerkFase(aiR.kleur, aiR.horizontaal, aiR.score);
     }
     return;
   }
@@ -2166,7 +2201,7 @@ function resetNeutraal() {
   stopCd();
 }
 
-function verwerkFase(nieuw, horizontaal) {
+function verwerkFase(nieuw, horizontaal, conf=null) {
   if (nieuw === fase) return;
   const nu = performance.now();
   const nodeId = dichtstbijOSM ? String(dichtstbijOSM.id) : null;
@@ -2210,7 +2245,7 @@ function verwerkFase(nieuw, horizontaal) {
             sessieFasenGezien[nodeId].roodVolledig = true;
           }
           if (!v9DelayedWriteActief) {
-            slaOp(nodeId, huidigeRichting, dur);
+            slaOp(nodeId, huidigeRichting, dur, null, null, conf);
           }
           if (v9KandidaatNode === nodeId) {
             v9KandidaatDuur = dur;
@@ -2512,6 +2547,16 @@ function toggleDagdeelDetail(nodeId, dd) {
   html += `<div style="font-size:10px;font-weight:600;color:var(--dim);letter-spacing:0.08em;text-transform:uppercase;margin-bottom:2px">${DD[dd].ic} ${ddNamen[dd] || dd}</div>`;
   html += `<div class="sl-dd-detail-rij"><span>Gemiddelde</span><span>${gem ? Math.round(gem) + 's' : '—'}</span></div>`;
   html += `<div class="sl-dd-detail-rij"><span>Metingen</span><span>${m.length}</span></div>`;
+  const bronS1 = m.filter(x => !x.bron || x.bron === 's1').length;
+  const bronS2 = m.filter(x => x.s2 === true || x.bron === 's2').length;
+  const bronProxy = m.filter(x => x.bron === 'proxy').length;
+  if (bronS1 + bronS2 + bronProxy > 0) {
+    const delen = [];
+    if (bronS1) delen.push(`S1: ${bronS1}x`);
+    if (bronS2) delen.push(`S2: ${bronS2}x`);
+    if (bronProxy) delen.push(`Proxy: ${bronProxy}x`);
+    html += `<div class="sl-dd-detail-rij"><span>Bron</span><span style="font-size:9px">${delen.join('  ')}</span></div>`;
+  }
   if (spreiding >= 15) {
     html += `<div class="sl-dd-detail-rij"><span>Bereik</span><span>${Math.round(minT)}s – ${Math.round(maxT)}s</span></div>`;
   }
@@ -2709,7 +2754,7 @@ function tijdGeleden(ts) {
 // ── DATA EXPORT/IMPORT ────────────────────────────────────────
 function exporteerData() {
   try {
-    const exportData = { versie:'11.1.0', exportDatum:new Date().toISOString(), app:'StoplichtIQ', data:{}, scores:{} };
+    const exportData = { versie:'11.2.0', exportDatum:new Date().toISOString(), app:'StoplichtIQ', data:{}, scores:{} };
     for (const key of Object.keys(localStorage)) {
       if (key.startsWith('sl_v10_')||key.startsWith('sl_v5_')||key.startsWith('sl_v4_')||key.startsWith('sl_v3_')||key.startsWith('sl_tag_')||key.startsWith('sl_naam_')||key.startsWith('sl_richting_')||key.startsWith('sl_route_')||key==='sl_stad_cache') {
         try { exportData.data[key] = JSON.parse(localStorage.getItem(key)); }
@@ -2996,10 +3041,10 @@ function checkLocalStorageRuimte() {
       const s2Entries = Object.keys(localStorage)
         .filter(k=>k.startsWith('sl_v4_'))
         .map(k=>{ try{return{key:k,data:JSON.parse(localStorage.getItem(k)||'[]')};}catch(e){return null;} })
-        .filter(item=>item&&Array.isArray(item.data)&&item.data.some(m=>m.s2===true))
+        .filter(item=>item&&Array.isArray(item.data)&&item.data.some(m=>m.s2===true||m.bron==='s2'))
         .sort((a,b)=>Math.min(...a.data.map(m=>m.tijd||0))-Math.min(...b.data.map(m=>m.tijd||0)));
       s2Entries.slice(0,10).forEach(item=>{
-        const cleaned=item.data.filter(m=>m.s2!==true);
+        const cleaned=item.data.filter(m=>m.s2!==true&&m.bron!=='s2');
         if (!cleaned.length) localStorage.removeItem(item.key);
         else localStorage.setItem(item.key, JSON.stringify(cleaned));
       });
@@ -3137,6 +3182,7 @@ function laadRichtingData(nodeId) {
 // V8.8: Tikinterface functies
 let richtingKnoppenNodeId = null;
 let richtingKnoppenTimer = null;
+let richtingGroenDelayTimer = null;
 
 // V8.8.1: Toon bij rood fase of eerste rood detectie, geen bevestigingslimiet
 function toonRichtingKnoppen(nodeId) {
@@ -3170,6 +3216,7 @@ function verbergRichtingKnoppen() {
   if (el) el.style.display = 'none';
   richtingKnoppenNodeId = null;
   if (richtingKnoppenTimer) { clearTimeout(richtingKnoppenTimer); richtingKnoppenTimer = null; }
+  if (richtingGroenDelayTimer) { clearTimeout(richtingGroenDelayTimer); richtingGroenDelayTimer = null; }
 }
 
 function tikRichting(richting) {
@@ -3204,9 +3251,11 @@ function tikRichting(richting) {
     v9PreSelectieAfrij = richting; // tijdelijk als tekstlabel, wordt omgezet bij write
   }
 
-  // V9: Na passeren — pre-selectie na passeren negeren
-  if (v9DelayedWriteActief) {
-    v9PreSelectieAfrij = null; // te laat, meting al onderweg
+  // V9: Na passeren — tik koppelen aan delayed write als zelfde node
+  if (v9DelayedWriteActief && v9KandidaatNode === nodeId) {
+    const h = v9AanrijSnelheidHeading ?? v9AanrijHeading;
+    if (h != null) v9PreSelectieAfrij = berekenAfrijRichtingViaTik(h, richting);
+    else v9PreSelectieAfrij = richting;
   }
 
   updateAfrijRichtingUI(richting);
@@ -3297,7 +3346,10 @@ function toonV9Richtingen() {
   const filterEl = document.getElementById('v9-filter');
   const stadLijst = [...steden].sort();
   let filterHTML = '<div class="filter-btn actief" onclick="v9FilterKlik(\'alle\',this)">Alle</div>';
-  for (const s of stadLijst.slice(0, 6)) {
+  filterHTML += '<div class="filter-btn" onclick="v9FilterKlik(\'bevestigd\',this)">Bevestigd</div>';
+  filterHTML += '<div class="filter-btn" onclick="v9FilterKlik(\'auto\',this)">Alleen auto</div>';
+  filterHTML += '<div class="filter-btn" onclick="v9FilterKlik(\'conflict\',this)">Conflicten ⚠</div>';
+  for (const s of stadLijst.slice(0, 4)) {
     filterHTML += `<div class="filter-btn" onclick="v9FilterKlik('${escapeHTML(s)}',this)">${escapeHTML(s)}</div>`;
   }
   filterEl.innerHTML = filterHTML;
@@ -3327,7 +3379,20 @@ function renderV9Lijst() {
   const tikPijlen = { links:'↖ Links', rechtdoor:'↑ Rechtdoor', rechts:'↗ Rechts' };
   const zonePijlen = { links:'←', midden:'↑', rechts:'→' };
   let gefilterd = v9ModalNodes;
-  if (v9ModalFilter !== 'alle') {
+  if (v9ModalFilter === 'bevestigd') {
+    gefilterd = gefilterd.filter(n => n.d.tikrichting);
+  } else if (v9ModalFilter === 'auto') {
+    gefilterd = gefilterd.filter(n => n.d.auto_aanrij && !n.d.tikrichting);
+  } else if (v9ModalFilter === 'conflict') {
+    gefilterd = gefilterd.filter(n => {
+      if (!n.d.tikrichting || !n.d.auto_afrij) return false;
+      const tikZone = { links:'links', rechtdoor:'midden', rechts:'rechts' }[n.d.tikrichting] || 'midden';
+      const WINDRICHTINGEN = ['N','NO','O','ZO','Z','ZW','W','NW'];
+      const autoIdx = WINDRICHTINGEN.indexOf(n.d.auto_afrij);
+      const autoZone = autoIdx <= 1 || autoIdx === 7 ? 'midden' : autoIdx <= 4 ? 'rechts' : 'links';
+      return tikZone !== autoZone;
+    });
+  } else if (v9ModalFilter !== 'alle') {
     gefilterd = gefilterd.filter(n => n.stad === v9ModalFilter);
   }
   if (zoek) {
@@ -3374,6 +3439,22 @@ function renderV9Lijst() {
       if (k && k.startsWith(`${LS_PREFIX_V5}${nodeId}_`)) v5Count++;
     }
     if (v5Count > 0) v5Chip = `<span class="v9-chip groen">V5: ${v5Count} writes</span>`;
+    // V11.2.0: Auto GPS richting chips
+    let autoChip = '';
+    if (d.auto_aanrij || d.auto_afrij) {
+      const aa = d.auto_aanrij ? (kompas[d.auto_aanrij] || d.auto_aanrij) : '?';
+      const af = d.auto_afrij ? (kompas[d.auto_afrij] || d.auto_afrij) : '?';
+      autoChip = `<span class="v9-chip blauw">GPS: ${aa} → ${af}</span>`;
+    }
+    // V11.2.0: Conflict detectie — handmatige tik ≠ auto GPS
+    let conflictChip = '';
+    if (d.tikrichting && d.auto_afrij) {
+      const tikZone = { links:'links', rechtdoor:'midden', rechts:'rechts' }[d.tikrichting] || 'midden';
+      const WINDRICHTINGEN = ['N','NO','O','ZO','Z','ZW','W','NW'];
+      const autoIdx = WINDRICHTINGEN.indexOf(d.auto_afrij);
+      const autoZone = autoIdx <= 1 || autoIdx === 7 ? 'midden' : autoIdx <= 4 ? 'rechts' : 'links';
+      if (tikZone !== autoZone) conflictChip = `<span class="v9-chip" style="background:rgba(255,59,48,0.15);color:#FF3B30">⚠ Conflict</span>`;
+    }
     // GPS coordinaten als subtext bij ontbrekende straatnaam
     const cachedN = localStorage.getItem('sl_naam_' + nodeId) || '';
     const heeftStraat = cachedN.includes(',');
@@ -3385,7 +3466,7 @@ function renderV9Lijst() {
         <div class="v9-kaart-naam">${naam}</div>
         <div class="v9-kaart-id">#${kortId}</div>
       </div>
-      <div class="v9-kaart-rij">${headingChip}${tikChip}${bevChip}${v5Chip}${updateChip}${coordChip}</div>
+      <div class="v9-kaart-rij">${headingChip}${tikChip}${autoChip}${conflictChip}${bevChip}${v5Chip}${updateChip}${coordChip}</div>
     </div>`;
   }).join('');
 }
@@ -3518,7 +3599,7 @@ function slaLeergeheugenOpS2(nodeId, kleur) {
   if (!nodeId) return;
   const dd=huidigDDActief();
   let m=laadM(nodeId,dd);
-  m.push({ duur:0, tijd:Date.now(), richting:Math.round(huidigeRichting||0), s2:true, tier:4, gewicht:TIER4_GEWICHT, kleur });
+  m.push({ duur:0, tijd:Date.now(), richting:Math.round(huidigeRichting||0), bron:'s2', tier:4, gewicht:TIER4_GEWICHT, kleur });
   if (m.length>MAX_METINGEN) { m.sort((a,b)=>gew(b.tijd)-gew(a.tijd)); m=m.slice(0,MAX_METINGEN); }
   try { localStorage.setItem(`${LS_PREFIX}${nodeId}_${dd}`, JSON.stringify(m)); } catch(e) {}
   checkLocalStorageRuimte();
@@ -4141,15 +4222,19 @@ async function activeerWakeLock() {
 }
 
 function checkNacht() {
-  const u=new Date().getHours(), n=u>=20||u<7;
+  const dd = huidigDDActief();
+  const n = dd === 'nacht';
   if (n !== isNacht) {
     isNacht = n;
     canvas.style.opacity = n ? '0.85' : '0.92';
-    pNacht.className = 'pill-dot' + (n?' o':'');
-    pNachtT.textContent = n ? 'Nacht' : 'Dag';
-    // V8.7: Exposure compensatie aanpassen bij dag/nacht wissel
     if (cameraTrack) stelNachtExposureIn(cameraTrack, n);
   }
+  const labels = { ochtend:'Ochtend', dag:'Dag', avond:'Avond', nacht:'Nacht' };
+  const kleuren = { ochtend:'#fbbf24', dag:'#22c55e', avond:'#f97316', nacht:'#60a5fa' };
+  pNachtT.textContent = labels[dd] || 'Dag';
+  pNacht.style.background = kleuren[dd] || '#94a3b8';
+  pNacht.style.boxShadow = `0 0 5px ${kleuren[dd] || '#94a3b8'}`;
+  pNacht.className = 'pill-dot';
 }
 
 // ── DEBUG OVERLAY ─────────────────────────────────────────────
