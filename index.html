@@ -397,7 +397,7 @@
 <div id="startscherm">
   <div id="s-icoon">🚦</div>
   <div id="s-titel">Stoplicht<span>IQ</span></div>
-  <div id="s-versie">V11.2.1 — Oranje frames capture fix</div>
+  <div id="s-versie">V11.2.3 — Tap selectie + confidence guard + proactief laden</div>
   <div id="s-model-wrap">
     <div id="s-model-rij">
       <div id="s-model-label">🤖 YOLOv8 model laden…</div>
@@ -595,7 +595,7 @@
 
 <script>
 // ═══════════════════════════════════════════════════════════════
-//  StoplichtIQ V11.2.1
+//  StoplichtIQ V11.2.3
 //  V11: Leergeheugen audit + genius implementaties
 //  — S1+S2 bevestiging (kruispunt-level confidence)
 //  — Route-herkenning basis (sequentie-opslag)
@@ -695,15 +695,11 @@ const VRI_MIN_SPREIDING = 20; // seconden
 const VRI_BETROUWBAARHEID_GLOSA = 70; // percentage
 const VRI_BETROUWBAARHEID_SUGGESTIE = 85; // percentage
 
-// V11.2.0: Confidence floor — bekende nodes krijgen hogere effectieve confidence
-const CONF_FLOOR_BEKEND = 0.45;  // floor voor nodes met ≥5 metingen
-const CONF_FLOOR_GOED   = 0.35;  // floor voor nodes met ≥20 metingen
-
-function effectieveConf(rawConf, nodeId) {
-  if (!nodeId) return rawConf;
-  const alleM = Object.keys(DD).reduce((s, d) => s + laadM(nodeId, d).length, 0);
-  const floor = alleM >= 20 ? CONF_FLOOR_GOED : alleM >= 5 ? CONF_FLOOR_BEKEND : 0;
-  return Math.max(rawConf, floor);
+function effectieveConf(osmId, conf) {
+  if (conf === null || conf === undefined) return 0.5;
+  const totaalM = Object.keys(DD).reduce((s, d) => s + laadM(osmId, d).length, 0);
+  if (totaalM >= 10) return Math.max(conf, 0.45);
+  return conf;
 }
 
 const KLASSE_MAP = { 0:'rood', 1:'groen', 3:'oranje' };
@@ -829,15 +825,9 @@ function berekenLeerPct(osmId) {
   let basePct = Math.min(95, Math.max(legacyPct, tierPct));
   // V11: S2 bevestiging bonus
   const gem = gewGem(alleM);
-  const s2Bonus = gem ? Math.min(15, zoekS2BevestigingScore(osmId, gem) * 5) : 0;
-  // V11.1: Groene fase observaties als extra Tier 2 bewijs
-  let groenObservaties = 0;
-  for (const dd of Object.keys(DD)) {
-    const groenM = laadGroenFaseM(osmId, dd);
-    groenObservaties += groenM.filter(g => !g.minimaal).length;
-  }
-  const groenBonus = Math.min(groenObservaties, 5) * 8;
-  return Math.min(95, basePct + s2Bonus + groenBonus);
+  const s2Bonus = alleM.length >= 5
+    ? Math.min(10, zoekS2BevestigingScore(osmId, gem) * 3) : 0;
+  return Math.min(95, basePct + s2Bonus);
 }
 
 function leerKleur(pct) {
@@ -888,21 +878,27 @@ function bepaalTier(osmId) {
   return 3; // partieel — standaard voor camera-meting zonder volledige cyclus
 }
 
-function slaOp(osmId, richting, duur, gewichtOverride=null, forceerDD=null, conf=null) {
+function slaOp(osmId, richting, duur, conf=null, bypassAfstand=false) {
   if (!osmId || duur < 4 || duur > 300) return false;
-  const afstandM = dichtstbijOSM?.afstand;
-  if (typeof afstandM === 'number' && !isNaN(afstandM) && afstandM > V9_MAX_LEER_AFSTAND) {
-    try {
-      const stats = JSON.parse(localStorage.getItem('sl_cam_stats') || '[]');
-      if (stats.length < 100) {
-        stats.push({ lat: huidigePos?.lat, lon: huidigePos?.lon, reden: 'ver_weg', afstand: Math.round(afstandM), tijd: Date.now() });
-        localStorage.setItem('sl_cam_stats', JSON.stringify(stats));
-      }
-    } catch(e) {}
-    return false;
+  const confE = effectieveConf(osmId, conf);
+  const totaalM = Object.keys(DD).reduce((s, d) => s + laadM(osmId, d).length, 0);
+  if (confE < 0.35 && totaalM < 10) return false;
+  if (!bypassAfstand) {
+    const afstandM = dichtstbijOSM?.afstand;
+    const maxAfstand = (typeof handmatigLockActief !== 'undefined' && handmatigLockActief) ? 120 : V9_MAX_LEER_AFSTAND;
+    if (typeof afstandM === 'number' && !isNaN(afstandM) && afstandM > maxAfstand) {
+      try {
+        const stats = JSON.parse(localStorage.getItem('sl_cam_stats') || '[]');
+        if (stats.length < 100) {
+          stats.push({ lat: huidigePos?.lat, lon: huidigePos?.lon, reden: 'ver_weg', afstand: Math.round(afstandM), tijd: Date.now() });
+          localStorage.setItem('sl_cam_stats', JSON.stringify(stats));
+        }
+      } catch(e) {}
+      return false;
+    }
   }
   let result;
-  if (!forceerDD && faseStart) {
+  if (faseStart) {
     const faseStartTs = Date.now() - (performance.now() - faseStart);
     const ddStart = huidigDDActief(faseStartTs);
     const ddEinde = huidigDDActief();
@@ -910,10 +906,10 @@ function slaOp(osmId, richting, duur, gewichtOverride=null, forceerDD=null, conf
       slaOpIntern(osmId, richting, duur, 0.5, ddStart, 's1', conf);
       result = slaOpIntern(osmId, richting, duur, 0.5, ddEinde, 's1', conf);
     } else {
-      result = slaOpIntern(osmId, richting, duur, gewichtOverride, ddStart, 's1', conf);
+      result = slaOpIntern(osmId, richting, duur, null, ddStart, 's1', conf);
     }
   } else {
-    result = slaOpIntern(osmId, richting, duur, gewichtOverride, forceerDD || huidigDDActief(), 's1', conf);
+    result = slaOpIntern(osmId, richting, duur, null, huidigDDActief(), 's1', conf);
   }
   voegToeAanRouteBuffer(osmId, duur);
   return result;
@@ -949,26 +945,7 @@ function voegToeAanRouteBuffer(osmId, cyclustijd) {
 }
 
 
-// ── V10: GROENE FASE + PARTIËLE METINGEN ─────────────────────
-function v10GroenFaseSleutel(osmId, dd) {
-  return `${LS_PREFIX_V10}${osmId}_${dd}_groen_fase`;
-}
-function laadGroenFaseM(osmId, dd) {
-  try {
-    const raw = localStorage.getItem(v10GroenFaseSleutel(osmId, dd));
-    const m = raw ? JSON.parse(raw) : [];
-    return Array.isArray(m) ? m.sort((a,b) => b.tijd-a.tijd).slice(0, MAX_METINGEN) : [];
-  } catch(e) { return []; }
-}
-function slaGroenFaseOp(osmId, duur, minimaal) {
-  if (!osmId || duur < 2 || duur > 300) return;
-  const dd = huidigDDActief();
-  const sleutel = v10GroenFaseSleutel(osmId, dd);
-  let m = laadGroenFaseM(osmId, dd);
-  m.push({ duur: Math.round(duur), tijd: Date.now(), minimaal: !!minimaal });
-  if (m.length > MAX_METINGEN) { m.sort((a,b) => gew(b.tijd)-gew(a.tijd)); m = m.slice(0, MAX_METINGEN); }
-  try { localStorage.setItem(sleutel, JSON.stringify(m)); } catch(e) {}
-}
+// ── V10: PARTIËLE METINGEN ────────────────────────────────────
 
 function v10RoodPartieleSleutel(osmId, dd) {
   return `${LS_PREFIX_V10}${osmId}_${dd}_rood_partieel`;
@@ -1337,7 +1314,7 @@ function voerV9DelayedWriteUit(huidigeHeading) {
   slaOpV5(v9KandidaatNode, aanrijRichting, afrijRichting, dd, duur, gewicht);
 
   // Schrijf ook V4 parallel (backward compatibility)
-  slaOp(v9KandidaatNode, huidigeRichting, duur);
+  slaOp(v9KandidaatNode, huidigeRichting, duur, null, true);
 
   // V11.2.0: Auto-richting GPS opslaan als geen handmatige tik
   const sleutelR = `sl_richting_${v9KandidaatNode}`;
@@ -1517,6 +1494,26 @@ let stilstandAutoLock = false;
 // V10.0.3: Richtingkeuze lock — houdt tikrichting vast bij stilstand/GPS-drift
 let richtingLockNodeId = null;
 let richtingLockKeuze = null;
+
+// V11.2.3: Vingertap bbox selectie
+let laatsteDetecties = [];
+let tapGekozenBbox = null;
+let tapGekozenTijd = 0;
+const TAP_BBOX_TIMEOUT = 30000;
+
+canvas.addEventListener('click', (e) => {
+  if (!laatsteDetecties || !laatsteDetecties.length) return;
+  const rect = canvas.getBoundingClientRect();
+  const tapX = (e.clientX - rect.left) / rect.width * YOLO_SIZE;
+  const tapY = (e.clientY - rect.top) / rect.height * YOLO_SIZE;
+  const getroffen = laatsteDetecties.filter(d =>
+    tapX >= d.x1 && tapX <= d.x2 && tapY >= d.y1 && tapY <= d.y2
+  );
+  if (!getroffen.length) { tapGekozenBbox = null; return; }
+  getroffen.sort((a,b) => b.score - a.score);
+  tapGekozenBbox = getroffen[0];
+  tapGekozenTijd = Date.now();
+});
 
 // Debug
 let debugWaarden={};
@@ -1776,10 +1773,34 @@ function berekenIoU(a, b) {
 // Centrering is DOMINANT — confidence kan centrering nooit overrulen
 // Rijbaan penalty: >35% van midden = zware penalty, >45% = extreme penalty
 
+function rijrichtingMatchScore(normCx, tikR) {
+  if (!tikR) return 0;
+  if (tikR === 'links') return normCx < 0.4 ? 0.20 : normCx > 0.6 ? -0.10 : 0;
+  if (tikR === 'rechtdoor') return (normCx > 0.3 && normCx < 0.7) ? 0.15 : 0;
+  if (tikR === 'rechts') return normCx > 0.6 ? 0.20 : normCx < 0.4 ? -0.10 : 0;
+  return 0;
+}
+
+function zijnDichtBijElkaar(d1, d2) {
+  const dx = Math.abs(d1.cx - d2.cx);
+  const dy = Math.abs(d1.cy - d2.cy);
+  return Math.sqrt(dx*dx + dy*dy) < 80;
+}
+
 function selecteerBesteDetectie(detecties) {
   if (!detecties.length) return { s1:null, s2Rest:[] };
   const bruikbaar = detecties.filter(d => KLASSE_MAP[d.klasse]);
   if (!bruikbaar.length) return { s1:null, s2Rest:[] };
+
+  // V11.2.3: Vingertap override — direct teruggeven
+  if (tapGekozenBbox && Date.now() - tapGekozenTijd < TAP_BBOX_TIMEOUT) {
+    const match = bruikbaar.find(d =>
+      Math.abs(d.cx - tapGekozenBbox.cx) < 30 &&
+      Math.abs(d.cy - tapGekozenBbox.cy) < 30
+    );
+    if (match) return { s1:match, s2Rest:bruikbaar.filter(d => d !== match) };
+  }
+
   const gpsAf = dichtstbijOSM ? dichtstbijOSM.afstand : 999;
 
   let besteScore=-Infinity, beste=null;
@@ -1829,7 +1850,17 @@ function selecteerBesteDetectie(detecties) {
     if (horAfwijking > 0.45) rijbaanPenalty = 0.25;      // extreme penalty
     else if (horAfwijking > 0.35) rijbaanPenalty = 0.40;  // zware penalty
 
-    const totaal = (centerScore + afstandScore + confScore + grootteScore + trackScore)
+    // V11.2.3: Rijrichting bonus bij ≥2 dicht-bij-elkaar detecties zonder tap
+    let richtingBonus = 0;
+    if (bruikbaar.length >= 2 && !(tapGekozenBbox && Date.now() - tapGekozenTijd < TAP_BBOX_TIMEOUT)) {
+      const andere = bruikbaar.find(d2 => d2 !== det && zijnDichtBijElkaar(det, d2));
+      if (andere) {
+        const normCx = det.cx / YOLO_SIZE;
+        richtingBonus = rijrichtingMatchScore(normCx, richtingLockKeuze || null) * 25;
+      }
+    }
+
+    const totaal = (centerScore + afstandScore + confScore + grootteScore + trackScore + richtingBonus)
                    * aspectPenalty * rijbaanPenalty;
 
     // Bijhouden beste binnen en buiten midden apart
@@ -1870,6 +1901,7 @@ function resetConfidenceBuffer(zichtbareKlassen) {
 
 // ── WORKER RESULTAAT VERWERKING ───────────────────────────────
 function _verwerkWorkerResultaat(detecties) {
+  laatsteDetecties = detecties;
   const zichtbareKlassen = new Set(detecties.map(d=>d.klasse));
   resetConfidenceBuffer(zichtbareKlassen);
   if (!detecties.length) {
@@ -2016,7 +2048,8 @@ function tekenOverlay(box, score, horizontaal) {
   octx.stroke(); octx.shadowBlur=0;
   if (box.kleur) {
     octx.fillStyle=kCSS; octx.globalAlpha=0.9; octx.font='bold 13px monospace';
-    const label = `${box.kleur.toUpperCase()}${horizontaal?' ↔':' ↕'}${score?' '+(score*100).toFixed(0)+'%':''}`;
+    const tapIndicator = (tapGekozenBbox && Date.now() - tapGekozenTijd < TAP_BBOX_TIMEOUT) ? ' 👆' : '';
+    const label = `${box.kleur.toUpperCase()}${horizontaal?' ↔':' ↕'}${score?' '+(score*100).toFixed(0)+'%':''}${tapIndicator}`;
     octx.fillText(label, x1, y1-6);
   }
 }
@@ -2161,11 +2194,6 @@ function resetUIKleur() {
 }
 
 function resetNeutraal() {
-  // V10: Groene fase partieel opslaan bij onderbroken detectie (voorbij gereden)
-  if (fase === 'groen' && groenStart !== null && dichtstbijOSM) {
-    const duur = (performance.now() - groenStart) / 1000;
-    if (duur > 2) slaGroenFaseOp(String(dichtstbijOSM.id), duur, true); // minimaal: true
-  }
   roodStartWasPartieel = false;
   fase = null; faseStart = null;
   faseBalk.className=''; faseLamp.className='';
@@ -2209,18 +2237,17 @@ function verwerkFase(nieuw, horizontaal, conf=null) {
   // V10: Bezoek teller ophogen bij elke nieuwe fase
   if (nodeId) updateBezoekPerFase(nodeId, nieuw);
 
-  // V10: Groene fase meten — volledige duur bij overgang WEG van groen
+  // V10: Groene fase meten — duur bijhouden voor tier-bepaling
   if (fase === 'groen' && groenStart !== null) {
     groenDuur = (nu - groenStart) / 1000;
     if (groenDuur > 3 && groenDuur < 300 && nodeId) {
-      slaGroenFaseOp(nodeId, groenDuur, false); // volledige meting, transitie gezien
-      // V10.0.7: Markeer groene fase als volledig voor tier-bepaling
       if (!sessieFasenGezien[nodeId]) sessieFasenGezien[nodeId] = {};
       sessieFasenGezien[nodeId].groenVolledig = true;
     }
   }
   if (nieuw === 'groen') {
     groenStart = nu;
+    tapGekozenBbox = null;
   } else if (nieuw === 'rood') {
     groenStart = null; groenDuur = 0;
   }
@@ -2245,7 +2272,7 @@ function verwerkFase(nieuw, horizontaal, conf=null) {
             sessieFasenGezien[nodeId].roodVolledig = true;
           }
           if (!v9DelayedWriteActief) {
-            slaOp(nodeId, huidigeRichting, dur, null, null, conf);
+            slaOp(nodeId, huidigeRichting, dur, conf);
           }
           if (v9KandidaatNode === nodeId) {
             v9KandidaatDuur = dur;
@@ -2753,7 +2780,7 @@ function tijdGeleden(ts) {
 // ── DATA EXPORT/IMPORT ────────────────────────────────────────
 function exporteerData() {
   try {
-    const exportData = { versie:'11.2.1', exportDatum:new Date().toISOString(), app:'StoplichtIQ', data:{}, scores:{} };
+    const exportData = { versie:'11.2.3', exportDatum:new Date().toISOString(), app:'StoplichtIQ', data:{}, scores:{} };
     for (const key of Object.keys(localStorage)) {
       if (key.startsWith('sl_v10_')||key.startsWith('sl_v5_')||key.startsWith('sl_v4_')||key.startsWith('sl_v3_')||key.startsWith('sl_tag_')||key.startsWith('sl_naam_')||key.startsWith('sl_richting_')||key.startsWith('sl_route_')||key==='sl_stad_cache') {
         try { exportData.data[key] = JSON.parse(localStorage.getItem(key)); }
@@ -3954,7 +3981,18 @@ async function refreshStadIndienNodig(lat, lon) {
       const r = await fetch(`https://nominatim.openstreetmap.org/reverse?lat=${lat}&lon=${lon}&zoom=10&format=json`, { headers:{'User-Agent':'StoplichtIQ/8.8'} });
       const d = await r.json();
       const stad = d.address?.city||d.address?.town||d.address?.municipality||null;
-      if (stad) { huidigeStad=stad; localStorage.setItem('sl_stad_cache', JSON.stringify({ stad, lat, lon, timestamp:nu })); }
+      if (stad && stad !== huidigeStad) {
+        huidigeStad = stad;
+        localStorage.setItem('sl_stad_cache', JSON.stringify({ stad, lat, lon, timestamp:nu }));
+        const heeftNabijNodes = osmCache.some(sl => afstand(lat, lon, sl.lat, sl.lon) < 2000);
+        if (!heeftNabijNodes && !cacheBezig) {
+          cacheGeladen = false;
+          downloadOSM(lat, lon);
+        }
+      } else if (stad) {
+        huidigeStad = stad;
+        localStorage.setItem('sl_stad_cache', JSON.stringify({ stad, lat, lon, timestamp:nu }));
+      }
     } catch(e) {}
   }
 }
@@ -4020,6 +4058,7 @@ function updateDichtbij(lat, lon) {
     vorigOsmId=nieuw.id; dichtstbijOSM=nieuw; afwijkBuf=[];
     activeCdDoel = gewGem(laadM(nieuw.id, huidigDDActief())) || 0;
     bijwerkLeerkaart(nieuw); bijwerkDashboardKnop();
+    tapGekozenBbox = null;
     resetRijrichtingState();
     // V10.0.3: Richtingkeuze lock vervalt alleen bij echte node-wissel (>60m van locked node + snelheid)
     if (richtingLockNodeId && richtingLockNodeId !== String(nieuw.id)) {
@@ -4039,8 +4078,13 @@ function updateDichtbij(lat, lon) {
 }
 
 // ── GPS ───────────────────────────────────────────────────────
+let eersteGPSVerwerkt = false;
 async function onGPS(pos) {
   const lat=pos.coords.latitude, lon=pos.coords.longitude;
+  if (!eersteGPSVerwerkt) {
+    eersteGPSVerwerkt = true;
+    if (!cacheBezig) downloadOSM(lat, lon);
+  }
   huidigePos = { lat, lon };
   if (pos.coords.heading!=null && !isNaN(pos.coords.heading)) {
     huidigeRichting = pos.coords.heading;
