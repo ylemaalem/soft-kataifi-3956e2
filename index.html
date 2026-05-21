@@ -397,7 +397,7 @@
 <div id="startscherm">
   <div id="s-icoon">🚦</div>
   <div id="s-titel">Stoplicht<span>IQ</span></div>
-  <div id="s-versie">V11.3.1 — Kaart historisch + dagdeel % + tap coordinate fix</div>
+  <div id="s-versie">V11.4.0 — Observatiedekking vervangt tier systeem</div>
   <div id="s-model-wrap">
     <div id="s-model-rij">
       <div id="s-model-label">🤖 YOLOv8 model laden…</div>
@@ -569,8 +569,8 @@
   <div id="dash-filter">
     <div class="filter-btn actief" onclick="filterDashboard('alle',this)">Alle</div>
     <div class="filter-btn" onclick="filterDashboard('hoog',this)">85%+ ⭐</div>
-    <div class="filter-btn" onclick="filterDashboard('goed',this)">60-85%</div>
-    <div class="filter-btn" onclick="filterDashboard('laag',this)">&lt;60%</div>
+    <div class="filter-btn" onclick="filterDashboard('goed',this)">55-85%</div>
+    <div class="filter-btn" onclick="filterDashboard('laag',this)">&lt;55%</div>
     <div class="filter-btn" onclick="filterDashboard('ochtend',this)">🌅 Ochtend</div>
     <div class="filter-btn" onclick="filterDashboard('dag',this)">☀️ Dag</div>
     <div class="filter-btn" onclick="filterDashboard('avond',this)">🌆 Avond</div>
@@ -595,7 +595,7 @@
 
 <script>
 // ═══════════════════════════════════════════════════════════════
-//  StoplichtIQ V11.3.1
+//  StoplichtIQ V11.4.0
 //  V11: Leergeheugen audit + genius implementaties
 //  — S1+S2 bevestiging (kruispunt-level confidence)
 //  — Route-herkenning basis (sequentie-opslag)
@@ -668,11 +668,15 @@ const NIEUW_KRUISPUNT_DREMPEL = 5;
 const ROUTE_MAX = 8;
 const ROUTE_TIMEOUT = 300000;
 
-// V10.0.7: Kwaliteitstiers voor metingen
-const TIER1_GEWICHT = 1.0;  // volledige cyclus (rood+groen volledig)
-const TIER2_GEWICHT = 0.6;  // één fase volledig (begin EN eind gezien)
-const TIER3_GEWICHT = 0.3;  // partiële observatie (enkel passing)
-const TIER4_GEWICHT = 0.1;  // proxy/stilstand/S2
+// V11.4.0: Observatiedekking — vervangt tiers
+const OBS_REFERENTIE = 45;
+const OBS_MINIMUM = 3;
+const OBS_DEFAULT = 20;
+const OBS_S2 = 0.1;
+const OBS_PROXY = 0.1;
+const OBS_TAP_BONUS = 0.2;
+// Legacy referentie:
+// TIER1_GEWICHT=1.0 → obs>=45s, TIER2=0.6 → obs~27s, TIER3=0.3 → obs~13s, TIER4=0.1 → S2/proxy
 
 // V9.0: Rijrichting per stoplicht constanten
 const V9_NADERING_AFSTAND      = 60;    // meter — aanrijrichting vastleggen
@@ -694,13 +698,6 @@ const VRI_MIN_METINGEN = 10;
 const VRI_MIN_SPREIDING = 20; // seconden
 const VRI_BETROUWBAARHEID_GLOSA = 70; // percentage
 const VRI_BETROUWBAARHEID_SUGGESTIE = 85; // percentage
-
-function effectieveConf(osmId, conf) {
-  if (conf === null || conf === undefined) return 0.5;
-  const totaalM = Object.keys(DD).reduce((s, d) => s + laadM(osmId, d).length, 0);
-  if (totaalM >= 10) return Math.max(conf, 0.45);
-  return conf;
-}
 
 const KLASSE_MAP = { 0:'rood', 1:'groen', 3:'oranje' };
 
@@ -796,47 +793,49 @@ function gewSpreiding(m) {
   return Math.max(...duurs) - Math.min(...duurs);
 }
 
-function berekenTierScore(metingen) {
-  let t1=0, t2=0, t3Nieuw=0, t3Legacy=0, t4=0;
+function berekenObsScore(metingen) {
+  if (!metingen.length) return 0;
+  let gewogenSom = 0;
+  let maxMogelijk = 0;
   for (const m of metingen) {
-    const obsGewicht = (m.obs != null && m.obs < 5) ? 0.5 : 1.0;
-    if (!m.tier) { t3Legacy += obsGewicht; continue; }
-    if (m.tier === 1) t1 += obsGewicht;
-    else if (m.tier === 2) t2 += obsGewicht;
-    else if (m.tier === 4) t4 += obsGewicht;
-    else t3Nieuw += obsGewicht;
+    if (m.bron === 's2' || m.bron === 'proxy') continue;
+    let gew;
+    if (m.gewicht != null && m.tier == null) {
+      gew = m.gewicht;
+    } else if (m.tier != null) {
+      gew = m.tier === 1 ? 1.0 : m.tier === 2 ? 0.6 : m.tier === 4 ? 0.1 : 0.3;
+    } else {
+      gew = OBS_DEFAULT / OBS_REFERENTIE;
+    }
+    gewogenSom += gew;
+    maxMogelijk += 1.0;
   }
-  return Math.min(t1,3)*25 + Math.min(t2,2)*10
-    + Math.min(t3Legacy,15)*3 + Math.min(t3Nieuw,5)*3 + Math.min(t4,5)*1;
+  if (maxMogelijk === 0) return 0;
+  const ratio = gewogenSom / maxMogelijk;
+  const aantalCamera = metingen.filter(m => m.bron !== 's2' && m.bron !== 'proxy').length;
+  const aantalFactor = Math.min(1.0, Math.log(aantalCamera + 1) / Math.log(11));
+  return Math.round(ratio * aantalFactor * 95);
 }
 
 function berekenLeerPct(osmId) {
   const alleM = [];
   for (const d of Object.keys(DD)) alleM.push(...laadM(osmId, d));
   if (!alleM.length) return 0;
-  const legacyPct = Math.min(60,
-    alleM.length >= 50 ? 60 :
-    alleM.length >= 20 ? 45 :
-    alleM.length >= 10 ? 35 :
-    alleM.length >= 5  ? 25 :
-    alleM.length * 4
-  );
-  const tierPct = berekenTierScore(alleM);
-  let basePct = Math.min(95, Math.max(legacyPct, tierPct));
+  const obsPct = berekenObsScore(alleM);
   const gem = gewGem(alleM);
-  const s2Bonus = alleM.length >= 5 && gem
+  const s2Bonus = alleM.length >= 3 && gem
     ? Math.min(10, zoekS2BevestigingScore(osmId, gem) * 3) : 0;
   let gpsTikBonus = 0;
   try {
     const rd = JSON.parse(localStorage.getItem(`sl_richting_${osmId}`));
     if (rd && rd.gps_tik_score != null) gpsTikBonus = Math.round(rd.gps_tik_score * 5);
   } catch(e) {}
-  return Math.min(95, basePct + s2Bonus + gpsTikBonus);
+  return Math.min(95, obsPct + s2Bonus + gpsTikBonus);
 }
 
 function leerKleur(pct) {
-  if (pct >= 85) return 'var(--groen)';
-  if (pct >= 60) return 'var(--blauw)';
+  if (pct >= 80) return 'var(--groen)';
+  if (pct >= 55) return 'var(--blauw)';
   if (pct >= 30) return 'var(--oranje)';
   return 'var(--rood)';
 }
@@ -884,9 +883,9 @@ function bepaalTier(osmId) {
 
 function slaOp(osmId, richting, duur, conf=null, bypassAfstand=false) {
   if (!osmId || duur < 4 || duur > 300) return false;
-  const confE = effectieveConf(osmId, conf);
-  const totaalM = Object.keys(DD).reduce((s, d) => s + laadM(osmId, d).length, 0);
-  if (confE < 0.35 && totaalM < 10) return false;
+  const obsNu = faseStart ? Math.round((performance.now() - faseStart) / 1000) : null;
+  const totaalMCheck = Object.keys(DD).reduce((s, d) => s + laadM(osmId, d).length, 0);
+  if (totaalMCheck === 0 && (obsNu == null || obsNu < OBS_MINIMUM) && conf != null && conf < 0.20) return false;
   if (!bypassAfstand) {
     const afstandM = dichtstbijOSM?.afstand;
     const maxAfstand = (typeof handmatigLockActief !== 'undefined' && handmatigLockActief) ? 120 : V9_MAX_LEER_AFSTAND;
@@ -952,19 +951,28 @@ function laadAlleGeleerdePosities() {
   return posities;
 }
 
+function berekenObsGewicht(obs, bron, heeftHandmatigeTap) {
+  if (bron === 's2') return OBS_S2;
+  if (bron === 'proxy') return OBS_PROXY;
+  if (obs == null || obs < OBS_MINIMUM) return OBS_DEFAULT / OBS_REFERENTIE;
+  let gewicht = Math.min(1.0, obs / OBS_REFERENTIE);
+  if (heeftHandmatigeTap) gewicht = Math.min(1.0, gewicht + OBS_TAP_BONUS);
+  return gewicht;
+}
+
 function slaOpIntern(osmId, richting, duur, gewichtOverride, dd, bron='s1', conf=null) {
   let m = laadM(osmId, dd);
   if (!isMetingBetrouwbaar(duur, m)) return false;
   const gewijzigd = checkAfwijking(duur, gewGem(m), m);
   if (gewijzigd) m = [];
-  const tier = bepaalTier(osmId);
-  const gewicht = gewichtOverride != null ? gewichtOverride :
-    tier === 1 ? TIER1_GEWICHT :
-    tier === 2 ? TIER2_GEWICHT :
-    tier === 4 ? TIER4_GEWICHT :
-    TIER3_GEWICHT;
   const obs = faseStart ? Math.round((performance.now() - faseStart) / 1000) : null;
-  const entry = { duur:Math.round(duur), tijd:Date.now(), richting:Math.round(richting||0), tier, gewicht, obs, bron };
+  const heeftTap = (typeof tapGekozenBbox !== 'undefined'
+    && tapGekozenBbox !== null
+    && Date.now() - tapGekozenTijd < TAP_BBOX_TIMEOUT);
+  const gewicht = gewichtOverride != null
+    ? gewichtOverride
+    : berekenObsGewicht(obs, bron, heeftTap);
+  const entry = { duur:Math.round(duur), tijd:Date.now(), richting:Math.round(richting||0), obs, gewicht:Math.round(gewicht*100)/100, bron };
   if (conf != null) entry.conf = Math.round(conf * 100) / 100;
   m.push(entry);
   if (m.length > MAX_METINGEN) { m.sort((a,b)=>gew(b.tijd)-gew(a.tijd)); m=m.slice(0,MAX_METINGEN); }
@@ -2606,7 +2614,8 @@ function bijwerkLeerkaart(osm) {
     leerPctGetal.textContent=pct+'%';
   }
   leerPctGetal.style.color=kleur;
-  debugWaarden.leer = `leer:${pct}%${v9bron?.v5?' V9':''}`;
+  const obsDbg = faseStart ? Math.round((performance.now() - faseStart) / 1000) : null;
+  debugWaarden.leer = `leer:${pct}%${v9bron?.v5?' V9':''}${obsDbg!=null?' obs:'+obsDbg+'s':''}`;
   Object.keys(DD).forEach(d => {
     const m=laadM(osm.id,d), gem=gewGem(m);
     document.getElementById(`dv-${d}`).textContent = gem ? Math.round(gem)+'s' : '—';
@@ -2618,7 +2627,7 @@ function bijwerkLeerkaart(osm) {
   if (gekozenDD && osm) {
     const mDD = laadM(osm.id, gekozenDD);
     const pctDD = mDD.length > 0
-      ? Math.min(95, Math.max(mDD.length * 4, berekenTierScore(mDD)))
+      ? Math.min(95, Math.max(mDD.length * 4, berekenObsScore(mDD)))
       : 0;
     const kleurDD = leerKleur(pctDD);
     leerPctBalk.style.width = pctDD + '%';
@@ -2723,6 +2732,11 @@ function toggleDagdeelDetail(nodeId, dd) {
     html += `<div class="sl-dd-detail-rij"><span>Bereik</span><span>${Math.round(minT)}s – ${Math.round(maxT)}s</span></div>`;
   }
   html += `<div class="sl-dd-detail-rij"><span>Geleerd</span><span>${ddPct}%</span></div>`;
+  const gemGew = m.filter(x => x.gewicht != null);
+  if (gemGew.length > 0) {
+    const avgGew = (gemGew.reduce((s,x) => s + x.gewicht, 0) / gemGew.length).toFixed(2);
+    html += `<div class="sl-dd-detail-rij"><span>Obs gewicht</span><span style="color:var(--dim)">${avgGew}</span></div>`;
+  }
   const scores = berekenDrieScores(nodeId);
   html += `<div class="sl-dd-detail-rij"><span>Voorspelbaarheid</span><span style="color:var(--groen)">${scores.voorspelbaarheid}%</span></div>`;
   html += `<div class="sl-dd-detail-rij"><span>Dekking</span><span style="color:var(--blauw)">${scores.dekking}%</span></div>`;
@@ -2772,8 +2786,8 @@ function laadDashboard() {
 
   let gefilterd = data.filter(d => {
     if (huidigFilter==='hoog')    return d.pct >= 85;
-    if (huidigFilter==='goed')    return d.pct >= 60 && d.pct < 85;
-    if (huidigFilter==='laag')    return d.pct < 60;
+    if (huidigFilter==='goed')    return d.pct >= 55 && d.pct < 85;
+    if (huidigFilter==='laag')    return d.pct < 55;
     if (huidigFilter==='ochtend') return laadM(d.id,'ochtend').length > 0;
     if (huidigFilter==='dag')     return laadM(d.id,'dag').length > 0;
     if (huidigFilter==='avond')   return laadM(d.id,'avond').length > 0;
@@ -2916,7 +2930,7 @@ function tijdGeleden(ts) {
 // ── DATA EXPORT/IMPORT ────────────────────────────────────────
 function exporteerData() {
   try {
-    const exportData = { versie:'11.3.1', exportDatum:new Date().toISOString(), app:'StoplichtIQ', data:{}, scores:{} };
+    const exportData = { versie:'11.4.0', exportDatum:new Date().toISOString(), app:'StoplichtIQ', data:{}, scores:{} };
     for (const key of Object.keys(localStorage)) {
       if (key.startsWith('sl_v10_')||key.startsWith('sl_v5_')||key.startsWith('sl_v4_')||key.startsWith('sl_v3_')||key.startsWith('sl_tag_')||key.startsWith('sl_naam_')||key.startsWith('sl_richting_')||key.startsWith('sl_route_')||key==='sl_stad_cache') {
         try { exportData.data[key] = JSON.parse(localStorage.getItem(key)); }
@@ -3803,7 +3817,7 @@ function slaLeergeheugenOpS2(nodeId, kleur) {
   if (!nodeId) return;
   const dd=huidigDDActief();
   let m=laadM(nodeId,dd);
-  m.push({ duur:0, tijd:Date.now(), richting:Math.round(huidigeRichting||0), bron:'s2', tier:4, gewicht:TIER4_GEWICHT, kleur });
+  m.push({ duur:0, tijd:Date.now(), richting:Math.round(huidigeRichting||0), bron:'s2', gewicht:OBS_S2, kleur });
   if (m.length>MAX_METINGEN) { m.sort((a,b)=>gew(b.tijd)-gew(a.tijd)); m=m.slice(0,MAX_METINGEN); }
   try { localStorage.setItem(`${LS_PREFIX}${nodeId}_${dd}`, JSON.stringify(m)); } catch(e) {}
   checkLocalStorageRuimte();
