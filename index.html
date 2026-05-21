@@ -129,7 +129,7 @@
     .dd{display:flex;flex-direction:column;align-items:center;gap:1px;flex:1;
       background:rgba(255,255,255,0.04);border:1px solid var(--border);
       border-radius:8px;padding:4px 5px;transition:all .3s;cursor:pointer}
-    .dd.actief{background:rgba(52,199,89,.08);border-color:rgba(52,199,89,.3)}
+    .dd.actief{background:rgba(52,199,89,.08);border-color:rgba(52,199,89,.3);outline:2px solid var(--blauw)}
     .dd-ic{font-size:9px}
     .dd-val{font-family:'Share Tech Mono',monospace;font-size:9px;color:var(--dim)}
     .dd-cnt{font-size:8px;color:rgba(255,255,255,0.2)}
@@ -397,7 +397,7 @@
 <div id="startscherm">
   <div id="s-icoon">🚦</div>
   <div id="s-titel">Stoplicht<span>IQ</span></div>
-  <div id="s-versie">V11.3.0 — Dagdeel selector + kaart + laterale scoring + afrij verbetering</div>
+  <div id="s-versie">V11.3.1 — Kaart historisch + dagdeel % + tap coordinate fix</div>
   <div id="s-model-wrap">
     <div id="s-model-rij">
       <div id="s-model-label">🤖 YOLOv8 model laden…</div>
@@ -595,7 +595,7 @@
 
 <script>
 // ═══════════════════════════════════════════════════════════════
-//  StoplichtIQ V11.3.0
+//  StoplichtIQ V11.3.1
 //  V11: Leergeheugen audit + genius implementaties
 //  — S1+S2 bevestiging (kruispunt-level confidence)
 //  — Route-herkenning basis (sequentie-opslag)
@@ -1584,11 +1584,28 @@ const TAP_BBOX_TIMEOUT = 30000;
 
 canvas.addEventListener('click', (e) => {
   if (!laatsteDetecties || !laatsteDetecties.length) return;
+  if (!canvas.width || !lbScale) return;
+
+  const cssW = canvas.offsetWidth;
+  const cssH = canvas.offsetHeight;
   const rect = canvas.getBoundingClientRect();
-  const tapX = (e.clientX - rect.left) / rect.width * YOLO_SIZE;
-  const tapY = (e.clientY - rect.top) / rect.height * YOLO_SIZE;
+  const scaleX = rect.width / cssW;
+  const scaleY = rect.height / cssH;
+
+  const tapCssX = (e.clientX - rect.left) / scaleX;
+  const tapCssY = (e.clientY - rect.top) / scaleY;
+
+  const normX = tapCssX / cssW;
+  const normY = tapCssY / cssH;
+
+  const videoX = normX * canvas.width;
+  const videoY = normY * canvas.height;
+
+  const yoloX = videoX * lbScale + lbPadX;
+  const yoloY = videoY * lbScale + lbPadY;
+
   const getroffen = laatsteDetecties.filter(d =>
-    tapX >= d.x1 && tapX <= d.x2 && tapY >= d.y1 && tapY <= d.y2
+    yoloX >= d.x1 && yoloX <= d.x2 && yoloY >= d.y1 && yoloY <= d.y2
   );
   if (!getroffen.length) { tapGekozenBbox = null; return; }
   getroffen.sort((a,b) => b.score - a.score);
@@ -2596,6 +2613,35 @@ function bijwerkLeerkaart(osm) {
     document.getElementById(`dc-${d}`).textContent = m.length+'x';
     document.getElementById(`dd-${d}`).classList.toggle('actief', d===dd);
   });
+
+  const gekozenDD = getoondDagdeel;
+  if (gekozenDD && osm) {
+    const mDD = laadM(osm.id, gekozenDD);
+    const pctDD = mDD.length > 0
+      ? Math.min(95, Math.max(mDD.length * 4, berekenTierScore(mDD)))
+      : 0;
+    const kleurDD = leerKleur(pctDD);
+    leerPctBalk.style.width = pctDD + '%';
+    leerPctBalk.style.background = kleurDD;
+    if (mDD.length === 0) {
+      leerPctGetal.textContent = 'Geen data';
+      leerPctGetal.style.color = 'rgba(255,255,255,0.3)';
+      leerPctGetal.style.fontSize = '10px';
+    } else {
+      leerPctGetal.textContent = pctDD + '%';
+      leerPctGetal.style.color = kleurDD;
+      leerPctGetal.style.fontSize = '';
+    }
+    debugWaarden.leer = `leer:${pctDD}% ${DD[gekozenDD].ic}`;
+  } else {
+    const pctGlobaal = berekenLeerPct(osm.id);
+    const kleurGlobaal = leerKleur(pctGlobaal);
+    leerPctBalk.style.width = pctGlobaal + '%';
+    leerPctBalk.style.background = kleurGlobaal;
+    leerPctGetal.textContent = pctGlobaal + '%';
+    leerPctGetal.style.color = kleurGlobaal;
+    leerPctGetal.style.fontSize = '';
+  }
 }
 
 function bijwerkDashboardKnop() {
@@ -2870,7 +2916,7 @@ function tijdGeleden(ts) {
 // ── DATA EXPORT/IMPORT ────────────────────────────────────────
 function exporteerData() {
   try {
-    const exportData = { versie:'11.3.0', exportDatum:new Date().toISOString(), app:'StoplichtIQ', data:{}, scores:{} };
+    const exportData = { versie:'11.3.1', exportDatum:new Date().toISOString(), app:'StoplichtIQ', data:{}, scores:{} };
     for (const key of Object.keys(localStorage)) {
       if (key.startsWith('sl_v10_')||key.startsWith('sl_v5_')||key.startsWith('sl_v4_')||key.startsWith('sl_v3_')||key.startsWith('sl_tag_')||key.startsWith('sl_naam_')||key.startsWith('sl_richting_')||key.startsWith('sl_route_')||key==='sl_stad_cache') {
         try { exportData.data[key] = JSON.parse(localStorage.getItem(key)); }
@@ -4516,31 +4562,40 @@ let kaartMap = null;
 let kaartGpsMarker = null;
 
 function markerKleur(pct) {
-  return pct >= 80 ? '#34C759' : pct >= 40 ? '#FF9F0A' : '#FF3030';
+  if (pct >= 80) return '#34C759';
+  if (pct >= 60) return '#3b82f6';
+  if (pct >= 40) return '#FF9F0A';
+  if (pct >= 20) return '#ef4444';
+  return '#94a3b8';
 }
 
 function markerRadius(metingen) {
-  if (metingen >= 30) return 10;
-  if (metingen >= 10) return 8;
-  return 6;
+  return Math.min(12, 6 + Math.log(metingen + 1) * 2);
 }
 
-function maakPopupContent(node, kleur) {
-  let richtingInfo = '';
-  try {
-    const rd = JSON.parse(localStorage.getItem(`sl_richting_${node.id}`));
-    if (rd) {
-      const aanrij = rd.tikrichting ? rd.tikrichting : (rd.auto_aanrij || '?');
-      const afrij = rd.auto_afrij || '?';
-      richtingInfo = `<br><span style="color:#aaa;font-size:10px">↗${aanrij} ↘${afrij}</span>`;
-    }
-  } catch(e) {}
-  return `<div style="font-family:'Rajdhani',sans-serif;min-width:140px">` +
-    `<strong>${node.naam}</strong><br>` +
-    `<span style="color:${kleur};font-weight:700">${node.pct}% geleerd</span><br>` +
-    `${node.metingen} metingen` +
-    richtingInfo +
-    `<br><span style="color:#888;font-size:11px">Dagdeel: ${node.dd}</span>` +
+function maakPopupContent(node) {
+  const kleur = markerKleur(node.pct);
+  const dagdelen = [
+    { key:'ochtend', ic:'🌅' },
+    { key:'dag',     ic:'☀️' },
+    { key:'avond',   ic:'🌆' },
+    { key:'nacht',   ic:'🌙' }
+  ];
+  const ddRijen = dagdelen.map(d => {
+    const m = laadM(node.id, d.key);
+    const gem = gewGem(m);
+    const txt = gem
+      ? `${Math.round(gem)}s · ${m.length}x`
+      : '<span style="color:#aaa">—</span>';
+    return `<div style="display:flex;justify-content:space-between;font-size:11px;padding:2px 0">` +
+      `<span>${d.ic} ${d.key}</span><span>${txt}</span></div>`;
+  }).join('');
+  const naam = node.naam || 'Onbekende weg';
+  return `<div style="min-width:180px;font-family:'Rajdhani',sans-serif">` +
+    `<strong>${naam}</strong><br>` +
+    `<span style="color:${kleur};font-weight:700">${node.pct}% geleerd</span>` +
+    `<div style="margin-top:6px;border-top:1px solid #eee;padding-top:4px">${ddRijen}</div>` +
+    `<div style="font-size:10px;color:#999;margin-top:4px">#${String(node.id).slice(-6)}</div>` +
     `</div>`;
 }
 
@@ -4576,6 +4631,18 @@ function openKaartOverlay() {
     }
   }
 
+  // Voeg historische nodes toe via sl_pos_
+  const historisch = laadAlleGeleerdePosities();
+  for (const pos of historisch) {
+    const bestaatAl = nodes.find(n => String(n.id) === String(pos.nodeId));
+    if (bestaatAl) continue;
+    const pctH = berekenLeerPct(pos.nodeId);
+    const alleMH = Object.keys(DD).reduce((s,d) => s + laadM(pos.nodeId, d).length, 0);
+    if (alleMH === 0) continue;
+    const naamH = vindNaamVoorId(pos.nodeId);
+    nodes.push({ id: pos.nodeId, lat: pos.lat, lon: pos.lon, naam: naamH, pct: pctH, metingen: alleMH, dd: huidigDDActief() });
+  }
+
   // Bereken centrum
   let centerLat = 52.1, centerLon = 5.1, zoom = 14;
   if (huidigePos) {
@@ -4589,7 +4656,8 @@ function openKaartOverlay() {
   if (!kaartMap) {
     kaartMap = L.map('kaart-map', {
       zoomControl: true,
-      attributionControl: true
+      attributionControl: true,
+      minZoom: 12
     }).setView([centerLat, centerLon], zoom);
     L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
       maxZoom: 19,
@@ -4616,7 +4684,7 @@ function openKaartOverlay() {
       weight: 2,
       fillOpacity: 0.85
     }).addTo(kaartMap);
-    marker.bindPopup(maakPopupContent(node, kleur));
+    marker.bindPopup(maakPopupContent(node));
   }
 
   // Gebruikerspositie als blauwe stip
