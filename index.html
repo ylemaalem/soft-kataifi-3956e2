@@ -128,7 +128,7 @@
     #dd-rij{display:flex;gap:4px}
     .dd{display:flex;flex-direction:column;align-items:center;gap:1px;flex:1;
       background:rgba(255,255,255,0.04);border:1px solid var(--border);
-      border-radius:8px;padding:4px 5px;transition:all .3s}
+      border-radius:8px;padding:4px 5px;transition:all .3s;cursor:pointer}
     .dd.actief{background:rgba(52,199,89,.08);border-color:rgba(52,199,89,.3)}
     .dd-ic{font-size:9px}
     .dd-val{font-family:'Share Tech Mono',monospace;font-size:9px;color:var(--dim)}
@@ -397,7 +397,7 @@
 <div id="startscherm">
   <div id="s-icoon">🚦</div>
   <div id="s-titel">Stoplicht<span>IQ</span></div>
-  <div id="s-versie">V11.2.3 — Tap selectie + confidence guard + proactief laden</div>
+  <div id="s-versie">V11.3.0 — Dagdeel selector + kaart + laterale scoring + afrij verbetering</div>
   <div id="s-model-wrap">
     <div id="s-model-rij">
       <div id="s-model-label">🤖 YOLOv8 model laden…</div>
@@ -507,10 +507,10 @@
         <div id="leer-pct-getal">0%</div>
       </div>
       <div id="dd-rij">
-        <div class="dd" id="dd-ochtend"><div class="dd-ic">🌅</div><div class="dd-val" id="dv-ochtend">—</div><div class="dd-cnt" id="dc-ochtend">0x</div></div>
-        <div class="dd" id="dd-dag"><div class="dd-ic">☀️</div><div class="dd-val" id="dv-dag">—</div><div class="dd-cnt" id="dc-dag">0x</div></div>
-        <div class="dd" id="dd-avond"><div class="dd-ic">🌆</div><div class="dd-val" id="dv-avond">—</div><div class="dd-cnt" id="dc-avond">0x</div></div>
-        <div class="dd" id="dd-nacht"><div class="dd-ic">🌙</div><div class="dd-val" id="dv-nacht">—</div><div class="dd-cnt" id="dc-nacht">0x</div></div>
+        <div class="dd" id="dd-ochtend" onclick="selecteerDagdeel('ochtend')"><div class="dd-ic">🌅</div><div class="dd-val" id="dv-ochtend">—</div><div class="dd-cnt" id="dc-ochtend">0x</div></div>
+        <div class="dd" id="dd-dag" onclick="selecteerDagdeel('dag')"><div class="dd-ic">☀️</div><div class="dd-val" id="dv-dag">—</div><div class="dd-cnt" id="dc-dag">0x</div></div>
+        <div class="dd" id="dd-avond" onclick="selecteerDagdeel('avond')"><div class="dd-ic">🌆</div><div class="dd-val" id="dv-avond">—</div><div class="dd-cnt" id="dc-avond">0x</div></div>
+        <div class="dd" id="dd-nacht" onclick="selecteerDagdeel('nacht')"><div class="dd-ic">🌙</div><div class="dd-val" id="dv-nacht">—</div><div class="dd-cnt" id="dc-nacht">0x</div></div>
       </div>
     </div>
   </div>
@@ -595,7 +595,7 @@
 
 <script>
 // ═══════════════════════════════════════════════════════════════
-//  StoplichtIQ V11.2.3
+//  StoplichtIQ V11.3.0
 //  V11: Leergeheugen audit + genius implementaties
 //  — S1+S2 bevestiging (kruispunt-level confidence)
 //  — Route-herkenning basis (sequentie-opslag)
@@ -796,38 +796,42 @@ function gewSpreiding(m) {
   return Math.max(...duurs) - Math.min(...duurs);
 }
 
+function berekenTierScore(metingen) {
+  let t1=0, t2=0, t3Nieuw=0, t3Legacy=0, t4=0;
+  for (const m of metingen) {
+    const obsGewicht = (m.obs != null && m.obs < 5) ? 0.5 : 1.0;
+    if (!m.tier) { t3Legacy += obsGewicht; continue; }
+    if (m.tier === 1) t1 += obsGewicht;
+    else if (m.tier === 2) t2 += obsGewicht;
+    else if (m.tier === 4) t4 += obsGewicht;
+    else t3Nieuw += obsGewicht;
+  }
+  return Math.min(t1,3)*25 + Math.min(t2,2)*10
+    + Math.min(t3Legacy,15)*3 + Math.min(t3Nieuw,5)*3 + Math.min(t4,5)*1;
+}
+
 function berekenLeerPct(osmId) {
   const alleM = [];
-  for (const d of Object.keys(DD)) {
-    const m = laadM(osmId, d);
-    alleM.push(...m);
-  }
+  for (const d of Object.keys(DD)) alleM.push(...laadM(osmId, d));
   if (!alleM.length) return 0;
-  const aantalMetingen = alleM.length;
   const legacyPct = Math.min(60,
-    aantalMetingen >= 50 ? 60 :
-    aantalMetingen >= 20 ? 45 :
-    aantalMetingen >= 10 ? 35 :
-    aantalMetingen >= 5  ? 25 :
-    aantalMetingen * 4
+    alleM.length >= 50 ? 60 :
+    alleM.length >= 20 ? 45 :
+    alleM.length >= 10 ? 35 :
+    alleM.length >= 5  ? 25 :
+    alleM.length * 4
   );
-  let t1=0, t2=0, t3Nieuw=0, t3Legacy=0, t4=0;
-  for (const m of alleM) {
-    const tierGewicht = (m.obs != null && m.obs < 5) ? 0.5 : 1.0;
-    if (!m.tier) { t3Legacy += tierGewicht; continue; }
-    if (m.tier === 1) t1 += tierGewicht;
-    else if (m.tier === 2) t2 += tierGewicht;
-    else if (m.tier === 4) t4 += tierGewicht;
-    else t3Nieuw += tierGewicht;
-  }
-  const tierPct = Math.min(t1,3)*25 + Math.min(t2,2)*10
-    + Math.min(t3Legacy,15)*3 + Math.min(t3Nieuw,5)*3 + Math.min(t4,5)*1;
+  const tierPct = berekenTierScore(alleM);
   let basePct = Math.min(95, Math.max(legacyPct, tierPct));
-  // V11: S2 bevestiging bonus
   const gem = gewGem(alleM);
-  const s2Bonus = alleM.length >= 5
+  const s2Bonus = alleM.length >= 5 && gem
     ? Math.min(10, zoekS2BevestigingScore(osmId, gem) * 3) : 0;
-  return Math.min(95, basePct + s2Bonus);
+  let gpsTikBonus = 0;
+  try {
+    const rd = JSON.parse(localStorage.getItem(`sl_richting_${osmId}`));
+    if (rd && rd.gps_tik_score != null) gpsTikBonus = Math.round(rd.gps_tik_score * 5);
+  } catch(e) {}
+  return Math.min(95, basePct + s2Bonus + gpsTikBonus);
 }
 
 function leerKleur(pct) {
@@ -912,7 +916,40 @@ function slaOp(osmId, richting, duur, conf=null, bypassAfstand=false) {
     result = slaOpIntern(osmId, richting, duur, null, huidigDDActief(), 's1', conf);
   }
   voegToeAanRouteBuffer(osmId, duur);
+  // W5: sl_pos_ opslaan
+  if (huidigePos && huidigePos.lat && huidigePos.lon) {
+    try {
+      localStorage.setItem(`sl_pos_${osmId}`,
+        JSON.stringify({ lat: huidigePos.lat, lon: huidigePos.lon, tijd: Date.now() }));
+    } catch(e) {}
+  }
   return result;
+}
+
+function migratieSlPos() {
+  for (const sl of osmCache) {
+    const sleutel = `sl_pos_${sl.id}`;
+    if (localStorage.getItem(sleutel)) continue;
+    if (sl.lat && sl.lon) {
+      try {
+        localStorage.setItem(sleutel, JSON.stringify({ lat: sl.lat, lon: sl.lon, bron: 'osm', tijd: Date.now() }));
+      } catch(e) {}
+    }
+  }
+}
+
+function laadAlleGeleerdePosities() {
+  const posities = [];
+  for (let i = 0; i < localStorage.length; i++) {
+    const k = localStorage.key(i);
+    if (!k || !k.startsWith('sl_pos_')) continue;
+    const nodeId = k.replace('sl_pos_', '');
+    try {
+      const p = JSON.parse(localStorage.getItem(k));
+      if (p && p.lat && p.lon) posities.push({ nodeId, lat: p.lat, lon: p.lon, tijd: p.tijd, bron: p.bron });
+    } catch(e) {}
+  }
+  return posities;
 }
 
 function slaOpIntern(osmId, richting, duur, gewichtOverride, dd, bron='s1', conf=null) {
@@ -1145,6 +1182,32 @@ function laadMV5(nodeId, aanrij, afrij, dd) {
   } catch(e) { return []; }
 }
 
+function afgerondNaar45(windrichting) {
+  const richtingen = ['N','NO','O','ZO','Z','ZW','W','NW'];
+  const idx = richtingen.indexOf(windrichting);
+  if (idx === -1) return [windrichting];
+  const prev = richtingen[(idx - 1 + 8) % 8];
+  const next = richtingen[(idx + 1) % 8];
+  return [windrichting, prev, next];
+}
+
+function laadMV5Geclusterd(nodeId, aanrij, afrij, dd) {
+  const aanrijSet = afgerondNaar45(aanrij);
+  const afrijSet = afgerondNaar45(afrij);
+  let alle = [];
+  for (const a of aanrijSet) {
+    for (const f of afrijSet) {
+      const m = laadMV5(nodeId, a, f, dd);
+      if (a === aanrij && f === afrij) {
+        alle.push(...m);
+      } else {
+        alle.push(...m.map(x => ({ ...x, gewicht: (x.gewicht ?? 1.0) * 0.5 })));
+      }
+    }
+  }
+  return alle;
+}
+
 function slaOpV5(nodeId, aanrij, afrij, dd, duur, gewicht) {
   if (!nodeId || !aanrij || !afrij || !dd || !duur || duur < 4 || duur > 300) return;
   const sleutel = v5Sleutel(nodeId, aanrij, afrij, dd);
@@ -1159,7 +1222,7 @@ function slaOpV5(nodeId, aanrij, afrij, dd, duur, gewicht) {
 }
 
 function berekenRichtingPct(nodeId, aanrij, afrij, dd) {
-  const m = laadMV5(nodeId, aanrij, afrij, dd);
+  const m = laadMV5Geclusterd(nodeId, aanrij, afrij, dd);
   if (!m.length) return null;
   const aantal = m.length;
   const legacyPct = Math.min(60,
@@ -1225,7 +1288,7 @@ function kiesCountdownBron(nodeId, dd, aanrijRichting, preSelectieAfrij) {
 
   // Stap 1: pre-selectie via richtingknop (als >= V9_MIN_METINGEN)
   if (aanrijRichting && preSelectieAfrij) {
-    const m1 = laadMV5(nodeId, aanrijRichting, preSelectieAfrij, dd);
+    const m1 = laadMV5Geclusterd(nodeId, aanrijRichting, preSelectieAfrij, dd);
     if (m1.length >= V9_MIN_METINGEN) {
       const gem = gewGem(m1);
       if (gem) return { gem, bron: `V5 ${preSelectieAfrij}`, metingen: m1.length, v5: true };
@@ -1237,7 +1300,7 @@ function kiesCountdownBron(nodeId, dd, aanrijRichting, preSelectieAfrij) {
     const h = v9AanrijSnelheidHeading ?? v9AanrijHeading;
     if (h != null) {
       const afrijRechtdoor = gpsHeadingNaarWindrichting((((h % 360) + 360) % 360 + 180) % 360);
-      const m2 = laadMV5(nodeId, aanrijRichting, afrijRechtdoor, dd);
+      const m2 = laadMV5Geclusterd(nodeId, aanrijRichting, afrijRechtdoor, dd);
       if (m2.length >= V9_MIN_METINGEN) {
         const gem = gewGem(m2);
         if (gem) return { gem, bron: `V5 ↑`, metingen: m2.length, v5: true };
@@ -1280,8 +1343,10 @@ function voerV9DelayedWriteUit(huidigeHeading) {
     : (v9AanrijHeading != null ? gpsHeadingNaarWindrichting(v9AanrijHeading) : null);
   if (!aanrijRichting) { resetV9Staat(); return; }
 
-  // FIX 1: button wint over GPS als geldig windrichting; GPS is fallback
-  const afrijHeading = huidigeHeading ?? getSmoothedHeading();
+  // V11.3.0: Circulair gemiddelde afrij-heading over buffer
+  const gemAfrij = berekenGemAfrijHeading(afrijHeadingBuffer);
+  const afrijBetrouwbaar = afrijHeadingBuffer.length >= 3;
+  const afrijHeading = gemAfrij ?? huidigeHeading ?? getSmoothedHeading();
   const gpsAfrijRichting = afrijHeading != null ? gpsHeadingNaarWindrichting(afrijHeading) : null;
   const WINDRICHTINGEN = ['N','NO','O','ZO','Z','ZW','W','NW'];
   const afrijRichting = (v9PreSelectieAfrij && WINDRICHTINGEN.includes(v9PreSelectieAfrij))
@@ -1327,7 +1392,15 @@ function voerV9DelayedWriteUit(huidigeHeading) {
   rData.auto_aanrij = aanrijRichting;
   rData.auto_afrij = afrijRichting;
   rData.auto_tijd = Date.now();
+  rData.afrij_betrouwbaar = afrijBetrouwbaar;
   if (!rData.tikrichting) rData.auto_bron = 'gps';
+  // W4: GPS/tik overeenkomst
+  if (rData.tikrichting && gpsAfrijRichting) {
+    const tikAfrij = berekenAfrijRichtingViaTik(aanrijNum, rData.tikrichting);
+    const gpsTikMatch = (tikAfrij === gpsAfrijRichting) ? 1.0
+      : afgerondNaar45(tikAfrij).includes(gpsAfrijRichting) ? 0.5 : 0;
+    rData.gps_tik_score = gpsTikMatch;
+  }
   try { localStorage.setItem(sleutelR, JSON.stringify(rData)); } catch(e) {}
 
   // Cooldown bijwerken
@@ -1348,6 +1421,8 @@ function resetV9Staat() {
   v9PreSelectieAfrij      = null;
   v9DelayedWriteActief    = false;
   v9LaatstLageSnelheid    = 0;
+  afrijHeadingBuffer      = [];
+  afrijBufferActief       = false;
 }
 
 // UI: afrijrichting pijl indicator
@@ -1490,6 +1565,12 @@ let handmatigLockActief = false;
 // V11.0.1: Stilstand auto-lock
 let stilstandSinds = 0;
 let stilstandAutoLock = false;
+
+// V11.3.0: Afrij heading buffer — circulair gemiddelde over 5s
+let afrijHeadingBuffer = [];
+let afrijBufferActief = false;
+const AFRIJ_BUFFER_DUUR_MS = 5000;
+const AFRIJ_MIN_SNELHEID_KMU = 8;
 
 // V10.0.3: Richtingkeuze lock — houdt tikrichting vast bij stilstand/GPS-drift
 let richtingLockNodeId = null;
@@ -2486,7 +2567,8 @@ function bijwerkLeerkaart(osm) {
     leerPctBalk.style.width='0%'; leerPctGetal.textContent='0%';
     return;
   }
-  const pct=berekenLeerPct(osm.id), kleur=leerKleur(pct), dd=huidigDDActief();
+  const dd = getoondDagdeel || huidigDDActief();
+  const pct=berekenLeerPct(osm.id), kleur=leerKleur(pct);
   leerNaam.textContent = osm.naam || `Stoplicht ${osm.id}`;
   const totM = Object.keys(DD).reduce((s,d)=>s+laadM(osm.id,d).length, 0);
   // V9: ook V5 metingen tellen
@@ -2521,6 +2603,14 @@ function bijwerkDashboardKnop() {
 }
 
 // ── DASHBOARD ─────────────────────────────────────────────────
+let getoondDagdeel = null; // null = actueel dagdeel, anders: 'ochtend'/'dag'/'avond'/'nacht'
+
+function selecteerDagdeel(dd) {
+  if (getoondDagdeel === dd) { getoondDagdeel = null; }
+  else { getoondDagdeel = dd; }
+  if (dichtstbijOSM) bijwerkLeerkaart(dichtstbijOSM);
+}
+
 let huidigFilter = 'alle';
 let dashboardLaatsteDD = null;
 let uitgeklapteDD = null; // { nodeId, dagdeel } of null
@@ -2780,7 +2870,7 @@ function tijdGeleden(ts) {
 // ── DATA EXPORT/IMPORT ────────────────────────────────────────
 function exporteerData() {
   try {
-    const exportData = { versie:'11.2.3', exportDatum:new Date().toISOString(), app:'StoplichtIQ', data:{}, scores:{} };
+    const exportData = { versie:'11.3.0', exportDatum:new Date().toISOString(), app:'StoplichtIQ', data:{}, scores:{} };
     for (const key of Object.keys(localStorage)) {
       if (key.startsWith('sl_v10_')||key.startsWith('sl_v5_')||key.startsWith('sl_v4_')||key.startsWith('sl_v3_')||key.startsWith('sl_tag_')||key.startsWith('sl_naam_')||key.startsWith('sl_richting_')||key.startsWith('sl_route_')||key==='sl_stad_cache') {
         try { exportData.data[key] = JSON.parse(localStorage.getItem(key)); }
@@ -2873,6 +2963,7 @@ async function downloadOSM(lat, lon) {
                slim:!!(el.tags?.['traffic_signals:sound']||el.tags?.description?.toLowerCase().includes('ivri')) };
     });
     cacheCentrum={lat,lon}; cacheGeladen=true;
+    migratieSlPos();
     pOSM.className='pill-dot g'; pOSMT.textContent='Kaart'; debugWaarden.osm=`osm:${osmCache.length}`;
     updateDichtbij(lat, lon);
     for (const [key,val] of s2BboxTeller.entries()) if (val===0) s2BboxTeller.delete(key);
@@ -2910,6 +3001,14 @@ async function haalStraatnamenOp() {
   }
 }
 
+function berekenLateraleOffset(lat1, lon1, lat2, lon2, heading) {
+  if (heading == null) return null;
+  const dLat = (lat2 - lat1) * 111320;
+  const dLon = (lon2 - lon1) * 111320 * Math.cos(lat1 * Math.PI / 180);
+  const headingRad = heading * Math.PI / 180;
+  return dLon * Math.cos(headingRad) - dLat * Math.sin(headingRad);
+}
+
 function vindDichtbijScore(lat, lon, heading, sl) {
   const af = afstand(lat,lon,sl.lat,sl.lon);
   if (af > 400) return null;
@@ -2929,8 +3028,22 @@ function vindDichtbijScore(lat, lon, heading, sl) {
     const hoekSigned = ((hoek - heading + 540) % 360) - 180;
     const bboxCentrering = 1 - Math.min(1, Math.abs(hoekSigned - bboxOffset) / 77);
     s = normAf*0.50 + normHoek*0.35 + conf*0.15 + bboxCentrering*0.01;
+    // W7: laterale offset bonus
+    const posData = localStorage.getItem(`sl_pos_${sl.id}`);
+    if (posData) {
+      try {
+        const p = JSON.parse(posData);
+        if (p && p.lat && p.lon) {
+          const lateraal = berekenLateraleOffset(lat, lon, p.lat, p.lon, heading);
+          if (lateraal != null) {
+            const lateraalBonus = Math.max(0, 0.15 - Math.abs(lateraal) / 100 * 0.15);
+            s += lateraalBonus;
+          }
+        }
+      } catch(e) {}
+    }
   }
-  return { score: s, afstand: af };
+  return { score: Math.min(1.01, s), afstand: af };
 }
 
 function vindDichtbij(lat, lon, heading) {
@@ -2978,6 +3091,16 @@ function getSmoothedHeading() {
   const sinGem = headingBuffer.reduce((s,h)=>s+Math.sin(h*Math.PI/180),0)/headingBuffer.length;
   const cosGem = headingBuffer.reduce((s,h)=>s+Math.cos(h*Math.PI/180),0)/headingBuffer.length;
   return (Math.atan2(sinGem,cosGem)*180/Math.PI+360)%360;
+}
+
+function berekenGemAfrijHeading(buffer) {
+  if (!buffer || !buffer.length) return null;
+  const cutoff = Date.now() - AFRIJ_BUFFER_DUUR_MS;
+  const recent = buffer.filter(h => h.tijd > cutoff && h.heading != null);
+  if (recent.length < 2) return null;
+  const sinGem = recent.reduce((s, h) => s + Math.sin(h.heading * Math.PI / 180), 0) / recent.length;
+  const cosGem = recent.reduce((s, h) => s + Math.cos(h.heading * Math.PI / 180), 0) / recent.length;
+  return (Math.atan2(sinGem, cosGem) * 180 / Math.PI + 360) % 360;
 }
 
 function berekenDoelZoom(afst) {
@@ -3481,6 +3604,15 @@ function renderV9Lijst() {
       const autoZone = autoIdx <= 1 || autoIdx === 7 ? 'midden' : autoIdx <= 4 ? 'rechts' : 'links';
       if (tikZone !== autoZone) conflictChip = `<span class="v9-chip" style="background:rgba(255,59,48,0.15);color:#FF3B30">⚠ Conflict</span>`;
     }
+    // W9: betrouwbaarheid chips
+    let betChip = '';
+    if (d.afrij_betrouwbaar === true) betChip = `<span class="v9-chip groen">Afrij ✓</span>`;
+    else if (d.afrij_betrouwbaar === false) betChip = `<span class="v9-chip" style="background:rgba(255,159,10,0.15);color:#FF9F0A">Afrij ~</span>`;
+    let gpsTikChip = '';
+    if (d.gps_tik_score != null) {
+      const label = d.gps_tik_score >= 0.8 ? '✓' : d.gps_tik_score >= 0.4 ? '~' : '✗';
+      gpsTikChip = `<span class="v9-chip" style="background:rgba(${d.gps_tik_score >= 0.8?'52,199,89':d.gps_tik_score>=0.4?'255,159,10':'255,59,48'},0.15);color:${d.gps_tik_score>=0.8?'#34C759':d.gps_tik_score>=0.4?'#FF9F0A':'#FF3B30'}">GPS≈Tik ${label}</span>`;
+    }
     // GPS coordinaten als subtext bij ontbrekende straatnaam
     const cachedN = localStorage.getItem('sl_naam_' + nodeId) || '';
     const heeftStraat = cachedN.includes(',');
@@ -3492,7 +3624,7 @@ function renderV9Lijst() {
         <div class="v9-kaart-naam">${naam}</div>
         <div class="v9-kaart-id">#${kortId}</div>
       </div>
-      <div class="v9-kaart-rij">${headingChip}${tikChip}${autoChip}${conflictChip}${bevChip}${v5Chip}${updateChip}${coordChip}</div>
+      <div class="v9-kaart-rij">${headingChip}${tikChip}${autoChip}${conflictChip}${betChip}${gpsTikChip}${bevChip}${v5Chip}${updateChip}${coordChip}</div>
     </div>`;
   }).join('');
 }
@@ -4186,6 +4318,14 @@ async function onGPS(pos) {
       }
     }
 
+    // V11.3.0: Afrij heading buffer vullen tijdens delayed write
+    if (v9DelayedWriteActief && snelheidKmh >= AFRIJ_MIN_SNELHEID_KMU && smoothedH != null) {
+      afrijBufferActief = true;
+      afrijHeadingBuffer.push({ heading: smoothedH, tijd: Date.now() });
+      const cutoff = Date.now() - AFRIJ_BUFFER_DUUR_MS;
+      afrijHeadingBuffer = afrijHeadingBuffer.filter(h => h.tijd > cutoff);
+    }
+
     // 3. Delayed write triggers: node is voorbij
     if (v9DelayedWriteActief && v9KandidaatNode) {
       const kandidaatPos = osmCache.find(s => String(s.id) === v9KandidaatNode);
@@ -4375,6 +4515,35 @@ function lus() {
 let kaartMap = null;
 let kaartGpsMarker = null;
 
+function markerKleur(pct) {
+  return pct >= 80 ? '#34C759' : pct >= 40 ? '#FF9F0A' : '#FF3030';
+}
+
+function markerRadius(metingen) {
+  if (metingen >= 30) return 10;
+  if (metingen >= 10) return 8;
+  return 6;
+}
+
+function maakPopupContent(node, kleur) {
+  let richtingInfo = '';
+  try {
+    const rd = JSON.parse(localStorage.getItem(`sl_richting_${node.id}`));
+    if (rd) {
+      const aanrij = rd.tikrichting ? rd.tikrichting : (rd.auto_aanrij || '?');
+      const afrij = rd.auto_afrij || '?';
+      richtingInfo = `<br><span style="color:#aaa;font-size:10px">↗${aanrij} ↘${afrij}</span>`;
+    }
+  } catch(e) {}
+  return `<div style="font-family:'Rajdhani',sans-serif;min-width:140px">` +
+    `<strong>${node.naam}</strong><br>` +
+    `<span style="color:${kleur};font-weight:700">${node.pct}% geleerd</span><br>` +
+    `${node.metingen} metingen` +
+    richtingInfo +
+    `<br><span style="color:#888;font-size:11px">Dagdeel: ${node.dd}</span>` +
+    `</div>`;
+}
+
 function openKaartOverlay() {
   const overlay = document.getElementById('kaart-overlay');
   if (!overlay) return;
@@ -4439,22 +4608,15 @@ function openKaartOverlay() {
 
   // Voeg node markers toe
   for (const node of nodes) {
-    const kleur = node.pct >= 80 ? '#34C759' : node.pct >= 40 ? '#FF9F0A' : '#FF3030';
+    const kleur = markerKleur(node.pct);
     const marker = L.circleMarker([node.lat, node.lon], {
-      radius: 8,
+      radius: markerRadius(node.metingen),
       fillColor: kleur,
       color: '#fff',
       weight: 2,
       fillOpacity: 0.85
     }).addTo(kaartMap);
-    marker.bindPopup(
-      `<div style="font-family:'Rajdhani',sans-serif;min-width:140px">` +
-      `<strong>${node.naam}</strong><br>` +
-      `<span style="color:${kleur};font-weight:700">${node.pct}% geleerd</span><br>` +
-      `${node.metingen} metingen<br>` +
-      `<span style="color:#888;font-size:11px">Dagdeel: ${node.dd}</span>` +
-      `</div>`
-    );
+    marker.bindPopup(maakPopupContent(node, kleur));
   }
 
   // Gebruikerspositie als blauwe stip
