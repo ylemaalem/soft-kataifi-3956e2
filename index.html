@@ -397,7 +397,7 @@
 <div id="startscherm">
   <div id="s-icoon">🚦</div>
   <div id="s-titel">Stoplicht<span>IQ</span></div>
-  <div id="s-versie">V11.4.0 — Observatiedekking vervangt tier systeem</div>
+  <div id="s-versie">V11.4.1 — GPS Radar HUD</div>
   <div id="s-model-wrap">
     <div id="s-model-rij">
       <div id="s-model-label">🤖 YOLOv8 model laden…</div>
@@ -595,7 +595,7 @@
 
 <script>
 // ═══════════════════════════════════════════════════════════════
-//  StoplichtIQ V11.4.0
+//  StoplichtIQ V11.4.1
 //  V11: Leergeheugen audit + genius implementaties
 //  — S1+S2 bevestiging (kruispunt-level confidence)
 //  — Route-herkenning basis (sequentie-opslag)
@@ -1569,6 +1569,13 @@ let lastFrameTimestamp = 0;
 let handmatigGeselecteerdNodeId = null;
 let handmatigGeselecteerdTimestamp = 0;
 let handmatigLockActief = false;
+
+// V11.4.1: GPS Radar HUD
+let radarActief = false;
+let radarRafId = null;
+const RADAR_RADIUS = 80;
+const RADAR_MAX_AFSTAND = 200;
+let radarPulse = 0;
 
 // V11.0.1: Stilstand auto-lock
 let stilstandSinds = 0;
@@ -2681,6 +2688,9 @@ function openDashboard() {
   updateTrainframesTeller();
   updateCamStatsTeller();
   document.getElementById('dashboard').classList.remove('verborgen');
+  if (radarActief) toggleRadar();
+  const rt = document.getElementById('radar-toggle');
+  if (rt) rt.style.display = 'none';
 }
 
 function sluitDashboard() {
@@ -2688,6 +2698,10 @@ function sluitDashboard() {
   uitgeklapteDD = null;
   // V8.9.12: Herstel camera als bevroren na dashboard-interactie
   if (video.paused) video.play().catch(() => {});
+  if (!radarActief) {
+    const rt = document.getElementById('radar-toggle');
+    if (rt) rt.style.display = 'flex';
+  }
 }
 
 function toggleDagdeelDetail(nodeId, dd) {
@@ -2930,7 +2944,7 @@ function tijdGeleden(ts) {
 // ── DATA EXPORT/IMPORT ────────────────────────────────────────
 function exporteerData() {
   try {
-    const exportData = { versie:'11.4.0', exportDatum:new Date().toISOString(), app:'StoplichtIQ', data:{}, scores:{} };
+    const exportData = { versie:'11.4.1', exportDatum:new Date().toISOString(), app:'StoplichtIQ', data:{}, scores:{} };
     for (const key of Object.keys(localStorage)) {
       if (key.startsWith('sl_v10_')||key.startsWith('sl_v5_')||key.startsWith('sl_v4_')||key.startsWith('sl_v3_')||key.startsWith('sl_tag_')||key.startsWith('sl_naam_')||key.startsWith('sl_richting_')||key.startsWith('sl_route_')||key==='sl_stad_cache') {
         try { exportData.data[key] = JSON.parse(localStorage.getItem(key)); }
@@ -4758,6 +4772,9 @@ async function startApp() {
   }
   bijwerkLeerkaart(null);
   bijwerkDashboardKnop();
+  // V11.4.1: Radar toggle zichtbaar maken nadat app actief is
+  const rt = document.getElementById('radar-toggle');
+  if (rt) rt.style.display = 'flex';
   // V8.9.12: Camera watchdog — herstart lus als >3s geen frame verwerkt
   cameraWatchdogInterval = setInterval(() => {
     if (Date.now() - lastFrameTimestamp > 3000) {
@@ -4771,6 +4788,229 @@ async function startApp() {
 
 document.getElementById('geluid-toggle').classList.remove('uit');
 bijwerkDashboardKnop();
+
+// ── V11.4.1: GPS RADAR HUD ───────────────────────────────────
+function hexNaarRgba(hex, alpha) {
+  const r = parseInt(hex.slice(1,3), 16);
+  const g = parseInt(hex.slice(3,5), 16);
+  const b = parseInt(hex.slice(5,7), 16);
+  return `rgba(${r},${g},${b},${alpha})`;
+}
+
+function toggleRadar() {
+  radarActief = !radarActief;
+  const c = document.getElementById('radar-canvas');
+  const t = document.getElementById('radar-toggle');
+  if (radarActief) {
+    c.style.display = 'block';
+    t.style.display = 'none';
+    if (radarRafId) cancelAnimationFrame(radarRafId);
+    tekenRadar();
+  } else {
+    c.style.display = 'none';
+    t.style.display = 'flex';
+    if (radarRafId) { cancelAnimationFrame(radarRafId); radarRafId = null; }
+  }
+}
+
+function tekenRadar() {
+  if (!radarActief) return;
+  const canvas = document.getElementById('radar-canvas');
+  if (!canvas) return;
+  const ctx = canvas.getContext('2d');
+  const W = canvas.width, H = canvas.height;
+  const cx = W / 2, cy = H / 2, R = RADAR_RADIUS;
+
+  ctx.clearRect(0, 0, W, H);
+
+  // Achtergrond cirkel
+  ctx.save();
+  ctx.beginPath();
+  ctx.arc(cx, cy, R, 0, Math.PI * 2);
+  ctx.clip();
+  ctx.fillStyle = 'rgba(4, 8, 16, 0.88)';
+  ctx.fillRect(0, 0, W, H);
+  const grad = ctx.createRadialGradient(cx, cy, 0, cx, cy, R);
+  grad.addColorStop(0, 'rgba(10,132,255,0.04)');
+  grad.addColorStop(1, 'rgba(0,0,0,0)');
+  ctx.fillStyle = grad;
+  ctx.fillRect(0, 0, W, H);
+  ctx.restore();
+
+  // Grid ringen
+  radarPulse = (radarPulse + 0.008) % 1;
+  [0.33, 0.66, 1.0].forEach(ring => {
+    ctx.beginPath();
+    ctx.arc(cx, cy, R * ring, 0, Math.PI * 2);
+    ctx.strokeStyle = 'rgba(10,132,255,0.12)';
+    ctx.lineWidth = 0.5;
+    ctx.stroke();
+  });
+
+  // Pulserende sweep ring
+  const pulseR = R * radarPulse;
+  const pulseAlpha = 0.4 * (1 - radarPulse);
+  ctx.beginPath();
+  ctx.arc(cx, cy, pulseR, 0, Math.PI * 2);
+  ctx.strokeStyle = `rgba(10,132,255,${pulseAlpha})`;
+  ctx.lineWidth = 1.5;
+  ctx.stroke();
+
+  // Kruisdraden
+  ctx.strokeStyle = 'rgba(255,255,255,0.06)';
+  ctx.lineWidth = 0.5;
+  ctx.beginPath();
+  ctx.moveTo(cx, cy - R); ctx.lineTo(cx, cy + R);
+  ctx.moveTo(cx - R, cy); ctx.lineTo(cx + R, cy);
+  ctx.stroke();
+
+  // Noord-indicator
+  ctx.strokeStyle = 'rgba(255,48,48,0.6)';
+  ctx.lineWidth = 1;
+  ctx.beginPath();
+  ctx.moveTo(cx, cy - R * 0.85);
+  ctx.lineTo(cx, cy - R * 0.95);
+  ctx.stroke();
+  ctx.fillStyle = 'rgba(255,48,48,0.7)';
+  ctx.font = 'bold 7px monospace';
+  ctx.textAlign = 'center';
+  ctx.fillText('N', cx, cy - R * 0.72);
+
+  // OSM nodes
+  canvas._radarNodes = [];
+  if (huidigePos && osmCache.length) {
+    const heading = getSmoothedHeading() || 0;
+    const hRad = (heading - 90) * Math.PI / 180;
+    const cosH = Math.cos(hRad);
+    const sinH = Math.sin(hRad);
+    const cosLat = Math.cos(huidigePos.lat * Math.PI / 180);
+
+    // Top-20 dichtstbijzijnde binnen RADAR_MAX_AFSTAND
+    const kandidaten = [];
+    for (const sl of osmCache) {
+      const af = afstand(huidigePos.lat, huidigePos.lon, sl.lat, sl.lon);
+      if (af > RADAR_MAX_AFSTAND) continue;
+      kandidaten.push({ sl, af });
+    }
+    kandidaten.sort((a, b) => a.af - b.af);
+    const tonen = kandidaten.slice(0, 20);
+
+    for (const { sl, af } of tonen) {
+      const dLat = (sl.lat - huidigePos.lat) * 111320;
+      const dLon = (sl.lon - huidigePos.lon) * 111320 * cosLat;
+      const rx = dLon * cosH - dLat * sinH;
+      const ry = -(dLon * sinH + dLat * cosH);
+      const schaal = R / RADAR_MAX_AFSTAND;
+      const px = cx + rx * schaal;
+      const py = cy + ry * schaal;
+      const dx = px - cx, dy = py - cy;
+      if (Math.sqrt(dx*dx + dy*dy) > R - 6) continue;
+
+      const nodeId = String(sl.id);
+      const isActief = nodeId === huidigBevestigdOsmNodeId
+        || (dichtstbijOSM && nodeId === String(dichtstbijOSM.id));
+      const isHandmatig = nodeId === handmatigGeselecteerdNodeId;
+      const pct = berekenLeerPct(nodeId);
+      const kleur = pct >= 80 ? '#34C759'
+        : pct >= 55 ? '#0A84FF'
+        : pct >= 30 ? '#FF9F0A'
+        : '#FF3030';
+
+      if (isActief || isHandmatig) {
+        const glowPulse = 0.6 + 0.4 * Math.sin(Date.now() / 400);
+        ctx.beginPath();
+        ctx.arc(px, py, 11, 0, Math.PI * 2);
+        ctx.fillStyle = `rgba(10,132,255,${glowPulse * 0.25})`;
+        ctx.fill();
+        ctx.beginPath();
+        ctx.arc(px, py, 8, 0, Math.PI * 2);
+        ctx.strokeStyle = `rgba(10,132,255,${glowPulse * 0.9})`;
+        ctx.lineWidth = 2;
+        ctx.stroke();
+        ctx.beginPath();
+        ctx.arc(px, py, 5, 0, Math.PI * 2);
+        ctx.fillStyle = kleur;
+        ctx.fill();
+        ctx.beginPath();
+        ctx.arc(px, py, 1.5, 0, Math.PI * 2);
+        ctx.fillStyle = '#fff';
+        ctx.fill();
+        ctx.fillStyle = 'rgba(255,255,255,0.7)';
+        ctx.font = '7px monospace';
+        ctx.textAlign = 'center';
+        ctx.fillText(Math.round(af)+'m', px, py + 16);
+      } else {
+        const alpha = 0.5 + 0.3 * (1 - af / RADAR_MAX_AFSTAND);
+        ctx.beginPath();
+        ctx.arc(px, py, 4, 0, Math.PI * 2);
+        ctx.fillStyle = hexNaarRgba(kleur, alpha);
+        ctx.fill();
+        ctx.beginPath();
+        ctx.arc(px, py, 4, 0, Math.PI * 2);
+        ctx.strokeStyle = 'rgba(255,255,255,0.15)';
+        ctx.lineWidth = 0.5;
+        ctx.stroke();
+      }
+
+      canvas._radarNodes.push({ id: nodeId, px, py, naam: sl.naam || nodeId });
+    }
+  }
+
+  // Eigen positie driehoek
+  const triSize = 7;
+  ctx.beginPath();
+  ctx.moveTo(cx, cy - triSize);
+  ctx.lineTo(cx - triSize * 0.6, cy + triSize * 0.7);
+  ctx.lineTo(cx + triSize * 0.6, cy + triSize * 0.7);
+  ctx.closePath();
+  ctx.fillStyle = '#ffffff';
+  ctx.fill();
+  ctx.strokeStyle = 'rgba(10,132,255,0.8)';
+  ctx.lineWidth = 1.5;
+  ctx.stroke();
+
+  // Buitenrand
+  ctx.beginPath();
+  ctx.arc(cx, cy, R, 0, Math.PI * 2);
+  ctx.strokeStyle = 'rgba(10,132,255,0.35)';
+  ctx.lineWidth = 1.5;
+  ctx.stroke();
+  ctx.beginPath();
+  ctx.arc(cx, cy, R - 2, 0, Math.PI * 2);
+  ctx.strokeStyle = 'rgba(255,255,255,0.04)';
+  ctx.lineWidth = 1;
+  ctx.stroke();
+
+  radarRafId = requestAnimationFrame(tekenRadar);
+}
+
+function radarCheckTap(tapX, tapY) {
+  const canvas = document.getElementById('radar-canvas');
+  const nodes = canvas._radarNodes || [];
+  let dichtstbij = null;
+  let minDist = 20;
+  for (const n of nodes) {
+    const dx = tapX - n.px;
+    const dy = tapY - n.py;
+    const dist = Math.sqrt(dx*dx + dy*dy);
+    if (dist < minDist) { minDist = dist; dichtstbij = n; }
+  }
+  if (dichtstbij) {
+    selecteerNodeHandmatig(dichtstbij.id);
+    const flashEl = document.getElementById('radar-canvas');
+    flashEl.style.boxShadow = '0 0 20px rgba(10,132,255,0.8)';
+    setTimeout(() => { flashEl.style.boxShadow = ''; }, 300);
+  }
+}
+
+document.getElementById('radar-canvas').addEventListener('click', (e) => {
+  if (!radarActief) return;
+  const canvas = document.getElementById('radar-canvas');
+  const rect = canvas.getBoundingClientRect();
+  const tapX = (e.clientX - rect.left) * (canvas.width / rect.width);
+  const tapY = (e.clientY - rect.top) * (canvas.height / rect.height);
+  radarCheckTap(tapX, tapY);
+});
 </script>
 
 <!-- V10.0.6: Dashboard kaart overlay -->
@@ -4785,6 +5025,9 @@ bijwerkDashboardKnop();
 <div style="position:fixed;bottom:0;left:0;right:0;z-index:5;text-align:center;font-size:9px;color:rgba(255,255,255,0.18);padding-bottom:env(safe-area-inset-bottom,8px);pointer-events:none;font-family:'Rajdhani',sans-serif;letter-spacing:0.08em">
   © 2026 StoplichtIQ — Y. Lemaalem
 </div>
+
+<canvas id="radar-canvas" width="160" height="160" style="position:fixed;bottom:58px;right:12px;width:160px;height:160px;z-index:35;border-radius:50%;display:none;cursor:pointer;touch-action:none;"></canvas>
+<div id="radar-toggle" style="position:fixed;bottom:58px;right:12px;width:36px;height:36px;z-index:35;border-radius:50%;background:rgba(0,0,0,0.6);border:1px solid rgba(255,255,255,0.15);display:none;align-items:center;justify-content:center;font-size:16px;cursor:pointer;backdrop-filter:blur(8px);" onclick="toggleRadar()">🎯</div>
 
 </body>
 </html>
