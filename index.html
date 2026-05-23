@@ -397,7 +397,7 @@
 <div id="startscherm">
   <div id="s-icoon">🚦</div>
   <div id="s-titel">Stoplicht<span>IQ</span></div>
-  <div id="s-versie">V11.4.1 — GPS Radar HUD</div>
+  <div id="s-versie">V11.4.2 — Radar bottom sheet + camera tap node selectie</div>
   <div id="s-model-wrap">
     <div id="s-model-rij">
       <div id="s-model-label">🤖 YOLOv8 model laden…</div>
@@ -595,7 +595,7 @@
 
 <script>
 // ═══════════════════════════════════════════════════════════════
-//  StoplichtIQ V11.4.1
+//  StoplichtIQ V11.4.2
 //  V11: Leergeheugen audit + genius implementaties
 //  — S1+S2 bevestiging (kruispunt-level confidence)
 //  — Route-herkenning basis (sequentie-opslag)
@@ -1570,12 +1570,16 @@ let handmatigGeselecteerdNodeId = null;
 let handmatigGeselecteerdTimestamp = 0;
 let handmatigLockActief = false;
 
-// V11.4.1: GPS Radar HUD
-let radarActief = false;
-let radarRafId = null;
-const RADAR_RADIUS = 80;
-const RADAR_MAX_AFSTAND = 200;
-let radarPulse = 0;
+// V11.4.2: Radar bottom sheet + camera tap node selectie
+let radarSheetOpen = false;
+let radarSheetRafId = null;
+let radarSheetPulse = 0;
+let radarSheetDragOffset = 0;
+let radarSheetNodes = [];
+const RADAR_SHEET_MAX_AFSTAND = 200;
+const RADAR_SHEET_RINGS = [25, 50, 100, 200];
+let cameraTapMarker = null;
+const CAMERA_TAP_MARKER_DUUR = 800;
 
 // V11.0.1: Stilstand auto-lock
 let stilstandSinds = 0;
@@ -1626,6 +1630,12 @@ canvas.addEventListener('click', (e) => {
   getroffen.sort((a,b) => b.score - a.score);
   tapGekozenBbox = getroffen[0];
   tapGekozenTijd = Date.now();
+
+  // V11.4.2: visuele feedback marker (in canvas-pixel coords)
+  cameraTapMarker = { x: videoX, y: videoY, tijd: Date.now() };
+
+  // V11.4.2: koppel bbox aan OSM node — skip als al actief
+  try { koppelBboxAanNode(tapGekozenBbox); } catch(err) {}
 });
 
 // Debug
@@ -2165,6 +2175,25 @@ function tekenOverlay(box, score, horizontaal) {
     const label = `${box.kleur.toUpperCase()}${horizontaal?' ↔':' ↕'}${score?' '+(score*100).toFixed(0)+'%':''}${tapIndicator}`;
     octx.fillText(label, x1, y1-6);
   }
+  // V11.4.2: ripple marker bij camera tap
+  if (cameraTapMarker) {
+    const leeftijd = Date.now() - cameraTapMarker.tijd;
+    if (leeftijd < CAMERA_TAP_MARKER_DUUR) {
+      const t = leeftijd / CAMERA_TAP_MARKER_DUUR;
+      const radius = 8 + t * 24;
+      const alpha = 1 - t;
+      octx.save();
+      octx.globalAlpha = 1;
+      octx.strokeStyle = `rgba(90,200,250,${alpha})`;
+      octx.lineWidth = 2;
+      octx.beginPath();
+      octx.arc(cameraTapMarker.x, cameraTapMarker.y, radius, 0, Math.PI * 2);
+      octx.stroke();
+      octx.restore();
+    } else {
+      cameraTapMarker = null;
+    }
+  }
 }
 
 // ── DETECTIES VERWERKEN ───────────────────────────────────────
@@ -2688,9 +2717,9 @@ function openDashboard() {
   updateTrainframesTeller();
   updateCamStatsTeller();
   document.getElementById('dashboard').classList.remove('verborgen');
-  if (radarActief) toggleRadar();
-  const rt = document.getElementById('radar-toggle');
-  if (rt) rt.style.display = 'none';
+  if (radarSheetOpen) sluitRadarSheet();
+  const rh = document.getElementById('radar-handle');
+  if (rh) rh.style.display = 'none';
 }
 
 function sluitDashboard() {
@@ -2698,10 +2727,8 @@ function sluitDashboard() {
   uitgeklapteDD = null;
   // V8.9.12: Herstel camera als bevroren na dashboard-interactie
   if (video.paused) video.play().catch(() => {});
-  if (!radarActief) {
-    const rt = document.getElementById('radar-toggle');
-    if (rt) rt.style.display = 'flex';
-  }
+  const rh = document.getElementById('radar-handle');
+  if (rh) rh.style.display = 'flex';
 }
 
 function toggleDagdeelDetail(nodeId, dd) {
@@ -2944,7 +2971,7 @@ function tijdGeleden(ts) {
 // ── DATA EXPORT/IMPORT ────────────────────────────────────────
 function exporteerData() {
   try {
-    const exportData = { versie:'11.4.1', exportDatum:new Date().toISOString(), app:'StoplichtIQ', data:{}, scores:{} };
+    const exportData = { versie:'11.4.2', exportDatum:new Date().toISOString(), app:'StoplichtIQ', data:{}, scores:{} };
     for (const key of Object.keys(localStorage)) {
       if (key.startsWith('sl_v10_')||key.startsWith('sl_v5_')||key.startsWith('sl_v4_')||key.startsWith('sl_v3_')||key.startsWith('sl_tag_')||key.startsWith('sl_naam_')||key.startsWith('sl_richting_')||key.startsWith('sl_route_')||key==='sl_stad_cache') {
         try { exportData.data[key] = JSON.parse(localStorage.getItem(key)); }
@@ -4772,9 +4799,11 @@ async function startApp() {
   }
   bijwerkLeerkaart(null);
   bijwerkDashboardKnop();
-  // V11.4.1: Radar toggle zichtbaar maken nadat app actief is
-  const rt = document.getElementById('radar-toggle');
-  if (rt) rt.style.display = 'flex';
+  // V11.4.2: Radar handle zichtbaar maken + handlers koppelen
+  const rh = document.getElementById('radar-handle');
+  if (rh) rh.style.display = 'flex';
+  setupRadarSheetGestures();
+  setupRadarSheetTapHandler();
   // V8.9.12: Camera watchdog — herstart lus als >3s geen frame verwerkt
   cameraWatchdogInterval = setInterval(() => {
     if (Date.now() - lastFrameTimestamp > 3000) {
@@ -4789,228 +4818,357 @@ async function startApp() {
 document.getElementById('geluid-toggle').classList.remove('uit');
 bijwerkDashboardKnop();
 
-// ── V11.4.1: GPS RADAR HUD ───────────────────────────────────
+// ── V11.4.2: RADAR BOTTOM SHEET + CAMERA TAP NODE SELECTIE ─
 function hexNaarRgba(hex, alpha) {
-  const r = parseInt(hex.slice(1,3), 16);
-  const g = parseInt(hex.slice(3,5), 16);
-  const b = parseInt(hex.slice(5,7), 16);
+  let h = String(hex).replace('#', '');
+  if (h.length === 3) h = h.split('').map(c => c + c).join('');
+  const r = parseInt(h.substring(0, 2), 16);
+  const g = parseInt(h.substring(2, 4), 16);
+  const b = parseInt(h.substring(4, 6), 16);
   return `rgba(${r},${g},${b},${alpha})`;
 }
 
-function toggleRadar() {
-  radarActief = !radarActief;
-  const c = document.getElementById('radar-canvas');
-  const t = document.getElementById('radar-toggle');
-  if (radarActief) {
-    c.style.display = 'block';
-    t.style.display = 'none';
-    if (radarRafId) cancelAnimationFrame(radarRafId);
-    tekenRadar();
-  } else {
-    c.style.display = 'none';
-    t.style.display = 'flex';
-    if (radarRafId) { cancelAnimationFrame(radarRafId); radarRafId = null; }
+function setupRadarSheetCanvas() {
+  const c = document.getElementById('radar-sheet-canvas');
+  if (!c) return null;
+  const dpr = window.devicePixelRatio || 1;
+  const rect = c.getBoundingClientRect();
+  if (rect.width === 0) return null;
+  const needW = Math.round(rect.width * dpr);
+  const needH = Math.round(rect.height * dpr);
+  if (c.width !== needW || c.height !== needH) {
+    c.width = needW;
+    c.height = needH;
   }
+  const ctx = c.getContext('2d');
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  return { canvas: c, ctx, w: rect.width, h: rect.height };
 }
 
-function tekenRadar() {
-  if (!radarActief) return;
-  const canvas = document.getElementById('radar-canvas');
-  if (!canvas) return;
-  const ctx = canvas.getContext('2d');
-  const W = canvas.width, H = canvas.height;
-  const cx = W / 2, cy = H / 2, R = RADAR_RADIUS;
+function huidigeFaseKleur() {
+  if (fase === 'rood') return '#FF3B30';
+  if (fase === 'groen') return '#34C759';
+  if (fase === 'oranje') return '#FF9F0A';
+  return '#5AC8FA';
+}
 
-  ctx.clearRect(0, 0, W, H);
+function openRadarSheet() {
+  const sheet = document.getElementById('radar-sheet');
+  const handle = document.getElementById('radar-handle');
+  if (!sheet || !handle) return;
+  radarSheetOpen = true;
+  sheet.style.display = 'block';
+  void sheet.offsetWidth;
+  sheet.style.transform = 'translateY(0)';
+  handle.style.display = 'none';
+  if (radarSheetRafId) cancelAnimationFrame(radarSheetRafId);
+  const tick = () => {
+    if (!radarSheetOpen) return;
+    radarSheetPulse += 0.04;
+    if (radarSheetPulse > Math.PI * 2) radarSheetPulse = 0;
+    tekenRadarSheet();
+    radarSheetRafId = requestAnimationFrame(tick);
+  };
+  requestAnimationFrame(() => {
+    tick();
+    renderRadarSheetNodeLijst();
+  });
+}
 
-  // Achtergrond cirkel
+function sluitRadarSheet() {
+  const sheet = document.getElementById('radar-sheet');
+  const handle = document.getElementById('radar-handle');
+  if (!sheet || !handle) return;
+  radarSheetOpen = false;
+  sheet.style.transform = 'translateY(100%)';
+  if (radarSheetRafId) { cancelAnimationFrame(radarSheetRafId); radarSheetRafId = null; }
+  setTimeout(() => { if (!radarSheetOpen) sheet.style.display = 'none'; }, 320);
+  const dashOpen = !document.getElementById('dashboard').classList.contains('verborgen');
+  if (!dashOpen) handle.style.display = 'flex';
+}
+
+function tekenRadarSheet() {
+  const setup = setupRadarSheetCanvas();
+  if (!setup) return;
+  const { ctx, w, h } = setup;
+  const cx = w / 2, cy = h / 2;
+  const radius = Math.min(w, h) / 2 - 10;
+
+  ctx.clearRect(0, 0, w, h);
+
+  // Radial achtergrond
   ctx.save();
   ctx.beginPath();
-  ctx.arc(cx, cy, R, 0, Math.PI * 2);
+  ctx.arc(cx, cy, radius, 0, Math.PI * 2);
   ctx.clip();
-  ctx.fillStyle = 'rgba(4, 8, 16, 0.88)';
-  ctx.fillRect(0, 0, W, H);
-  const grad = ctx.createRadialGradient(cx, cy, 0, cx, cy, R);
-  grad.addColorStop(0, 'rgba(10,132,255,0.04)');
-  grad.addColorStop(1, 'rgba(0,0,0,0)');
+  const grad = ctx.createRadialGradient(cx, cy, 0, cx, cy, radius);
+  grad.addColorStop(0, 'rgba(20,28,38,0.6)');
+  grad.addColorStop(0.7, 'rgba(8,12,16,0.8)');
+  grad.addColorStop(1, 'rgba(4,6,8,0.95)');
   ctx.fillStyle = grad;
-  ctx.fillRect(0, 0, W, H);
+  ctx.fillRect(0, 0, w, h);
   ctx.restore();
 
-  // Grid ringen
-  radarPulse = (radarPulse + 0.008) % 1;
-  [0.33, 0.66, 1.0].forEach(ring => {
+  // Ringen + labels
+  ctx.strokeStyle = 'rgba(255,255,255,0.08)';
+  ctx.lineWidth = 1;
+  ctx.font = '10px "JetBrains Mono", monospace';
+  ctx.fillStyle = 'rgba(255,255,255,0.3)';
+  for (const ringAfst of RADAR_SHEET_RINGS) {
+    if (ringAfst > RADAR_SHEET_MAX_AFSTAND) continue;
+    const r = (ringAfst / RADAR_SHEET_MAX_AFSTAND) * radius;
     ctx.beginPath();
-    ctx.arc(cx, cy, R * ring, 0, Math.PI * 2);
-    ctx.strokeStyle = 'rgba(10,132,255,0.12)';
-    ctx.lineWidth = 0.5;
+    ctx.arc(cx, cy, r, 0, Math.PI * 2);
     ctx.stroke();
-  });
+    ctx.fillText(`${ringAfst}m`, cx + r + 4, cy - 2);
+  }
 
-  // Pulserende sweep ring
-  const pulseR = R * radarPulse;
-  const pulseAlpha = 0.4 * (1 - radarPulse);
-  ctx.beginPath();
-  ctx.arc(cx, cy, pulseR, 0, Math.PI * 2);
-  ctx.strokeStyle = `rgba(10,132,255,${pulseAlpha})`;
+  // Buitenring
+  ctx.strokeStyle = 'rgba(255,255,255,0.18)';
   ctx.lineWidth = 1.5;
-  ctx.stroke();
-
-  // Kruisdraden
-  ctx.strokeStyle = 'rgba(255,255,255,0.06)';
-  ctx.lineWidth = 0.5;
   ctx.beginPath();
-  ctx.moveTo(cx, cy - R); ctx.lineTo(cx, cy + R);
-  ctx.moveTo(cx - R, cy); ctx.lineTo(cx + R, cy);
+  ctx.arc(cx, cy, radius, 0, Math.PI * 2);
   ctx.stroke();
 
-  // Noord-indicator
-  ctx.strokeStyle = 'rgba(255,48,48,0.6)';
+  // Kruis
+  ctx.strokeStyle = 'rgba(255,255,255,0.06)';
   ctx.lineWidth = 1;
   ctx.beginPath();
-  ctx.moveTo(cx, cy - R * 0.85);
-  ctx.lineTo(cx, cy - R * 0.95);
+  ctx.moveTo(cx - radius, cy); ctx.lineTo(cx + radius, cy);
+  ctx.moveTo(cx, cy - radius); ctx.lineTo(cx, cy + radius);
   ctx.stroke();
-  ctx.fillStyle = 'rgba(255,48,48,0.7)';
-  ctx.font = 'bold 7px monospace';
+
+  // N indicator
+  ctx.fillStyle = 'rgba(255,255,255,0.45)';
+  ctx.font = 'bold 10px "JetBrains Mono", monospace';
   ctx.textAlign = 'center';
-  ctx.fillText('N', cx, cy - R * 0.72);
+  ctx.fillText('N', cx, cy - radius + 12);
+  ctx.textAlign = 'start';
 
-  // OSM nodes
-  canvas._radarNodes = [];
-  if (huidigePos && osmCache.length) {
-    const heading = getSmoothedHeading() || 0;
-    const hRad = (heading - 90) * Math.PI / 180;
-    const cosH = Math.cos(hRad);
-    const sinH = Math.sin(hRad);
-    const cosLat = Math.cos(huidigePos.lat * Math.PI / 180);
+  // Heading & sweep
+  const heading = (typeof getSmoothedHeading === 'function')
+    ? (getSmoothedHeading() || 0) : 0;
+  const sweepAngle = -heading * Math.PI / 180 - Math.PI / 2;
+  ctx.save();
+  ctx.beginPath();
+  ctx.arc(cx, cy, radius, 0, Math.PI * 2);
+  ctx.clip();
+  const sweepGrad = ctx.createLinearGradient(
+    cx, cy,
+    cx + Math.cos(sweepAngle) * radius,
+    cy + Math.sin(sweepAngle) * radius
+  );
+  sweepGrad.addColorStop(0, 'rgba(90,200,250,0)');
+  sweepGrad.addColorStop(0.7, 'rgba(90,200,250,0)');
+  sweepGrad.addColorStop(1.0, 'rgba(90,200,250,0.18)');
+  ctx.fillStyle = sweepGrad;
+  ctx.fillRect(0, 0, w, h);
+  ctx.restore();
 
-    // Top-20 dichtstbijzijnde binnen RADAR_MAX_AFSTAND
-    const kandidaten = [];
+  // Nodes
+  radarSheetNodes = [];
+  const activeNodeId = (typeof huidigBevestigdOsmNodeId !== 'undefined' && huidigBevestigdOsmNodeId)
+    ? String(huidigBevestigdOsmNodeId)
+    : (dichtstbijOSM ? String(dichtstbijOSM.id) : null);
+
+  if (typeof osmCache !== 'undefined' && osmCache.length && huidigePos) {
+    const nodesMetAfstand = [];
     for (const sl of osmCache) {
       const af = afstand(huidigePos.lat, huidigePos.lon, sl.lat, sl.lon);
-      if (af > RADAR_MAX_AFSTAND) continue;
-      kandidaten.push({ sl, af });
+      if (af > RADAR_SHEET_MAX_AFSTAND) continue;
+      nodesMetAfstand.push({ sl, af });
     }
-    kandidaten.sort((a, b) => a.af - b.af);
-    const tonen = kandidaten.slice(0, 20);
+    nodesMetAfstand.sort((a, b) => a.af - b.af);
+    const top = nodesMetAfstand.slice(0, 20);
 
-    for (const { sl, af } of tonen) {
-      const dLat = (sl.lat - huidigePos.lat) * 111320;
-      const dLon = (sl.lon - huidigePos.lon) * 111320 * cosLat;
-      const rx = dLon * cosH - dLat * sinH;
-      const ry = -(dLon * sinH + dLat * cosH);
-      const schaal = R / RADAR_MAX_AFSTAND;
-      const px = cx + rx * schaal;
-      const py = cy + ry * schaal;
-      const dx = px - cx, dy = py - cy;
-      if (Math.sqrt(dx*dx + dy*dy) > R - 6) continue;
+    for (const { sl, af } of top) {
+      const dLat = sl.lat - huidigePos.lat;
+      const dLon = sl.lon - huidigePos.lon;
+      const hoekAbs = (Math.atan2(dLon, dLat) * 180 / Math.PI + 360) % 360;
+      let hoekRel = hoekAbs - heading;
+      while (hoekRel < 0) hoekRel += 360;
+      while (hoekRel >= 360) hoekRel -= 360;
+      const hoekRad = hoekRel * Math.PI / 180 - Math.PI / 2;
+      const nodeAfst = (af / RADAR_SHEET_MAX_AFSTAND) * radius;
+      const nx = cx + Math.cos(hoekRad) * nodeAfst;
+      const ny = cy + Math.sin(hoekRad) * nodeAfst;
 
-      const nodeId = String(sl.id);
-      const isActief = nodeId === huidigBevestigdOsmNodeId
-        || (dichtstbijOSM && nodeId === String(dichtstbijOSM.id));
-      const isHandmatig = nodeId === handmatigGeselecteerdNodeId;
-      const pct = berekenLeerPct(nodeId);
-      const kleur = pct >= 80 ? '#34C759'
-        : pct >= 55 ? '#0A84FF'
-        : pct >= 30 ? '#FF9F0A'
-        : '#FF3030';
+      const isActive = activeNodeId && String(sl.id) === activeNodeId;
+      const nodeR = isActive ? 9 : 6;
+      const kleur = isActive ? huidigeFaseKleur() : '#5AC8FA';
 
-      if (isActief || isHandmatig) {
-        const glowPulse = 0.6 + 0.4 * Math.sin(Date.now() / 400);
+      radarSheetNodes.push({
+        id: String(sl.id), x: nx, y: ny, r: nodeR,
+        kleur, afst: af, naam: sl.naam || ''
+      });
+
+      if (isActive) {
+        const pulse = 0.5 + 0.5 * Math.sin(radarSheetPulse * 3);
+        ctx.save();
+        ctx.shadowColor = kleur;
+        ctx.shadowBlur = 20 + pulse * 12;
+        ctx.fillStyle = hexNaarRgba(kleur, 0.95);
         ctx.beginPath();
-        ctx.arc(px, py, 11, 0, Math.PI * 2);
-        ctx.fillStyle = `rgba(10,132,255,${glowPulse * 0.25})`;
+        ctx.arc(nx, ny, nodeR, 0, Math.PI * 2);
         ctx.fill();
+        ctx.restore();
+        ctx.strokeStyle = hexNaarRgba(kleur, 0.6);
+        ctx.lineWidth = 1.5;
         ctx.beginPath();
-        ctx.arc(px, py, 8, 0, Math.PI * 2);
-        ctx.strokeStyle = `rgba(10,132,255,${glowPulse * 0.9})`;
-        ctx.lineWidth = 2;
+        ctx.arc(nx, ny, nodeR + 6 + pulse * 3, 0, Math.PI * 2);
         ctx.stroke();
-        ctx.beginPath();
-        ctx.arc(px, py, 5, 0, Math.PI * 2);
-        ctx.fillStyle = kleur;
-        ctx.fill();
-        ctx.beginPath();
-        ctx.arc(px, py, 1.5, 0, Math.PI * 2);
-        ctx.fillStyle = '#fff';
-        ctx.fill();
-        ctx.fillStyle = 'rgba(255,255,255,0.7)';
-        ctx.font = '7px monospace';
-        ctx.textAlign = 'center';
-        ctx.fillText(Math.round(af)+'m', px, py + 16);
       } else {
-        const alpha = 0.5 + 0.3 * (1 - af / RADAR_MAX_AFSTAND);
+        ctx.fillStyle = hexNaarRgba(kleur, 0.65);
         ctx.beginPath();
-        ctx.arc(px, py, 4, 0, Math.PI * 2);
-        ctx.fillStyle = hexNaarRgba(kleur, alpha);
+        ctx.arc(nx, ny, nodeR, 0, Math.PI * 2);
         ctx.fill();
+        ctx.strokeStyle = hexNaarRgba(kleur, 0.3);
+        ctx.lineWidth = 1;
         ctx.beginPath();
-        ctx.arc(px, py, 4, 0, Math.PI * 2);
-        ctx.strokeStyle = 'rgba(255,255,255,0.15)';
-        ctx.lineWidth = 0.5;
+        ctx.arc(nx, ny, nodeR + 1.5, 0, Math.PI * 2);
         ctx.stroke();
       }
-
-      canvas._radarNodes.push({ id: nodeId, px, py, naam: sl.naam || nodeId });
     }
   }
 
-  // Eigen positie driehoek
-  const triSize = 7;
+  // Jij — witte driehoek
+  ctx.save();
+  ctx.translate(cx, cy);
+  ctx.fillStyle = '#FFFFFF';
+  ctx.shadowColor = 'rgba(255,255,255,0.5)';
+  ctx.shadowBlur = 8;
   ctx.beginPath();
-  ctx.moveTo(cx, cy - triSize);
-  ctx.lineTo(cx - triSize * 0.6, cy + triSize * 0.7);
-  ctx.lineTo(cx + triSize * 0.6, cy + triSize * 0.7);
+  ctx.moveTo(0, -8);
+  ctx.lineTo(6, 6);
+  ctx.lineTo(0, 3);
+  ctx.lineTo(-6, 6);
   ctx.closePath();
-  ctx.fillStyle = '#ffffff';
   ctx.fill();
-  ctx.strokeStyle = 'rgba(10,132,255,0.8)';
-  ctx.lineWidth = 1.5;
-  ctx.stroke();
-
-  // Buitenrand
-  ctx.beginPath();
-  ctx.arc(cx, cy, R, 0, Math.PI * 2);
-  ctx.strokeStyle = 'rgba(10,132,255,0.35)';
-  ctx.lineWidth = 1.5;
-  ctx.stroke();
-  ctx.beginPath();
-  ctx.arc(cx, cy, R - 2, 0, Math.PI * 2);
-  ctx.strokeStyle = 'rgba(255,255,255,0.04)';
-  ctx.lineWidth = 1;
-  ctx.stroke();
-
-  radarRafId = requestAnimationFrame(tekenRadar);
+  ctx.restore();
 }
 
-function radarCheckTap(tapX, tapY) {
-  const canvas = document.getElementById('radar-canvas');
-  const nodes = canvas._radarNodes || [];
-  let dichtstbij = null;
-  let minDist = 20;
-  for (const n of nodes) {
-    const dx = tapX - n.px;
-    const dy = tapY - n.py;
-    const dist = Math.sqrt(dx*dx + dy*dy);
-    if (dist < minDist) { minDist = dist; dichtstbij = n; }
+function renderRadarSheetNodeLijst() {
+  const container = document.getElementById('radar-sheet-nodes');
+  if (!container) return;
+  if (!radarSheetNodes.length) {
+    container.innerHTML = `<div style="font-family:'JetBrains Mono',monospace;font-size:10px;color:rgba(255,255,255,0.3);text-align:center;padding:12px 0">Geen kruispunten in bereik</div>`;
+    return;
   }
-  if (dichtstbij) {
-    selecteerNodeHandmatig(dichtstbij.id);
-    const flashEl = document.getElementById('radar-canvas');
-    flashEl.style.boxShadow = '0 0 20px rgba(10,132,255,0.8)';
-    setTimeout(() => { flashEl.style.boxShadow = ''; }, 300);
+  const items = radarSheetNodes.slice(0, 6).map(n => {
+    const afstStr = n.afst < 100 ? `${Math.round(n.afst)}m` : `${(n.afst/1000).toFixed(1)}km`;
+    const naam = n.naam || '—';
+    return `<div onclick="selecteerNodeVanRadar('${n.id}')" style="display:inline-flex;align-items:center;gap:6px;padding:6px 10px;margin:2px 4px 2px 0;border-radius:8px;background:rgba(255,255,255,0.05);border:1px solid rgba(255,255,255,0.08);cursor:pointer;font-family:'JetBrains Mono',monospace;font-size:10px;color:rgba(255,255,255,0.85)"><span style="width:6px;height:6px;border-radius:50%;background:${n.kleur}"></span><span>${naam}</span><span style="color:rgba(255,255,255,0.45)">${afstStr}</span></div>`;
+  }).join('');
+  container.innerHTML = items;
+}
+
+function selecteerNodeVanRadar(nodeId) {
+  if (typeof selecteerNodeHandmatig === 'function') {
+    selecteerNodeHandmatig(nodeId);
+  }
+  sluitRadarSheet();
+}
+
+function setupRadarSheetTapHandler() {
+  const canvas = document.getElementById('radar-sheet-canvas');
+  if (!canvas) return;
+  canvas.addEventListener('click', (e) => {
+    if (!radarSheetOpen) return;
+    const rect = canvas.getBoundingClientRect();
+    const tx = e.clientX - rect.left;
+    const ty = e.clientY - rect.top;
+    let best = null;
+    let bestAfst = Infinity;
+    for (const n of radarSheetNodes) {
+      const dx = n.x - tx;
+      const dy = n.y - ty;
+      const d = Math.sqrt(dx*dx + dy*dy);
+      if (d < n.r + 14 && d < bestAfst) { best = n; bestAfst = d; }
+    }
+    if (best) selecteerNodeVanRadar(best.id);
+  });
+}
+
+function setupRadarSheetGestures() {
+  const handle = document.getElementById('radar-handle');
+  const sheet = document.getElementById('radar-sheet');
+  if (handle) {
+    handle.addEventListener('click', openRadarSheet);
+    let touchStartY = null;
+    handle.addEventListener('touchstart', (e) => { touchStartY = e.touches[0].clientY; }, { passive: true });
+    handle.addEventListener('touchmove', (e) => {
+      if (touchStartY === null) return;
+      const dy = touchStartY - e.touches[0].clientY;
+      if (dy > 20) { openRadarSheet(); touchStartY = null; }
+    }, { passive: true });
+  }
+  if (sheet) {
+    let sheetStartY = null;
+    sheet.addEventListener('touchstart', (e) => {
+      sheetStartY = e.touches[0].clientY;
+      radarSheetDragOffset = 0;
+    }, { passive: true });
+    sheet.addEventListener('touchmove', (e) => {
+      if (sheetStartY === null) return;
+      const dy = e.touches[0].clientY - sheetStartY;
+      if (dy > 0) {
+        radarSheetDragOffset = dy;
+        sheet.style.transform = `translateY(${dy}px)`;
+        sheet.style.transition = 'none';
+      }
+    }, { passive: true });
+    sheet.addEventListener('touchend', () => {
+      sheet.style.transition = 'transform 0.32s cubic-bezier(0.32,0.72,0,1)';
+      if (radarSheetDragOffset > 80) sluitRadarSheet();
+      else sheet.style.transform = 'translateY(0)';
+      sheetStartY = null;
+      radarSheetDragOffset = 0;
+    });
   }
 }
 
-document.getElementById('radar-canvas').addEventListener('click', (e) => {
-  if (!radarActief) return;
-  const canvas = document.getElementById('radar-canvas');
-  const rect = canvas.getBoundingClientRect();
-  const tapX = (e.clientX - rect.left) * (canvas.width / rect.width);
-  const tapY = (e.clientY - rect.top) * (canvas.height / rect.height);
-  radarCheckTap(tapX, tapY);
-});
+// ── CAMERA TAP → OSM NODE KOPPELING ──────────────────────────
+// Camera-FOV horizontaal ~70°, dus center bbox = recht vooruit.
+// Bbox horizontaal-offset wordt vertaald naar hoek-offset op kompas,
+// en gematched tegen osmCache binnen 45° en 250m.
+function koppelBboxAanNode(bbox) {
+  if (!bbox) return false;
+  if (typeof osmCache === 'undefined' || !osmCache.length) return false;
+  if (!huidigePos) return false;
+  // Skip als bbox+node combinatie al actief is
+  const reedsActiefNode = handmatigGeselecteerdNodeId
+    || (dichtstbijOSM ? String(dichtstbijOSM.id) : null);
+  // tapGekozenBbox is hier al de zojuist getapte bbox
+  const heading = (typeof getSmoothedHeading === 'function')
+    ? (getSmoothedHeading() || 0) : 0;
+  // bbox.cx is in YOLO_SIZE coords (0..YOLO_SIZE)
+  const bboxCenterXNorm = bbox.cx / YOLO_SIZE;
+  const horizontaalOffset = (bboxCenterXNorm - 0.5) * 2; // -1..+1
+  const hoekOffset = horizontaalOffset * 35; // FOV ~70°
+  const beoogdeHoek = (heading + hoekOffset + 360) % 360;
+
+  let best = null;
+  let bestScore = -Infinity;
+  for (const sl of osmCache) {
+    const af = afstand(huidigePos.lat, huidigePos.lon, sl.lat, sl.lon);
+    if (af > 250) continue;
+    const dLat = sl.lat - huidigePos.lat;
+    const dLon = sl.lon - huidigePos.lon;
+    const hoekAbs = (Math.atan2(dLon, dLat) * 180 / Math.PI + 360) % 360;
+    let dHoek = Math.abs(beoogdeHoek - hoekAbs);
+    if (dHoek > 180) dHoek = 360 - dHoek;
+    if (dHoek > 45) continue;
+    const score = -dHoek * 2 - (af / 50);
+    if (score > bestScore) { bestScore = score; best = sl; }
+  }
+  if (best) {
+    if (String(best.id) === reedsActiefNode) return false;
+    selecteerNodeHandmatig(String(best.id));
+    return true;
+  }
+  console.log('Geen OSM node match voor deze bbox.');
+  return false;
+}
 </script>
 
 <!-- V10.0.6: Dashboard kaart overlay -->
@@ -5026,8 +5184,25 @@ document.getElementById('radar-canvas').addEventListener('click', (e) => {
   © 2026 StoplichtIQ — Y. Lemaalem
 </div>
 
-<canvas id="radar-canvas" width="160" height="160" style="position:fixed;bottom:58px;right:12px;width:160px;height:160px;z-index:35;border-radius:50%;display:none;cursor:pointer;touch-action:none;"></canvas>
-<div id="radar-toggle" style="position:fixed;bottom:58px;right:12px;width:36px;height:36px;z-index:35;border-radius:50%;background:rgba(0,0,0,0.6);border:1px solid rgba(255,255,255,0.15);display:none;align-items:center;justify-content:center;font-size:16px;cursor:pointer;backdrop-filter:blur(8px);" onclick="toggleRadar()">🎯</div>
+<!-- V11.4.2: Radar bottom sheet handle -->
+<div id="radar-handle" style="position:fixed;bottom:50px;left:50%;transform:translateX(-50%);width:120px;height:30px;z-index:41;display:none;flex-direction:column;align-items:center;justify-content:center;cursor:pointer;touch-action:none;padding-bottom:4px;">
+  <div style="width:48px;height:4px;border-radius:2px;background:rgba(255,255,255,0.4);margin-bottom:4px;box-shadow:0 0 8px rgba(0,0,0,0.6)"></div>
+  <div style="font-family:'JetBrains Mono',monospace;font-size:9px;letter-spacing:0.2em;color:rgba(255,255,255,0.55);text-transform:uppercase">↑ RADAR</div>
+</div>
+
+<!-- V11.4.2: Radar bottom sheet -->
+<div id="radar-sheet" style="position:fixed;bottom:0;left:0;right:0;z-index:42;background:rgba(8,12,16,0.78);backdrop-filter:blur(40px);-webkit-backdrop-filter:blur(40px);border-top:1px solid rgba(255,255,255,0.08);border-radius:24px 24px 0 0;padding:14px 20px 28px 20px;transform:translateY(100%);transition:transform 0.32s cubic-bezier(0.32,0.72,0,1);display:none;touch-action:none;box-shadow:0 -20px 50px rgba(0,0,0,0.5)">
+  <div style="width:40px;height:4px;border-radius:2px;background:rgba(255,255,255,0.25);margin:0 auto 14px auto"></div>
+  <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px;padding:0 4px">
+    <div>
+      <div id="radar-sheet-naam" style="font-family:'Geist','Inter',sans-serif;font-size:13px;font-weight:600;color:rgba(255,255,255,0.95);letter-spacing:-0.01em">Radar</div>
+      <div id="radar-sheet-sub" style="font-family:'JetBrains Mono',monospace;font-size:10px;letter-spacing:0.1em;color:rgba(255,255,255,0.45);text-transform:uppercase;margin-top:2px">tik een node om te selecteren</div>
+    </div>
+    <div style="font-family:'JetBrains Mono',monospace;font-size:9px;letter-spacing:0.12em;color:rgba(255,255,255,0.35);text-transform:uppercase">↓ veeg om te sluiten</div>
+  </div>
+  <canvas id="radar-sheet-canvas" style="display:block;margin:0 auto;width:100%;max-width:340px;aspect-ratio:1;cursor:pointer;touch-action:none"></canvas>
+  <div id="radar-sheet-nodes" style="margin-top:14px;max-height:80px;overflow-y:auto;padding:0 4px"></div>
+</div>
 
 </body>
 </html>
