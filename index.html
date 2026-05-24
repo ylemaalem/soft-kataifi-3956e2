@@ -397,7 +397,7 @@
 <div id="startscherm">
   <div id="s-icoon">🚦</div>
   <div id="s-titel">Stoplicht<span>IQ</span></div>
-  <div id="s-versie">V11.4.3 — Leergeheugen fix: roodStartWasPartieel verwijderd</div>
+  <div id="s-versie">V11.4.3b — Cleanup: CLICK FIRED log + klasse export veld</div>
   <div id="s-model-wrap">
     <div id="s-model-rij">
       <div id="s-model-label">🤖 YOLOv8 model laden…</div>
@@ -595,7 +595,7 @@
 
 <script>
 // ═══════════════════════════════════════════════════════════════
-//  StoplichtIQ V11.4.3
+//  StoplichtIQ V11.4.3b
 //  V11: Leergeheugen audit + genius implementaties
 //  — S1+S2 bevestiging (kruispunt-level confidence)
 //  — Route-herkenning basis (sequentie-opslag)
@@ -1583,7 +1583,6 @@ let tapGekozenTijd = 0;
 const TAP_BBOX_TIMEOUT = 30000;
 
 canvas.addEventListener('click', (e) => {
-  console.log('CLICK FIRED', e.clientX, e.clientY);
   if (!laatsteDetecties || !laatsteDetecties.length) return;
   if (!canvas.width || !lbScale) return;
 
@@ -2938,7 +2937,7 @@ function tijdGeleden(ts) {
 // ── DATA EXPORT/IMPORT ────────────────────────────────────────
 function exporteerData() {
   try {
-    const exportData = { versie:'11.4.3', exportDatum:new Date().toISOString(), app:'StoplichtIQ', data:{}, scores:{} };
+    const exportData = { versie:'11.4.3b', exportDatum:new Date().toISOString(), app:'StoplichtIQ', data:{}, scores:{} };
     for (const key of Object.keys(localStorage)) {
       if (key.startsWith('sl_v10_')||key.startsWith('sl_v5_')||key.startsWith('sl_v4_')||key.startsWith('sl_v3_')||key.startsWith('sl_tag_')||key.startsWith('sl_naam_')||key.startsWith('sl_richting_')||key.startsWith('sl_route_')||key==='sl_stad_cache') {
         try { exportData.data[key] = JSON.parse(localStorage.getItem(key)); }
@@ -4141,7 +4140,11 @@ async function exporteerTrainframes() {
       const exportData = {
         versie:'8.5', app:'StoplichtIQ', exportDatum:new Date().toISOString(),
         aantalFrames:frames.length,
-        frames:frames.map(f=>({ naam:`train_${f.tijd}.jpg`, jpeg:f.jpeg, label:f.label, bron:f.bron, tijd:f.tijd }))
+        frames:frames.map(f => {
+          const klasseNr = parseInt((f.label || '').split(' ')[0]);
+          const klasseNaam = klasseNr === 0 ? 'rood' : klasseNr === 1 ? 'groen' : klasseNr === 3 ? 'oranje' : 'onbekend';
+          return { naam:`train_${f.tijd}.jpg`, jpeg:f.jpeg, label:f.label, bron:f.bron, tijd:f.tijd, klasse:klasseNaam };
+        })
       };
       const bestandsnaam = `stoplichtiq-trainframes-${new Date().toISOString().slice(0,10)}.json`;
       const jsonString   = JSON.stringify(exportData);
