@@ -820,7 +820,7 @@ function berekenObsScore(metingen) {
 function berekenLeerPct(osmId) {
   const alleM = [];
   for (const d of Object.keys(DD)) alleM.push(...laadM(osmId, d));
-  if (!alleM.length) return 0;
+  if (!alleM.length) { console.log('LEER PCT', osmId, 'geen metingen', 0); return 0; }
   const obsPct = berekenObsScore(alleM);
   const gem = gewGem(alleM);
   const s2Bonus = alleM.length >= 3 && gem
@@ -830,7 +830,9 @@ function berekenLeerPct(osmId) {
     const rd = JSON.parse(localStorage.getItem(`sl_richting_${osmId}`));
     if (rd && rd.gps_tik_score != null) gpsTikBonus = Math.round(rd.gps_tik_score * 5);
   } catch(e) {}
-  return Math.min(95, obsPct + s2Bonus + gpsTikBonus);
+  const resultaat = Math.min(95, obsPct + s2Bonus + gpsTikBonus);
+  console.log('LEER PCT', osmId, { aantalM: alleM.length, obsPct, s2Bonus, gpsTikBonus }, resultaat);
+  return resultaat;
 }
 
 function leerKleur(pct) {
@@ -882,10 +884,11 @@ function bepaalTier(osmId) {
 }
 
 function slaOp(osmId, richting, duur, conf=null, bypassAfstand=false) {
-  if (!osmId || duur < 4 || duur > 300) return false;
+  console.log('METING START', osmId, fase, duur);
+  if (!osmId || duur < 4 || duur > 300) { console.log('METING GEBLOKKEERD', 'duur buiten bereik of geen osmId', { osmId, duur }); return false; }
   const obsNu = faseStart ? Math.round((performance.now() - faseStart) / 1000) : null;
   const totaalMCheck = Object.keys(DD).reduce((s, d) => s + laadM(osmId, d).length, 0);
-  if (totaalMCheck === 0 && (obsNu == null || obsNu < OBS_MINIMUM) && conf != null && conf < 0.20) return false;
+  if (totaalMCheck === 0 && (obsNu == null || obsNu < OBS_MINIMUM) && conf != null && conf < 0.20) { console.log('METING GEBLOKKEERD', 'nieuwe node + obs<3s + conf<0.20', { totaalMCheck, obsNu, conf }); return false; }
   if (!bypassAfstand) {
     const afstandM = dichtstbijOSM?.afstand;
     const maxAfstand = (typeof handmatigLockActief !== 'undefined' && handmatigLockActief) ? 120 : V9_MAX_LEER_AFSTAND;
@@ -897,6 +900,7 @@ function slaOp(osmId, richting, duur, conf=null, bypassAfstand=false) {
           localStorage.setItem('sl_cam_stats', JSON.stringify(stats));
         }
       } catch(e) {}
+      console.log('METING GEBLOKKEERD', 'te ver weg', { afstandM, maxAfstand });
       return false;
     }
   }
@@ -962,7 +966,7 @@ function berekenObsGewicht(obs, bron, heeftHandmatigeTap) {
 
 function slaOpIntern(osmId, richting, duur, gewichtOverride, dd, bron='s1', conf=null) {
   let m = laadM(osmId, dd);
-  if (!isMetingBetrouwbaar(duur, m)) return false;
+  if (!isMetingBetrouwbaar(duur, m)) { console.log('METING GEBLOKKEERD', 'isMetingBetrouwbaar=false', { osmId, duur, aantalBestaand: m.length }); return false; }
   const gewijzigd = checkAfwijking(duur, gewGem(m), m);
   if (gewijzigd) m = [];
   const obs = faseStart ? Math.round((performance.now() - faseStart) / 1000) : null;
@@ -976,7 +980,7 @@ function slaOpIntern(osmId, richting, duur, gewichtOverride, dd, bron='s1', conf
   if (conf != null) entry.conf = Math.round(conf * 100) / 100;
   m.push(entry);
   if (m.length > MAX_METINGEN) { m.sort((a,b)=>gew(b.tijd)-gew(a.tijd)); m=m.slice(0,MAX_METINGEN); }
-  try { localStorage.setItem(`${LS_PREFIX}${osmId}_${dd}`, JSON.stringify(m)); } catch(e) {}
+  try { localStorage.setItem(`${LS_PREFIX}${osmId}_${dd}`, JSON.stringify(m)); console.log('METING OPGESLAGEN', osmId, gewicht, berekenLeerPct(osmId)); } catch(e) {}
   checkLocalStorageRuimte();
   return gewijzigd;
 }
