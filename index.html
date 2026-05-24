@@ -1602,6 +1602,7 @@ let tapGekozenTijd = 0;
 const TAP_BBOX_TIMEOUT = 30000;
 
 canvas.addEventListener('click', (e) => {
+  console.log('CLICK FIRED', e.clientX, e.clientY);
   if (!laatsteDetecties || !laatsteDetecties.length) return;
   if (!canvas.width || !lbScale) return;
 
