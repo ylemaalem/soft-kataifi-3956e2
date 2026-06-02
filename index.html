@@ -149,7 +149,7 @@
       display:flex;align-items:center;height:44px;
       padding:0 10px;gap:10px;
       padding-bottom:env(safe-area-inset-bottom,0px)}
-    #debug{flex:1;min-width:0;pointer-events:none;
+    #debug{flex:1;min-width:0;pointer-events:auto;
       font-family:'Share Tech Mono',monospace;font-size:9px;
       display:flex;gap:6px;flex-wrap:nowrap;opacity:0.8;
       overflow:hidden;white-space:nowrap}
@@ -406,7 +406,7 @@
 <div id="startscherm">
   <div id="s-icoon">🚦</div>
   <div id="s-titel">Stoplicht<span>IQ</span></div>
-  <div id="s-versie">V11.4.4b — Scherm-debug logging</div>
+  <div id="s-versie">V11.4.4c — Debug-balk tapbaar</div>
   <div id="s-model-wrap">
     <div id="s-model-rij">
       <div id="s-model-label">🤖 YOLOv8 model laden…</div>
@@ -604,7 +604,7 @@
 
 <script>
 // ═══════════════════════════════════════════════════════════════
-//  StoplichtIQ V11.4.4b
+//  StoplichtIQ V11.4.4c
 //  V11: Leergeheugen audit + genius implementaties
 //  — S1+S2 bevestiging (kruispunt-level confidence)
 //  — Route-herkenning basis (sequentie-opslag)
@@ -890,7 +890,7 @@ function bepaalTier(osmId) {
   return 3; // partieel — standaard voor camera-meting zonder volledige cyclus
 }
 
-// ── V11.4.4b: Scherm-debug logging ───────────────────────────
+// ── V11.4.4c: Scherm-debug logging ───────────────────────────
 function leerLog(tekst) {
   console.log(tekst);
   const el = document.getElementById('leer-log');
