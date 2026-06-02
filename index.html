@@ -882,6 +882,7 @@ function bepaalTier(osmId) {
 }
 
 function slaOp(osmId, richting, duur, conf=null, bypassAfstand=false) {
+  console.log('SLAOP AANGEROEPEN', osmId, duur, 'conf:', conf);
   if (!osmId || duur < 4 || duur > 300) return false;
   const obsNu = faseStart ? Math.round((performance.now() - faseStart) / 1000) : null;
   const totaalMCheck = Object.keys(DD).reduce((s, d) => s + laadM(osmId, d).length, 0);
@@ -1322,6 +1323,8 @@ function kiesCountdownBron(nodeId, dd, aanrijRichting, preSelectieAfrij) {
 
 // ── V9.0: DELAYED WRITE ───────────────────────────────────────
 function voerV9DelayedWriteUit(huidigeHeading) {
+  console.log('V9 DELAYED WRITE START', 'kandidaatDuur:', v9KandidaatDuur,
+    'kandidaatNode:', v9KandidaatNode);
   if (!v9DelayedWriteActief || !v9KandidaatNode || !v9KandidaatDuur) {
     resetV9Staat();
     return;
@@ -1365,6 +1368,7 @@ function voerV9DelayedWriteUit(huidigeHeading) {
   }
 
   // Schrijf V5
+  console.log('V9 DELAYED WRITE SLAAT OP', v9KandidaatNode, duur, 'richting:', aanrijRichting + '→' + afrijRichting);
   slaOpV5(v9KandidaatNode, aanrijRichting, afrijRichting, dd, duur, gewicht);
 
   // Schrijf ook V4 parallel (backward compatibility)
@@ -2385,6 +2389,10 @@ function verwerkFase(nieuw, horizontaal, conf=null) {
     const dur = (nu - faseStart) / 1000;
     if (fase === 'rood' && dur > 8 && dur < 300 && dichtstbijOSM) {
       const afstandM = dichtstbijOSM.afstand;
+      console.log('VERWERKFASE CHECK', 'fase:', fase, 'dur:', dur,
+        'v9Delay:', v9DelayedWriteActief,
+        'nodeId:', nodeId,
+        'afstand:', dichtstbijOSM && dichtstbijOSM.afstand);
       // V9.0: Leerafstand check — >80m: niet leren
       if (typeof afstandM !== 'number' || isNaN(afstandM) || afstandM <= V9_MAX_LEER_AFSTAND) {
         if (nodeId && !v9DelayedWriteActief) {
