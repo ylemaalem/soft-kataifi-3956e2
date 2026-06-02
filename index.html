@@ -380,8 +380,17 @@
   </div>
 </div>
 
+<div id="leer-log" style="
+  position:fixed; bottom:60px; left:0; right:0;
+  background:rgba(0,0,0,0.85); color:#00ff88;
+  font-family:monospace; font-size:10px;
+  padding:4px 8px; z-index:999;
+  max-height:80px; overflow-y:auto;
+  display:none;
+"></div>
+
 <div id="bodem-balk">
-  <div id="debug">
+  <div id="debug" onclick="toggleLeerLog()" style="cursor:pointer">
     <span id="d-ai">ai:—</span>
     <span id="d-pct">leer:—</span>
     <span id="d-osm">osm:—</span>
@@ -397,7 +406,7 @@
 <div id="startscherm">
   <div id="s-icoon">🚦</div>
   <div id="s-titel">Stoplicht<span>IQ</span></div>
-  <div id="s-versie">V11.4.4 — Radar zoom + camera tap fix + bbox tracking</div>
+  <div id="s-versie">V11.4.4b — Scherm-debug logging</div>
   <div id="s-model-wrap">
     <div id="s-model-rij">
       <div id="s-model-label">🤖 YOLOv8 model laden…</div>
@@ -595,7 +604,7 @@
 
 <script>
 // ═══════════════════════════════════════════════════════════════
-//  StoplichtIQ V11.4.4
+//  StoplichtIQ V11.4.4b
 //  V11: Leergeheugen audit + genius implementaties
 //  — S1+S2 bevestiging (kruispunt-level confidence)
 //  — Route-herkenning basis (sequentie-opslag)
@@ -881,8 +890,26 @@ function bepaalTier(osmId) {
   return 3; // partieel — standaard voor camera-meting zonder volledige cyclus
 }
 
+// ── V11.4.4b: Scherm-debug logging ───────────────────────────
+function leerLog(tekst) {
+  console.log(tekst);
+  const el = document.getElementById('leer-log');
+  if (!el) return;
+  const regel = document.createElement('div');
+  regel.textContent = new Date().toLocaleTimeString('nl') + ' ' + tekst;
+  el.appendChild(regel);
+  el.scrollTop = el.scrollHeight;
+  while (el.children.length > 20) el.removeChild(el.firstChild);
+}
+
+function toggleLeerLog() {
+  const el = document.getElementById('leer-log');
+  if (!el) return;
+  el.style.display = el.style.display === 'none' ? 'block' : 'none';
+}
+
 function slaOp(osmId, richting, duur, conf=null, bypassAfstand=false) {
-  console.log('SLAOP AANGEROEPEN', osmId, duur, 'conf:', conf);
+  leerLog('SLAOP node:' + osmId + ' duur:' + duur + ' conf:' + (conf ? conf.toFixed(2) : '?'));
   if (!osmId || duur < 4 || duur > 300) return false;
   const obsNu = faseStart ? Math.round((performance.now() - faseStart) / 1000) : null;
   const totaalMCheck = Object.keys(DD).reduce((s, d) => s + laadM(osmId, d).length, 0);
@@ -1323,8 +1350,7 @@ function kiesCountdownBron(nodeId, dd, aanrijRichting, preSelectieAfrij) {
 
 // ── V9.0: DELAYED WRITE ───────────────────────────────────────
 function voerV9DelayedWriteUit(huidigeHeading) {
-  console.log('V9 DELAYED WRITE START', 'kandidaatDuur:', v9KandidaatDuur,
-    'kandidaatNode:', v9KandidaatNode);
+  leerLog('V9START duur:' + v9KandidaatDuur + ' node:' + v9KandidaatNode);
   if (!v9DelayedWriteActief || !v9KandidaatNode || !v9KandidaatDuur) {
     resetV9Staat();
     return;
@@ -1368,7 +1394,7 @@ function voerV9DelayedWriteUit(huidigeHeading) {
   }
 
   // Schrijf V5
-  console.log('V9 DELAYED WRITE SLAAT OP', v9KandidaatNode, duur, 'richting:', aanrijRichting + '→' + afrijRichting);
+  leerLog('V9SCHRIJF node:' + v9KandidaatNode + ' duur:' + duur);
   slaOpV5(v9KandidaatNode, aanrijRichting, afrijRichting, dd, duur, gewicht);
 
   // Schrijf ook V4 parallel (backward compatibility)
@@ -2389,10 +2415,11 @@ function verwerkFase(nieuw, horizontaal, conf=null) {
     const dur = (nu - faseStart) / 1000;
     if (fase === 'rood' && dur > 8 && dur < 300 && dichtstbijOSM) {
       const afstandM = dichtstbijOSM.afstand;
-      console.log('VERWERKFASE CHECK', 'fase:', fase, 'dur:', dur,
-        'v9Delay:', v9DelayedWriteActief,
-        'nodeId:', nodeId,
-        'afstand:', dichtstbijOSM && dichtstbijOSM.afstand);
+      leerLog('VERWERKFASE fase:' + fase +
+        ' dur:' + Math.round(dur) +
+        ' v9D:' + v9DelayedWriteActief +
+        ' node:' + nodeId +
+        ' afst:' + (dichtstbijOSM ? Math.round(dichtstbijOSM.afstand) : '?'));
       // V9.0: Leerafstand check — >80m: niet leren
       if (typeof afstandM !== 'number' || isNaN(afstandM) || afstandM <= V9_MAX_LEER_AFSTAND) {
         if (nodeId && !v9DelayedWriteActief) {
