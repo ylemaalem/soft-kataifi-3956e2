@@ -406,7 +406,7 @@
 <div id="startscherm">
   <div id="s-icoon">🚦</div>
   <div id="s-titel">Stoplicht<span>IQ</span></div>
-  <div id="s-versie">V11.4.4c — Debug-balk tapbaar</div>
+  <div id="s-versie">V11.4.5 — Bbox tap override</div>
   <div id="s-model-wrap">
     <div id="s-model-rij">
       <div id="s-model-label">🤖 YOLOv8 model laden…</div>
@@ -604,7 +604,7 @@
 
 <script>
 // ═══════════════════════════════════════════════════════════════
-//  StoplichtIQ V11.4.4c
+//  StoplichtIQ V11.4.5
 //  V11: Leergeheugen audit + genius implementaties
 //  — S1+S2 bevestiging (kruispunt-level confidence)
 //  — Route-herkenning basis (sequentie-opslag)
@@ -890,7 +890,7 @@ function bepaalTier(osmId) {
   return 3; // partieel — standaard voor camera-meting zonder volledige cyclus
 }
 
-// ── V11.4.4c: Scherm-debug logging ───────────────────────────
+// ── V11.4.5: Scherm-debug logging ────────────────────────────
 function leerLog(tekst) {
   console.log(tekst);
   const el = document.getElementById('leer-log');
@@ -994,9 +994,7 @@ function slaOpIntern(osmId, richting, duur, gewichtOverride, dd, bron='s1', conf
   const gewijzigd = checkAfwijking(duur, gewGem(m), m);
   if (gewijzigd) m = [];
   const obs = faseStart ? Math.round((performance.now() - faseStart) / 1000) : null;
-  const heeftTap = (typeof tapGekozenBbox !== 'undefined'
-    && tapGekozenBbox !== null
-    && Date.now() - tapGekozenTijd < TAP_BBOX_TIMEOUT);
+  const heeftTap = (typeof bboxOverride !== 'undefined' && bboxOverride !== null);
   const gewicht = gewichtOverride != null
     ? gewichtOverride
     : berekenObsGewicht(obs, bron, heeftTap);
@@ -1616,16 +1614,21 @@ const AFRIJ_MIN_SNELHEID_KMU = 8;
 let richtingLockNodeId = null;
 let richtingLockKeuze = null;
 
-// V11.2.3: Vingertap bbox selectie
+// V11.2.3: Vingertap bbox selectie — V11.4.5: persistent bboxOverride
 let laatsteDetecties = [];
-let tapGekozenBbox = null;
-let tapGekozenTijd = 0;
-const TAP_BBOX_TIMEOUT = 30000;
+// V11.4.5: bbox tap override — vergrendelt detectie op de YOLO-positie van de
+// getapte detectie. Geldig tot kruispuntwissel of resetNeutraal.
+// Opgeslagen in YOLO-pixels (cx,cy) — niet genormaliseerd.
+let bboxOverride = null;  // { cx: float, cy: float } in YOLO 0..640 ruimte
 
+// V11.4.5: Bbox tap override — vergrendelt detectie op dichtstbijzijnde bbox
+// bij de taplocatie. Werkt op middelpunt-afstand (cx/cy), niet op hit-test.
+// Override blijft actief tot kruispuntwissel of resetNeutraal.
 canvas.addEventListener('click', (e) => {
   if (!laatsteDetecties || !laatsteDetecties.length) return;
   if (!canvas.width || !lbScale) return;
 
+  // Schermtap → canvas-pixels → YOLO-ruimte (640) via bestaande letterbox-omzetting
   const cssW = canvas.offsetWidth;
   const cssH = canvas.offsetHeight;
   const rect = canvas.getBoundingClientRect();
@@ -1644,19 +1647,22 @@ canvas.addEventListener('click', (e) => {
   const yoloX = videoX * lbScale + lbPadX;
   const yoloY = videoY * lbScale + lbPadY;
 
-  const getroffen = laatsteDetecties.filter(d =>
-    yoloX >= d.x1 && yoloX <= d.x2 && yoloY >= d.y1 && yoloY <= d.y2
-  );
-  if (!getroffen.length) { tapGekozenBbox = null; return; }
-  getroffen.sort((a,b) => b.score - a.score);
-  tapGekozenBbox = getroffen[0];
-  tapGekozenTijd = Date.now();
+  // Dichtstbijzijnde detectie op basis van middelpunt-afstand in YOLO-ruimte
+  let dichtstbij = null;
+  let minAfst = Infinity;
+  for (const det of laatsteDetecties) {
+    const dx = det.cx - yoloX;
+    const dy = det.cy - yoloY;
+    const afst = Math.sqrt(dx*dx + dy*dy);
+    if (afst < minAfst) { minAfst = afst; dichtstbij = det; }
+  }
+  if (!dichtstbij) return;
+
+  // Vergrendel override op YOLO-positie (cx,cy in pixels)
+  bboxOverride = { cx: dichtstbij.cx, cy: dichtstbij.cy };
 
   // V11.4.2: visuele feedback marker (in canvas-pixel coords)
   cameraTapMarker = { x: videoX, y: videoY, tijd: Date.now() };
-
-  // V11.4.2: koppel bbox aan OSM node — skip als al actief
-  try { koppelBboxAanNode(tapGekozenBbox); } catch(err) {}
 });
 
 // Debug
@@ -1933,13 +1939,19 @@ function selecteerBesteDetectie(detecties) {
   const bruikbaar = detecties.filter(d => KLASSE_MAP[d.klasse]);
   if (!bruikbaar.length) return { s1:null, s2Rest:[] };
 
-  // V11.2.3: Vingertap override — direct teruggeven
-  if (tapGekozenBbox && Date.now() - tapGekozenTijd < TAP_BBOX_TIMEOUT) {
-    const match = bruikbaar.find(d =>
-      Math.abs(d.cx - tapGekozenBbox.cx) < 30 &&
-      Math.abs(d.cy - tapGekozenBbox.cy) < 30
-    );
-    if (match) return { s1:match, s2Rest:bruikbaar.filter(d => d !== match) };
+  // V11.4.5: bbox override — kies dichtstbijzijnde detectie t.o.v. vergrendelde positie
+  // Geen timeout, geen tolerantiegrens — winnaar is altijd de dichtstbijzijnde.
+  if (bboxOverride !== null) {
+    let besteOv = null;
+    let minOvAfst = Infinity;
+    for (const det of bruikbaar) {
+      const dx = det.cx - bboxOverride.cx;
+      const dy = det.cy - bboxOverride.cy;
+      const afst = Math.sqrt(dx*dx + dy*dy);
+      if (afst < minOvAfst) { minOvAfst = afst; besteOv = det; }
+    }
+    if (besteOv) return { s1: besteOv, s2Rest: bruikbaar.filter(d => d !== besteOv) };
+    // Als bruikbaar leeg is: val terug op normale scoring (return niet vroeg)
   }
 
   const gpsAf = dichtstbijOSM ? dichtstbijOSM.afstand : 999;
@@ -1990,9 +2002,9 @@ function selecteerBesteDetectie(detecties) {
     if (horAfwijking > 0.45) rijbaanPenalty = 0.25;      // extreme penalty
     else if (horAfwijking > 0.35) rijbaanPenalty = 0.40;  // zware penalty
 
-    // V11.2.3: Rijrichting bonus bij ≥2 dicht-bij-elkaar detecties zonder tap
+    // V11.4.5: Rijrichting bonus bij ≥2 dicht-bij-elkaar detecties zonder bbox override
     let richtingBonus = 0;
-    if (bruikbaar.length >= 2 && !(tapGekozenBbox && Date.now() - tapGekozenTijd < TAP_BBOX_TIMEOUT)) {
+    if (bruikbaar.length >= 2 && bboxOverride === null) {
       const andere = bruikbaar.find(d2 => d2 !== det && zijnDichtBijElkaar(det, d2));
       if (andere) {
         const normCx = det.cx / YOLO_SIZE;
@@ -2188,7 +2200,7 @@ function tekenOverlay(box, score, horizontaal) {
   octx.stroke(); octx.shadowBlur=0;
   if (box.kleur) {
     octx.fillStyle=kCSS; octx.globalAlpha=0.9; octx.font='bold 13px monospace';
-    const tapIndicator = (tapGekozenBbox && Date.now() - tapGekozenTijd < TAP_BBOX_TIMEOUT) ? ' 👆' : '';
+    const tapIndicator = (typeof bboxOverride !== 'undefined' && bboxOverride !== null) ? ' 🔒' : '';
     const label = `${box.kleur.toUpperCase()}${horizontaal?' ↔':' ↕'}${score?' '+(score*100).toFixed(0)+'%':''}${tapIndicator}`;
     octx.fillText(label, x1, y1-6);
   }
@@ -2357,6 +2369,8 @@ function resetNeutraal() {
   faseBalk.className=''; faseLamp.className='';
   faseWoord.textContent='—'; faseSub.textContent='Richt camera op stoplicht';
   faseBron.textContent=''; randGlow.className=''; vorigeDetectie=null;
+  // V11.4.5: bbox override vrijgeven bij volledige reset
+  bboxOverride = null;
   // Zoom ontgrendelen
   zoomVergrendeld=false; huidigActiefStoplichtPositie=null;
   // V8.8: Tikinterface verbergen
@@ -2405,7 +2419,7 @@ function verwerkFase(nieuw, horizontaal, conf=null) {
   }
   if (nieuw === 'groen') {
     groenStart = nu;
-    tapGekozenBbox = null;
+    // V11.4.5: bboxOverride NIET resetten bij fase-wissel — vergrendeling blijft hele kruispunt
   } else if (nieuw === 'rood') {
     groenStart = null; groenDuur = 0;
   }
@@ -4305,7 +4319,7 @@ function updateDichtbij(lat, lon) {
     vorigOsmId=nieuw.id; dichtstbijOSM=nieuw; afwijkBuf=[];
     activeCdDoel = gewGem(laadM(nieuw.id, huidigDDActief())) || 0;
     bijwerkLeerkaart(nieuw); bijwerkDashboardKnop();
-    tapGekozenBbox = null;
+    bboxOverride = null;  // V11.4.5: override vervalt bij echte node-wissel
     resetRijrichtingState();
     // V10.0.3: Richtingkeuze lock vervalt alleen bij echte node-wissel (>60m van locked node + snelheid)
     if (richtingLockNodeId && richtingLockNodeId !== String(nieuw.id)) {
@@ -5214,7 +5228,7 @@ function koppelBboxAanNode(bbox) {
   // Skip als bbox+node combinatie al actief is
   const reedsActiefNode = handmatigGeselecteerdNodeId
     || (dichtstbijOSM ? String(dichtstbijOSM.id) : null);
-  // tapGekozenBbox is hier al de zojuist getapte bbox
+  // bbox parameter is hier de zojuist getapte detectie (cx,cy in YOLO ruimte)
   const heading = (typeof getSmoothedHeading === 'function')
     ? (getSmoothedHeading() || 0) : 0;
   // bbox.cx is in YOLO_SIZE coords (0..YOLO_SIZE)
