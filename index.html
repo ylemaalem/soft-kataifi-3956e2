@@ -406,7 +406,7 @@
 <div id="startscherm">
   <div id="s-icoon">🚦</div>
   <div id="s-titel">Stoplicht<span>IQ</span></div>
-  <div id="s-versie">V11.4.5 — Bbox tap override</div>
+  <div id="s-versie">V11.5.0 — Volledige cyclus opslag</div>
   <div id="s-model-wrap">
     <div id="s-model-rij">
       <div id="s-model-label">🤖 YOLOv8 model laden…</div>
@@ -604,7 +604,7 @@
 
 <script>
 // ═══════════════════════════════════════════════════════════════
-//  StoplichtIQ V11.4.5
+//  StoplichtIQ V11.5.0
 //  V11: Leergeheugen audit + genius implementaties
 //  — S1+S2 bevestiging (kruispunt-level confidence)
 //  — Route-herkenning basis (sequentie-opslag)
@@ -684,6 +684,7 @@ const OBS_DEFAULT = 20;
 const OBS_S2 = 0.1;
 const OBS_PROXY = 0.1;
 const OBS_TAP_BONUS = 0.2;
+const VOLLEDIG_CYCLUS_GEWICHT = 1.5;
 // Legacy referentie:
 // TIER1_GEWICHT=1.0 → obs>=45s, TIER2=0.6 → obs~27s, TIER3=0.3 → obs~13s, TIER4=0.1 → S2/proxy
 
@@ -908,7 +909,7 @@ function toggleLeerLog() {
   el.style.display = el.style.display === 'none' ? 'block' : 'none';
 }
 
-function slaOp(osmId, richting, duur, conf=null, bypassAfstand=false) {
+function slaOp(osmId, richting, duur, conf=null, bypassAfstand=false, gewichtOverride=null) {
   leerLog('SLAOP node:' + osmId + ' duur:' + duur + ' conf:' + (conf ? conf.toFixed(2) : '?'));
   if (!osmId || duur < 4 || duur > 300) return false;
   const obsNu = faseStart ? Math.round((performance.now() - faseStart) / 1000) : null;
@@ -934,13 +935,13 @@ function slaOp(osmId, richting, duur, conf=null, bypassAfstand=false) {
     const ddStart = huidigDDActief(faseStartTs);
     const ddEinde = huidigDDActief();
     if (ddStart !== ddEinde) {
-      slaOpIntern(osmId, richting, duur, 0.5, ddStart, 's1', conf);
-      result = slaOpIntern(osmId, richting, duur, 0.5, ddEinde, 's1', conf);
+      slaOpIntern(osmId, richting, duur, gewichtOverride != null ? gewichtOverride : 0.5, ddStart, 's1', conf);
+      result = slaOpIntern(osmId, richting, duur, gewichtOverride != null ? gewichtOverride : 0.5, ddEinde, 's1', conf);
     } else {
-      result = slaOpIntern(osmId, richting, duur, null, ddStart, 's1', conf);
+      result = slaOpIntern(osmId, richting, duur, gewichtOverride, ddStart, 's1', conf);
     }
   } else {
-    result = slaOpIntern(osmId, richting, duur, null, huidigDDActief(), 's1', conf);
+    result = slaOpIntern(osmId, richting, duur, gewichtOverride, huidigDDActief(), 's1', conf);
   }
   voegToeAanRouteBuffer(osmId, duur);
   // W5: sl_pos_ opslaan
@@ -951,6 +952,67 @@ function slaOp(osmId, richting, duur, conf=null, bypassAfstand=false) {
     } catch(e) {}
   }
   return result;
+}
+
+// V11.5.0: Groene fase opslaan voor volledige cyclus dataset
+function slaGroenOp(osmId, richting, duur, obs) {
+  if (!osmId || !duur || duur < 3 || duur > 300) return;
+  const dd = (typeof huidigDagdeelFinaal !== 'undefined'
+    && huidigDagdeelFinaal) ? huidigDagdeelFinaal : huidigDD();
+  const sleutel = `${LS_PREFIX}${osmId}_${dd}_groen`;
+  let m = [];
+  try {
+    const raw = localStorage.getItem(sleutel);
+    m = raw ? JSON.parse(raw) : [];
+    if (!Array.isArray(m)) m = [];
+  } catch(e) { m = []; }
+  const gewicht = berekenObsGewicht(obs || 30, 's1', false);
+  m.push({
+    duur: Math.round(duur),
+    tijd: Date.now(),
+    richting: Math.round(richting || 0),
+    obs: Math.round(obs || 30),
+    gewicht: Math.round(gewicht * 100) / 100
+  });
+  if (m.length > MAX_METINGEN) {
+    m.sort((a,b) => (b.gewicht||1) - (a.gewicht||1));
+    m = m.slice(0, MAX_METINGEN);
+  }
+  try {
+    localStorage.setItem(sleutel, JSON.stringify(m));
+  } catch(e) {}
+}
+
+function laadGroenM(osmId, dd) {
+  try {
+    const sleutel = `${LS_PREFIX}${osmId}_${dd}_groen`;
+    const raw = localStorage.getItem(sleutel);
+    const m = raw ? JSON.parse(raw) : [];
+    return Array.isArray(m) ? m : [];
+  } catch(e) { return []; }
+}
+
+function gewGemGroen(metingen) {
+  if (!metingen || !metingen.length) return null;
+  const nu = Date.now();
+  const dag = 86400000;
+  let totaalGewicht = 0, gewogenSom = 0;
+  for (const m of metingen) {
+    const leeftijdDagen = (nu - (m.tijd || nu)) / dag;
+    const tijdGewicht = Math.pow(0.5, leeftijdDagen / 60);
+    const obsGewicht = m.gewicht || 1.0;
+    const totaal = tijdGewicht * obsGewicht;
+    gewogenSom += m.duur * totaal;
+    totaalGewicht += totaal;
+  }
+  return totaalGewicht > 0 ? gewogenSom / totaalGewicht : null;
+}
+
+function berekenCyclusTijd(osmId, dd) {
+  const roodGem = gewGem(laadM(osmId, dd));
+  const groenGem = gewGemGroen(laadGroenM(osmId, dd));
+  if (!roodGem || !groenGem) return null;
+  return Math.round(roodGem + groenGem + 3);
 }
 
 function migratieSlPos() {
@@ -1674,6 +1736,7 @@ let aiMissRuns=0; // teller opeenvolgende YOLO-runs zonder detectie — voor tol
 
 // V8.4: Cyclustijd + GLOSA + OSM voorspelling
 let groenStart=null, groenDuur=0;
+let laatsteGroenDuur=0, laatsteGroenNode=null;
 let huidigeGlosa=null, osmVoorspellingActief=false;
 let osmVoorspellingLaatstGecontroleerd=0;
 
@@ -2415,6 +2478,9 @@ function verwerkFase(nieuw, horizontaal, conf=null) {
     if (groenDuur > 3 && groenDuur < 300 && nodeId) {
       if (!sessieFasenGezien[nodeId]) sessieFasenGezien[nodeId] = {};
       sessieFasenGezien[nodeId].groenVolledig = true;
+      slaGroenOp(nodeId, huidigeRichting, groenDuur, groenDuur);
+      laatsteGroenDuur = groenDuur;
+      laatsteGroenNode = nodeId;
     }
   }
   if (nieuw === 'groen') {
@@ -2429,17 +2495,27 @@ function verwerkFase(nieuw, horizontaal, conf=null) {
     const dur = (nu - faseStart) / 1000;
     if (fase === 'rood' && dur > 8 && dur < 300 && dichtstbijOSM) {
       const afstandM = dichtstbijOSM.afstand;
+      const volledigeCyclus = berekenCyclusTijd(nodeId, huidigDDActief());
       leerLog('VERWERKFASE fase:' + fase +
         ' dur:' + Math.round(dur) +
         ' v9D:' + v9DelayedWriteActief +
         ' node:' + nodeId +
-        ' afst:' + (dichtstbijOSM ? Math.round(dichtstbijOSM.afstand) : '?'));
+        ' afst:' + (dichtstbijOSM ? Math.round(dichtstbijOSM.afstand) : '?') +
+        (volledigeCyclus ? ' cyclus:' + volledigeCyclus + 's' : ''));
       // V9.0: Leerafstand check — >80m: niet leren
       if (typeof afstandM !== 'number' || isNaN(afstandM) || afstandM <= V9_MAX_LEER_AFSTAND) {
         if (nodeId && !v9DelayedWriteActief) {
           if (!sessieFasenGezien[nodeId]) sessieFasenGezien[nodeId] = {};
           sessieFasenGezien[nodeId].roodVolledig = true;
-          slaOp(nodeId, huidigeRichting, dur, conf);
+          const isVolledigeCyclus = (laatsteGroenDuur > 3 && laatsteGroenNode === nodeId);
+          slaOp(nodeId, huidigeRichting, dur, conf, false,
+            isVolledigeCyclus ? VOLLEDIG_CYCLUS_GEWICHT : null);
+          if (isVolledigeCyclus) {
+            leerLog('VOLLEDIG cyclus: rood=' + Math.round(dur) +
+              's groen=' + Math.round(laatsteGroenDuur) + 's gewicht=1.5');
+          }
+          laatsteGroenDuur = 0;
+          laatsteGroenNode = null;
         }
         if (v9KandidaatNode === nodeId) {
           v9KandidaatDuur = dur;
