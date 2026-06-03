@@ -406,7 +406,7 @@
 <div id="startscherm">
   <div id="s-icoon">🚦</div>
   <div id="s-titel">Stoplicht<span>IQ</span></div>
-  <div id="s-versie">V11.5.2 — Fase-continuïteit bij dropout</div>
+  <div id="s-versie">V11.5.3 — 8s grens bypass bij volledige cyclus</div>
   <div id="s-model-wrap">
     <div id="s-model-rij">
       <div id="s-model-label">🤖 YOLOv8 model laden…</div>
@@ -604,7 +604,7 @@
 
 <script>
 // ═══════════════════════════════════════════════════════════════
-//  StoplichtIQ V11.5.2
+//  StoplichtIQ V11.5.3
 //  V11: Leergeheugen audit + genius implementaties
 //  — S1+S2 bevestiging (kruispunt-level confidence)
 //  — Route-herkenning basis (sequentie-opslag)
@@ -2497,7 +2497,9 @@ function verwerkFase(nieuw, horizontaal, conf=null) {
   // V11.4.3: Rode fase opslaan — partieel-onderscheid verwijderd, elke rood>8s is leerbaar
   if (fase && faseStart) {
     const dur = (nu - faseStart) / 1000;
-    if (fase === 'rood' && dur > 8 && dur < 300 && dichtstbijOSM) {
+    // V11.5.3: Volledige cyclus bypass — dur>3 i.p.v. dur>8
+    const minDur = (laatsteGroenDuur > 3 && laatsteGroenNode === nodeId) ? 3 : 8;
+    if (fase === 'rood' && dur > minDur && dur < 300 && dichtstbijOSM) {
       const afstandM = dichtstbijOSM.afstand;
       const volledigeCyclus = berekenCyclusTijd(nodeId, huidigDDActief());
       leerLog('VERWERKFASE fase:' + fase +
