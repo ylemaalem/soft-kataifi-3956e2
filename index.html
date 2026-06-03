@@ -406,7 +406,7 @@
 <div id="startscherm">
   <div id="s-icoon">🚦</div>
   <div id="s-titel">Stoplicht<span>IQ</span></div>
-  <div id="s-versie">V11.5.0 — Volledige cyclus opslag</div>
+  <div id="s-versie">V11.5.2 — Fase-continuïteit bij dropout</div>
   <div id="s-model-wrap">
     <div id="s-model-rij">
       <div id="s-model-label">🤖 YOLOv8 model laden…</div>
@@ -604,7 +604,7 @@
 
 <script>
 // ═══════════════════════════════════════════════════════════════
-//  StoplichtIQ V11.5.0
+//  StoplichtIQ V11.5.2
 //  V11: Leergeheugen audit + genius implementaties
 //  — S1+S2 bevestiging (kruispunt-level confidence)
 //  — Route-herkenning basis (sequentie-opslag)
@@ -1576,6 +1576,7 @@ const dInfo=document.getElementById('d-info');
 // ── APP STAAT ─────────────────────────────────────────────────
 let onnxSession=null, modelGeladen=false, modelLaadStart=null;
 let fase=null, faseStart=null, activeCdDoel=0, cdStart=null;
+let laatsteFase=null, laatsteFaseStart=null;
 let geluidAan=true, isNacht=false;
 let huidigePos=null, huidigeRichting=0;
 let dichtstbijOSM=null, vorigOsmId=null;
@@ -2399,6 +2400,9 @@ function verwerkDetecties() {
   geenTeller++;
   debugWaarden.info = `geen(${geenTeller}/${GEEN_RESET}) miss:${aiMissRuns}`;
   if (geenTeller >= GEEN_RESET && fase !== null) {
+    // V11.5.2: Bewaar fase-state voor dropout herstel
+    laatsteFase = fase;
+    laatsteFaseStart = faseStart;
     huidigBevestigdOsmNodeId = null;
     verbergTagUI();
     resetNeutraal();
@@ -2539,6 +2543,21 @@ function verwerkFase(nieuw, horizontaal, conf=null) {
     oranjeCollapseTrigger = false;
   }
   fase = nieuw; faseStart = nu; geenTeller = 0; aiTeller = 0; aiKleur = nieuw;
+  // V11.5.2: Fase-continuïteit bij dropout
+  if (nieuw === laatsteFase && laatsteFaseStart) {
+    const tussentijd = (nu - laatsteFaseStart) / 1000;
+    if (tussentijd < 120) {
+      faseStart = laatsteFaseStart;
+      if (nieuw === 'groen' && !groenStart) {
+        groenStart = laatsteFaseStart;
+      }
+      leerLog('CONTINUITEIT: ' + nieuw + ' hersteld, start=' + Math.round(tussentijd) + 's geleden');
+    }
+  }
+  if (nieuw !== laatsteFase) {
+    laatsteFase = nieuw;
+    laatsteFaseStart = faseStart;
+  }
   updateUI(nieuw, horizontaal);
   if (nieuw === 'groen') speelGroen();
   if (nieuw === 'rood') {
