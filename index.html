@@ -406,7 +406,7 @@
 <div id="startscherm">
   <div id="s-icoon">🚦</div>
   <div id="s-titel">Stoplicht<span>IQ</span></div>
-  <div id="s-versie">V11.5.3 — 8s grens bypass bij volledige cyclus</div>
+  <div id="s-versie">V11.5.4 — HUD kleur bewaren bij kort dropout</div>
   <div id="s-model-wrap">
     <div id="s-model-rij">
       <div id="s-model-label">🤖 YOLOv8 model laden…</div>
@@ -604,7 +604,7 @@
 
 <script>
 // ═══════════════════════════════════════════════════════════════
-//  StoplichtIQ V11.5.3
+//  StoplichtIQ V11.5.4
 //  V11: Leergeheugen audit + genius implementaties
 //  — S1+S2 bevestiging (kruispunt-level confidence)
 //  — Route-herkenning basis (sequentie-opslag)
@@ -1577,6 +1577,7 @@ const dInfo=document.getElementById('d-info');
 let onnxSession=null, modelGeladen=false, modelLaadStart=null;
 let fase=null, faseStart=null, activeCdDoel=0, cdStart=null;
 let laatsteFase=null, laatsteFaseStart=null;
+let faseBevestigd=null;                        // V11.5.4: HUD kleur bewaren bij kort dropout
 let geluidAan=true, isNacht=false;
 let huidigePos=null, huidigeRichting=0;
 let dichtstbijOSM=null, vorigOsmId=null;
@@ -2379,6 +2380,7 @@ function verwerkDetecties() {
         slaTrainframeOp('s1', kNr, (yx+yw/2)/YOLO_SIZE, (yy+yh/2)/YOLO_SIZE, yw/YOLO_SIZE, yh/YOLO_SIZE, false);
       }
       verwerkFase(aiR.kleur, aiR.horizontaal, aiR.score);
+      faseBevestigd = aiR.kleur;               // V11.5.4: HUD kleur vastleggen na bevestiging
     }
     return;
   }
@@ -2394,18 +2396,33 @@ function verwerkDetecties() {
       zoomVergrendeld = false;
       huidigActiefStoplichtPositie = null;
     }
-    if (fase === null) resetUIKleur();
+    // V11.5.4: HUD kleur bewaren bij kort dropout (geen flicker)
+    if (fase === null) {
+      if (faseBevestigd !== null) {
+        updateUIKleur(faseBevestigd, false);
+      } else {
+        resetUIKleur();
+      }
+    }
   }
 
   geenTeller++;
   debugWaarden.info = `geen(${geenTeller}/${GEEN_RESET}) miss:${aiMissRuns}`;
   if (geenTeller >= GEEN_RESET && fase !== null) {
+    // V11.5.4: Bewaar faseBevestigd als dropout korter dan 120s (HUD kleur bewaren)
+    const nu120 = Date.now();
+    const tussentijd120 = faseStart ? (nu120 - faseStart) / 1000 : 999;
+    const savedFaseBevestigd = (tussentijd120 < 120) ? faseBevestigd : null;
     // V11.5.2: Bewaar fase-state voor dropout herstel
     laatsteFase = fase;
     laatsteFaseStart = faseStart;
     huidigBevestigdOsmNodeId = null;
     verbergTagUI();
-    resetNeutraal();
+    resetNeutraal();                                        // wist fase, faseBevestigd
+    if (savedFaseBevestigd !== null) {
+      faseBevestigd = savedFaseBevestigd;                  // V11.5.4: herstel flag
+      updateUIKleur(savedFaseBevestigd, false);            // V11.5.4: directe HUD herstel (0ms flicker)
+    }
   }
 }
 
@@ -2432,7 +2449,7 @@ function resetUIKleur() {
 }
 
 function resetNeutraal() {
-  fase = null; faseStart = null;
+  fase = null; faseStart = null; faseBevestigd = null; // V11.5.4
   faseBalk.className=''; faseLamp.className='';
   faseWoord.textContent='—'; faseSub.textContent='Richt camera op stoplicht';
   faseBron.textContent=''; randGlow.className=''; vorigeDetectie=null;
@@ -2545,6 +2562,7 @@ function verwerkFase(nieuw, horizontaal, conf=null) {
     oranjeCollapseTrigger = false;
   }
   fase = nieuw; faseStart = nu; geenTeller = 0; aiTeller = 0; aiKleur = nieuw;
+  faseBevestigd = nieuw;                       // V11.5.4: Nieuwe fase direct bevestigen
   // V11.5.2: Fase-continuïteit bij dropout
   if (nieuw === laatsteFase && laatsteFaseStart) {
     const tussentijd = (nu - laatsteFaseStart) / 1000;
