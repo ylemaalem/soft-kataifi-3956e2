@@ -568,6 +568,11 @@
       <div id="cam-stats-teller" onclick="toonCamStats()" style="font-family:'Share Tech Mono',monospace;font-size:10px;color:rgba(255,255,255,0.45);cursor:pointer">0 locaties</div>
     </div>
   </div>
+  <!-- TIJDELIJK DEBUG KNOP — verwijderen na diagnose -->
+  <div style="padding:0 18px 8px">
+    <button onclick="(function(){const nodeId='6960792133';const dd='dag';const sleutel='sl_v4_'+nodeId+'_'+dd;const m=JSON.parse(localStorage.getItem(sleutel)||'[]');const nu=Date.now();let wS=0,gS=0;for(const x of m){const w=Math.exp(-(nu-x.tijd)/86400000/180);gS+=x.duur*w;wS+=w;}const gem=wS>0?gS/wS:null;const uniekeWaarden=[...new Set(m.map(x=>x.duur))];alert('Totaal: '+m.length+'\ngewGem: '+(gem?Math.round(gem*10)/10+'s':'null')+'\nEerste duur: '+(m[0]?.duur??'leeg')+'\nLaatste duur: '+(m[m.length-1]?.duur??'leeg')+'\nUniek: '+uniekeWaarden.slice(0,10).join(', '));})()" style="width:100%;padding:10px 14px;background:rgba(255,200,0,0.15);color:#ffc800;border:1px solid rgba(255,200,0,0.4);border-radius:8px;font-size:13px;cursor:pointer">🔍 Diagnose 6960792133</button>
+  </div>
+  <!-- /TIJDELIJK DEBUG KNOP -->
   <div id="dash-zoek-wrap" style="padding:8px 18px 0">
     <input id="dash-zoek" type="text" placeholder="Zoek kruispunt of tagtype…" oninput="zoekDashboard(this.value)"
       style="width:100%;padding:9px 14px;background:rgba(255,255,255,0.06);color:#fff;
