@@ -636,7 +636,7 @@ const MAX_METINGEN     = 50;
 const HALFWAARDETIJD_CYCLUS    = 180;  // cyclustijden — traag decay
 const HALFWAARDETIJD_PATROON   = 60;   // fase-percentages — middel decay
 const HALFWAARDETIJD_SPREIDING = 90;   // min/max bereiken — middel-traag decay
-const AFWIJKING_REEKS   = 10;          // was 5 — langere consistentie vereist
+const CYCLUS_RESET_REEKS = 5;
 const GEEN_RESET       = 8;
 const YOLO_SIZE        = 640;
 
@@ -690,6 +690,7 @@ const OBS_S2 = 0.1;
 const OBS_PROXY = 0.1;
 const OBS_TAP_BONUS = 0.2;
 const VOLLEDIG_CYCLUS_GEWICHT = 1.5;
+const OBS_DOEL_CYCLI = 2.5;
 // Legacy referentie:
 // TIER1_GEWICHT=1.0 → obs>=45s, TIER2=0.6 → obs~27s, TIER3=0.3 → obs~13s, TIER4=0.1 → S2/proxy
 
@@ -809,27 +810,25 @@ function gewSpreiding(m) {
 }
 
 function berekenObsScore(metingen) {
-  if (!metingen.length) return 0;
-  let gewogenSom = 0;
-  let maxMogelijk = 0;
+  if (!metingen || !metingen.length) return 0;
+  let som = 0;
   for (const m of metingen) {
     if (m.bron === 's2' || m.bron === 'proxy') continue;
-    let gew;
+    let obsGewicht;
     if (m.gewicht != null && m.tier == null) {
-      gew = m.gewicht;
+      obsGewicht = m.gewicht;
     } else if (m.tier != null) {
-      gew = m.tier === 1 ? 1.0 : m.tier === 2 ? 0.6 : m.tier === 4 ? 0.1 : 0.3;
+      obsGewicht = m.tier === 1 ? 1.0 : m.tier === 2 ? 0.6 : m.tier === 4 ? 0.1 : 0.3;
     } else {
-      gew = OBS_DEFAULT / OBS_REFERENTIE;
+      obsGewicht = OBS_DEFAULT / OBS_REFERENTIE;
     }
-    gewogenSom += gew;
-    maxMogelijk += 1.0;
+    const tijdGewicht = gew(m.tijd);
+    som += obsGewicht * tijdGewicht;
   }
-  if (maxMogelijk === 0) return 0;
-  const ratio = gewogenSom / maxMogelijk;
-  const aantalCamera = metingen.filter(m => m.bron !== 's2' && m.bron !== 'proxy').length;
-  const aantalFactor = Math.min(1.0, Math.log(aantalCamera + 1) / Math.log(11));
-  return Math.round(ratio * aantalFactor * 95);
+  if (som <= 0) return 0;
+  const doelSom = OBS_DOEL_CYCLI * VOLLEDIG_CYCLUS_GEWICHT;
+  const factor = Math.log(som + 1) / Math.log(doelSom + 1);
+  return Math.min(95, Math.round(factor * 95));
 }
 
 function berekenLeerPct(osmId) {
@@ -855,7 +854,7 @@ function leerKleur(pct) {
   return 'var(--rood)';
 }
 
-let afwijkBuf = [];
+let cyclusResetTellers = {};
 
 function bepaalResetDrempel(spreidingSec) {
   if (spreidingSec < 10) return 0.30;
@@ -863,15 +862,22 @@ function bepaalResetDrempel(spreidingSec) {
   return 0.70;
 }
 
-function checkAfwijking(duur, gem, metingen) {
-  if (!gem) return false;
+function checkCyclusReset(duur, gem, metingen, nodeId) {
+  if (!gem || !nodeId) return false;
+  const sleutel = nodeId + '_' + huidigDD();
   const laatste10 = (metingen || []).slice(0, 10);
   const duurs = laatste10.filter(x => x.duur > 0).map(x => x.duur);
   const spreiding = duurs.length >= 2 ? Math.max(...duurs) - Math.min(...duurs) : 0;
   const drempel = bepaalResetDrempel(spreiding);
-  if (Math.abs(duur-gem)/gem > drempel) afwijkBuf.push(true);
-  else afwijkBuf = [];
-  if (afwijkBuf.length >= AFWIJKING_REEKS) { afwijkBuf = []; return true; }
+  if (Math.abs(duur - gem) / gem > drempel) {
+    cyclusResetTellers[sleutel] = (cyclusResetTellers[sleutel] || 0) + 1;
+  } else {
+    cyclusResetTellers[sleutel] = 0;
+  }
+  if (cyclusResetTellers[sleutel] >= CYCLUS_RESET_REEKS) {
+    cyclusResetTellers[sleutel] = 0;
+    return true;
+  }
   return false;
 }
 
@@ -1069,8 +1075,7 @@ function berekenObsGewicht(obs, bron, heeftHandmatigeTap) {
 
 function slaOpIntern(osmId, richting, duur, gewichtOverride, dd, bron='s1', conf=null) {
   let m = laadM(osmId, dd);
-  if (!isMetingBetrouwbaar(duur, m)) return false;
-  const gewijzigd = checkAfwijking(duur, gewGem(m), m);
+  const gewijzigd = checkCyclusReset(duur, gewGem(m), m, osmId);
   if (gewijzigd) m = [];
   const obs = faseStart ? Math.round((performance.now() - faseStart) / 1000) : null;
   const heeftTap = (typeof bboxOverride !== 'undefined' && bboxOverride !== null);
@@ -1306,10 +1311,6 @@ function slaOpV5(nodeId, aanrij, afrij, dd, duur, gewicht) {
   if (!nodeId || !aanrij || !afrij || !dd || !duur || duur < 4 || duur > 300) return;
   const sleutel = v5Sleutel(nodeId, aanrij, afrij, dd);
   let m = laadMV5(nodeId, aanrij, afrij, dd);
-  const gem = gewGem(m);
-  const spreiding = gewSpreiding(m);
-  const drempel = bepaalResetDrempel(spreiding);
-  if (gem && Math.abs(duur - gem) / gem > drempel && m.length >= 5) return;
   m.push({ duur: Math.round(duur), tijd: Date.now(), gewicht: gewicht ?? 1.0 });
   if (m.length > MAX_METINGEN) { m.sort((a,b) => gew(b.tijd)-gew(a.tijd)); m = m.slice(0, MAX_METINGEN); }
   try { localStorage.setItem(sleutel, JSON.stringify(m)); } catch(e) {}
@@ -3563,15 +3564,7 @@ function formateerCyclustijd(gemiddelde, minTijd, maxTijd) {
   return `${Math.round(minTijd)}-${Math.round(maxTijd)}s`;
 }
 
-function isMetingBetrouwbaar(nieuweDuur, bestaandeMetingen) {
-  if (!nieuweDuur||nieuweDuur===0) return false;
-  if (!bestaandeMetingen||bestaandeMetingen.length<NIEUW_KRUISPUNT_DREMPEL) return true;
-  const gem=gewGem(bestaandeMetingen); if(!gem||gem===0) return true;
-  const spreiding = gewSpreiding(bestaandeMetingen);
-  const drempel = bepaalResetDrempel(spreiding);
-  if (Math.abs(nieuweDuur-gem)/gem > drempel && bestaandeMetingen.length>=5) return false;
-  return true;
-}
+
 
 // V8.8: VRI betrouwbaarheidsscore per kruispunt
 // Combineert aantal metingen, spreiding min/max, en auto-reset frequentie
@@ -4071,7 +4064,6 @@ function selecteerNodeHandmatig(nodeId) {
   const nieuweNode = { ...sl, afstand: af };
   vorigOsmId    = sl.id;
   dichtstbijOSM = nieuweNode;
-  afwijkBuf     = [];
   activeCdDoel  = gewGem(laadM(sl.id, huidigDDActief())) || 0;
   // Bug 2: Rijrichting direct resetten
   resetRijrichtingState();
@@ -4545,7 +4537,7 @@ function updateDichtbij(lat, lon) {
     if (fase === 'groen' && groenStart && dichtstbijOSM) {
       slaGroenOpBijPasseren(dichtstbijOSM.id);
     }
-    vorigOsmId=nieuw.id; dichtstbijOSM=nieuw; afwijkBuf=[];
+    vorigOsmId=nieuw.id; dichtstbijOSM=nieuw;
     activeCdDoel = gewGem(laadM(nieuw.id, huidigDDActief())) || 0;
     bijwerkLeerkaart(nieuw); bijwerkDashboardKnop();
     bboxOverride = null;  // V11.4.5: override vervalt bij echte node-wissel
