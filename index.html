@@ -406,7 +406,7 @@
 <div id="startscherm">
   <div id="s-icoon">🚦</div>
   <div id="s-titel">Stoplicht<span>IQ</span></div>
-  <div id="s-versie">V11.5.5 — Groene fase opslaan bij passeren</div>
+  <div id="s-versie">V11.6.0 — Smart Crop detectie op afstand</div>
   <div id="s-model-wrap">
     <div id="s-model-rij">
       <div id="s-model-label">🤖 YOLOv8 model laden…</div>
@@ -609,7 +609,7 @@
 
 <script>
 // ═══════════════════════════════════════════════════════════════
-//  StoplichtIQ V11.5.5
+//  StoplichtIQ V11.6.0
 //  V11: Leergeheugen audit + genius implementaties
 //  — S1+S2 bevestiging (kruispunt-level confidence)
 //  — Route-herkenning basis (sequentie-opslag)
@@ -1725,8 +1725,11 @@ canvas.addEventListener('click', (e) => {
   const videoX = normX * canvas.width;
   const videoY = normY * canvas.height;
 
-  const yoloX = videoX * lbScale + lbPadX;
-  const yoloY = videoY * lbScale + lbPadY;
+  // V11.6.0: crop offset corrigeren voor YOLO mapping
+  const effectiefX = cropRegio ? videoX - cropRegio.x : videoX;
+  const effectiefY = cropRegio ? videoY - cropRegio.y : videoY;
+  const yoloX = effectiefX * lbScale + lbPadX;
+  const yoloY = effectiefY * lbScale + lbPadY;
 
   // Dichtstbijzijnde detectie op basis van middelpunt-afstand in YOLO-ruimte
   let dichtstbij = null;
@@ -1737,7 +1740,23 @@ canvas.addEventListener('click', (e) => {
     const afst = Math.sqrt(dx*dx + dy*dy);
     if (afst < minAfst) { minAfst = afst; dichtstbij = det; }
   }
-  if (!dichtstbij) return;
+  if (!dichtstbij || minAfst > 60) {
+    if (cropHintPositie) {
+      const hx = cropHintPositie.x - videoX, hy = cropHintPositie.y - videoY;
+      if (Math.sqrt(hx*hx + hy*hy) < 50) {
+        cropHintPositie = null;
+        cropHintTeller = 0;
+      } else {
+        cropHintPositie = { x: videoX, y: videoY };
+        cropHintTeller = 5;
+      }
+    } else {
+      cropHintPositie = { x: videoX, y: videoY };
+      cropHintTeller = 5;
+    }
+    cameraTapMarker = { x: videoX, y: videoY, tijd: Date.now() };
+    return;
+  }
 
   // Vergrendel override op YOLO-positie (cx,cy in pixels)
   bboxOverride = { cx: dichtstbij.cx, cy: dichtstbij.cy };
@@ -1767,6 +1786,12 @@ let staleFaseFrameTeller=0;
 let yoloCanvas=null, yoloCtx=null;
 const yoloFloat32 = new Float32Array(3 * YOLO_SIZE * YOLO_SIZE);
 let lbPadX=0, lbPadY=0, lbScale=1;
+
+// V11.6.0: Smart Crop state
+let cropRegio = null;              // { x, y, w, h } in video pixels — null = geen crop
+let cropHintPositie = null;        // { x, y } in video pixels — taplocatie hint
+let cropHintTeller = 0;            // resterende YOLO runs voor tap hint
+let cropAlternatieTeller = 0;      // S2 alternatie elke 5e run
 
 // V8.3: Web Worker + Confidence smoothing
 let yoloWorker=null, workerKlaar=false, workerFoutTeller=0;
@@ -1917,14 +1942,59 @@ if (aantalKP > 0) {
 openTrainframesDB().then(async ()=>{ await laadTrainframesTeller(); laadOranjeFramesTeller(); }).catch((e)=>{ console.error('IndexedDB open mislukt bij start:', e); const el = document.getElementById('tf-teller'); if (el) el.textContent = 'DB fout — herlaad app'; });
 
 // ── YOLO PRE-PROCESSING ───────────────────────────────────────
+
+// V11.6.0: Smart Crop — crop bovenste deel bij grote afstand
+function berekenCropRegio(vW, vH, afstand) {
+  if (!afstand || afstand < 30) return null;
+  const ratio = afstand < 70 ? 0.6 : 0.4;
+  const cropMaat = Math.min(vW, vH) * ratio;
+  let cropX = (vW - cropMaat) / 2;
+  let cropY = vH * 0.15;
+  if (cropHintPositie && cropHintTeller > 0) {
+    cropX = cropHintPositie.x - cropMaat / 2;
+    cropY = cropHintPositie.y - cropMaat / 2;
+    cropX = Math.max(0, Math.min(vW - cropMaat, cropX));
+    cropY = Math.max(0, Math.min(vH - cropMaat, cropY));
+  }
+  return {
+    x: Math.round(cropX), y: Math.round(cropY),
+    w: Math.round(cropMaat), h: Math.round(cropMaat)
+  };
+}
+
 function preprocessVoorYOLO() {
   const vW = video.videoWidth, vH = video.videoHeight;
-  lbScale = Math.min(YOLO_SIZE/vW, YOLO_SIZE/vH);
-  const newW = Math.round(vW*lbScale), newH = Math.round(vH*lbScale);
-  lbPadX = (YOLO_SIZE-newW)/2; lbPadY = (YOLO_SIZE-newH)/2;
+
+  // V11.6.0: S2 alternatie — elke 5e run volledig beeld
+  cropAlternatieTeller++;
+  const skipCrop = (cropAlternatieTeller % 5 === 0);
+  const afst = dichtstbijOSM ? dichtstbijOSM.afstand : 999;
+  cropRegio = skipCrop ? null : berekenCropRegio(vW, vH, afst);
+
+  if (!skipCrop && cropHintTeller > 0) {
+    cropHintTeller--;
+    if (cropHintTeller === 0) cropHintPositie = null;
+  }
+
   yoloCtx.fillStyle = 'rgb(114,114,114)';
   yoloCtx.fillRect(0, 0, YOLO_SIZE, YOLO_SIZE);
-  yoloCtx.drawImage(video, lbPadX, lbPadY, newW, newH);
+
+  if (cropRegio) {
+    lbScale = Math.min(YOLO_SIZE / cropRegio.w, YOLO_SIZE / cropRegio.h);
+    const newW = Math.round(cropRegio.w * lbScale);
+    const newH = Math.round(cropRegio.h * lbScale);
+    lbPadX = (YOLO_SIZE - newW) / 2;
+    lbPadY = (YOLO_SIZE - newH) / 2;
+    yoloCtx.drawImage(video,
+      cropRegio.x, cropRegio.y, cropRegio.w, cropRegio.h,
+      lbPadX, lbPadY, newW, newH);
+  } else {
+    lbScale = Math.min(YOLO_SIZE/vW, YOLO_SIZE/vH);
+    const newW = Math.round(vW*lbScale), newH = Math.round(vH*lbScale);
+    lbPadX = (YOLO_SIZE-newW)/2; lbPadY = (YOLO_SIZE-newH)/2;
+    yoloCtx.drawImage(video, lbPadX, lbPadY, newW, newH);
+  }
+
   const imageData = yoloCtx.getImageData(0, 0, YOLO_SIZE, YOLO_SIZE);
   const pixels = imageData.data;
   const stride = YOLO_SIZE * YOLO_SIZE;
@@ -2169,7 +2239,8 @@ function _verwerkWorkerResultaat(detecties) {
   debugWaarden.ai = `ai:${kleur} ${(gesmoothedScore*100).toFixed(0)}% [${detecties.length}]`;
   laatsteAI = {
     kleur, horizontaal: beste.w > beste.h*1.3, score: gesmoothedScore,
-    box: { x:(beste.x1-lbPadX)/lbScale, y:(beste.y1-lbPadY)/lbScale,
+    box: { x:(beste.x1-lbPadX)/lbScale + (cropRegio ? cropRegio.x : 0),
+           y:(beste.y1-lbPadY)/lbScale + (cropRegio ? cropRegio.y : 0),
            w:beste.w/lbScale, h:beste.h/lbScale, kleur }
   };
   nieuwAIResultaat = true;
@@ -2305,6 +2376,25 @@ function tekenOverlay(box, score, horizontaal) {
       cameraTapMarker = null;
     }
   }
+  if (cropRegio) {
+    octx.save();
+    octx.strokeStyle = 'rgba(0,200,80,0.6)';
+    octx.lineWidth = 2;
+    octx.setLineDash([6, 4]);
+    octx.strokeRect(cropRegio.x, cropRegio.y, cropRegio.w, cropRegio.h);
+    octx.setLineDash([]);
+    if (cropHintPositie && cropHintTeller > 0) {
+      const hx = cropHintPositie.x, hy = cropHintPositie.y;
+      octx.strokeStyle = 'rgba(0,200,80,0.8)';
+      octx.lineWidth = 2;
+      octx.beginPath(); octx.arc(hx, hy, 14, 0, Math.PI * 2); octx.stroke();
+      octx.beginPath(); octx.moveTo(hx-6,hy-6); octx.lineTo(hx+6,hy+6); octx.stroke();
+      octx.beginPath(); octx.moveTo(hx+6,hy-6); octx.lineTo(hx-6,hy+6); octx.stroke();
+      octx.fillStyle = 'rgba(0,200,80,0.9)'; octx.font = 'bold 11px monospace';
+      octx.fillText(cropHintTeller + '×', hx + 18, hy + 4);
+    }
+    octx.restore();
+  }
 }
 
 // ── DETECTIES VERWERKEN ───────────────────────────────────────
@@ -2353,7 +2443,8 @@ function verwerkDetecties() {
     // Twijfelframe bij eerste detectie voor trainingsdata
     if (aiTeller === 1 && trainframesAan && aiR.box && aiR.score < 0.60) {
       const kNr = aiR.kleur==='rood'?0:aiR.kleur==='groen'?1:3;
-      const yx=aiR.box.x*lbScale+lbPadX, yy=aiR.box.y*lbScale+lbPadY;
+      const bx=aiR.box.x-(cropRegio?cropRegio.x:0), by=aiR.box.y-(cropRegio?cropRegio.y:0);
+      const yx=bx*lbScale+lbPadX, yy=by*lbScale+lbPadY;
       const yw=aiR.box.w*lbScale, yh=aiR.box.h*lbScale;
       slaTrainframeOp('s1', kNr, (yx+yw/2)/YOLO_SIZE, (yy+yh/2)/YOLO_SIZE, yw/YOLO_SIZE, yh/YOLO_SIZE, true);
     }
@@ -2372,7 +2463,8 @@ function verwerkDetecties() {
         checkVRISuggestie(huidigBevestigdOsmNodeId);
         // V8.8: Passief rijrichtingdata opslaan
         if (aiR.box) {
-          const normCx = (aiR.box.x * lbScale + lbPadX + aiR.box.w * lbScale / 2) / YOLO_SIZE;
+          const bx = aiR.box.x - (cropRegio ? cropRegio.x : 0);
+          const normCx = (bx * lbScale + lbPadX + aiR.box.w * lbScale / 2) / YOLO_SIZE;
           slaRichtingOp(huidigBevestigdOsmNodeId, normCx, getSmoothedHeading());
         }
         // V8.8.1: Tikinterface tonen bij rood detectie (geen afstands/bevestigingslimiet)
@@ -2392,7 +2484,8 @@ function verwerkDetecties() {
       }
       if (trainframesAan && aiR.box) {
         const kNr = aiR.kleur==='rood'?0:aiR.kleur==='groen'?1:3;
-        const yx=aiR.box.x*lbScale+lbPadX, yy=aiR.box.y*lbScale+lbPadY;
+        const bx=aiR.box.x-(cropRegio?cropRegio.x:0), by=aiR.box.y-(cropRegio?cropRegio.y:0);
+        const yx=bx*lbScale+lbPadX, yy=by*lbScale+lbPadY;
         const yw=aiR.box.w*lbScale, yh=aiR.box.h*lbScale;
         slaTrainframeOp('s1', kNr, (yx+yw/2)/YOLO_SIZE, (yy+yh/2)/YOLO_SIZE, yw/YOLO_SIZE, yh/YOLO_SIZE, false);
       }
