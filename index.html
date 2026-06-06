@@ -406,7 +406,7 @@
 <div id="startscherm">
   <div id="s-icoon">🚦</div>
   <div id="s-titel">Stoplicht<span>IQ</span></div>
-  <div id="s-versie">V11.7.0 — Tap force + crop indicator fix</div>
+  <div id="s-versie">V11.7.1 — Tap timeout 10s + reset bij groen</div>
   <div id="s-model-wrap">
     <div id="s-model-rij">
       <div id="s-model-label">🤖 YOLOv8 model laden…</div>
@@ -609,7 +609,7 @@
 
 <script>
 // ═══════════════════════════════════════════════════════════════
-//  StoplichtIQ V11.7.0
+//  StoplichtIQ V11.7.1
 //  V11: Leergeheugen audit + genius implementaties
 //  — S1+S2 bevestiging (kruispunt-level confidence)
 //  — Route-herkenning basis (sequentie-opslag)
@@ -2096,7 +2096,7 @@ function selecteerBesteDetectie(detecties) {
   // V11.4.5: bbox override — kies dichtstbijzijnde detectie t.o.v. vergrendelde positie
   // V11.7.0: 30s timeout op override
   if (bboxOverride !== null) {
-    if (Date.now() - bboxOverrideTijd > 30000) {
+    if (Date.now() - bboxOverrideTijd > 10000) {
       bboxOverride = null;
     } else {
       let besteOv = null;
@@ -2364,8 +2364,8 @@ function tekenOverlay(box, score, horizontaal) {
     }
     octx.restore();
   }
-  if (bboxOverride !== null && Date.now() - bboxOverrideTijd < 30000) {
-    const restSec = Math.ceil((30000 - (Date.now() - bboxOverrideTijd)) / 1000);
+  if (bboxOverride !== null && Date.now() - bboxOverrideTijd < 10000) {
+    const restSec = Math.ceil((10000 - (Date.now() - bboxOverrideTijd)) / 1000);
     const indicatorX = (bboxOverride.cx - lbPadX) / lbScale + (cropRegio ? cropRegio.x : 0);
     const indicatorY = (bboxOverride.cy - lbPadY) / lbScale + (cropRegio ? cropRegio.y : 0);
     octx.save();
@@ -2647,7 +2647,7 @@ function verwerkFase(nieuw, horizontaal, conf=null) {
   }
   if (nieuw === 'groen') {
     groenStart = nu;
-    // V11.4.5: bboxOverride NIET resetten bij fase-wissel — vergrendeling blijft hele kruispunt
+    bboxOverride = null; bboxOverrideTijd = 0;
   } else if (nieuw === 'rood') {
     groenStart = null; groenDuur = 0;
   }
