@@ -406,7 +406,7 @@
 <div id="startscherm">
   <div id="s-icoon">🚦</div>
   <div id="s-titel">Stoplicht<span>IQ</span></div>
-  <div id="s-versie">V11.6.0 — Smart Crop detectie op afstand</div>
+  <div id="s-versie">V11.7.0 — Tap force + crop indicator fix</div>
   <div id="s-model-wrap">
     <div id="s-model-rij">
       <div id="s-model-label">🤖 YOLOv8 model laden…</div>
@@ -609,7 +609,7 @@
 
 <script>
 // ═══════════════════════════════════════════════════════════════
-//  StoplichtIQ V11.6.0
+//  StoplichtIQ V11.7.0
 //  V11: Leergeheugen audit + genius implementaties
 //  — S1+S2 bevestiging (kruispunt-level confidence)
 //  — Route-herkenning basis (sequentie-opslag)
@@ -1702,12 +1702,12 @@ let laatsteDetecties = [];
 // getapte detectie. Geldig tot kruispuntwissel of resetNeutraal.
 // Opgeslagen in YOLO-pixels (cx,cy) — niet genormaliseerd.
 let bboxOverride = null;  // { cx: float, cy: float } in YOLO 0..640 ruimte
+let bboxOverrideTijd = 0;
 
 // V11.4.5: Bbox tap override — vergrendelt detectie op dichtstbijzijnde bbox
 // bij de taplocatie. Werkt op middelpunt-afstand (cx/cy), niet op hit-test.
-// Override blijft actief tot kruispuntwissel of resetNeutraal.
+// Override blijft actief tot kruispuntwissel of resetNeutraal of 30s timeout.
 canvas.addEventListener('click', (e) => {
-  if (!laatsteDetecties || !laatsteDetecties.length) return;
   if (!canvas.width || !lbScale) return;
 
   // Schermtap → canvas-pixels → YOLO-ruimte (640) via bestaande letterbox-omzetting
@@ -1741,7 +1741,7 @@ canvas.addEventListener('click', (e) => {
     const afst = Math.sqrt(dx*dx + dy*dy);
     if (afst < minAfst) { minAfst = afst; dichtstbij = det; }
   }
-  if (!dichtstbij || minAfst > 60) {
+  if (!dichtstbij || minAfst > 120) {
     if (cropHintPositie) {
       const hx = cropHintPositie.x - videoX, hy = cropHintPositie.y - videoY;
       if (Math.sqrt(hx*hx + hy*hy) < 50) {
@@ -1761,6 +1761,7 @@ canvas.addEventListener('click', (e) => {
 
   // Vergrendel override op YOLO-positie (cx,cy in pixels)
   bboxOverride = { cx: dichtstbij.cx, cy: dichtstbij.cy };
+  bboxOverrideTijd = Date.now();
 
   // V11.4.2: visuele feedback marker (in canvas-pixel coords)
   cameraTapMarker = { x: videoX, y: videoY, tijd: Date.now() };
@@ -2093,18 +2094,21 @@ function selecteerBesteDetectie(detecties) {
   if (!bruikbaar.length) return { s1:null, s2Rest:[] };
 
   // V11.4.5: bbox override — kies dichtstbijzijnde detectie t.o.v. vergrendelde positie
-  // Geen timeout, geen tolerantiegrens — winnaar is altijd de dichtstbijzijnde.
+  // V11.7.0: 30s timeout op override
   if (bboxOverride !== null) {
-    let besteOv = null;
-    let minOvAfst = Infinity;
-    for (const det of bruikbaar) {
-      const dx = det.cx - bboxOverride.cx;
-      const dy = det.cy - bboxOverride.cy;
-      const afst = Math.sqrt(dx*dx + dy*dy);
-      if (afst < minOvAfst) { minOvAfst = afst; besteOv = det; }
+    if (Date.now() - bboxOverrideTijd > 30000) {
+      bboxOverride = null;
+    } else {
+      let besteOv = null;
+      let minOvAfst = Infinity;
+      for (const det of bruikbaar) {
+        const dx = det.cx - bboxOverride.cx;
+        const dy = det.cy - bboxOverride.cy;
+        const afst = Math.sqrt(dx*dx + dy*dy);
+        if (afst < minOvAfst) { minOvAfst = afst; besteOv = det; }
+      }
+      if (besteOv) return { s1: besteOv, s2Rest: bruikbaar.filter(d => d !== besteOv) };
     }
-    if (besteOv) return { s1: besteOv, s2Rest: bruikbaar.filter(d => d !== besteOv) };
-    // Als bruikbaar leeg is: val terug op normale scoring (return niet vroeg)
   }
 
   const gpsAf = dichtstbijOSM ? dichtstbijOSM.afstand : 999;
@@ -2340,6 +2344,51 @@ function tekenOverlay(box, score, horizontaal) {
   if (overlCanvas.width !== canvas.width) overlCanvas.width = canvas.width;
   if (overlCanvas.height !== canvas.height) overlCanvas.height = canvas.height;
   octx.clearRect(0, 0, overlCanvas.width, overlCanvas.height);
+  // V11.7.0: crop indicator + tap indicator altijd tonen (ook bij ai:weg/ai:filter)
+  if (cropRegio) {
+    octx.save();
+    octx.strokeStyle = 'rgba(0,200,80,0.6)';
+    octx.lineWidth = 2;
+    octx.setLineDash([6, 4]);
+    octx.strokeRect(cropRegio.x, cropRegio.y, cropRegio.w, cropRegio.h);
+    octx.setLineDash([]);
+    if (cropHintPositie && cropHintTeller > 0) {
+      const hx = cropHintPositie.x, hy = cropHintPositie.y;
+      octx.strokeStyle = 'rgba(0,200,80,0.8)';
+      octx.lineWidth = 2;
+      octx.beginPath(); octx.arc(hx, hy, 14, 0, Math.PI * 2); octx.stroke();
+      octx.beginPath(); octx.moveTo(hx-6,hy-6); octx.lineTo(hx+6,hy+6); octx.stroke();
+      octx.beginPath(); octx.moveTo(hx+6,hy-6); octx.lineTo(hx-6,hy+6); octx.stroke();
+      octx.fillStyle = 'rgba(0,200,80,0.9)'; octx.font = 'bold 11px monospace';
+      octx.fillText(cropHintTeller + '×', hx + 18, hy + 4);
+    }
+    octx.restore();
+  }
+  if (bboxOverride !== null && Date.now() - bboxOverrideTijd < 30000) {
+    const restSec = Math.ceil((30000 - (Date.now() - bboxOverrideTijd)) / 1000);
+    const indicatorX = (bboxOverride.cx - lbPadX) / lbScale + (cropRegio ? cropRegio.x : 0);
+    const indicatorY = (bboxOverride.cy - lbPadY) / lbScale + (cropRegio ? cropRegio.y : 0);
+    octx.save();
+    octx.strokeStyle = 'rgba(251,191,36,0.9)';
+    octx.lineWidth = 3;
+    octx.setLineDash([6,3]);
+    octx.beginPath();
+    octx.arc(indicatorX, indicatorY, 28, 0, Math.PI * 2);
+    octx.stroke();
+    octx.strokeStyle = 'rgba(251,191,36,0.7)';
+    octx.lineWidth = 2;
+    octx.setLineDash([]);
+    octx.beginPath();
+    octx.moveTo(indicatorX - 10, indicatorY);
+    octx.lineTo(indicatorX + 10, indicatorY);
+    octx.moveTo(indicatorX, indicatorY - 10);
+    octx.lineTo(indicatorX, indicatorY + 10);
+    octx.stroke();
+    octx.fillStyle = 'rgba(251,191,36,0.9)';
+    octx.font = 'bold 11px monospace';
+    octx.fillText('TAP ' + restSec + 's', indicatorX + 14, indicatorY - 14);
+    octx.restore();
+  }
   if (!box) return;
   const kCSS = box.kleur==='rood'?'#FF3030':box.kleur==='groen'?'#34C759':box.kleur==='oranje'?'#FF9F0A':'#888';
   const mg=8, hl=Math.min(box.w,box.h)*0.35+8;
@@ -2376,25 +2425,6 @@ function tekenOverlay(box, score, horizontaal) {
     } else {
       cameraTapMarker = null;
     }
-  }
-  if (cropRegio) {
-    octx.save();
-    octx.strokeStyle = 'rgba(0,200,80,0.6)';
-    octx.lineWidth = 2;
-    octx.setLineDash([6, 4]);
-    octx.strokeRect(cropRegio.x, cropRegio.y, cropRegio.w, cropRegio.h);
-    octx.setLineDash([]);
-    if (cropHintPositie && cropHintTeller > 0) {
-      const hx = cropHintPositie.x, hy = cropHintPositie.y;
-      octx.strokeStyle = 'rgba(0,200,80,0.8)';
-      octx.lineWidth = 2;
-      octx.beginPath(); octx.arc(hx, hy, 14, 0, Math.PI * 2); octx.stroke();
-      octx.beginPath(); octx.moveTo(hx-6,hy-6); octx.lineTo(hx+6,hy+6); octx.stroke();
-      octx.beginPath(); octx.moveTo(hx+6,hy-6); octx.lineTo(hx-6,hy+6); octx.stroke();
-      octx.fillStyle = 'rgba(0,200,80,0.9)'; octx.font = 'bold 11px monospace';
-      octx.fillText(cropHintTeller + '×', hx + 18, hy + 4);
-    }
-    octx.restore();
   }
 }
 
@@ -2565,7 +2595,7 @@ function resetNeutraal() {
   faseWoord.textContent='—'; faseSub.textContent='Richt camera op stoplicht';
   faseBron.textContent=''; randGlow.className=''; vorigeDetectie=null;
   // V11.4.5: bbox override vrijgeven bij volledige reset
-  bboxOverride = null;
+  bboxOverride = null; bboxOverrideTijd = 0;
   // Zoom ontgrendelen
   zoomVergrendeld=false; huidigActiefStoplichtPositie=null;
   // V8.8: Tikinterface verbergen
@@ -4540,7 +4570,7 @@ function updateDichtbij(lat, lon) {
     vorigOsmId=nieuw.id; dichtstbijOSM=nieuw;
     activeCdDoel = gewGem(laadM(nieuw.id, huidigDDActief())) || 0;
     bijwerkLeerkaart(nieuw); bijwerkDashboardKnop();
-    bboxOverride = null;  // V11.4.5: override vervalt bij echte node-wissel
+    bboxOverride = null; bboxOverrideTijd = 0;  // V11.4.5: override vervalt bij echte node-wissel
     resetRijrichtingState();
     // V10.0.3: Richtingkeuze lock vervalt alleen bij echte node-wissel (>60m van locked node + snelheid)
     if (richtingLockNodeId && richtingLockNodeId !== String(nieuw.id)) {
