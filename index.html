@@ -406,7 +406,7 @@
 <div id="startscherm">
   <div id="s-icoon">🚦</div>
   <div id="s-titel">Stoplicht<span>IQ</span></div>
-  <div id="s-versie">V11.5.4 — HUD kleur bewaren bij kort dropout</div>
+  <div id="s-versie">V11.5.5 — Groene fase opslaan bij passeren</div>
   <div id="s-model-wrap">
     <div id="s-model-rij">
       <div id="s-model-label">🤖 YOLOv8 model laden…</div>
@@ -609,7 +609,7 @@
 
 <script>
 // ═══════════════════════════════════════════════════════════════
-//  StoplichtIQ V11.5.4
+//  StoplichtIQ V11.5.5
 //  V11: Leergeheugen audit + genius implementaties
 //  — S1+S2 bevestiging (kruispunt-level confidence)
 //  — Route-herkenning basis (sequentie-opslag)
@@ -986,6 +986,18 @@ function slaGroenOp(osmId, richting, duur, obs) {
   try {
     localStorage.setItem(sleutel, JSON.stringify(m));
   } catch(e) {}
+}
+
+// V11.5.5: Groene fase opslaan bij passeren kruispunt
+function slaGroenOpBijPasseren(osmId) {
+  if (!groenStart || !osmId) return;
+  if (laatsteGroenNode && laatsteGroenNode !== String(osmId)) return;
+  const nu = performance.now();
+  const dur = (nu - groenStart) / 1000;
+  if (dur < 3 || dur > 300) return;
+  slaGroenOp(osmId, huidigeRichting, dur, dur);
+  leerLog('GROEN bij passeren: ' +
+    Math.round(dur) + 's opgeslagen voor ' + osmId);
 }
 
 function laadGroenM(osmId, dd) {
@@ -4436,6 +4448,10 @@ function updateDichtbij(lat, lon) {
     stilstandSinds = Date.now() - 6000;
   }
   if (nieuw.id !== vorigOsmId) {
+    // V11.5.5: Sla groene fase op bij node-wissel (dichtstbijOSM = nog OUDE node)
+    if (fase === 'groen' && groenStart && dichtstbijOSM) {
+      slaGroenOpBijPasseren(dichtstbijOSM.id);
+    }
     vorigOsmId=nieuw.id; dichtstbijOSM=nieuw; afwijkBuf=[];
     activeCdDoel = gewGem(laadM(nieuw.id, huidigDDActief())) || 0;
     bijwerkLeerkaart(nieuw); bijwerkDashboardKnop();
