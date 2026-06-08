@@ -89,23 +89,21 @@
     #kruispunt-af{font-family:'Share Tech Mono',monospace;font-size:13px;
       color:var(--blauw);margin-top:1px}
     #kruispunt-dd{font-size:9px;color:rgba(255,255,255,0.3);margin-top:1px}
-    /* Countdown blok: verborgen tot actief */
-    #cd-blok{display:none;align-items:center;justify-content:space-between;padding:10px 18px 6px}
-    #cd-blok.actief{display:flex}
-    #cd-links{display:flex;flex-direction:column;gap:2px}
-    #cd-label{font-size:10px;font-weight:600;letter-spacing:0.18em;
-      text-transform:uppercase;color:var(--dim)}
-    #cd-getal{font-family:'Share Tech Mono',monospace;font-size:80px;
-      font-weight:400;line-height:1;color:#fff;transition:color .3s,text-shadow .3s}
-    #cd-getal.nabij{color:var(--groen);text-shadow:0 0 30px rgba(52,199,89,.5)}
-    #cd-getal.leeg{color:rgba(255,255,255,0.15);font-size:48px}
-    #cd-eenheid{font-size:11px;font-weight:600;letter-spacing:0.14em;
-      text-transform:uppercase;color:var(--dim)}
-    #cd-ring-wrap{position:relative;width:72px;height:72px;flex-shrink:0}
-    #cd-ring-svg{width:100%;height:100%;transform:rotate(-90deg)}
-    #cd-ring-achter{fill:none;stroke:rgba(255,255,255,0.07);stroke-width:4}
-    #cd-ring-voor{fill:none;stroke:var(--groen);stroke-width:4;stroke-linecap:round;
-      stroke-dasharray:201;stroke-dashoffset:201;transition:stroke-dashoffset 1s linear,stroke .4s}
+    /* V11.8.0: Compact countdown pill */
+    #cd-pill{display:none;align-items:baseline;gap:8px;
+      background:rgba(0,0,0,0.75);backdrop-filter:blur(8px);-webkit-backdrop-filter:blur(8px);
+      border-radius:12px;padding:8px 16px;margin:6px 0;width:fit-content}
+    #cd-pill.actief{display:flex}
+    #cd-pill-getal{font-family:'Share Tech Mono',monospace;font-size:26px;
+      font-weight:800;color:#fff;transition:color .3s}
+    #cd-pill-label{font-size:10px;text-transform:uppercase;letter-spacing:0.08em;
+      opacity:0.6;color:#fff}
+    /* V11.8.0: Bevestigingsknoppen */
+    #bevestig-wrap{display:none;gap:6px;margin:6px 0}
+    #bevestig-wrap.actief{display:flex}
+    .bevestig-btn{flex:1;min-height:44px;border:none;border-radius:8px;
+      font-family:'Rajdhani',sans-serif;font-size:13px;font-weight:700;
+      color:#fff;cursor:pointer;letter-spacing:0.04em}
     #leer-kaart{margin:0 14px 6px;background:rgba(0,0,0,0.45);
       border:1px solid var(--border);border-radius:14px;padding:10px 14px;
       display:flex;flex-direction:column;gap:8px}
@@ -406,7 +404,7 @@
 <div id="startscherm">
   <div id="s-icoon">🚦</div>
   <div id="s-titel">Stoplicht<span>IQ</span></div>
-  <div id="s-versie">V11.7.1 — Tap timeout 10s + reset bij groen</div>
+  <div id="s-versie">V11.8.0 — Compact countdown + bevestiging + anchor</div>
   <div id="s-model-wrap">
     <div id="s-model-rij">
       <div id="s-model-label">🤖 YOLOv8 model laden…</div>
@@ -491,19 +489,15 @@
         <div id="v9-richting-indicator" style="display:none;flex-direction:column;align-items:flex-end;gap:1px;margin-top:2px"></div>
       </div>
     </div>
-    <!-- Countdown: verborgen tot actief -->
-    <div id="cd-blok">
-      <div id="cd-links">
-        <div id="cd-label">Groen verwacht over</div>
-        <div id="cd-getal" class="leeg">—</div>
-        <div id="cd-eenheid">seconden</div>
-      </div>
-      <div id="cd-ring-wrap">
-        <svg id="cd-ring-svg" viewBox="0 0 72 72">
-          <circle id="cd-ring-achter" cx="36" cy="36" r="32"/>
-          <circle id="cd-ring-voor"   cx="36" cy="36" r="32"/>
-        </svg>
-      </div>
+    <!-- V11.8.0: Compact countdown pill + bevestigingsknoppen -->
+    <div id="cd-pill">
+      <span id="cd-pill-getal">—</span>
+      <span id="cd-pill-label">groen over</span>
+    </div>
+    <div id="bevestig-wrap">
+      <button class="bevestig-btn" style="background:#22c55e" onclick="bevestigCountdown('klopte')">&#10003; KLOPTE</button>
+      <button class="bevestig-btn" style="background:#f59e0b" onclick="bevestigCountdown('bijna')">~ BIJNA</button>
+      <button class="bevestig-btn" style="background:#ef4444" onclick="bevestigCountdown('fout')">&#10007; FOUT</button>
     </div>
     <div id="leer-kaart">
       <div id="leer-header">
@@ -609,7 +603,7 @@
 
 <script>
 // ═══════════════════════════════════════════════════════════════
-//  StoplichtIQ V11.7.1
+//  StoplichtIQ V11.8.0
 //  V11: Leergeheugen audit + genius implementaties
 //  — S1+S2 bevestiging (kruispunt-level confidence)
 //  — Route-herkenning basis (sequentie-opslag)
@@ -624,7 +618,6 @@ if (typeof ort !== 'undefined') {
 }
 
 // ── CONSTANTEN ────────────────────────────────────────────────
-const OMTREK_CD        = 2 * Math.PI * 32;
 const OSM_RADIUS       = 5000;
 const OSM_REFRESH      = 3000;
 const OVERPASS_URL     = 'https://overpass-api.de/api/interpreter';
@@ -716,6 +709,25 @@ const VRI_BETROUWBAARHEID_GLOSA = 70; // percentage
 const VRI_BETROUWBAARHEID_SUGGESTIE = 85; // percentage
 
 const KLASSE_MAP = { 0:'rood', 1:'groen', 3:'oranje' };
+
+// V11.8.0: Countdown modus constanten
+const CD_ZEKER   = 'zeker';
+const CD_GESCHAT = 'geschat';
+const CD_VAAG    = 'vaag';
+const CD_NU      = 'nu';
+
+// V11.8.0: Bevestigingsknoppen
+const BEVESTIG_TOON_MS = 15000;
+
+// V11.8.0: Tap timeout (was 10000 hardcoded)
+const TAP_FORCE_TIMEOUT = 25000;
+
+// V11.8.0: Predictive bbox anchoring
+const BBOX_ANCHOR_TIMEOUT = 15000;
+const BBOX_ANCHOR_EXP     = 0.75;
+
+// V11.8.0: Geleidelijke crop ratio
+const CROP_SMOOTHING = 0.85;
 
 const DD = {
   ochtend: { uren:[6,7,8],              ic:'🌅' },
@@ -1377,6 +1389,21 @@ function isEenRichtingNode(nodeId) {
   return aanrijRichtingen.size <= 1;
 }
 
+// V11.8.0: Modus-bepaling op basis van spreiding
+function bepaalCdModus(gem, metingen) {
+  const spr = gewSpreiding(metingen);
+  const relSpr = gem > 0 ? spr / gem : 0;
+  let modus, cdMin = null, cdMax = null;
+  if (relSpr < 0.20) modus = CD_ZEKER;
+  else if (relSpr < 0.40) modus = CD_GESCHAT;
+  else {
+    modus = CD_VAAG;
+    cdMin = Math.max(1, Math.round(gem - spr));
+    cdMax = Math.round(gem + spr);
+  }
+  return { modus, cdMin, cdMax };
+}
+
 // 5-stap leeslogica: welke data gebruiken voor countdown?
 function kiesCountdownBron(nodeId, dd, aanrijRichting, preSelectieAfrij) {
   if (!nodeId || !dd) return null;
@@ -1386,7 +1413,10 @@ function kiesCountdownBron(nodeId, dd, aanrijRichting, preSelectieAfrij) {
     const m1 = laadMV5Geclusterd(nodeId, aanrijRichting, preSelectieAfrij, dd);
     if (m1.length >= V9_MIN_METINGEN) {
       const gem = gewGem(m1);
-      if (gem) return { gem, bron: `V5 ${preSelectieAfrij}`, metingen: m1.length, v5: true };
+      if (gem) {
+        const { modus, cdMin, cdMax } = bepaalCdModus(gem, m1);
+        return { gem, bron: `V5 ${preSelectieAfrij}`, metingen: m1.length, v5: true, modus, cdMin, cdMax };
+      }
     }
   }
 
@@ -1398,7 +1428,10 @@ function kiesCountdownBron(nodeId, dd, aanrijRichting, preSelectieAfrij) {
       const m2 = laadMV5Geclusterd(nodeId, aanrijRichting, afrijRechtdoor, dd);
       if (m2.length >= V9_MIN_METINGEN) {
         const gem = gewGem(m2);
-        if (gem) return { gem, bron: `V5 ↑`, metingen: m2.length, v5: true };
+        if (gem) {
+          const { modus, cdMin, cdMax } = bepaalCdModus(gem, m2);
+          return { gem, bron: `V5 ↑`, metingen: m2.length, v5: true, modus, cdMin, cdMax };
+        }
       }
     }
   }
@@ -1407,7 +1440,10 @@ function kiesCountdownBron(nodeId, dd, aanrijRichting, preSelectieAfrij) {
   const alleV5 = haalAlleV5MetingenVoorNode(nodeId, dd);
   if (alleV5.length >= V9_MIN_METINGEN) {
     const gem = gewGem(alleV5);
-    if (gem) return { gem, bron: 'V5 alle', metingen: alleV5.length, v5: true };
+    if (gem) {
+      const { modus, cdMin, cdMax } = bepaalCdModus(gem, alleV5);
+      return { gem, bron: 'V5 alle', metingen: alleV5.length, v5: true, modus, cdMin, cdMax };
+    }
   }
 
   // Stap 4: val terug op V4 — alleen als node één aanrijrichting heeft
@@ -1417,9 +1453,10 @@ function kiesCountdownBron(nodeId, dd, aanrijRichting, preSelectieAfrij) {
     if (isEenRichtingNode(nodeId)) {
       const s2c = zoekS2BevestigingScore(nodeId, gem4);
       const bronLabel = s2c >= 1 ? 'v4_s2bevestigd' : 'V4';
-      return { gem: gem4, bron: bronLabel, metingen: m4.length, v5: false, s2bevestigd: s2c >= 1 };
+      const { modus, cdMin, cdMax } = bepaalCdModus(gem4, m4);
+      return { gem: gem4, bron: bronLabel, metingen: m4.length, v5: false, s2bevestigd: s2c >= 1, modus, cdMin, cdMax };
     }
-    return { gem: null, bron: 'lerend', tekst: '↻ Lerende richting', metingen: 0, v5: false, lerend: true };
+    return { gem: null, bron: 'lerend', tekst: '↻ Lerende richting', metingen: 0, v5: false, lerend: true, modus: CD_VAAG };
   }
 
   // Stap 5: geen data
@@ -1564,10 +1601,11 @@ const faseSub     = document.getElementById('fase-sub');
 const faseBron    = document.getElementById('fase-bron');
 const randGlow    = document.getElementById('rand-glow');
 const geluidFlash = document.getElementById('geluid-flash');
-const cdGetal     = document.getElementById('cd-getal');
-const cdLabel     = document.getElementById('cd-label');
-const cdEenheid   = document.getElementById('cd-eenheid');
-const cdRingVoor  = document.getElementById('cd-ring-voor');
+// V11.8.0: Compact pill countdown refs
+const cdPill      = document.getElementById('cd-pill');
+const cdPillGetal = document.getElementById('cd-pill-getal');
+const cdPillLabel = document.getElementById('cd-pill-label');
+const bevestigWrap = document.getElementById('bevestig-wrap');
 const kNaam       = document.getElementById('kruispunt-naam');
 const kAf         = document.getElementById('kruispunt-af');
 const kDD         = document.getElementById('kruispunt-dd');
@@ -1594,6 +1632,11 @@ const dInfo=document.getElementById('d-info');
 // ── APP STAAT ─────────────────────────────────────────────────
 let onnxSession=null, modelGeladen=false, modelLaadStart=null;
 let fase=null, faseStart=null, activeCdDoel=0, cdStart=null;
+// V11.8.0: Countdown modus state
+let activeCdModus=null, activeCdMin=null, activeCdMax=null;
+// V11.8.0: Bevestigingsknoppen state
+let countdownNulTijd=null, cdBereikteNul=false, bevestigActief=false;
+let huidigCdBron=null, huidigCdWaarde=null;
 let laatsteFase=null, laatsteFaseStart=null;
 let faseBevestigd=null;                        // V11.5.4: HUD kleur bewaren bij kort dropout
 let geluidAan=true, isNacht=false;
@@ -1703,6 +1746,10 @@ let laatsteDetecties = [];
 // Opgeslagen in YOLO-pixels (cx,cy) — niet genormaliseerd.
 let bboxOverride = null;  // { cx: float, cy: float } in YOLO 0..640 ruimte
 let bboxOverrideTijd = 0;
+// V11.8.0: Predictive bbox anchoring — exponentieel gemiddelde in camera-norm coords (0-1)
+let bboxAnchorCx = null, bboxAnchorCy = null, bboxAnchorTijd = 0;
+// V11.8.0: Geleidelijke crop ratio
+let huidigeCropRatio = 1.0;
 
 // V11.4.5: Bbox tap override — vergrendelt detectie op dichtstbijzijnde bbox
 // bij de taplocatie. Werkt op middelpunt-afstand (cx/cy), niet op hit-test.
@@ -1948,16 +1995,35 @@ openTrainframesDB().then(async ()=>{ await laadTrainframesTeller(); laadOranjeFr
 // V11.6.0: Smart Crop — crop bovenste deel bij grote afstand
 function berekenCropRegio(vW, vH, afstand) {
   if (!afstand || afstand < 30) return null;
-  const ratio = afstand < 70 ? 0.6 : 0.4;
+  // W6: Geleidelijke crop ratio — smooth interpolatie i.p.v. abrupte 0.4/0.6 schakeling
+  const doelRatio = afstand < 70 ? 0.6 : 0.4;
+  huidigeCropRatio = CROP_SMOOTHING * huidigeCropRatio + (1 - CROP_SMOOTHING) * doelRatio;
+  if (huidigeCropRatio > 0.95) return null; // bijna geen crop → skip
+  const ratio = huidigeCropRatio;
   const cropMaat = Math.min(vW, vH) * ratio;
-  let cropX = (vW - cropMaat) / 2;
-  let cropY = vH * 0.15;
+
+  // W5: Crop centrum prioriteit — tap > anchor > standaard
+  let cropCentrumX, cropCentrumY;
+  const anchorActief = bboxAnchorCx !== null && (Date.now() - bboxAnchorTijd) < BBOX_ANCHOR_TIMEOUT;
+
   if (cropHintPositie && cropHintTeller > 0) {
-    cropX = cropHintPositie.x - cropMaat / 2;
-    cropY = cropHintPositie.y - cropMaat / 2;
-    cropX = Math.max(0, Math.min(vW - cropMaat, cropX));
-    cropY = Math.max(0, Math.min(vH - cropMaat, cropY));
+    // Prio 1: tap/cropHint
+    cropCentrumX = cropHintPositie.x;
+    cropCentrumY = cropHintPositie.y;
+  } else if (anchorActief) {
+    // Prio 2: anchor — omzet naar video-pixel coords
+    cropCentrumX = bboxAnchorCx * vW;
+    cropCentrumY = bboxAnchorCy * vH;
+  } else {
+    // Prio 3: standaard — gecentreerd, 15% van boven
+    cropCentrumX = vW / 2;
+    cropCentrumY = vH * 0.15 + cropMaat / 2;
   }
+
+  let cropX = cropCentrumX - cropMaat / 2;
+  let cropY = cropCentrumY - cropMaat / 2;
+  cropX = Math.max(0, Math.min(vW - cropMaat, cropX));
+  cropY = Math.max(0, Math.min(vH - cropMaat, cropY));
   return {
     x: Math.round(cropX), y: Math.round(cropY),
     w: Math.round(cropMaat), h: Math.round(cropMaat)
@@ -1966,6 +2032,14 @@ function berekenCropRegio(vW, vH, afstand) {
 
 function preprocessVoorYOLO() {
   const vW = video.videoWidth, vH = video.videoHeight;
+
+  // W4: Persistente tap crop — houd cropHint actief zolang tap-override loopt
+  if (bboxOverride && Date.now() - bboxOverrideTijd < TAP_FORCE_TIMEOUT) {
+    const tapCamX = (bboxOverride.cx - lbPadX) / lbScale + (cropRegio ? cropRegio.x : 0);
+    const tapCamY = (bboxOverride.cy - lbPadY) / lbScale + (cropRegio ? cropRegio.y : 0);
+    cropHintPositie = { x: tapCamX, y: tapCamY };
+    cropHintTeller = 10;
+  }
 
   // V11.6.0: S2 alternatie — elke 5e run volledig beeld
   cropAlternatieTeller++;
@@ -2096,7 +2170,7 @@ function selecteerBesteDetectie(detecties) {
   // V11.4.5: bbox override — kies dichtstbijzijnde detectie t.o.v. vergrendelde positie
   // V11.7.0: 30s timeout op override
   if (bboxOverride !== null) {
-    if (Date.now() - bboxOverrideTijd > 10000) {
+    if (Date.now() - bboxOverrideTijd > TAP_FORCE_TIMEOUT) {
       bboxOverride = null;
     } else {
       let besteOv = null;
@@ -2169,8 +2243,27 @@ function selecteerBesteDetectie(detecties) {
       }
     }
 
-    const totaal = (centerScore + afstandScore + confScore + grootteScore + trackScore + richtingBonus)
+    let totaal = (centerScore + afstandScore + confScore + grootteScore + trackScore + richtingBonus)
                    * aspectPenalty * rijbaanPenalty;
+
+    // W5: OSM tie-breaker bij 2+ bboxen en actieve anchor
+    const ancActief = bboxAnchorCx !== null && (Date.now() - bboxAnchorTijd) < BBOX_ANCHOR_TIMEOUT;
+    if (ancActief && bruikbaar.length >= 2 && dichtstbijOSM && huidigePos) {
+      const heading = getSmoothedHeading();
+      if (heading != null) {
+        const bearingNaarNode = Math.atan2(
+          dichtstbijOSM.lon - huidigePos.lon,
+          dichtstbijOSM.lat - huidigePos.lat
+        ) * 180 / Math.PI;
+        let hoekVerschil = bearingNaarNode - heading;
+        while (hoekVerschil > 180) hoekVerschil -= 360;
+        while (hoekVerschil < -180) hoekVerschil += 360;
+        const verwachteX = 0.5 + hoekVerschil / 70;
+        const bboxNormX = det.cx / YOLO_SIZE;
+        const osmMatchScore = Math.max(0, 1.0 - Math.abs(bboxNormX - verwachteX) * 3) * 20;
+        totaal += osmMatchScore;
+      }
+    }
 
     // Bijhouden beste binnen en buiten midden apart
     // Fallback: als niets centraal staat, pak beste buiten midden
@@ -2241,6 +2334,21 @@ function _verwerkWorkerResultaat(detecties) {
   bboxDichtbij = (beste.h > 96);
   const gesmoothedScore = pasConfidenceSmoothingToe(beste.klasse, beste.score);
   vorigeDetectie = { cx:beste.cx, cy:beste.cy };
+  // W5: Anchor update — exponentieel gemiddelde in camera-norm coords (0-1)
+  const ancVW = video.videoWidth, ancVH = video.videoHeight;
+  if (ancVW > 0 && ancVH > 0) {
+    const ancCamX = (beste.cx - lbPadX) / lbScale + (cropRegio ? cropRegio.x : 0);
+    const ancCamY = (beste.cy - lbPadY) / lbScale + (cropRegio ? cropRegio.y : 0);
+    const ncx = Math.max(0.05, Math.min(0.95, ancCamX / ancVW));
+    const ncy = Math.max(0.05, Math.min(0.95, ancCamY / ancVH));
+    if (bboxAnchorCx === null) {
+      bboxAnchorCx = ncx; bboxAnchorCy = ncy;
+    } else {
+      bboxAnchorCx = BBOX_ANCHOR_EXP * bboxAnchorCx + (1 - BBOX_ANCHOR_EXP) * ncx;
+      bboxAnchorCy = BBOX_ANCHOR_EXP * bboxAnchorCy + (1 - BBOX_ANCHOR_EXP) * ncy;
+    }
+    bboxAnchorTijd = Date.now();
+  }
   debugWaarden.ai = `ai:${kleur} ${(gesmoothedScore*100).toFixed(0)}% [${detecties.length}]`;
   laatsteAI = {
     kleur, horizontaal: beste.w > beste.h*1.3, score: gesmoothedScore,
@@ -2344,6 +2452,19 @@ function tekenOverlay(box, score, horizontaal) {
   if (overlCanvas.width !== canvas.width) overlCanvas.width = canvas.width;
   if (overlCanvas.height !== canvas.height) overlCanvas.height = canvas.height;
   octx.clearRect(0, 0, overlCanvas.width, overlCanvas.height);
+  // W5: Anchor indicator
+  if (bboxAnchorCx !== null && Date.now() - bboxAnchorTijd < BBOX_ANCHOR_TIMEOUT) {
+    const aX = bboxAnchorCx * overlCanvas.width;
+    const aY = bboxAnchorCy * overlCanvas.height;
+    octx.save();
+    octx.strokeStyle = 'rgba(56,189,248,0.35)';
+    octx.lineWidth = 1.5;
+    octx.setLineDash([3,3]);
+    octx.beginPath();
+    octx.arc(aX, aY, 18, 0, Math.PI * 2);
+    octx.stroke();
+    octx.restore();
+  }
   // V11.7.0: crop indicator + tap indicator altijd tonen (ook bij ai:weg/ai:filter)
   if (cropRegio) {
     octx.save();
@@ -2364,8 +2485,8 @@ function tekenOverlay(box, score, horizontaal) {
     }
     octx.restore();
   }
-  if (bboxOverride !== null && Date.now() - bboxOverrideTijd < 10000) {
-    const restSec = Math.ceil((10000 - (Date.now() - bboxOverrideTijd)) / 1000);
+  if (bboxOverride !== null && Date.now() - bboxOverrideTijd < TAP_FORCE_TIMEOUT) {
+    const restSec = Math.ceil((TAP_FORCE_TIMEOUT - (Date.now() - bboxOverrideTijd)) / 1000);
     const indicatorX = (bboxOverride.cx - lbPadX) / lbScale + (cropRegio ? cropRegio.x : 0);
     const indicatorY = (bboxOverride.cy - lbPadY) / lbScale + (cropRegio ? cropRegio.y : 0);
     octx.save();
@@ -2596,6 +2717,7 @@ function resetNeutraal() {
   faseBron.textContent=''; randGlow.className=''; vorigeDetectie=null;
   // V11.4.5: bbox override vrijgeven bij volledige reset
   bboxOverride = null; bboxOverrideTijd = 0;
+  bboxAnchorCx = null; bboxAnchorCy = null; bboxAnchorTijd = 0;
   // Zoom ontgrendelen
   zoomVergrendeld=false; huidigActiefStoplichtPositie=null;
   // V8.8: Tikinterface verbergen
@@ -2620,9 +2742,8 @@ function resetNeutraal() {
   const glosaBalk = document.getElementById('glosa-balk');
   if (glosaBalk) glosaBalk.style.display='none';
   huidigeGlosa=null; osmVoorspellingActief=false;
-  // Countdown blok verbergen
-  const cdBlok = document.getElementById('cd-blok');
-  if (cdBlok) cdBlok.classList.remove('actief');
+  cdPill.classList.remove('actief');
+  bevestigActief = false; bevestigWrap.classList.remove('actief');
   stopCd();
 }
 
@@ -2648,6 +2769,7 @@ function verwerkFase(nieuw, horizontaal, conf=null) {
   if (nieuw === 'groen') {
     groenStart = nu;
     bboxOverride = null; bboxOverrideTijd = 0;
+    bboxAnchorCx = null; bboxAnchorCy = null; bboxAnchorTijd = 0;
   } else if (nieuw === 'rood') {
     groenStart = null; groenDuur = 0;
   }
@@ -2737,94 +2859,151 @@ function updateUI(f, horizontaal) {
   faseWoord.textContent = woorden[f]||'—';
   faseSub.textContent   = subs[f]||'Richt camera op stoplicht';
   faseBron.textContent  = f ? `YOLOv8${horizontaal?' ↔':' ↕'}` : '';
-  const rk = f==='rood'?'var(--rood)':f==='groen'?'var(--groen)':f==='oranje'?'var(--oranje)':'rgba(255,255,255,.12)';
-  cdRingVoor.style.stroke = rk;
-  const cdBlok = document.getElementById('cd-blok');
   if (f==='groen') {
-    cdLabel.textContent='Groen actief'; cdGetal.textContent='✓';
-    cdGetal.className='nabij'; cdEenheid.textContent='';
-    cdRingVoor.style.strokeDashoffset='0';
-    if (cdBlok) cdBlok.classList.add('actief'); // toon bij groen
+    cdPill.classList.add('actief');
+    cdPillGetal.textContent = '✓';
+    cdPillGetal.style.color = 'var(--groen)';
+    cdPillLabel.textContent = 'groen actief';
   } else if (f==='rood') {
-    cdGetal.className=''; cdEenheid.textContent='seconden';
-    cdLabel.textContent='Groen verwacht over';
-    if (!activeCdDoel) { cdGetal.textContent='—'; cdGetal.className='leeg'; }
-    // cdBlok wordt getoond in startCd() als er data is
+    if (!activeCdDoel) {
+      cdPillGetal.textContent = '—'; cdPillGetal.style.color = '#fff';
+      cdPillLabel.textContent = 'groen over';
+    }
   } else {
-    cdGetal.textContent='—'; cdGetal.className='leeg';
-    cdEenheid.textContent='seconden'; cdLabel.textContent='Groen verwacht over';
-    cdRingVoor.style.strokeDashoffset=OMTREK_CD.toFixed(1);
-    if (cdBlok) cdBlok.classList.remove('actief');
+    cdPill.classList.remove('actief');
+    cdPillGetal.textContent = '—'; cdPillGetal.style.color = '#fff';
+    cdPillLabel.textContent = 'groen over';
+    // W3: verberg bevestigknoppen bij fase-wissel naar niet-rood/groen
+    bevestigActief = false;
+    bevestigWrap.classList.remove('actief');
   }
 }
 
 function startCd() {
   cdStart = performance.now();
-  const cdBlok = document.getElementById('cd-blok');
-  if (cdBlok) cdBlok.classList.add('actief');
-  const pct = dichtstbijOSM ? berekenLeerPct(dichtstbijOSM.id) : 0;
+  cdBereikteNul = false;
+  cdPill.classList.add('actief');
   if (dichtstbijOSM) {
     const dd = huidigDDActief();
-    // V9.0: Probeer V5 data eerst
     const aanrij = v9AanrijHeading != null ? gpsHeadingNaarWindrichting(v9AanrijSnelheidHeading ?? v9AanrijHeading) : null;
     const v9bron = kiesCountdownBron(dichtstbijOSM.id, dd, aanrij, v9PreSelectieAfrij);
     if (v9bron && v9bron.gem) {
       activeCdDoel = v9bron.gem;
-      const bronLabel = v9bron.v5 ? `V9 ${v9bron.bron} · ${v9bron.metingen}x` : `V4 · ${v9bron.metingen}x`;
-      cdLabel.textContent = `Groen over (~${Math.round(v9bron.gem)}s — ${bronLabel})`;
+      activeCdModus = v9bron.modus;
+      activeCdMin = v9bron.cdMin;
+      activeCdMax = v9bron.cdMax;
+      huidigCdBron = v9bron.bron;
+      huidigCdWaarde = v9bron.gem;
     } else if (v9bron && v9bron.lerend) {
       cdStart = null;
       activeCdDoel = 0;
-      cdLabel.textContent = '↻ Lerende richting — rijd langs voor voorspelling';
-      cdLabel.style.color = 'rgba(255,255,255,0.45)';
-      cdGetal.textContent = '—'; cdGetal.className = 'leeg';
-      cdEenheid.textContent = '';
+      activeCdModus = CD_VAAG;
+      cdPillGetal.textContent = '?';
+      cdPillGetal.style.color = 'rgba(255,255,255,0.45)';
+      cdPillLabel.textContent = 'lerende richting';
     } else {
       const m = laadM(dichtstbijOSM.id, dd);
-      const duurs = m.filter(x=>x.duur>0).map(x=>x.duur);
-      const minT  = duurs.length ? Math.min(...duurs) : null;
-      const maxT  = duurs.length ? Math.max(...duurs) : null;
-      const gem   = gewGem(m);
-      if (gem && minT!=null && maxT!=null && (maxT-minT)>=15)
-        cdLabel.textContent = `Groen over ~${formateerCyclustijd(gem,minT,maxT)}`;
-      else
-        cdLabel.textContent = pct>60 ? `Groen over (${pct}% zeker)` : 'Groen verwacht over';
+      const gem = gewGem(m);
+      if (gem) {
+        activeCdDoel = gem;
+        const { modus, cdMin, cdMax } = bepaalCdModus(gem, m);
+        activeCdModus = modus;
+        activeCdMin = cdMin;
+        activeCdMax = cdMax;
+        huidigCdBron = 'V4_fallback';
+        huidigCdWaarde = gem;
+      }
     }
-  } else {
-    cdLabel.textContent = 'Groen verwacht over';
   }
-  cdEenheid.textContent='seconden';
-  cdRingVoor.style.stroke='var(--rood)';
 }
 
 function stopCd() {
   cdStart=null;
-  cdRingVoor.style.strokeDashoffset = OMTREK_CD.toFixed(1);
   osmVoorspellingActief=false;
-  // Verberg countdown blok — behalve als fase groen is (checkmark tonen)
   if (fase !== 'groen') {
-    const cdBlok = document.getElementById('cd-blok');
-    if (cdBlok) cdBlok.classList.remove('actief');
+    cdPill.classList.remove('actief');
   }
 }
 
-// V8.7 FIX: tickCd werkt nu ook bij osmVoorspellingActief (fase === null)
-// Voorheen: if(!fase || fase!=='rood') return → countdown ring bewoog nooit bij OSM voorspelling
 function tickCd() {
-  // Actief als: fase rood met countdown, OF OSM voorspelling actief, OF groen actief (toon checkmark)
   const cdActief = (fase==='rood' && cdStart && activeCdDoel) || osmVoorspellingActief;
   if (!cdActief) return;
-  if (osmVoorspellingActief && !cdStart) return; // geen start → geen tick
+  if (osmVoorspellingActief && !cdStart) return;
 
   const ver  = (performance.now()-cdStart)/1000;
   const over = Math.max(0, activeCdDoel-ver);
-  const prog = Math.min(1, ver/activeCdDoel);
 
-  cdGetal.textContent = over<1 ? '<1' : Math.ceil(over).toString();
-  cdGetal.className   = over<=6 ? 'nabij' : '';
-  cdRingVoor.style.strokeDashoffset = (OMTREK_CD*(1-prog)).toFixed(1);
+  cdPill.classList.add('actief');
+
+  // W2: Modus-afhankelijke weergave
+  if (activeCdModus === CD_NU || over === 0) {
+    cdPillGetal.textContent = 'nu';
+    cdPillLabel.textContent = 'elk moment';
+  } else if (activeCdModus === CD_VAAG && activeCdMin != null) {
+    const minOver = Math.max(0, Math.ceil(activeCdMin - ver));
+    const maxOver = Math.ceil(activeCdMax - ver);
+    if (maxOver <= 0) {
+      cdPillGetal.textContent = 'nu';
+      cdPillLabel.textContent = 'elk moment';
+    } else {
+      cdPillGetal.textContent = minOver + '-' + maxOver + 's';
+      cdPillLabel.textContent = 'onzeker';
+    }
+  } else if (activeCdModus === CD_GESCHAT) {
+    cdPillGetal.textContent = '~' + Math.ceil(over) + 's';
+    cdPillLabel.textContent = 'geschat';
+  } else {
+    cdPillGetal.textContent = (over < 1 ? '<1' : Math.ceil(over)) + 's';
+    cdPillLabel.textContent = 'groen over';
+  }
+  cdPillGetal.style.color = over <= 6 ? 'var(--groen)' : '#fff';
+
+  // W3: Detecteer countdown bereikt 0
+  if (over === 0 && !cdBereikteNul) {
+    cdBereikteNul = true;
+    countdownNulTijd = Date.now();
+    bevestigActief = true;
+    huidigCdWaarde = activeCdDoel;
+    bevestigWrap.classList.add('actief');
+  }
+  // W3: Verberg bevestigknoppen bij timeout of snelheid
+  if (bevestigActief) {
+    if ((Date.now() - countdownNulTijd) > BEVESTIG_TOON_MS || snelheidKmh > 15) {
+      bevestigActief = false;
+      bevestigWrap.classList.remove('actief');
+    }
+  }
 
   updateGlosa();
+}
+
+// W3: Bevestiging tap handler
+function bevestigCountdown(categorie) {
+  if (!dichtstbijOSM) return;
+  const autoVerschil = (fase === 'groen' && countdownNulTijd)
+    ? Date.now() - countdownNulTijd : null;
+  const sleutel = 'sl_bevestig_' + dichtstbijOSM.id;
+  let data;
+  try { data = JSON.parse(localStorage.getItem(sleutel)) || []; }
+  catch(e) { data = []; }
+  data.push({
+    ts: Date.now(),
+    categorie,
+    dagdeel: huidigDD(),
+    bron: huidigCdBron,
+    countdownWaarde: huidigCdWaarde,
+    autoVerschilMs: autoVerschil
+  });
+  if (data.length > 20) data = data.slice(-20);
+  try { localStorage.setItem(sleutel, JSON.stringify(data)); }
+  catch(e) {}
+  bevestigActief = false;
+  bevestigWrap.classList.remove('actief');
+  cdPillGetal.textContent = '✓';
+  cdPillLabel.textContent = 'opgeslagen';
+  setTimeout(() => {
+    if (fase !== 'groen' && fase !== 'rood') cdPill.classList.remove('actief');
+  }, 1000);
 }
 
 // ── GLOSA ─────────────────────────────────────────────────────
@@ -2889,8 +3068,19 @@ function checkOsmVoorspelling() {
     // V9.0: Probeer V5 data eerst voor pre-emptive countdown
     const aanrij = v9AanrijHeading != null ? gpsHeadingNaarWindrichting(v9AanrijSnelheidHeading ?? v9AanrijHeading) : null;
     const v9bron = kiesCountdownBron(dichtstbijOSM.id, dd, aanrij, v9PreSelectieAfrij);
-    if (v9bron && v9bron.lerend) return; // meerdere aanrijrichtingen — OSM voorspelling overslaan
+    if (v9bron && v9bron.lerend) return;
     activeCdDoel = (v9bron && v9bron.gem) ? v9bron.gem : gem;
+    if (v9bron && v9bron.modus) {
+      activeCdModus = v9bron.modus;
+      activeCdMin = v9bron.cdMin;
+      activeCdMax = v9bron.cdMax;
+      huidigCdBron = v9bron.bron;
+    } else {
+      const md = bepaalCdModus(activeCdDoel, m);
+      activeCdModus = md.modus; activeCdMin = md.cdMin; activeCdMax = md.cdMax;
+      huidigCdBron = 'osm_voorspelling';
+    }
+    huidigCdWaarde = activeCdDoel;
     osmVoorspellingActief = true;
     startCd();
     const el1 = document.getElementById('fase-bron');
@@ -4571,6 +4761,10 @@ function updateDichtbij(lat, lon) {
     activeCdDoel = gewGem(laadM(nieuw.id, huidigDDActief())) || 0;
     bijwerkLeerkaart(nieuw); bijwerkDashboardKnop();
     bboxOverride = null; bboxOverrideTijd = 0;  // V11.4.5: override vervalt bij echte node-wissel
+    bboxAnchorCx = null; bboxAnchorCy = null; bboxAnchorTijd = 0;
+    // W3: reset bevestig state bij node-wissel
+    bevestigActief = false; cdBereikteNul = false;
+    bevestigWrap.classList.remove('actief');
     resetRijrichtingState();
     // V10.0.3: Richtingkeuze lock vervalt alleen bij echte node-wissel (>60m van locked node + snelheid)
     if (richtingLockNodeId && richtingLockNodeId !== String(nieuw.id)) {
