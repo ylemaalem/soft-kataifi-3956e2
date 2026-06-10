@@ -655,7 +655,7 @@ const AI_DREMPEL       = 2;
 // staleFaseFrameTeller werkt op frame niveau (60fps) — volledig onafhankelijk
 // TOLERANTIE_RUNS=3: bij 850ms inferentie = 2.5s buffer voor reset
 // Veilig: staleFaseFrameTeller reset alsnog na max 5s als YOLO niet herbevestigt
-const TOLERANTIE_RUNS  = 3;
+const TOLERANTIE_RUNS  = 5;
 
 // V8.7: Stale fase timer — dynamisch berekend in updateStaleMax()
 // Minimaal 5 seconden, of 4x de gemeten inferentie tijd
@@ -1994,7 +1994,7 @@ openTrainframesDB().then(async ()=>{ await laadTrainframesTeller(); laadOranjeFr
 
 // V11.6.0: Smart Crop — crop bovenste deel bij grote afstand
 function berekenCropRegio(vW, vH, afstand) {
-  if (!afstand || afstand < 30) return null;
+  if (!afstand || afstand < 15) return null;
   // W6: Geleidelijke crop ratio — smooth interpolatie i.p.v. abrupte 0.4/0.6 schakeling
   const doelRatio = afstand < 70 ? 0.6 : 0.4;
   huidigeCropRatio = CROP_SMOOTHING * huidigeCropRatio + (1 - CROP_SMOOTHING) * doelRatio;
@@ -3675,12 +3675,12 @@ function berekenGemAfrijHeading(buffer) {
 }
 
 function berekenDoelZoom(afst) {
-  // V8.8.2: Bbox >96px = stoplicht dichtbij → forceer 1.0x ongeacht GPS
   if (bboxDichtbij) return 1.0;
   if (afst==null||isNaN(afst)||afst<0) return 1.0;
-  if (afst > 70) return 3.0;
-  if (afst > 30) return 2.5;
-  if (afst > 15) return 1.5;
+  if (afst > 80) return 3.0;
+  if (afst > 60) return 2.5;
+  if (afst > 40) return 2.0;
+  if (afst > 20) return 1.5;
   return 1.0;
 }
 
