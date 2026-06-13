@@ -404,7 +404,7 @@
 <div id="startscherm">
   <div id="s-icoon">🚦</div>
   <div id="s-titel">Stoplicht<span>IQ</span></div>
-  <div id="s-versie">V11.8.0 — Compact countdown + bevestiging + anchor</div>
+  <div id="s-versie">V11.9.0 — Fase continuïteit + OSM automatic crop</div>
   <div id="s-model-wrap">
     <div id="s-model-rij">
       <div id="s-model-label">🤖 YOLOv8 model laden…</div>
@@ -603,7 +603,7 @@
 
 <script>
 // ═══════════════════════════════════════════════════════════════
-//  StoplichtIQ V11.8.0
+//  StoplichtIQ V11.9.0
 //  V11: Leergeheugen audit + genius implementaties
 //  — S1+S2 bevestiging (kruispunt-level confidence)
 //  — Route-herkenning basis (sequentie-opslag)
@@ -728,6 +728,13 @@ const BBOX_ANCHOR_EXP     = 0.75;
 
 // V11.8.0: Geleidelijke crop ratio
 const CROP_SMOOTHING = 0.85;
+
+// V11.9.0: Fase continuïteit bij bbox wegspring
+const NODE_SESSION_MAX_MS = 45000;
+const NODE_SESSION_MAX_M  = 50;
+
+// V11.9.0: OSM automatic crop
+const OSM_CROP_MIN_AFSTAND = 25;
 
 const DD = {
   ochtend: { uren:[6,7,8],              ic:'🌅' },
@@ -974,6 +981,9 @@ function slaOp(osmId, richting, duur, conf=null, bypassAfstand=false, gewichtOve
         JSON.stringify({ lat: huidigePos.lat, lon: huidigePos.lon, tijd: Date.now() }));
     } catch(e) {}
   }
+  // V11.9.0: Sessie verwijderen na echte meting
+  const bevestigdeId = String(osmId);
+  if (bevestigdeId) delete nodeSessionData[bevestigdeId];
   return result;
 }
 
@@ -1655,6 +1665,10 @@ let laatsteZoomCSS='';
 const headingBuffer=[];
 let gpsBuffer=10, snelheidKmh=0, gecorrigeerdeAfstand=0;
 
+// V11.9.0: Fase continuïteit state
+let nodeSessionData = {};
+let snelwegTeller   = 0;
+
 // Dynamisch AI interval
 let gemiddeldeInferentieTijd=200, dynamischInterval=15;
 
@@ -1992,6 +2006,36 @@ openTrainframesDB().then(async ()=>{ await laadTrainframesTeller(); laadOranjeFr
 
 // ── YOLO PRE-PROCESSING ───────────────────────────────────────
 
+// V11.9.0: OSM automatic crop — bearing-gebaseerd crop-centrum hint
+function berekenOsmCropHint() {
+  if (!dichtstbijOSM?.lat || !dichtstbijOSM?.lon) return null;
+  if (!huidigePos?.lat || !huidigePos?.lon) return null;
+  const heading = getSmoothedHeading();
+  if (heading == null) return null;
+  const afst = dichtstbijOSM.afstand ?? 999;
+  if (afst < OSM_CROP_MIN_AFSTAND || afst > 200) return null;
+
+  const dLon = (dichtstbijOSM.lon - huidigePos.lon) * Math.PI / 180;
+  const lat1 = huidigePos.lat * Math.PI / 180;
+  const lat2 = dichtstbijOSM.lat * Math.PI / 180;
+  const y = Math.sin(dLon) * Math.cos(lat2);
+  const x = Math.cos(lat1) * Math.sin(lat2)
+            - Math.sin(lat1) * Math.cos(lat2) * Math.cos(dLon);
+  const bearing = (Math.atan2(y, x) * 180 / Math.PI + 360) % 360;
+
+  let hoek = bearing - heading;
+  while (hoek > 180) hoek -= 360;
+  while (hoek < -180) hoek += 360;
+
+  const fov = (typeof CAMERA_FOV !== 'undefined') ? CAMERA_FOV : 70;
+  if (Math.abs(hoek) > fov * 0.35) return null;
+
+  const cx = Math.max(0.10, Math.min(0.90, 0.5 + hoek / fov));
+  const cy = afst > 60 ? 0.15 : afst > 35 ? 0.20 : 0.25;
+
+  return { cx, cy, hoek, afstand: afst };
+}
+
 // V11.6.0: Smart Crop — crop bovenste deel bij grote afstand
 function berekenCropRegio(vW, vH, afstand) {
   if (!afstand || afstand < 15) return null;
@@ -2015,9 +2059,16 @@ function berekenCropRegio(vW, vH, afstand) {
     cropCentrumX = bboxAnchorCx * vW;
     cropCentrumY = bboxAnchorCy * vH;
   } else {
-    // Prio 3: standaard — gecentreerd, 15% van boven
-    cropCentrumX = vW / 2;
-    cropCentrumY = vH * 0.15 + cropMaat / 2;
+    // Prio 3: OSM hint — bearing-gebaseerd crop-centrum
+    const osmH = berekenOsmCropHint();
+    if (osmH) {
+      cropCentrumX = osmH.cx * vW;
+      cropCentrumY = osmH.cy * vH;
+    } else {
+      // Prio 4: standaard — gecentreerd, 15% van boven
+      cropCentrumX = vW / 2;
+      cropCentrumY = vH * 0.15 + cropMaat / 2;
+    }
   }
 
   let cropX = cropCentrumX - cropMaat / 2;
@@ -2508,6 +2559,20 @@ function tekenOverlay(box, score, horizontaal) {
     octx.fillStyle = 'rgba(251,191,36,0.9)';
     octx.font = 'bold 11px monospace';
     octx.fillText('TAP ' + restSec + 's', indicatorX + 14, indicatorY - 14);
+    octx.restore();
+  }
+  // V11.9.0: OSM crop hint indicator — paarse stippelcirkel
+  const osmInd = berekenOsmCropHint();
+  if (osmInd && bboxAnchorCx === null) {
+    const oX = osmInd.cx * overlCanvas.width;
+    const oY = osmInd.cy * overlCanvas.height;
+    octx.save();
+    octx.strokeStyle = 'rgba(168,85,247,0.40)';
+    octx.lineWidth = 1.5;
+    octx.setLineDash([4, 4]);
+    octx.beginPath();
+    octx.arc(oX, oY, 22, 0, Math.PI * 2);
+    octx.stroke();
     octx.restore();
   }
   if (!box) return;
@@ -4757,11 +4822,53 @@ function updateDichtbij(lat, lon) {
     if (fase === 'groen' && groenStart && dichtstbijOSM) {
       slaGroenOpBijPasseren(dichtstbijOSM.id);
     }
+    // === V11.9.0: FASE CONTINUÏTEIT — opslaan ===
+    const verlatenId = String(vorigOsmId ?? '');
+    if (verlatenId && fase === 'rood' && faseStart) {
+      const roodElapsed = performance.now() - faseStart;
+      const bestaand = nodeSessionData[verlatenId];
+      const alRecent = bestaand && (Date.now() - bestaand.opgeslagenOp) < 1000;
+      if (roodElapsed > 3000 && !alRecent) {
+        nodeSessionData[verlatenId] = {
+          roodElapsed,
+          cdElapsed: cdStart ? performance.now() - cdStart : null,
+          cdDoel: activeCdDoel ?? null,
+          cdModus: activeCdModus ?? null,
+          opgeslagenOp: Date.now()
+        };
+      }
+    }
+    // === V11.9.0: FASE CONTINUÏTEIT — herstel ===
+    let sessionHersteld = false;
+    {
+      const terugkeerId = String(nieuw.id ?? '');
+      const sessie = nodeSessionData[terugkeerId];
+      if (sessie) {
+        const ouderdom = Date.now() - sessie.opgeslagenOp;
+        if (ouderdom < NODE_SESSION_MAX_MS) {
+          faseStart = performance.now() - sessie.roodElapsed;
+          fase = 'rood';
+          faseBevestigd = 'rood';
+          if (sessie.cdElapsed !== null && sessie.cdDoel) {
+            cdStart = performance.now() - sessie.cdElapsed;
+            activeCdDoel = sessie.cdDoel;
+            activeCdModus = sessie.cdModus;
+          }
+          bboxAnchorCx = null; bboxAnchorCy = null; bboxAnchorTijd = 0;
+          cdPill.classList.add('actief');
+          sessionHersteld = true;
+        } else {
+          delete nodeSessionData[terugkeerId];
+        }
+      }
+    }
     vorigOsmId=nieuw.id; dichtstbijOSM=nieuw;
-    activeCdDoel = gewGem(laadM(nieuw.id, huidigDDActief())) || 0;
+    if (!sessionHersteld) {
+      activeCdDoel = gewGem(laadM(nieuw.id, huidigDDActief())) || 0;
+    }
     bijwerkLeerkaart(nieuw); bijwerkDashboardKnop();
     bboxOverride = null; bboxOverrideTijd = 0;  // V11.4.5: override vervalt bij echte node-wissel
-    bboxAnchorCx = null; bboxAnchorCy = null; bboxAnchorTijd = 0;
+    if (!sessionHersteld) { bboxAnchorCx = null; bboxAnchorCy = null; bboxAnchorTijd = 0; }
     // W3: reset bevestig state bij node-wissel
     bevestigActief = false; cdBereikteNul = false;
     bevestigWrap.classList.remove('actief');
@@ -4799,6 +4906,23 @@ async function onGPS(pos) {
   const snelheidMs = (pos.coords.speed!=null && !isNaN(pos.coords.speed)) ? pos.coords.speed : 0;
   snelheidKmh = snelheidMs * 3.6;
   gpsBuffer   = Math.min(10 + snelheidKmh*0.4, 40);
+  // V11.9.0: TRIGGER 1 — Afstand: verwijder sessies van nodes > 50m
+  for (const [nid, ses] of Object.entries(nodeSessionData)) {
+    const node = osmCache.find(n => String(n.id) === nid);
+    if (node) {
+      const af = afstand(lat, lon, node.lat, node.lon);
+      if (af > NODE_SESSION_MAX_M) delete nodeSessionData[nid];
+    } else if (Date.now() - ses.opgeslagenOp > NODE_SESSION_MAX_MS) {
+      delete nodeSessionData[nid];
+    }
+  }
+  // V11.9.0: TRIGGER 2 — Snelheid: 4 GPS-updates op >15 km/u = weggereden
+  if (snelheidKmh > 15) {
+    snelwegTeller++;
+    if (snelwegTeller >= 4) { nodeSessionData = {}; snelwegTeller = 0; }
+  } else {
+    snelwegTeller = 0;
+  }
   // V11.0.1: Stilstand tracking
   if (snelheidKmh < 3) {
     if (stilstandSinds === 0) stilstandSinds = Date.now();
