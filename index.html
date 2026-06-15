@@ -404,7 +404,7 @@
 <div id="startscherm">
   <div id="s-icoon">🚦</div>
   <div id="s-titel">Stoplicht<span>IQ</span></div>
-  <div id="s-versie">V11.9.0 — Fase continuïteit + OSM automatic crop</div>
+  <div id="s-versie">V11.10.0 — Zelfkalibratie + vergrendeling</div>
   <div id="s-model-wrap">
     <div id="s-model-rij">
       <div id="s-model-label">🤖 YOLOv8 model laden…</div>
@@ -603,8 +603,8 @@
 
 <script>
 // ═══════════════════════════════════════════════════════════════
-//  StoplichtIQ V11.9.0
-//  V11: Leergeheugen audit + genius implementaties
+//  StoplichtIQ V11.10.0
+//  V11.10: Zelfkalibratie + vergrendeling + crop smoothing
 //  — S1+S2 bevestiging (kruispunt-level confidence)
 //  — Route-herkenning basis (sequentie-opslag)
 //  — Observatieduur per meting + dagdeel-overspanning
@@ -1414,24 +1414,90 @@ function bepaalCdModus(gem, metingen) {
   return { modus, cdMin, cdMax };
 }
 
+function berekenBevestigScore(osmId) {
+  try {
+    const data = JSON.parse(
+      localStorage.getItem('sl_bevestig_'+osmId)
+    ) || [];
+    if (data.length < 3) return null;
+    const recent = data.slice(-10);
+    const klopte = recent.filter(
+      x=>x.categorie==='klopte').length;
+    const bijna = recent.filter(
+      x=>x.categorie==='bijna').length;
+    const fout = recent.filter(
+      x=>x.categorie==='fout').length;
+    const totaal = recent.length;
+    const score = (klopte*1 + bijna*0.5
+                   - fout*1) / totaal;
+    const bijstellingen = recent
+      .filter(x=>x.categorie==='bijna'
+              && typeof x.autoVerschilMs==='number')
+      .map(x=>x.autoVerschilMs/1000);
+    const gemBijstelling = bijstellingen.length
+      ? bijstellingen.reduce((a,b)=>a+b,0)
+        / bijstellingen.length
+      : null;
+    return { klopte, bijna, fout, totaal,
+             score, gemBijstelling };
+  } catch(e) { return null; }
+}
+
+function verwerkBevestigLeren(osmId, categorie,
+                              autoVerschilMs) {
+  const dd = huidigDD();
+  const gem = gewGem(laadM(osmId, dd));
+  if (!gem || gem < 5) return;
+
+  if (categorie === 'bijna'
+      && typeof autoVerschilMs === 'number'
+      && Math.abs(autoVerschilMs) > 1500
+      && Math.abs(autoVerschilMs) < 30000) {
+    const correctieSec = autoVerschilMs / 1000;
+    const nieuwGem = gem + correctieSec;
+    if (nieuwGem > 5 && nieuwGem < 300) {
+      slaOpIntern(osmId, null, nieuwGem,
+        0.3, dd, 'bevestig_bijna');
+      leerLog('bevestig bijstelling: '
+        + (correctieSec>0?'+':'')
+        + correctieSec.toFixed(1)+'s');
+    }
+  }
+
+  if (categorie === 'fout') {
+    const extremeWaarde = gem * 1.6;
+    slaOpIntern(osmId, null, extremeWaarde,
+      0.2, dd, 'bevestig_fout');
+    leerLog('bevestig fout: spreiding vergroot');
+  }
+
+  if (categorie === 'klopte') {
+    slaOpIntern(osmId, null, gem,
+      0.4, dd, 'bevestig_klopte');
+    leerLog('bevestig klopte: vertrouwen +');
+  }
+}
+
 // 5-stap leeslogica: welke data gebruiken voor countdown?
 function kiesCountdownBron(nodeId, dd, aanrijRichting, preSelectieAfrij) {
   if (!nodeId || !dd) return null;
 
+  let resultaat = null;
+
   // Stap 1: pre-selectie via richtingknop (als >= V9_MIN_METINGEN)
-  if (aanrijRichting && preSelectieAfrij) {
+  if (!resultaat && aanrijRichting && preSelectieAfrij) {
     const m1 = laadMV5Geclusterd(nodeId, aanrijRichting, preSelectieAfrij, dd);
     if (m1.length >= V9_MIN_METINGEN) {
       const gem = gewGem(m1);
       if (gem) {
         const { modus, cdMin, cdMax } = bepaalCdModus(gem, m1);
-        return { gem, bron: `V5 ${preSelectieAfrij}`, metingen: m1.length, v5: true, modus, cdMin, cdMax };
+        resultaat = { gem, bron: `V5 ${preSelectieAfrij}`, metingen: m1.length, v5: true, modus, cdMin, cdMax };
       }
     }
   }
 
   // Stap 2: rechtdoor default (aanrij + 180°)
-  if (aanrijRichting) {
+  if (!resultaat && aanrijRichting) {
     const h = v9AanrijSnelheidHeading ?? v9AanrijHeading;
     if (h != null) {
       const afrijRechtdoor = gpsHeadingNaarWindrichting((((h % 360) + 360) % 360 + 180) % 360);
@@ -1440,37 +1506,60 @@ function kiesCountdownBron(nodeId, dd, aanrijRichting, preSelectieAfrij) {
         const gem = gewGem(m2);
         if (gem) {
           const { modus, cdMin, cdMax } = bepaalCdModus(gem, m2);
-          return { gem, bron: `V5 ↑`, metingen: m2.length, v5: true, modus, cdMin, cdMax };
+          resultaat = { gem, bron: `V5 ↑`, metingen: m2.length, v5: true, modus, cdMin, cdMax };
         }
       }
     }
   }
 
   // Stap 3: alle V5 richtingen samen voor deze node (gemiddelde)
-  const alleV5 = haalAlleV5MetingenVoorNode(nodeId, dd);
-  if (alleV5.length >= V9_MIN_METINGEN) {
-    const gem = gewGem(alleV5);
-    if (gem) {
-      const { modus, cdMin, cdMax } = bepaalCdModus(gem, alleV5);
-      return { gem, bron: 'V5 alle', metingen: alleV5.length, v5: true, modus, cdMin, cdMax };
+  if (!resultaat) {
+    const alleV5 = haalAlleV5MetingenVoorNode(nodeId, dd);
+    if (alleV5.length >= V9_MIN_METINGEN) {
+      const gem = gewGem(alleV5);
+      if (gem) {
+        const { modus, cdMin, cdMax } = bepaalCdModus(gem, alleV5);
+        resultaat = { gem, bron: 'V5 alle', metingen: alleV5.length, v5: true, modus, cdMin, cdMax };
+      }
     }
   }
 
   // Stap 4: val terug op V4 — alleen als node één aanrijrichting heeft
-  const m4 = laadM(nodeId, dd);
-  const gem4 = gewGem(m4);
-  if (gem4) {
-    if (isEenRichtingNode(nodeId)) {
-      const s2c = zoekS2BevestigingScore(nodeId, gem4);
-      const bronLabel = s2c >= 1 ? 'v4_s2bevestigd' : 'V4';
-      const { modus, cdMin, cdMax } = bepaalCdModus(gem4, m4);
-      return { gem: gem4, bron: bronLabel, metingen: m4.length, v5: false, s2bevestigd: s2c >= 1, modus, cdMin, cdMax };
+  if (!resultaat) {
+    const m4 = laadM(nodeId, dd);
+    const gem4 = gewGem(m4);
+    if (gem4) {
+      if (isEenRichtingNode(nodeId)) {
+        const s2c = zoekS2BevestigingScore(nodeId, gem4);
+        const bronLabel = s2c >= 1 ? 'v4_s2bevestigd' : 'V4';
+        const { modus, cdMin, cdMax } = bepaalCdModus(gem4, m4);
+        resultaat = { gem: gem4, bron: bronLabel, metingen: m4.length, v5: false, s2bevestigd: s2c >= 1, modus, cdMin, cdMax };
+      } else {
+        resultaat = { gem: null, bron: 'lerend', tekst: '↻ Lerende richting', metingen: 0, v5: false, lerend: true, modus: CD_VAAG };
+      }
     }
-    return { gem: null, bron: 'lerend', tekst: '↻ Lerende richting', metingen: 0, v5: false, lerend: true, modus: CD_VAAG };
   }
 
-  // Stap 5: geen data
-  return null;
+  // V11.10.0: Bevestig-score upgrade/downgrade
+  if (resultaat && resultaat.modus) {
+    const bScore = berekenBevestigScore(nodeId);
+    if (bScore !== null) {
+      if (bScore.score > 0.6
+          && resultaat.modus === CD_GESCHAT) {
+        resultaat.modus = CD_ZEKER;
+        leerLog('bevestig upgrade: ZEKER');
+      }
+      if (bScore.score < -0.3) {
+        if (resultaat.modus === CD_ZEKER)
+          resultaat.modus = CD_GESCHAT;
+        else if (resultaat.modus === CD_GESCHAT)
+          resultaat.modus = CD_VAAG;
+        leerLog('bevestig downgrade: '+resultaat.modus);
+      }
+    }
+  }
+
+  return resultaat;
 }
 
 // ── V9.0: DELAYED WRITE ───────────────────────────────────────
@@ -1764,14 +1853,15 @@ let bboxOverrideTijd = 0;
 let bboxAnchorCx = null, bboxAnchorCy = null, bboxAnchorTijd = 0;
 // V11.8.0: Geleidelijke crop ratio
 let huidigeCropRatio = 1.0;
+// V11.10.0: Vergrendeld op specifieke OSM node
+let vergrendeldNodeId = null;
 
-// V11.4.5: Bbox tap override — vergrendelt detectie op dichtstbijzijnde bbox
-// bij de taplocatie. Werkt op middelpunt-afstand (cx/cy), niet op hit-test.
-// Override blijft actief tot kruispuntwissel of resetNeutraal of 30s timeout.
+// V11.10.0: Tap scheiding — crop vs bbox vergrendelen
+// Pad A: geen actieve S1 bbox → crop forceren naar taplocatie
+// Pad B: wel actieve S1 bbox → vergrendel of wissel bbox
 canvas.addEventListener('click', (e) => {
   if (!canvas.width || !lbScale) return;
 
-  // Schermtap → canvas-pixels → YOLO-ruimte (640) via bestaande letterbox-omzetting
   const cssW = canvas.offsetWidth;
   const cssH = canvas.offsetHeight;
   const rect = canvas.getBoundingClientRect();
@@ -1787,13 +1877,14 @@ canvas.addEventListener('click', (e) => {
   const videoX = normX * canvas.width;
   const videoY = normY * canvas.height;
 
-  // V11.6.0: crop offset corrigeren voor YOLO mapping
   const effectiefX = cropRegio ? videoX - cropRegio.x : videoX;
   const effectiefY = cropRegio ? videoY - cropRegio.y : videoY;
   const yoloX = effectiefX * lbScale + lbPadX;
   const yoloY = effectiefY * lbScale + lbPadY;
 
-  // Dichtstbijzijnde detectie op basis van middelpunt-afstand in YOLO-ruimte
+  cameraTapMarker = { x: videoX, y: videoY, tijd: Date.now() };
+
+  // Zoek dichtstbijzijnde detectie
   let dichtstbij = null;
   let minAfst = Infinity;
   for (const det of laatsteDetecties) {
@@ -1802,30 +1893,68 @@ canvas.addEventListener('click', (e) => {
     const afst = Math.sqrt(dx*dx + dy*dy);
     if (afst < minAfst) { minAfst = afst; dichtstbij = det; }
   }
-  if (!dichtstbij || minAfst > 120) {
-    if (cropHintPositie) {
-      const hx = cropHintPositie.x - videoX, hy = cropHintPositie.y - videoY;
-      if (Math.sqrt(hx*hx + hy*hy) < 50) {
-        cropHintPositie = null;
-        cropHintTeller = 0;
+
+  // Heeft de huidige S1 een actieve bbox?
+  const heeftActieveBbox = laatsteDetecties.length > 0 && bboxAnchorCx !== null
+    && (Date.now() - bboxAnchorTijd) < BBOX_ANCHOR_TIMEOUT;
+
+  // Pad A: geen actieve S1 bbox → crop forceren naar taplocatie
+  if (!heeftActieveBbox) {
+    if (dichtstbij && minAfst <= 120) {
+      bboxOverride = { cx: dichtstbij.cx, cy: dichtstbij.cy };
+      bboxOverrideTijd = Date.now();
+    } else {
+      if (cropHintPositie) {
+        const hx = cropHintPositie.x - videoX, hy = cropHintPositie.y - videoY;
+        if (Math.sqrt(hx*hx + hy*hy) < 50) {
+          cropHintPositie = null;
+          cropHintTeller = 0;
+        } else {
+          cropHintPositie = { x: videoX, y: videoY };
+          cropHintTeller = 10;
+        }
       } else {
         cropHintPositie = { x: videoX, y: videoY };
         cropHintTeller = 10;
       }
-    } else {
-      cropHintPositie = { x: videoX, y: videoY };
-      cropHintTeller = 10;
     }
-    cameraTapMarker = { x: videoX, y: videoY, tijd: Date.now() };
     return;
   }
 
-  // Vergrendel override op YOLO-positie (cx,cy in pixels)
-  bboxOverride = { cx: dichtstbij.cx, cy: dichtstbij.cy };
-  bboxOverrideTijd = Date.now();
+  // Pad B: wel actieve S1 bbox
+  const anchorScreenX = bboxAnchorCx * canvas.width;
+  const anchorScreenY = bboxAnchorCy * canvas.height;
+  const tapToAnchor = Math.sqrt(
+    (videoX - anchorScreenX) ** 2 + (videoY - anchorScreenY) ** 2
+  );
 
-  // V11.4.2: visuele feedback marker (in canvas-pixel coords)
-  cameraTapMarker = { x: videoX, y: videoY, tijd: Date.now() };
+  if (tapToAnchor < 80) {
+    // Tap BINNEN 80px van actieve bbox → vergrendel stevig
+    zoomVergrendeld = true;
+    vergrendeldNodeId = dichtstbijOSM?.id ?? null;
+  } else {
+    // Tap BUITEN 80px → zoek andere bbox binnen 80px van tap
+    if (dichtstbij && minAfst <= 80) {
+      // Wissel actieve bbox naar die bbox
+      bboxOverride = { cx: dichtstbij.cx, cy: dichtstbij.cy };
+      bboxOverrideTijd = Date.now();
+    } else {
+      // Geen andere bbox dichtbij → crop forceren
+      if (cropHintPositie) {
+        const hx = cropHintPositie.x - videoX, hy = cropHintPositie.y - videoY;
+        if (Math.sqrt(hx*hx + hy*hy) < 50) {
+          cropHintPositie = null;
+          cropHintTeller = 0;
+        } else {
+          cropHintPositie = { x: videoX, y: videoY };
+          cropHintTeller = 10;
+        }
+      } else {
+        cropHintPositie = { x: videoX, y: videoY };
+        cropHintTeller = 10;
+      }
+    }
+  }
 });
 
 // Debug
@@ -2218,6 +2347,23 @@ function selecteerBesteDetectie(detecties) {
   const bruikbaar = detecties.filter(d => KLASSE_MAP[d.klasse]);
   if (!bruikbaar.length) return { s1:null, s2Rest:[] };
 
+  // V11.10.0 W5: vergrendeldNodeId — negeer andere bboxen, gebruik alleen anchor-positie
+  if (vergrendeldNodeId && bboxAnchorCx !== null && (Date.now() - bboxAnchorTijd) < BBOX_ANCHOR_TIMEOUT) {
+    const ancYoloX = bboxAnchorCx * YOLO_SIZE;
+    const ancYoloY = bboxAnchorCy * YOLO_SIZE;
+    let besteLock = null, minLockAfst = Infinity;
+    for (const det of bruikbaar) {
+      const dx = det.cx - ancYoloX;
+      const dy = det.cy - ancYoloY;
+      const afst = Math.sqrt(dx*dx + dy*dy);
+      if (afst < minLockAfst) { minLockAfst = afst; besteLock = det; }
+    }
+    if (besteLock && minLockAfst < 120) {
+      return { s1: besteLock, s2Rest: bruikbaar.filter(d => d !== besteLock) };
+    }
+    return { s1: null, s2Rest: bruikbaar };
+  }
+
   // V11.4.5: bbox override — kies dichtstbijzijnde detectie t.o.v. vergrendelde positie
   // V11.7.0: 30s timeout op override
   if (bboxOverride !== null) {
@@ -2536,7 +2682,10 @@ function tekenOverlay(box, score, horizontaal) {
     }
     octx.restore();
   }
-  if (bboxOverride !== null && Date.now() - bboxOverrideTijd < TAP_FORCE_TIMEOUT) {
+  // V11.10.0 W3: tap indicator alleen tonen als aiTeller<2 OF geen actieve bbox OF niet vergrendeld
+  const tapActief = bboxOverride !== null && Date.now() - bboxOverrideTijd < TAP_FORCE_TIMEOUT;
+  const toonTapIndicator = tapActief && (aiTeller < 2 || !box || !zoomVergrendeld);
+  if (toonTapIndicator) {
     const restSec = Math.ceil((TAP_FORCE_TIMEOUT - (Date.now() - bboxOverrideTijd)) / 1000);
     const indicatorX = (bboxOverride.cx - lbPadX) / lbScale + (cropRegio ? cropRegio.x : 0);
     const indicatorY = (bboxOverride.cy - lbPadY) / lbScale + (cropRegio ? cropRegio.y : 0);
@@ -2669,6 +2818,7 @@ function verwerkDetecties() {
     // AI_DREMPEL=2: officieel — fase, leergeheugen, countdown, zoom vergrendeling
     if (aiTeller >= AI_DREMPEL) {
       staleFaseFrameTeller = 0;
+      if (dichtstbijOSM && !vergrendeldNodeId) vergrendeldNodeId = dichtstbijOSM.id;
       if (!zoomVergrendeld) {
         zoomVergrendeld = true; vergrendeldZoomNiveau = huidigeZoom;
         zoomVergrendelTijdstip = Date.now();
@@ -2785,6 +2935,7 @@ function resetNeutraal() {
   bboxAnchorCx = null; bboxAnchorCy = null; bboxAnchorTijd = 0;
   // Zoom ontgrendelen
   zoomVergrendeld=false; huidigActiefStoplichtPositie=null;
+  vergrendeldNodeId = null;
   // V8.8: Tikinterface verbergen
   verbergRichtingKnoppen();
   // V8.8.1: Directe run reset
@@ -3027,13 +3178,25 @@ function tickCd() {
   if (over === 0 && !cdBereikteNul) {
     cdBereikteNul = true;
     countdownNulTijd = Date.now();
-    bevestigActief = true;
     huidigCdWaarde = activeCdDoel;
-    bevestigWrap.classList.add('actief');
   }
-  // W3: Verberg bevestigknoppen bij timeout of snelheid
+  // V11.10.0 W6: Bevestigknoppen tonen bij actieve countdown + snelheid < 5
+  // OF net na fase-wissel (rood→groen) terwijl countdown actief was
+  const cdPillActief = cdPill.classList.contains('actief');
+  if (cdPillActief && snelheidKmh < 5) {
+    if (!bevestigActief) {
+      bevestigActief = true;
+      bevestigWrap.classList.add('actief');
+    }
+  } else if (fase === 'groen' && cdBereikteNul && snelheidKmh < 5) {
+    if (!bevestigActief) {
+      bevestigActief = true;
+      bevestigWrap.classList.add('actief');
+    }
+  }
+  // Verberg bij snelheid > 15 of timeout
   if (bevestigActief) {
-    if ((Date.now() - countdownNulTijd) > BEVESTIG_TOON_MS || snelheidKmh > 15) {
+    if (snelheidKmh > 15 || (countdownNulTijd && (Date.now() - countdownNulTijd) > BEVESTIG_TOON_MS)) {
       bevestigActief = false;
       bevestigWrap.classList.remove('actief');
     }
@@ -3062,6 +3225,13 @@ function bevestigCountdown(categorie) {
   if (data.length > 20) data = data.slice(-20);
   try { localStorage.setItem(sleutel, JSON.stringify(data)); }
   catch(e) {}
+  if (dichtstbijOSM) {
+    verwerkBevestigLeren(
+      dichtstbijOSM.id,
+      categorie,
+      autoVerschil
+    );
+  }
   bevestigActief = false;
   bevestigWrap.classList.remove('actief');
   cdPillGetal.textContent = '✓';
@@ -3508,7 +3678,7 @@ function exporteerData() {
   try {
     const exportData = { versie:'11.4.4', exportDatum:new Date().toISOString(), app:'StoplichtIQ', data:{}, scores:{} };
     for (const key of Object.keys(localStorage)) {
-      if (key.startsWith('sl_v10_')||key.startsWith('sl_v5_')||key.startsWith('sl_v4_')||key.startsWith('sl_v3_')||key.startsWith('sl_tag_')||key.startsWith('sl_naam_')||key.startsWith('sl_richting_')||key.startsWith('sl_route_')||key==='sl_stad_cache') {
+      if (key.startsWith('sl_v10_')||key.startsWith('sl_v5_')||key.startsWith('sl_v4_')||key.startsWith('sl_v3_')||key.startsWith('sl_tag_')||key.startsWith('sl_naam_')||key.startsWith('sl_richting_')||key.startsWith('sl_route_')||key.startsWith('sl_bevestig_')||key.startsWith('sl_pos_')||key==='sl_cam_stats'||key==='sl_stad_cache') {
         try { exportData.data[key] = JSON.parse(localStorage.getItem(key)); }
         catch(e) { exportData.data[key] = localStorage.getItem(key); }
       }
@@ -4868,6 +5038,7 @@ function updateDichtbij(lat, lon) {
     }
     bijwerkLeerkaart(nieuw); bijwerkDashboardKnop();
     bboxOverride = null; bboxOverrideTijd = 0;  // V11.4.5: override vervalt bij echte node-wissel
+    vergrendeldNodeId = null;  // V11.10.0: vergrendeling breken bij node-wissel
     if (!sessionHersteld) { bboxAnchorCx = null; bboxAnchorCy = null; bboxAnchorTijd = 0; }
     // W3: reset bevestig state bij node-wissel
     bevestigActief = false; cdBereikteNul = false;
@@ -4958,6 +5129,7 @@ async function onGPS(pos) {
       isStoplichtVoorbij(huidigActiefStoplichtPositie, {lat,lon}, getSmoothedHeading()) &&
       (Date.now()-zoomVergrendelTijdstip) > 3000) {
     zoomVergrendeld=false; huidigActiefStoplichtPositie=null;
+    vergrendeldNodeId = null;
   }
   // V8.8.1: Tikinterface verbergen als kruispunt voorbij of snelheid >30 na passeren
   if (richtingKnoppenNodeId && huidigActiefStoplichtPositie &&
