@@ -404,7 +404,7 @@
 <div id="startscherm">
   <div id="s-icoon">🚦</div>
   <div id="s-titel">Stoplicht<span>IQ</span></div>
-  <div id="s-versie">V11.10.0 — Zelfkalibratie + vergrendeling</div>
+  <div id="s-versie">V11.10.1 — Zelfkalibratie + vergrendeling</div>
   <div id="s-model-wrap">
     <div id="s-model-rij">
       <div id="s-model-label">🤖 YOLOv8 model laden…</div>
@@ -603,7 +603,7 @@
 
 <script>
 // ═══════════════════════════════════════════════════════════════
-//  StoplichtIQ V11.10.0
+//  StoplichtIQ V11.10.1
 //  V11.10: Zelfkalibratie + vergrendeling + crop smoothing
 //  — S1+S2 bevestiging (kruispunt-level confidence)
 //  — Route-herkenning basis (sequentie-opslag)
@@ -3180,15 +3180,15 @@ function tickCd() {
     countdownNulTijd = Date.now();
     huidigCdWaarde = activeCdDoel;
   }
-  // V11.10.0 W6: Bevestigknoppen tonen bij actieve countdown + snelheid < 5
-  // OF net na fase-wissel (rood→groen) terwijl countdown actief was
+  // V11.10.1: Bevestigknoppen tonen bij actieve countdown + snelheid < 15
   const cdPillActief = cdPill.classList.contains('actief');
-  if (cdPillActief && snelheidKmh < 5) {
+  const stilstaand = snelheidKmh < 15;
+  if (cdPillActief && stilstaand) {
     if (!bevestigActief) {
       bevestigActief = true;
       bevestigWrap.classList.add('actief');
     }
-  } else if (fase === 'groen' && cdBereikteNul && snelheidKmh < 5) {
+  } else if (fase === 'groen' && cdBereikteNul && stilstaand) {
     if (!bevestigActief) {
       bevestigActief = true;
       bevestigWrap.classList.add('actief');
