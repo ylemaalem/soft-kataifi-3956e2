@@ -333,9 +333,26 @@
       border-radius:20px;padding:5px 14px;font-size:11px;font-weight:600;
       letter-spacing:0.1em;text-transform:uppercase;color:var(--dim);cursor:pointer}
     #kaart-map{flex:1;width:100%;background:#1C1C1E}
+    /* V11.11.0: Focus knop */
+    #focus-knop{position:fixed;top:120px;right:16px;width:44px;height:44px;
+      background:rgba(0,0,0,0.65);border:1.5px solid rgba(255,255,255,0.25);
+      border-radius:50%;color:#fff;font-size:20px;display:flex;align-items:center;
+      justify-content:center;cursor:pointer;opacity:0;pointer-events:none;
+      transition:opacity 0.4s;z-index:8000}
+    #focus-knop.zichtbaar{opacity:1;pointer-events:auto;animation:puls-focus 2s infinite}
+    @keyframes puls-focus{0%,100%{border-color:rgba(255,255,255,0.25)}50%{border-color:rgba(56,189,248,0.80)}}
+    /* V11.11.0: Leer toast */
+    #leer-toast{position:fixed;top:60px;left:50%;transform:translateX(-50%);
+      background:rgba(34,197,94,0.92);color:#000;font-family:'Courier New',monospace;
+      font-size:13px;font-weight:700;padding:6px 18px;border-radius:20px;
+      pointer-events:none;opacity:0;transition:opacity 0.3s;z-index:9999;white-space:nowrap}
+    #leer-toast.zichtbaar{opacity:1}
   </style>
 </head>
 <body>
+
+<button id="focus-knop" aria-label="Refocus camera">📷</button>
+<div id="leer-toast"></div>
 
 <video id="video-hidden" autoplay playsinline muted></video>
 <canvas id="camera-canvas"></canvas>
@@ -404,7 +421,7 @@
 <div id="startscherm">
   <div id="s-icoon">🚦</div>
   <div id="s-titel">Stoplicht<span>IQ</span></div>
-  <div id="s-versie">V11.10.1 — Zelfkalibratie + vergrendeling</div>
+  <div id="s-versie">V11.11.0 — Zoom + Nacht + Focus + Toast</div>
   <div id="s-model-wrap">
     <div id="s-model-rij">
       <div id="s-model-label">🤖 YOLOv8 model laden…</div>
@@ -603,7 +620,7 @@
 
 <script>
 // ═══════════════════════════════════════════════════════════════
-//  StoplichtIQ V11.10.1
+//  StoplichtIQ V11.11.0
 //  V11.10: Zelfkalibratie + vergrendeling + crop smoothing
 //  — S1+S2 bevestiging (kruispunt-level confidence)
 //  — Route-herkenning basis (sequentie-opslag)
@@ -728,6 +745,18 @@ const BBOX_ANCHOR_EXP     = 0.75;
 
 // V11.8.0: Geleidelijke crop ratio
 const CROP_SMOOTHING = 0.85;
+
+// V11.11.0: Fase 3 model — 10 klassen (rood, groen, uit, oranje, pijl-rood, pijl-groen, pijl-uit, pijl-oranje, voetganger-rood, voetganger-groen)
+const NC = 10;
+
+// V11.11.0: Nacht beeldversterking
+const NACHT_VERSTERK_ACTIEF = true;
+const NACHT_VERSTERK_NIVEAU = 'licht';
+
+// V11.11.0: Auto-focus nacht
+const AUTOFOCUS_ACTIEF       = true;
+const AUTOFOCUS_BLUR_DREMPEL = 35;
+const AUTOFOCUS_INTERVAL_MS  = 5000;
 
 // V11.9.0: Fase continuïteit bij bbox wegspring
 const NODE_SESSION_MAX_MS = 45000;
@@ -1013,6 +1042,12 @@ function slaGroenOp(osmId, richting, duur, obs) {
   }
   try {
     localStorage.setItem(sleutel, JSON.stringify(m));
+  } catch(e) {}
+  // V11.11.0: Leerbevestiging toast
+  try {
+    const _naam = osmCache?.find(n => String(n.id) === String(osmId))?.naam || '';
+    const _pct = berekenLeerPct(osmId);
+    if (_pct > 0) toonLeerToast(_naam, _pct);
   } catch(e) {}
 }
 
@@ -1856,11 +1891,20 @@ let huidigeCropRatio = 1.0;
 // V11.10.0: Vergrendeld op specifieke OSM node
 let vergrendeldNodeId = null;
 
+// V11.11.0: Auto-focus state
+let autoFocusTijd  = 0;
+let isOnscherp     = false;
+let leerToastTimer = null;
+
 // V11.10.0: Tap scheiding — crop vs bbox vergrendelen
 // Pad A: geen actieve S1 bbox → crop forceren naar taplocatie
 // Pad B: wel actieve S1 bbox → vergrendel of wissel bbox
 canvas.addEventListener('click', (e) => {
   if (!canvas.width || !lbScale) return;
+  // V11.11.0: Click triggert ook focus
+  if (video) {
+    triggerCameraFocus(e.clientX, e.clientY);
+  }
 
   const cssW = canvas.offsetWidth;
   const cssH = canvas.offsetHeight;
@@ -2252,6 +2296,8 @@ function preprocessVoorYOLO() {
   }
 
   const imageData = yoloCtx.getImageData(0, 0, YOLO_SIZE, YOLO_SIZE);
+  // V11.11.0: Nacht beeldversterking YOLO
+  versterkNachtBeeld(imageData);
   const pixels = imageData.data;
   const stride = YOLO_SIZE * YOLO_SIZE;
   for (let i=0; i<stride; i++) {
@@ -2260,6 +2306,155 @@ function preprocessVoorYOLO() {
     yoloFloat32[2*stride+i] = pixels[i*4+2] / 255.0;
   }
   return new ort.Tensor('float32', yoloFloat32, [1,3,YOLO_SIZE,YOLO_SIZE]);
+}
+
+// ── V11.11.0: LEERBEVESTIGING TOAST ──────────────────────────
+function toonLeerToast(naam, pct) {
+  const el = document.getElementById('leer-toast');
+  if (!el) return;
+  const label = naam ? naam.split(',')[0].trim() : 'Stoplicht';
+  el.textContent = '✓ '+label+' opgeslagen — '+pct+'%';
+  el.classList.add('zichtbaar');
+  if (leerToastTimer) clearTimeout(leerToastTimer);
+  leerToastTimer = setTimeout(() => {
+    el.classList.remove('zichtbaar');
+  }, 3000);
+}
+
+// ── V11.11.0: AUTO-FOCUS SYSTEEM ─────────────────────────────
+function triggerCameraFocus(clientX, clientY){
+  if (!AUTOFOCUS_ACTIEF) return;
+  try {
+    if (!video) return;
+    const rect = video.getBoundingClientRect();
+    const x = clientX ?? (rect.left + rect.width * 0.5);
+    const y = clientY ?? (rect.top  + rect.height * 0.20);
+    const t = new Touch({
+      identifier: Date.now(), target: video,
+      clientX: x, clientY: y,
+      radiusX: 5, radiusY: 5,
+      rotationAngle: 0, force: 1
+    });
+    video.dispatchEvent(new TouchEvent('touchstart', {
+      bubbles: true, cancelable: true,
+      touches:[t], targetTouches:[t], changedTouches:[t]
+    }));
+    setTimeout(() => {
+      video.dispatchEvent(new TouchEvent('touchend', {
+        bubbles:true, cancelable:true,
+        touches:[], targetTouches:[], changedTouches:[t]
+      }));
+    }, 50);
+  } catch(e) {}
+}
+
+function berekenScherpte(canvas) {
+  try {
+    const ctx = canvas.getContext('2d');
+    const x = Math.floor(canvas.width*0.2);
+    const y = Math.floor(canvas.height*0.05);
+    const w = Math.floor(canvas.width*0.6);
+    const h = Math.floor(canvas.height*0.35);
+    const id = ctx.getImageData(x,y,w,h);
+    const d  = id.data;
+    const iw = w;
+    let som=0, somKw=0, n=0;
+    for (let iy=1; iy<h-1; iy+=4) {
+      for (let ix=1; ix<iw-1; ix+=4) {
+        const i  = (iy*iw+ix)*4;
+        const iN = ((iy-1)*iw+ix)*4;
+        const iS = ((iy+1)*iw+ix)*4;
+        const iW = (iy*iw+(ix-1))*4;
+        const iE = (iy*iw+(ix+1))*4;
+        const g  = d[i]*0.299+d[i+1]*0.587+d[i+2]*0.114;
+        const gN = d[iN]*0.299+d[iN+1]*0.587+d[iN+2]*0.114;
+        const gS = d[iS]*0.299+d[iS+1]*0.587+d[iS+2]*0.114;
+        const gW = d[iW]*0.299+d[iW+1]*0.587+d[iW+2]*0.114;
+        const gE = d[iE]*0.299+d[iE+1]*0.587+d[iE+2]*0.114;
+        const lap = Math.abs(4*g-gN-gS-gW-gE);
+        som+=lap; somKw+=lap*lap; n++;
+      }
+    }
+    return n>0 ? somKw/n-(som/n)*(som/n) : 999;
+  } catch(e) { return 999; }
+}
+
+function checkEnRefocus() {
+  if (!AUTOFOCUS_ACTIEF) return;
+  const nu = Date.now();
+  if (nu-autoFocusTijd < AUTOFOCUS_INTERVAL_MS) return;
+  autoFocusTijd = nu;
+
+  const dd = huidigDDActief();
+  if (dd !== 'nacht' && dd !== 'avond') {
+    if (isOnscherp) {
+      isOnscherp = false;
+      toonFocusKnop(false);
+    }
+    return;
+  }
+
+  const camCvs = document.getElementById('camera-canvas');
+  if (!camCvs) return;
+
+  const scherpte = berekenScherpte(camCvs);
+  isOnscherp = scherpte < AUTOFOCUS_BLUR_DREMPEL;
+  toonFocusKnop(isOnscherp);
+
+  if (isOnscherp) {
+    const hint = typeof berekenOsmCropHint === 'function'
+      ? berekenOsmCropHint() : null;
+    if (video) {
+      const rect = video.getBoundingClientRect();
+      triggerCameraFocus(
+        hint ? rect.left + hint.cx * rect.width : rect.left + rect.width * 0.5,
+        hint ? rect.top + hint.cy * rect.height : rect.top + rect.height * 0.20
+      );
+      leerLog('autofocus:scherpte='+Math.round(scherpte)+(hint?' osm':' center'));
+    }
+  }
+}
+
+function toonFocusKnop(zichtbaar) {
+  const k = document.getElementById('focus-knop');
+  if (k) k.classList.toggle('zichtbaar', zichtbaar);
+}
+
+// ── V11.11.0: NACHT BEELDVERSTERKING ─────────────────────────
+function versterkNachtBeeld(imageData) {
+  if (!NACHT_VERSTERK_ACTIEF) return;
+  if (NACHT_VERSTERK_NIVEAU === 'uit') return;
+  const dd = huidigDDActief();
+  if (dd !== 'nacht') return;
+
+  let helderheid = 20, contrast = 0;
+  if (NACHT_VERSTERK_NIVEAU === 'sterk') {
+    helderheid = 40; contrast = 30;
+  }
+  const data = imageData.data;
+  const len  = data.length;
+  const f = contrast > 0
+    ? (259*(contrast+255))/(255*(259-contrast))
+    : 1;
+  for (let i = 0; i < len; i += 4) {
+    let r = data[i], g = data[i+1],
+        b = data[i+2];
+    if (contrast > 0) {
+      r = f*(r-128)+128;
+      g = f*(g-128)+128;
+      b = f*(b-128)+128;
+    }
+    r += helderheid; g += helderheid;
+    b += helderheid;
+    data[i]   = r<0?0:r>255?255:r;
+    data[i+1] = g<0?0:g>255?255:g;
+    data[i+2] = b<0?0:b>255?255:b;
+  }
+  if (!window._lastNachtLog ||
+      Date.now()-window._lastNachtLog>60000) {
+    leerLog('nacht-versterk:'+NACHT_VERSTERK_NIVEAU);
+    window._lastNachtLog = Date.now();
+  }
 }
 
 // ── YOLO POST-PROCESSING ──────────────────────────────────────
@@ -2273,7 +2468,7 @@ function postprocessYOLO(outputData, dims) {
     const cx=outputData[0*numAnchors+i], cy=outputData[1*numAnchors+i];
     const w=outputData[2*numAnchors+i], h=outputData[3*numAnchors+i];
     let maxScore=0, maxKlasse=-1;
-    for (let c=0; c<4; c++) {
+    for (let c=0; c<NC; c++) {
       const score = outputData[(4+c)*numAnchors+i];
       if (score > maxScore) { maxScore=score; maxKlasse=c; }
     }
@@ -3914,8 +4109,8 @@ function berekenDoelZoom(afst) {
   if (afst==null||isNaN(afst)||afst<0) return 1.0;
   if (afst > 80) return 3.0;
   if (afst > 60) return 2.5;
-  if (afst > 40) return 2.0;
-  if (afst > 20) return 1.5;
+  if (afst > 50) return 2.0;
+  if (afst > 30) return 1.5;
   return 1.0;
 }
 
@@ -5375,6 +5570,9 @@ function lus() {
     updateDagdeel();
   }
 
+  // V11.11.0: Auto-focus blur check
+  checkEnRefocus();
+
   // Debug waarden bijwerken
   debugWaarden.zoom = `zm:${huidigeZoom.toFixed(2)}x${zoomVergrendeld?' 🔒':''}`;
 
@@ -5573,6 +5771,19 @@ async function startApp() {
   if (rh) rh.style.display = 'flex';
   setupRadarSheetGestures();
   setupRadarSheetTapHandler();
+  // V11.11.0: Focus knop handler
+  document.getElementById('focus-knop')?.addEventListener('click', () => {
+    const hint = typeof berekenOsmCropHint === 'function' ? berekenOsmCropHint() : null;
+    if (video) {
+      const rect = video.getBoundingClientRect();
+      triggerCameraFocus(
+        hint ? rect.left+hint.cx*rect.width : rect.left+rect.width*0.5,
+        hint ? rect.top+hint.cy*rect.height : rect.top+rect.height*0.20
+      );
+      toonFocusKnop(false);
+      leerLog('focus-knop:handmatig');
+    }
+  });
   // V8.9.12: Camera watchdog — herstart lus als >3s geen frame verwerkt
   cameraWatchdogInterval = setInterval(() => {
     if (Date.now() - lastFrameTimestamp > 3000) {
