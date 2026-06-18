@@ -421,7 +421,7 @@
 <div id="startscherm">
   <div id="s-icoon">🚦</div>
   <div id="s-titel">Stoplicht<span>IQ</span></div>
-  <div id="s-versie">V11.12.0 — Regressie fix + auto-richting</div>
+  <div id="s-versie">V11.12.1 — Stabiele bbox + zoom fix</div>
   <div id="s-model-wrap">
     <div id="s-model-rij">
       <div id="s-model-label">🤖 YOLOv8 model laden…</div>
@@ -620,7 +620,7 @@
 
 <script>
 // ═══════════════════════════════════════════════════════════════
-//  StoplichtIQ V11.12.0
+//  StoplichtIQ V11.12.1
 //  V11.10: Zelfkalibratie + vergrendeling + crop smoothing
 //  — S1+S2 bevestiging (kruispunt-level confidence)
 //  — Route-herkenning basis (sequentie-opslag)
@@ -1913,6 +1913,13 @@ let laatsteDetecties = [];
 // Opgeslagen in YOLO-pixels (cx,cy) — niet genormaliseerd.
 let bboxOverride = null;  // { cx: float, cy: float } in YOLO 0..640 ruimte
 let bboxOverrideTijd = 0;
+let voorkeursBboxCx   = null;
+let voorkeursBboxCy   = null;
+let voorkeursBboxRuns = 0;
+let voorkeursBboxTijd = 0;
+const VOORKEUR_MIN_RUNS    = 3;
+const VOORKEUR_TIMEOUT_MS  = 8000;
+const VOORKEUR_SCORE_BONUS = 25;
 // V11.8.0: Predictive bbox anchoring — exponentieel gemiddelde in camera-norm coords (0-1)
 let bboxAnchorCx = null, bboxAnchorCy = null, bboxAnchorTijd = 0;
 // V11.8.0: Geleidelijke crop ratio
@@ -2585,7 +2592,7 @@ function selecteerBesteDetectie(detecties) {
       if (afst < minLockAfst) { minLockAfst = afst; besteLock = det; }
     }
     if (besteLock && minLockAfst < 120) {
-      if (besteLock.klasse >= 4) verwerkPijlDetectie(besteLock.klasse, besteLock.conf);
+      if (besteLock.klasse >= 4) verwerkPijlDetectie(besteLock.klasse, besteLock.score ?? besteLock.conf ?? 0);
       return { s1: besteLock, s2Rest: bruikbaar.filter(d => d !== besteLock) };
     }
     return { s1: null, s2Rest: bruikbaar };
@@ -2606,7 +2613,7 @@ function selecteerBesteDetectie(detecties) {
         if (afst < minOvAfst) { minOvAfst = afst; besteOv = det; }
       }
       if (besteOv) {
-        if (besteOv.klasse >= 4) verwerkPijlDetectie(besteOv.klasse, besteOv.conf);
+        if (besteOv.klasse >= 4) verwerkPijlDetectie(besteOv.klasse, besteOv.score ?? besteOv.conf ?? 0);
         return { s1: besteOv, s2Rest: bruikbaar.filter(d => d !== besteOv) };
       }
     }
@@ -2692,6 +2699,15 @@ function selecteerBesteDetectie(detecties) {
       }
     }
 
+    if (voorkeursBboxCx !== null
+        && voorkeursBboxRuns >= VOORKEUR_MIN_RUNS
+        && (Date.now() - voorkeursBboxTijd) < VOORKEUR_TIMEOUT_MS) {
+      const vDx = det.cx - voorkeursBboxCx;
+      const vDy = det.cy - voorkeursBboxCy;
+      const vAfst = Math.sqrt(vDx*vDx + vDy*vDy);
+      if (vAfst < 80) totaal += VOORKEUR_SCORE_BONUS;
+    }
+
     // Bijhouden beste binnen en buiten midden apart
     // Fallback: als niets centraal staat, pak beste buiten midden
     if (horAfwijking <= 0.45) {
@@ -2703,7 +2719,25 @@ function selecteerBesteDetectie(detecties) {
 
   // Fallback: als geen enkel centraal stoplicht gevonden
   if (!beste) beste = besteBuitenMidden;
-  if (beste && beste.klasse >= 4) verwerkPijlDetectie(beste.klasse, beste.conf);
+  if (beste && beste.klasse >= 4) verwerkPijlDetectie(beste.klasse, beste.score ?? beste.conf ?? 0);
+
+  if (beste) {
+    const nu = Date.now();
+    const verlopen = (nu - voorkeursBboxTijd) > VOORKEUR_TIMEOUT_MS;
+    const dichterBij = voorkeursBboxCx !== null
+      && Math.sqrt((beste.cx - voorkeursBboxCx)**2 + (beste.cy - voorkeursBboxCy)**2) < 80;
+    if (!verlopen && dichterBij) {
+      voorkeursBboxCx = beste.cx;
+      voorkeursBboxCy = beste.cy;
+      voorkeursBboxRuns++;
+      voorkeursBboxTijd = nu;
+    } else {
+      voorkeursBboxCx = beste.cx;
+      voorkeursBboxCy = beste.cy;
+      voorkeursBboxRuns = 1;
+      voorkeursBboxTijd = nu;
+    }
+  }
 
   return { s1:beste, s2Rest:bruikbaar.filter(d=>d!==beste) };
 }
@@ -2758,8 +2792,8 @@ function _verwerkWorkerResultaat(detecties) {
     verwerkS2(s2Rest); s1GebruikteNodesDezeRun.clear();
     return;
   }
-  // V8.8.2: Bbox-grootte zoom override — groot stoplicht = dichtbij
-  bboxDichtbij = (beste.h > 96);
+  const gpsDichtbij = dichtstbijOSM && typeof dichtstbijOSM.afstand === 'number' && dichtstbijOSM.afstand <= 40;
+  bboxDichtbij = (beste.h > 140) || (beste.h > 96 && gpsDichtbij);
   const gesmoothedScore = pasConfidenceSmoothingToe(beste.klasse, beste.score);
   vorigeDetectie = { cx:beste.cx, cy:beste.cy };
   // W5: Anchor update — exponentieel gemiddelde in camera-norm coords (0-1)
@@ -3173,6 +3207,8 @@ function resetNeutraal() {
   // V8.8.2: Bbox zoom + richtingknop reset
   bboxDichtbij = false;
   richtingGedruktVoorNode = null;
+  voorkeursBboxCx = null; voorkeursBboxCy = null;
+  voorkeursBboxRuns = 0; voorkeursBboxTijd = 0;
   // V10.0.5: Green collapse oranje buffer leegmaken
   if (oranjeCollapseBuffer.length > 0 && trainframesAan) {
     slaGreenCollapseFramesOp();
@@ -3216,6 +3252,7 @@ function verwerkFase(nieuw, horizontaal, conf=null) {
     groenStart = nu;
     bboxOverride = null; bboxOverrideTijd = 0;
     bboxAnchorCx = null; bboxAnchorCy = null; bboxAnchorTijd = 0;
+    voorkeursBboxCx = null; voorkeursBboxCy = null; voorkeursBboxRuns = 0;
   } else if (nieuw === 'rood') {
     groenStart = null; groenDuur = 0;
   }
@@ -4146,10 +4183,10 @@ function berekenGemAfrijHeading(buffer) {
 function berekenDoelZoom(afst) {
   if (bboxDichtbij) return 1.0;
   if (afst==null||isNaN(afst)||afst<0) return 1.0;
-  if (afst > 90) return 3.0;
-  if (afst > 70) return 2.5;
-  if (afst > 50) return 2.0;
-  if (afst > 30) return 1.5;
+  if (afst > 100) return 3.0;
+  if (afst > 80)  return 2.5;
+  if (afst > 60)  return 2.0;
+  if (afst > 40)  return 1.5;
   return 1.0;
 }
 
