@@ -421,7 +421,7 @@
 <div id="startscherm">
   <div id="s-icoon">🚦</div>
   <div id="s-titel">Stoplicht<span>IQ</span></div>
-  <div id="s-versie">V11.11.0 — Zoom + Nacht + Focus + Toast</div>
+  <div id="s-versie">V11.12.0 — Regressie fix + auto-richting</div>
   <div id="s-model-wrap">
     <div id="s-model-rij">
       <div id="s-model-label">🤖 YOLOv8 model laden…</div>
@@ -620,7 +620,7 @@
 
 <script>
 // ═══════════════════════════════════════════════════════════════
-//  StoplichtIQ V11.11.0
+//  StoplichtIQ V11.12.0
 //  V11.10: Zelfkalibratie + vergrendeling + crop smoothing
 //  — S1+S2 bevestiging (kruispunt-level confidence)
 //  — Route-herkenning basis (sequentie-opslag)
@@ -725,7 +725,19 @@ const VRI_MIN_SPREIDING = 20; // seconden
 const VRI_BETROUWBAARHEID_GLOSA = 70; // percentage
 const VRI_BETROUWBAARHEID_SUGGESTIE = 85; // percentage
 
-const KLASSE_MAP = { 0:'rood', 1:'groen', 3:'oranje' };
+const KLASSE_MAP = {
+  0:'rood', 1:'groen', 3:'oranje',
+  4:'rood', 5:'rood', 8:'rood',
+  6:'groen', 7:'groen', 9:'groen'
+};
+const PIJL_RICHTING = {
+  4: 'links',     // rood_pijl_links
+  5: 'rechts',    // rood_pijl_rechts
+  6: 'links',     // groen_pijl_links
+  7: 'rechts',    // groen_pijl_rechts
+  8: 'rechtdoor', // rood_pijl_rechtdoor
+  9: 'rechtdoor'  // groen_pijl_rechtdoor
+};
 
 // V11.8.0: Countdown modus constanten
 const CD_ZEKER   = 'zeker';
@@ -1043,12 +1055,6 @@ function slaGroenOp(osmId, richting, duur, obs) {
   try {
     localStorage.setItem(sleutel, JSON.stringify(m));
   } catch(e) {}
-  // V11.11.0: Leerbevestiging toast
-  try {
-    const _naam = osmCache?.find(n => String(n.id) === String(osmId))?.naam || '';
-    const _pct = berekenLeerPct(osmId);
-    if (_pct > 0) toonLeerToast(_naam, _pct);
-  } catch(e) {}
 }
 
 // V11.5.5: Groene fase opslaan bij passeren kruispunt
@@ -1145,6 +1151,11 @@ function slaOpIntern(osmId, richting, duur, gewichtOverride, dd, bron='s1', conf
   if (m.length > MAX_METINGEN) { m.sort((a,b)=>gew(b.tijd)-gew(a.tijd)); m=m.slice(0,MAX_METINGEN); }
   try { localStorage.setItem(`${LS_PREFIX}${osmId}_${dd}`, JSON.stringify(m)); } catch(e) {}
   checkLocalStorageRuimte();
+  try {
+    const _naam = osmCache?.find(n => String(n.id) === String(osmId))?.naam || '';
+    const _pct = berekenLeerPct(osmId);
+    if (_pct > 0) toonLeerToast(_naam, _pct);
+  } catch(e) {}
   return gewijzigd;
 }
 
@@ -1315,6 +1326,24 @@ function berekenAfrijRichtingViaTik(aanrijHeading, tikrichting) {
   if (tikrichting === 'links')     return gpsHeadingNaarWindrichting((h + 90)  % 360);
   if (tikrichting === 'rechts')    return gpsHeadingNaarWindrichting((h - 90 + 360) % 360);
   return gpsHeadingNaarWindrichting((h + 180) % 360); // default rechtdoor
+}
+
+function verwerkPijlDetectie(klasse, conf) {
+  if (typeof PIJL_RICHTING[klasse] === 'undefined') return;
+  if (conf < PIJL_AUTO_DREMPEL) return;
+  const richting = PIJL_RICHTING[klasse];
+  const nu = Date.now();
+  const verlopen = (nu - v9PijlDetectieTijd) > PIJL_AUTO_GELDIG_MS;
+  if (verlopen || conf > v9PijlDetectieConf) {
+    v9PijlDetectieRichting = richting;
+    v9PijlDetectieConf = conf;
+    v9PijlDetectieTijd = nu;
+    if (v9AanrijHeading != null || v9AanrijSnelheidHeading != null) {
+      const h = v9AanrijSnelheidHeading ?? v9AanrijHeading;
+      v9PreSelectieAfrij = berekenAfrijRichtingViaTik(h, richting);
+      leerLog('V11.12 pijl-auto:' + richting + ' conf:' + conf.toFixed(2) + ' kl:' + klasse);
+    }
+  }
 }
 
 // Heading verschil, gecorrigeerd voor wraparound
@@ -1901,11 +1930,6 @@ let leerToastTimer = null;
 // Pad B: wel actieve S1 bbox → vergrendel of wissel bbox
 canvas.addEventListener('click', (e) => {
   if (!canvas.width || !lbScale) return;
-  // V11.11.0: Click triggert ook focus
-  if (video) {
-    triggerCameraFocus(e.clientX, e.clientY);
-  }
-
   const cssW = canvas.offsetWidth;
   const cssH = canvas.offsetHeight;
   const rect = canvas.getBoundingClientRect();
@@ -1944,7 +1968,7 @@ canvas.addEventListener('click', (e) => {
 
   // Pad A: geen actieve S1 bbox → crop forceren naar taplocatie
   if (!heeftActieveBbox) {
-    if (dichtstbij && minAfst <= 120) {
+    if (dichtstbij && minAfst <= 200) {
       bboxOverride = { cx: dichtstbij.cx, cy: dichtstbij.cy };
       bboxOverrideTijd = Date.now();
     } else {
@@ -1972,13 +1996,13 @@ canvas.addEventListener('click', (e) => {
     (videoX - anchorScreenX) ** 2 + (videoY - anchorScreenY) ** 2
   );
 
-  if (tapToAnchor < 80) {
+  if (tapToAnchor < 200) {
     // Tap BINNEN 80px van actieve bbox → vergrendel stevig
     zoomVergrendeld = true;
     vergrendeldNodeId = dichtstbijOSM?.id ?? null;
   } else {
     // Tap BUITEN 80px → zoek andere bbox binnen 80px van tap
-    if (dichtstbij && minAfst <= 80) {
+    if (dichtstbij && minAfst <= 200) {
       // Wissel actieve bbox naar die bbox
       bboxOverride = { cx: dichtstbij.cx, cy: dichtstbij.cy };
       bboxOverrideTijd = Date.now();
@@ -2055,6 +2079,13 @@ let v9DelayedWriteActief    = false;  // wachten op afrijrichting
 let v9LaatstLageSnelheid    = 0;      // timestamp van lage-snelheid start (parkeer-check)
 let v9LaatstPassageNode     = null;   // cooldown: node-id van laatste passage
 let v9LaatstPassageTijd     = 0;      // cooldown: tijdstip van laatste passage
+let v9PijlDetectieRichting  = null;
+let v9PijlDetectieConf      = 0;
+let v9PijlDetectieTijd      = 0;
+const PIJL_AUTO_DREMPEL     = 0.50;
+const PIJL_AUTO_GELDIG_MS   = 10000;
+let laatsteNodeWisselTijd   = 0;
+const NODE_WISSEL_MIN_INTERVAL_MS = 10000;
 
 // V11: Route-herkenning buffer
 let routeBuffer = [];
@@ -2554,6 +2585,7 @@ function selecteerBesteDetectie(detecties) {
       if (afst < minLockAfst) { minLockAfst = afst; besteLock = det; }
     }
     if (besteLock && minLockAfst < 120) {
+      if (besteLock.klasse >= 4) verwerkPijlDetectie(besteLock.klasse, besteLock.conf);
       return { s1: besteLock, s2Rest: bruikbaar.filter(d => d !== besteLock) };
     }
     return { s1: null, s2Rest: bruikbaar };
@@ -2573,7 +2605,10 @@ function selecteerBesteDetectie(detecties) {
         const afst = Math.sqrt(dx*dx + dy*dy);
         if (afst < minOvAfst) { minOvAfst = afst; besteOv = det; }
       }
-      if (besteOv) return { s1: besteOv, s2Rest: bruikbaar.filter(d => d !== besteOv) };
+      if (besteOv) {
+        if (besteOv.klasse >= 4) verwerkPijlDetectie(besteOv.klasse, besteOv.conf);
+        return { s1: besteOv, s2Rest: bruikbaar.filter(d => d !== besteOv) };
+      }
     }
   }
 
@@ -2668,6 +2703,7 @@ function selecteerBesteDetectie(detecties) {
 
   // Fallback: als geen enkel centraal stoplicht gevonden
   if (!beste) beste = besteBuitenMidden;
+  if (beste && beste.klasse >= 4) verwerkPijlDetectie(beste.klasse, beste.conf);
 
   return { s1:beste, s2Rest:bruikbaar.filter(d=>d!==beste) };
 }
@@ -3013,7 +3049,6 @@ function verwerkDetecties() {
     // AI_DREMPEL=2: officieel — fase, leergeheugen, countdown, zoom vergrendeling
     if (aiTeller >= AI_DREMPEL) {
       staleFaseFrameTeller = 0;
-      if (dichtstbijOSM && !vergrendeldNodeId) vergrendeldNodeId = dichtstbijOSM.id;
       if (!zoomVergrendeld) {
         zoomVergrendeld = true; vergrendeldZoomNiveau = huidigeZoom;
         zoomVergrendelTijdstip = Date.now();
@@ -4065,6 +4100,10 @@ function vindDichtbij(lat, lon, heading) {
   // Hysterese: huidige node behoudt voorsprong
   if (beste && dichtstbijOSM && String(beste.id) !== String(dichtstbijOSM.id)) {
     const huidigAf = afstand(lat, lon, dichtstbijOSM.lat, dichtstbijOSM.lon);
+    const recentGewisseld = (Date.now() - laatsteNodeWisselTijd) < NODE_WISSEL_MIN_INTERVAL_MS;
+    if (snelheidKmh < 5 && huidigAf < 30 && recentGewisseld) {
+      return { ...dichtstbijOSM, afstand: huidigAf };
+    }
     if (huidigAf < 150) {
       const hr = vindDichtbijScore(lat, lon, heading, dichtstbijOSM);
       if (hr && bestS < hr.score * 1.20) {
@@ -4107,8 +4146,8 @@ function berekenGemAfrijHeading(buffer) {
 function berekenDoelZoom(afst) {
   if (bboxDichtbij) return 1.0;
   if (afst==null||isNaN(afst)||afst<0) return 1.0;
-  if (afst > 80) return 3.0;
-  if (afst > 60) return 2.5;
+  if (afst > 90) return 3.0;
+  if (afst > 70) return 2.5;
   if (afst > 50) return 2.0;
   if (afst > 30) return 1.5;
   return 1.0;
@@ -4371,6 +4410,8 @@ function tikRichting(richting) {
     data = { cx_zones: [{ zone:'links', count:0 }, { zone:'midden', count:0 }, { zone:'rechts', count:0 }],
              headings: [], laatste_update: Date.now(), bevestigingen: 0 };
   }
+  v9PijlDetectieRichting = null;
+  v9PijlDetectieConf = 0;
   data.tikrichting = richting;
   data.tik_bevestigingen = (data.tik_bevestigingen || 0) + 1;
   const zoneMap = { links:'links', rechtdoor:'midden', rechts:'rechts' };
@@ -5227,6 +5268,7 @@ function updateDichtbij(lat, lon) {
         }
       }
     }
+    laatsteNodeWisselTijd = Date.now();
     vorigOsmId=nieuw.id; dichtstbijOSM=nieuw;
     if (!sessionHersteld) {
       activeCdDoel = gewGem(laadM(nieuw.id, huidigDDActief())) || 0;
@@ -5234,6 +5276,7 @@ function updateDichtbij(lat, lon) {
     bijwerkLeerkaart(nieuw); bijwerkDashboardKnop();
     bboxOverride = null; bboxOverrideTijd = 0;  // V11.4.5: override vervalt bij echte node-wissel
     vergrendeldNodeId = null;  // V11.10.0: vergrendeling breken bij node-wissel
+    v9PijlDetectieRichting = null; v9PijlDetectieConf = 0; v9PijlDetectieTijd = 0;
     if (!sessionHersteld) { bboxAnchorCx = null; bboxAnchorCy = null; bboxAnchorTijd = 0; }
     // W3: reset bevestig state bij node-wissel
     bevestigActief = false; cdBereikteNul = false;
