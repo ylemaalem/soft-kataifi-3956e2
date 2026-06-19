@@ -421,7 +421,7 @@
 <div id="startscherm">
   <div id="s-icoon">🚦</div>
   <div id="s-titel">Stoplicht<span>IQ</span></div>
-  <div id="s-versie">V11.12.1 — Stabiele bbox + zoom fix</div>
+  <div id="s-versie">V11.12.2 — Knoppen fix + VRI freeze fix</div>
   <div id="s-model-wrap">
     <div id="s-model-rij">
       <div id="s-model-label">🤖 YOLOv8 model laden…</div>
@@ -620,7 +620,7 @@
 
 <script>
 // ═══════════════════════════════════════════════════════════════
-//  StoplichtIQ V11.12.1
+//  StoplichtIQ V11.12.2
 //  V11.10: Zelfkalibratie + vergrendeling + crop smoothing
 //  — S1+S2 bevestiging (kruispunt-level confidence)
 //  — Route-herkenning basis (sequentie-opslag)
@@ -3252,7 +3252,13 @@ function verwerkFase(nieuw, horizontaal, conf=null) {
     groenStart = nu;
     bboxOverride = null; bboxOverrideTijd = 0;
     bboxAnchorCx = null; bboxAnchorCy = null; bboxAnchorTijd = 0;
-    voorkeursBboxCx = null; voorkeursBboxCy = null; voorkeursBboxRuns = 0;
+    // V11.12.2: voorkeursBbox NIET direct resetten bij groen — dit hield de
+    // detectie instabiel tijdens het bevestig-knoppen venster (15s),
+    // waardoor knoppen voortijdig verdwenen. Voorkeur blijft nog
+    // VOORKEUR_TIMEOUT_MS (8s) actief en vervalt daarna vanzelf via de
+    // bestaande timeout-check in selecteerBesteDetectie. Runs-teller wel
+    // resetten zodat een NIEUWE node na het kruispunt geen oude voorkeur erft.
+    voorkeursBboxRuns = 0;
   } else if (nieuw === 'rood') {
     groenStart = null; groenDuur = 0;
   }
@@ -3454,11 +3460,15 @@ function tickCd() {
     if (!bevestigActief) {
       bevestigActief = true;
       bevestigWrap.classList.add('actief');
+      // V11.12.2: voorkom tap-overlap — richting-knoppen mogen niet over bevestig-knoppen liggen
+      verbergRichtingKnoppen();
     }
   } else if (fase === 'groen' && cdBereikteNul && stilstaand) {
     if (!bevestigActief) {
       bevestigActief = true;
       bevestigWrap.classList.add('actief');
+      // V11.12.2: voorkom tap-overlap
+      verbergRichtingKnoppen();
     }
   }
   // Verberg bij snelheid > 15 of timeout
@@ -4334,27 +4344,40 @@ function checkVRISuggestie(nodeId) {
   if (!nodeId) return;
   if (vriSuggestieGenegeerd.has(nodeId)) return;
   const tag = laadStoplichtTag(nodeId);
-  if (tag && tag.type === 'vri') return; // al getagd als VRI
+  if (tag && tag.type === 'vri') return;
   const vri = berekenVRIScore(nodeId);
   if (vri.score < VRI_BETROUWBAARHEID_SUGGESTIE || vri.spreiding <= 30) return;
   if (tag && tag.type === 'normaal') {
-    // Gebruiker heeft bewust "normaal" getagd maar data zegt VRI
-    // Toon suggestie via de tag knop
     const btn = document.getElementById('sl-tag-btn');
-    if (btn && btn.style.display !== 'none') return; // al zichtbaar
+    if (btn && btn.style.display !== 'none') return;
     if (btn) {
       btn.textContent = '⚡ VRI gedetecteerd — tag aanpassen?';
       btn.style.display = 'block';
+      // V11.12.2: confirm() vervangen door niet-blokkerende dubbele-tap bevestiging.
+      // Eerste tap = vraag, tweede tap binnen 5s = bevestig. Geen browser-dialoog.
+      let vriBevestigingWacht = false;
       btn.onclick = () => {
-        if (confirm('Dit kruispunt gedraagt zich als VRI (dynamisch geregeld).\n\nTag aanpassen naar VRI?')) {
-          slaStoplichtTagOp(nodeId, 'vri');
-          btn.textContent = '✅ VRI opgeslagen';
-          setTimeout(() => { btn.style.display = 'none'; btn.textContent = '🏷️ Tag dit stoplicht'; }, 2000);
-        } else {
-          vriSuggestieGenegeerd.add(nodeId);
+        const actueleNodeId = nodeId;
+        if (!vriBevestigingWacht) {
+          vriBevestigingWacht = true;
+          btn.textContent = '⚡ Nog 1x tikken om te bevestigen';
+          setTimeout(() => {
+            if (vriBevestigingWacht) {
+              vriBevestigingWacht = false;
+              vriSuggestieGenegeerd.add(actueleNodeId);
+              btn.style.display = 'none';
+              btn.textContent = '🏷️ Tag dit stoplicht';
+            }
+          }, 5000);
+          return;
+        }
+        vriBevestigingWacht = false;
+        slaStoplichtTagOp(actueleNodeId, 'vri');
+        btn.textContent = '✅ VRI opgeslagen';
+        setTimeout(() => {
           btn.style.display = 'none';
           btn.textContent = '🏷️ Tag dit stoplicht';
-        }
+        }, 2000);
       };
       if (tagAutoSluitTimer) clearTimeout(tagAutoSluitTimer);
       tagAutoSluitTimer = setTimeout(() => { btn.style.display = 'none'; btn.textContent = '🏷️ Tag dit stoplicht'; tagAutoSluitTimer = null; }, 10000);
