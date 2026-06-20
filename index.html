@@ -421,7 +421,7 @@
 <div id="startscherm">
   <div id="s-icoon">🚦</div>
   <div id="s-titel">Stoplicht<span>IQ</span></div>
-  <div id="s-versie">V11.12.2 — Knoppen fix + VRI freeze fix</div>
+  <div id="s-versie">V11.12.3 — Frame-loop race conditions fix</div>
   <div id="s-model-wrap">
     <div id="s-model-rij">
       <div id="s-model-label">🤖 YOLOv8 model laden…</div>
@@ -620,7 +620,7 @@
 
 <script>
 // ═══════════════════════════════════════════════════════════════
-//  StoplichtIQ V11.12.2
+//  StoplichtIQ V11.12.3
 //  V11.10: Zelfkalibratie + vergrendeling + crop smoothing
 //  — S1+S2 bevestiging (kruispunt-level confidence)
 //  — Route-herkenning basis (sequentie-opslag)
@@ -4340,8 +4340,14 @@ function renderVRILabel(nodeId) {
 
 // V8.8: Check of VRI suggestie getoond moet worden
 let vriSuggestieGenegeerd = new Set();
+// V11.12.3: voorkomt dat de frame-loop (10x/sec) de VRI-bevestigings-UI
+// overschrijft tijdens gebruikersinteractie
+let vriSuggestieActief = false;
 function checkVRISuggestie(nodeId) {
   if (!nodeId) return;
+  // V11.12.3: als er al een actieve bevestiging loopt, niet opnieuw
+  // initialiseren (voorkomt frame-loop overschrijving van onclick handler)
+  if (vriSuggestieActief) return;
   if (vriSuggestieGenegeerd.has(nodeId)) return;
   const tag = laadStoplichtTag(nodeId);
   if (tag && tag.type === 'vri') return;
@@ -4353,6 +4359,7 @@ function checkVRISuggestie(nodeId) {
     if (btn) {
       btn.textContent = '⚡ VRI gedetecteerd — tag aanpassen?';
       btn.style.display = 'block';
+      vriSuggestieActief = true;
       // V11.12.2: confirm() vervangen door niet-blokkerende dubbele-tap bevestiging.
       // Eerste tap = vraag, tweede tap binnen 5s = bevestig. Geen browser-dialoog.
       let vriBevestigingWacht = false;
@@ -4367,6 +4374,7 @@ function checkVRISuggestie(nodeId) {
               vriSuggestieGenegeerd.add(actueleNodeId);
               btn.style.display = 'none';
               btn.textContent = '🏷️ Tag dit stoplicht';
+              vriSuggestieActief = false;
             }
           }, 5000);
           return;
@@ -4377,10 +4385,11 @@ function checkVRISuggestie(nodeId) {
         setTimeout(() => {
           btn.style.display = 'none';
           btn.textContent = '🏷️ Tag dit stoplicht';
+          vriSuggestieActief = false;
         }, 2000);
       };
       if (tagAutoSluitTimer) clearTimeout(tagAutoSluitTimer);
-      tagAutoSluitTimer = setTimeout(() => { btn.style.display = 'none'; btn.textContent = '🏷️ Tag dit stoplicht'; tagAutoSluitTimer = null; }, 10000);
+      tagAutoSluitTimer = setTimeout(() => { btn.style.display = 'none'; btn.textContent = '🏷️ Tag dit stoplicht'; tagAutoSluitTimer = null; vriSuggestieActief = false; }, 10000);
     }
   }
 }
@@ -4427,6 +4436,10 @@ let richtingGroenDelayTimer = null;
 
 // V8.8.1: Toon bij rood fase of eerste rood detectie, geen bevestigingslimiet
 function toonRichtingKnoppen(nodeId) {
+  // V11.12.3: bevestigknoppen hebben altijd voorrang — richting-knoppen
+  // mogen NOOIT getoond worden terwijl bevestig-knoppen actief zijn,
+  // anders intercepteert richting-knoppen (z:46) alle taps op bevestig-wrap (z:10 via #ui)
+  if (bevestigActief) return;
   if (!nodeId) return;
   if (richtingGedruktVoorNode === nodeId) return;
   // V10.0.3: Richtingkeuze lock — niet opnieuw tonen als keuze al gemaakt voor deze node
@@ -4872,6 +4885,8 @@ function laadStoplichtTag(nodeId) {
 function toonTagKnop(nodeId) {
   const btn = document.getElementById('sl-tag-btn');
   if (!btn || !nodeId) return;
+  // V11.12.3: niet overschrijven tijdens actieve VRI-bevestiging
+  if (vriSuggestieActief) return;
   if (laadStoplichtTag(nodeId)) { btn.style.display='none'; return; }
   btn.style.display = 'block';
   btn.onclick = () => toonTagOverlay(nodeId);
