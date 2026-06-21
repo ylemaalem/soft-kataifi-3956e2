@@ -421,7 +421,7 @@
 <div id="startscherm">
   <div id="s-icoon">🚦</div>
   <div id="s-titel">Stoplicht<span>IQ</span></div>
-  <div id="s-versie">V11.12.3 — Frame-loop race conditions fix</div>
+  <div id="s-versie">V11.12.4-DEBUG — Tap-tracer + auto-leerlog</div>
   <div id="s-model-wrap">
     <div id="s-model-rij">
       <div id="s-model-label">🤖 YOLOv8 model laden…</div>
@@ -3261,6 +3261,14 @@ function verwerkFase(nieuw, horizontaal, conf=null) {
     voorkeursBboxRuns = 0;
   } else if (nieuw === 'rood') {
     groenStart = null; groenDuur = 0;
+    // V11.12.4-DEBUG: auto-toon leer-log 5s na binnenkomst in rood,
+    // zodat ik tijdens het wachten kan zien of slaOp() straks wordt bereikt.
+    setTimeout(() => {
+      if (fase === 'rood') {
+        const logEl = document.getElementById('leer-log');
+        if (logEl) logEl.style.display = 'block';
+      }
+    }, 5000);
   }
 
   // V11.4.3: Rode fase opslaan — partieel-onderscheid verwijderd, elke rood>8s is leerbaar
@@ -6329,6 +6337,28 @@ function koppelBboxAanNode(bbox) {
   console.log('Geen OSM node match voor deze bbox.');
   return false;
 }
+
+// ============================================
+// V11.12.4-DEBUG — TIJDELIJKE TAP-TRACER
+// Verwijderen zodra bevestigknop-probleem opgelost is.
+// Schrijft het tap-target naar #kruispunt-naam zodat dit
+// zonder dev-tools afleesbaar is tijdens het rijden.
+// ============================================
+let _debugTapOrigineel = null;
+document.body.addEventListener('click', function(e) {
+  try {
+    const el = document.getElementById('kruispunt-naam');
+    if (!el) return;
+    if (_debugTapOrigineel === null) _debugTapOrigineel = el.textContent;
+    const t = e.target;
+    const naam = t.id ? ('#' + t.id) : (t.className ? ('.' + String(t.className).split(' ')[0]) : t.tagName);
+    el.textContent = '[TAP] ' + naam;
+    clearTimeout(window._debugTapTimer);
+    window._debugTapTimer = setTimeout(() => {
+      if (_debugTapOrigineel !== null) el.textContent = _debugTapOrigineel;
+    }, 4000);
+  } catch (err) { /* nooit de app breken door de debug-tracer */ }
+}, true);
 </script>
 
 <!-- V10.0.6: Dashboard kaart overlay -->
