@@ -421,7 +421,7 @@
 <div id="startscherm">
   <div id="s-icoon">🚦</div>
   <div id="s-titel">Stoplicht<span>IQ</span></div>
-  <div id="s-versie">V11.12.4-DEBUG — Tap-tracer + auto-leerlog</div>
+  <div id="s-versie">V11.13.0 — Bevestigknoppen blijven verborgen na tap</div>
   <div id="s-model-wrap">
     <div id="s-model-rij">
       <div id="s-model-label">🤖 YOLOv8 model laden…</div>
@@ -620,7 +620,7 @@
 
 <script>
 // ═══════════════════════════════════════════════════════════════
-//  StoplichtIQ V11.12.3
+//  StoplichtIQ V11.13.0
 //  V11.10: Zelfkalibratie + vergrendeling + crop smoothing
 //  — S1+S2 bevestiging (kruispunt-level confidence)
 //  — Route-herkenning basis (sequentie-opslag)
@@ -1799,6 +1799,12 @@ let fase=null, faseStart=null, activeCdDoel=0, cdStart=null;
 let activeCdModus=null, activeCdMin=null, activeCdMax=null;
 // V11.8.0: Bevestigingsknoppen state
 let countdownNulTijd=null, cdBereikteNul=false, bevestigActief=false;
+// V11.13.0: voorkom dat tickCd() de bevestigknoppen opnieuw toont na een tap.
+// Sleutel = osmId + "_" + faseStart van de RODE fase. laatsteRoodFaseStart
+// blijft beschikbaar tijdens de groene fase (waarin de bevestiging logisch
+// nog hoort bij de zojuist beëindigde rode fase), zodat sleutel-vergelijking
+// in beide tickCd-branches dezelfde sleutel oplevert.
+let bevestigGedaanVoorFase=null, laatsteRoodFaseStart=null;
 let huidigCdBron=null, huidigCdWaarde=null;
 let laatsteFase=null, laatsteFaseStart=null;
 let faseBevestigd=null;                        // V11.5.4: HUD kleur bewaren bij kort dropout
@@ -3261,6 +3267,16 @@ function verwerkFase(nieuw, horizontaal, conf=null) {
     voorkeursBboxRuns = 0;
   } else if (nieuw === 'rood') {
     groenStart = null; groenDuur = 0;
+    // V11.13.0: bij ECHTE nieuwe rode fase — reset bevestig-marker en update
+    // laatsteRoodFaseStart. NIET bij V11.5.2 fase-continuïteit-herstel (r3326+):
+    // dan blijft de eerder gegeven bevestiging gelden voor dezelfde rode fase.
+    // Detectie: continuïteit-herstel vereist laatsteFase==='rood' EN tussentijd<120s.
+    const isContinuiteitHerstel = (laatsteFase === 'rood' && laatsteFaseStart
+        && ((nu - laatsteFaseStart) / 1000) < 120);
+    if (!isContinuiteitHerstel) {
+      bevestigGedaanVoorFase = null;
+      laatsteRoodFaseStart = nu;
+    }
     // V11.12.4-DEBUG: auto-toon leer-log 5s na binnenkomst in rood,
     // zodat ik tijdens het wachten kan zien of slaOp() straks wordt bereikt.
     setTimeout(() => {
@@ -3464,15 +3480,22 @@ function tickCd() {
   // V11.10.1: Bevestigknoppen tonen bij actieve countdown + snelheid < 15
   const cdPillActief = cdPill.classList.contains('actief');
   const stilstaand = snelheidKmh < 15;
+  // V11.13.0: bereken sleutel voor bevestig-marker — gebruikt in BEIDE branches
+  // zodat tap tijdens rood (faseStart=rood) en tap tijdens groen (cdBereikteNul,
+  // faseStart=groen) beide dezelfde rood-faseStart referentie hebben.
+  const _bevSleutel = (dichtstbijOSM && laatsteRoodFaseStart)
+    ? String(dichtstbijOSM.id) + '_' + String(laatsteRoodFaseStart)
+    : null;
+  const _bevAlGedaan = _bevSleutel && bevestigGedaanVoorFase === _bevSleutel;
   if (cdPillActief && stilstaand) {
-    if (!bevestigActief) {
+    if (!bevestigActief && !_bevAlGedaan) {
       bevestigActief = true;
       bevestigWrap.classList.add('actief');
       // V11.12.2: voorkom tap-overlap — richting-knoppen mogen niet over bevestig-knoppen liggen
       verbergRichtingKnoppen();
     }
   } else if (fase === 'groen' && cdBereikteNul && stilstaand) {
-    if (!bevestigActief) {
+    if (!bevestigActief && !_bevAlGedaan) {
       bevestigActief = true;
       bevestigWrap.classList.add('actief');
       // V11.12.2: voorkom tap-overlap
@@ -3519,6 +3542,11 @@ function bevestigCountdown(categorie) {
   }
   bevestigActief = false;
   bevestigWrap.classList.remove('actief');
+  // V11.13.0: markeer deze rode fase als afgehandeld zodat tickCd() de
+  // bevestigknoppen niet opnieuw toont in deze of een volgende cycle.
+  if (dichtstbijOSM && laatsteRoodFaseStart) {
+    bevestigGedaanVoorFase = String(dichtstbijOSM.id) + '_' + String(laatsteRoodFaseStart);
+  }
   cdPillGetal.textContent = '✓';
   cdPillLabel.textContent = 'opgeslagen';
   setTimeout(() => {
@@ -6337,28 +6365,6 @@ function koppelBboxAanNode(bbox) {
   console.log('Geen OSM node match voor deze bbox.');
   return false;
 }
-
-// ============================================
-// V11.12.4-DEBUG — TIJDELIJKE TAP-TRACER
-// Verwijderen zodra bevestigknop-probleem opgelost is.
-// Schrijft het tap-target naar #kruispunt-naam zodat dit
-// zonder dev-tools afleesbaar is tijdens het rijden.
-// ============================================
-let _debugTapOrigineel = null;
-document.body.addEventListener('click', function(e) {
-  try {
-    const el = document.getElementById('kruispunt-naam');
-    if (!el) return;
-    if (_debugTapOrigineel === null) _debugTapOrigineel = el.textContent;
-    const t = e.target;
-    const naam = t.id ? ('#' + t.id) : (t.className ? ('.' + String(t.className).split(' ')[0]) : t.tagName);
-    el.textContent = '[TAP] ' + naam;
-    clearTimeout(window._debugTapTimer);
-    window._debugTapTimer = setTimeout(() => {
-      if (_debugTapOrigineel !== null) el.textContent = _debugTapOrigineel;
-    }, 4000);
-  } catch (err) { /* nooit de app breken door de debug-tracer */ }
-}, true);
 </script>
 
 <!-- V10.0.6: Dashboard kaart overlay -->
