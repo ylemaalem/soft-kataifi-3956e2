@@ -421,7 +421,7 @@
 <div id="startscherm">
   <div id="s-icoon">🚦</div>
   <div id="s-titel">Stoplicht<span>IQ</span></div>
-  <div id="s-versie">V11.13.0 — Bevestigknoppen blijven verborgen na tap</div>
+  <div id="s-versie">V11.13.1 — Bevestig-bonus aangesloten</div>
   <div id="s-model-wrap">
     <div id="s-model-rij">
       <div id="s-model-label">🤖 YOLOv8 model laden…</div>
@@ -620,7 +620,7 @@
 
 <script>
 // ═══════════════════════════════════════════════════════════════
-//  StoplichtIQ V11.13.0
+//  StoplichtIQ V11.13.1
 //  V11.10: Zelfkalibratie + vergrendeling + crop smoothing
 //  — S1+S2 bevestiging (kruispunt-level confidence)
 //  — Route-herkenning basis (sequentie-opslag)
@@ -873,7 +873,8 @@ function berekenObsScore(metingen) {
   if (!metingen || !metingen.length) return 0;
   let som = 0;
   for (const m of metingen) {
-    if (m.bron === 's2' || m.bron === 'proxy') continue;
+    if (m.bron === 's2' || m.bron === 'proxy'
+        || m.bron === 'bevestig_klopte') continue;
     let obsGewicht;
     if (m.gewicht != null && m.tier == null) {
       obsGewicht = m.gewicht;
@@ -904,7 +905,17 @@ function berekenLeerPct(osmId) {
     const rd = JSON.parse(localStorage.getItem(`sl_richting_${osmId}`));
     if (rd && rd.gps_tik_score != null) gpsTikBonus = Math.round(rd.gps_tik_score * 5);
   } catch(e) {}
-  return Math.min(95, obsPct + s2Bonus + gpsTikBonus);
+  // V11.13.1: vertrouwens-bonus uit gebruikersbevestigingen.
+  // Alleen actief als er voldoende echte observatie-onderbouwing is
+  // (obsPct >= 10), zodat KLOPTE-taps op dunne data niets opzwellen.
+  let bevestigBonus = 0;
+  if (obsPct >= 10) {
+    const bevS = berekenBevestigScore(osmId);
+    if (bevS && bevS.score > 0) {
+      bevestigBonus = Math.min(8, Math.round(bevS.score * 8));
+    }
+  }
+  return Math.min(95, obsPct + s2Bonus + gpsTikBonus + bevestigBonus);
 }
 
 function leerKleur(pct) {
