@@ -421,7 +421,7 @@
 <div id="startscherm">
   <div id="s-icoon">🚦</div>
   <div id="s-titel">Stoplicht<span>IQ</span></div>
-  <div id="s-versie">V11.13.1 — Bevestig-bonus aangesloten</div>
+  <div id="s-versie">V11.13.2 — Ripple altijd + avond-versterking</div>
   <div id="s-model-wrap">
     <div id="s-model-rij">
       <div id="s-model-label">🤖 YOLOv8 model laden…</div>
@@ -620,7 +620,7 @@
 
 <script>
 // ═══════════════════════════════════════════════════════════════
-//  StoplichtIQ V11.13.1
+//  StoplichtIQ V11.13.2
 //  V11.10: Zelfkalibratie + vergrendeling + crop smoothing
 //  — S1+S2 bevestiging (kruispunt-level confidence)
 //  — Route-herkenning basis (sequentie-opslag)
@@ -2480,7 +2480,7 @@ function versterkNachtBeeld(imageData) {
   if (!NACHT_VERSTERK_ACTIEF) return;
   if (NACHT_VERSTERK_NIVEAU === 'uit') return;
   const dd = huidigDDActief();
-  if (dd !== 'nacht') return;
+  if (dd !== 'nacht' && dd !== 'avond') return;
 
   let helderheid = 20, contrast = 0;
   if (NACHT_VERSTERK_NIVEAU === 'sterk') {
@@ -3006,25 +3006,9 @@ function tekenOverlay(box, score, horizontaal) {
     octx.stroke();
     octx.restore();
   }
-  if (!box) return;
-  const kCSS = box.kleur==='rood'?'#FF3030':box.kleur==='groen'?'#34C759':box.kleur==='oranje'?'#FF9F0A':'#888';
-  const mg=8, hl=Math.min(box.w,box.h)*0.35+8;
-  const x1=box.x-mg, y1=box.y-mg, x2=box.x+box.w+mg, y2=box.y+box.h+mg;
-  octx.strokeStyle=kCSS; octx.lineWidth=3; octx.globalAlpha=0.92;
-  octx.shadowColor=kCSS; octx.shadowBlur=12;
-  octx.beginPath();
-  octx.moveTo(x1+hl,y1); octx.lineTo(x1,y1); octx.lineTo(x1,y1+hl);
-  octx.moveTo(x2-hl,y1); octx.lineTo(x2,y1); octx.lineTo(x2,y1+hl);
-  octx.moveTo(x1,y2-hl); octx.lineTo(x1,y2); octx.lineTo(x1+hl,y2);
-  octx.moveTo(x2-hl,y2); octx.lineTo(x2,y2); octx.lineTo(x2,y2-hl);
-  octx.stroke(); octx.shadowBlur=0;
-  if (box.kleur) {
-    octx.fillStyle=kCSS; octx.globalAlpha=0.9; octx.font='bold 13px monospace';
-    const tapIndicator = (typeof bboxOverride !== 'undefined' && bboxOverride !== null) ? ' 🔒' : '';
-    const label = `${box.kleur.toUpperCase()}${horizontaal?' ↔':' ↕'}${score?' '+(score*100).toFixed(0)+'%':''}${tapIndicator}`;
-    octx.fillText(label, x1, y1-6);
-  }
   // V11.4.2: ripple marker bij camera tap
+  // V11.13.2: verplaatst VÓÓR if (!box) return; zodat ripple óók verschijnt
+  // bij ai:weg (geen detectie). Tap moet altijd zichtbaar bevestigd worden.
   if (cameraTapMarker) {
     const leeftijd = Date.now() - cameraTapMarker.tijd;
     if (leeftijd < CAMERA_TAP_MARKER_DUUR) {
@@ -3042,6 +3026,24 @@ function tekenOverlay(box, score, horizontaal) {
     } else {
       cameraTapMarker = null;
     }
+  }
+  if (!box) return;
+  const kCSS = box.kleur==='rood'?'#FF3030':box.kleur==='groen'?'#34C759':box.kleur==='oranje'?'#FF9F0A':'#888';
+  const mg=8, hl=Math.min(box.w,box.h)*0.35+8;
+  const x1=box.x-mg, y1=box.y-mg, x2=box.x+box.w+mg, y2=box.y+box.h+mg;
+  octx.strokeStyle=kCSS; octx.lineWidth=3; octx.globalAlpha=0.92;
+  octx.shadowColor=kCSS; octx.shadowBlur=12;
+  octx.beginPath();
+  octx.moveTo(x1+hl,y1); octx.lineTo(x1,y1); octx.lineTo(x1,y1+hl);
+  octx.moveTo(x2-hl,y1); octx.lineTo(x2,y1); octx.lineTo(x2,y1+hl);
+  octx.moveTo(x1,y2-hl); octx.lineTo(x1,y2); octx.lineTo(x1+hl,y2);
+  octx.moveTo(x2-hl,y2); octx.lineTo(x2,y2); octx.lineTo(x2,y2-hl);
+  octx.stroke(); octx.shadowBlur=0;
+  if (box.kleur) {
+    octx.fillStyle=kCSS; octx.globalAlpha=0.9; octx.font='bold 13px monospace';
+    const tapIndicator = (typeof bboxOverride !== 'undefined' && bboxOverride !== null) ? ' 🔒' : '';
+    const label = `${box.kleur.toUpperCase()}${horizontaal?' ↔':' ↕'}${score?' '+(score*100).toFixed(0)+'%':''}${tapIndicator}`;
+    octx.fillText(label, x1, y1-6);
   }
 }
 
@@ -3288,14 +3290,6 @@ function verwerkFase(nieuw, horizontaal, conf=null) {
       bevestigGedaanVoorFase = null;
       laatsteRoodFaseStart = nu;
     }
-    // V11.12.4-DEBUG: auto-toon leer-log 5s na binnenkomst in rood,
-    // zodat ik tijdens het wachten kan zien of slaOp() straks wordt bereikt.
-    setTimeout(() => {
-      if (fase === 'rood') {
-        const logEl = document.getElementById('leer-log');
-        if (logEl) logEl.style.display = 'block';
-      }
-    }, 5000);
   }
 
   // V11.4.3: Rode fase opslaan — partieel-onderscheid verwijderd, elke rood>8s is leerbaar
