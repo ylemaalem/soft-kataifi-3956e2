@@ -421,7 +421,7 @@
 <div id="startscherm">
   <div id="s-icoon">🚦</div>
   <div id="s-titel">Stoplicht<span>IQ</span></div>
-  <div id="s-versie">V11.13.2 — Ripple altijd + avond-versterking</div>
+  <div id="s-versie">V11.13.3 — CD_VAAG asymmetrie-fix</div>
   <div id="s-model-wrap">
     <div id="s-model-rij">
       <div id="s-model-label">🤖 YOLOv8 model laden…</div>
@@ -620,7 +620,7 @@
 
 <script>
 // ═══════════════════════════════════════════════════════════════
-//  StoplichtIQ V11.13.2
+//  StoplichtIQ V11.13.3
 //  V11.10: Zelfkalibratie + vergrendeling + crop smoothing
 //  — S1+S2 bevestiging (kruispunt-level confidence)
 //  — Route-herkenning basis (sequentie-opslag)
@@ -3476,6 +3476,18 @@ function tickCd() {
   }
   cdPillGetal.style.color = over <= 6 ? 'var(--groen)' : '#fff';
 
+  // V11.13.3: vroege trigger voor countdownNulTijd in CD_VAAG.
+  // Zonder deze trigger blijft countdownNulTijd null als groen valt
+  // tussen activeCdMin en activeCdDoel, waardoor BIJNA-correcties
+  // in dat vroege bereik geen autoVerschilMs hebben om te bewegen.
+  if (activeCdModus === CD_VAAG
+      && activeCdMin != null
+      && !cdBereikteNul
+      && Math.ceil(activeCdMin - ver) <= 0) {
+    cdBereikteNul = true;
+    countdownNulTijd = Date.now();
+    huidigCdWaarde = activeCdDoel;
+  }
   // W3: Detecteer countdown bereikt 0
   if (over === 0 && !cdBereikteNul) {
     cdBereikteNul = true;
