@@ -421,7 +421,7 @@
 <div id="startscherm">
   <div id="s-icoon">🚦</div>
   <div id="s-titel">Stoplicht<span>IQ</span></div>
-  <div id="s-versie">V11.13.4 — VRI-kort-rood + opruim</div>
+  <div id="s-versie">V11.13.6 — Zoom-unlock 20m → 30m</div>
   <div id="s-model-wrap">
     <div id="s-model-rij">
       <div id="s-model-label">🤖 YOLOv8 model laden…</div>
@@ -615,7 +615,7 @@
 
 <script>
 // ═══════════════════════════════════════════════════════════════
-//  StoplichtIQ V11.13.4
+//  StoplichtIQ V11.13.6
 //  V11.10: Zelfkalibratie + vergrendeling + crop smoothing
 //  — S1+S2 bevestiging (kruispunt-level confidence)
 //  — Route-herkenning basis (sequentie-opslag)
@@ -752,6 +752,16 @@ const BBOX_ANCHOR_EXP     = 0.75;
 
 // V11.8.0: Geleidelijke crop ratio
 const CROP_SMOOTHING = 0.85;
+
+// V11.13.6: afstand waarop de zoom-vergrendeling wordt opgeheven
+// tijdens nadering van een stoplicht. Bij unlock komt
+// berekenDoelZoom() weer in actie en die geeft direct 1.0x omdat
+// de afstand inmiddels onder de tabel-drempel van 40m ligt.
+// Dit is de werkelijke drempel die de gebruiker ziet als
+// "wanneer schakelt de app over naar volledig zicht".
+// Eerder stond deze magisch op 20 (r5528), verhoogd naar 30 voor
+// vroegere overschakeling naar volledig zicht net voor het stoplicht.
+const ZOOM_UNLOCK_AFSTAND_M = 30;
 
 // V11.11.0: Fase 3 model — 10 klassen (rood, groen, uit, oranje, pijl-rood, pijl-groen, pijl-uit, pijl-oranje, voetganger-rood, voetganger-groen)
 const NC = 10;
@@ -5524,9 +5534,13 @@ async function onGPS(pos) {
   if (richtingKnoppenNodeId && dichtstbijOSM && dichtstbijOSM.afstand < 15 && snelheidKmh > 30) {
     verbergRichtingKnoppen();
   }
-  // Zoom unlock bij zeer kleine afstand (<20m)
-  if (zoomVergrendeld && dichtstbijOSM && dichtstbijOSM.afstand < 20) {
+  // V11.13.6: zoom-unlock bij nadering. Drempel uit constante voor
+  // vindbaarheid; eerder stond hier de magische 20 direct in code.
+  if (zoomVergrendeld && dichtstbijOSM && dichtstbijOSM.afstand < ZOOM_UNLOCK_AFSTAND_M) {
+    const afstandBijUnlock = dichtstbijOSM.afstand;
     zoomVergrendeld=false; huidigActiefStoplichtPositie=null;
+    leerLog('ZOOM-UNLOCK: afstand=' + afstandBijUnlock.toFixed(1) +
+            'm (drempel=' + ZOOM_UNLOCK_AFSTAND_M + 'm)');
   }
   pGPS.className='pill-dot b'; pGPST.textContent='GPS';
   if (!cacheGeladen && !cacheBezig) downloadOSM(lat, lon);
