@@ -421,7 +421,7 @@
 <div id="startscherm">
   <div id="s-icoon">🚦</div>
   <div id="s-titel">Stoplicht<span>IQ</span></div>
-  <div id="s-versie">V11.13.8 — tap-overrule fix (bboxOverride in Pad B <200)</div>
+  <div id="s-versie">V11.13.9 — dagdeel-startbonus (50% van globaalPct + '?')</div>
   <div id="s-model-wrap">
     <div id="s-model-rij">
       <div id="s-model-label">🤖 YOLOv8 model laden…</div>
@@ -615,7 +615,7 @@
 
 <script>
 // ═══════════════════════════════════════════════════════════════
-//  StoplichtIQ V11.13.8
+//  StoplichtIQ V11.13.9
 //  V11.10: Zelfkalibratie + vergrendeling + crop smoothing
 //  — S1+S2 bevestiging (kruispunt-level confidence)
 //  — Route-herkenning basis (sequentie-opslag)
@@ -3752,10 +3752,33 @@ function bijwerkLeerkaart(osm) {
     leerPctBalk.style.width = pctDD + '%';
     leerPctBalk.style.background = kleurDD;
     if (mDD.length === 0) {
-      leerPctGetal.textContent = 'Geen data';
-      leerPctGetal.style.color = 'rgba(255,255,255,0.3)';
-      leerPctGetal.style.fontSize = '10px';
+      // V11.13.9: dagdeel-startbonus. Als andere dagdelen wél data hebben
+      // (berekenLeerPct aggregeert ALLE dagdelen — r902), is dit kruispunt
+      // bekend maar het huidige dagdeel nog leeg. Toon een gedempte
+      // schatting (50% van globaalPct) met '?'-marker. Percentage-weergave
+      // uitsluitend — countdown blijft dagdeel-geïsoleerd via
+      // kiesCountdownBron (r1563), die valt op leeg dagdeel gewoon terug
+      // op niets. Rapport Deel A.
+      const globaalPct = berekenLeerPct(osm.id);
+      if (globaalPct > 0) {
+        const startBonusPct = Math.round(globaalPct * 0.5);
+        leerPctBalk.style.width = startBonusPct + '%';
+        leerPctBalk.style.background = leerKleur(startBonusPct);
+        leerPctBalk.style.opacity = '0.5';
+        leerPctGetal.textContent = startBonusPct + '% ?';
+        leerPctGetal.style.color = 'rgba(255,255,255,0.6)';
+        leerPctGetal.style.fontSize = '';
+        leerLog('STARTBONUS: node=' + osm.id +
+                ' dd=' + gekozenDD +
+                ' globaal=' + globaalPct + '%' +
+                ' getoond=' + startBonusPct + '%');
+      } else {
+        leerPctGetal.textContent = 'Geen data';
+        leerPctGetal.style.color = 'rgba(255,255,255,0.3)';
+        leerPctGetal.style.fontSize = '10px';
+      }
     } else {
+      leerPctBalk.style.opacity = '';
       leerPctGetal.textContent = pctDD + '%';
       leerPctGetal.style.color = kleurDD;
       leerPctGetal.style.fontSize = '';
@@ -3766,6 +3789,7 @@ function bijwerkLeerkaart(osm) {
     const kleurGlobaal = leerKleur(pctGlobaal);
     leerPctBalk.style.width = pctGlobaal + '%';
     leerPctBalk.style.background = kleurGlobaal;
+    leerPctBalk.style.opacity = '';
     leerPctGetal.textContent = pctGlobaal + '%';
     leerPctGetal.style.color = kleurGlobaal;
     leerPctGetal.style.fontSize = '';
