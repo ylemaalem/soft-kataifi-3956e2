@@ -421,7 +421,7 @@
 <div id="startscherm">
   <div id="s-icoon">🚦</div>
   <div id="s-titel">Stoplicht<span>IQ</span></div>
-  <div id="s-versie">V11.13.6 — Zoom-unlock 20m → 30m</div>
+  <div id="s-versie">V11.13.7 — RAF-keten generatie-token</div>
   <div id="s-model-wrap">
     <div id="s-model-rij">
       <div id="s-model-label">🤖 YOLOv8 model laden…</div>
@@ -615,7 +615,7 @@
 
 <script>
 // ═══════════════════════════════════════════════════════════════
-//  StoplichtIQ V11.13.6
+//  StoplichtIQ V11.13.7
 //  V11.10: Zelfkalibratie + vergrendeling + crop smoothing
 //  — S1+S2 bevestiging (kruispunt-level confidence)
 //  — Route-herkenning basis (sequentie-opslag)
@@ -1894,6 +1894,19 @@ const GREEN_COLLAPSE_DREMPEL = 0.25; // nu onder dit = collapse
 // V8.9.12: Camera watchdog
 let cameraWatchdogInterval = null;
 let lastFrameTimestamp = 0;
+// V11.13.7: dubbele-RAF-keten preventie. Elke watchdog-herstart
+// hoogt lusGeneratie op. Elke lus()-iteratie kent zijn eigen
+// startGeneratie en stopt zichzelf zodra lusGeneratie afwijkt
+// (een nieuwere keten heeft de overhand genomen). Voorkomt dat
+// twee parallel lopende lus()-functies staleFaseFrameTeller
+// 2x sneller verhogen na een tab-suspend/resume cyclus.
+let lusGeneratie = 0;
+// V11.13.7 diagnostiek: passieve teller die per lus()-aanroep
+// wordt verhoogd. updateDebugOverlay rapporteert hem elke 500ms
+// en reset hem daarna. Bij gezonde sessie: ~30 ticks per 500ms
+// (60fps × 0.5s). Bij dubbele keten: ~60 ticks. Bij triple: ~90.
+let lusTicksSindsDebugUpdate = 0;
+let dubbeleKetenGedetecteerd = false; // sticky flag voor de hele sessie
 
 // V8.9.12: Handmatige node-selectie harde lock
 let handmatigGeselecteerdNodeId = null;
@@ -5701,6 +5714,15 @@ function updateDebugOverlay() {
   dPct.textContent = [debugWaarden.leer||'leer:—', debugWaarden.zoom||''].filter(Boolean).join(' | ');
   dOSM.textContent = [debugWaarden.osm||'osm:—', s2SessieTeller>0?`S2:${s2SessieTeller}`:'', tag?'tag:'+tag.type:''].filter(Boolean).join(' | ');
   dInfo.textContent = debugWaarden.info || '—';
+  // V11.13.7 diagnostiek: detecteer onverwacht hoge lus-frequentie.
+  // Bij 60fps × 0.5s = ~30 ticks normaal. > 45 wijst op meerdere
+  // parallel lopende ketens.
+  if (lusTicksSindsDebugUpdate > 45 && !dubbeleKetenGedetecteerd) {
+    dubbeleKetenGedetecteerd = true;
+    leerLog('DUBBELE KETEN GEDETECTEERD: ' + lusTicksSindsDebugUpdate +
+      ' lus-ticks in 500ms (verwacht ~30)');
+  }
+  lusTicksSindsDebugUpdate = 0;
 }
 setInterval(updateDebugOverlay, 500);
 
@@ -5717,7 +5739,14 @@ setInterval(() => {
 }, 30000);
 
 // ── ANIMATIELUS ───────────────────────────────────────────────
-function lus() {
+function lus(mijnGeneratie) {
+  // V11.13.7: stop deze keten als een nieuwere watchdog-start de
+  // overhand heeft genomen. Roept geen requestAnimationFrame aan
+  // → sterft zelfstandig.
+  if (mijnGeneratie !== lusGeneratie) {
+    return;
+  }
+  lusTicksSindsDebugUpdate++; // V11.13.7 diagnostiek
   lastFrameTimestamp = Date.now();
   if (video.readyState >= 2) {
     const vw=video.videoWidth||window.innerWidth, vh=video.videoHeight||window.innerHeight;
@@ -5780,7 +5809,7 @@ function lus() {
   // Debug waarden bijwerken
   debugWaarden.zoom = `zm:${huidigeZoom.toFixed(2)}x${zoomVergrendeld?' 🔒':''}`;
 
-  requestAnimationFrame(lus);
+  requestAnimationFrame(() => lus(mijnGeneratie));
 }
 
 // ── V10.0.6: LEAFLET DASHBOARD KAART ─────────────────────────
@@ -5991,12 +6020,17 @@ async function startApp() {
   // V8.9.12: Camera watchdog — herstart lus als >3s geen frame verwerkt
   cameraWatchdogInterval = setInterval(() => {
     if (Date.now() - lastFrameTimestamp > 3000) {
+      // V11.13.7: hoog generatie op zodat de eventueel nog levende
+      // oude keten zichzelf bij de volgende iteratie stopt. Start
+      // dan een verse keten met de nieuwe generatie als token.
+      lusGeneratie++;
+      leerLog('WATCHDOG: RAF-keten herstart, generatie=' + lusGeneratie);
       if (video.paused) video.play().catch(() => {});
       lastFrameTimestamp = Date.now();
-      requestAnimationFrame(lus);
+      requestAnimationFrame(() => lus(lusGeneratie));
     }
   }, 3000);
-  lus();
+  lus(lusGeneratie); // V11.13.7: startgeneratie meegeven
 }
 
 document.getElementById('geluid-toggle').classList.remove('uit');
