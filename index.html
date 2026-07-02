@@ -421,7 +421,7 @@
 <div id="startscherm">
   <div id="s-icoon">🚦</div>
   <div id="s-titel">Stoplicht<span>IQ</span></div>
-  <div id="s-versie">V11.13.7 — RAF-keten generatie-token</div>
+  <div id="s-versie">V11.13.8 — tap-overrule fix (bboxOverride in Pad B <200)</div>
   <div id="s-model-wrap">
     <div id="s-model-rij">
       <div id="s-model-label">🤖 YOLOv8 model laden…</div>
@@ -615,7 +615,7 @@
 
 <script>
 // ═══════════════════════════════════════════════════════════════
-//  StoplichtIQ V11.13.7
+//  StoplichtIQ V11.13.8
 //  V11.10: Zelfkalibratie + vergrendeling + crop smoothing
 //  — S1+S2 bevestiging (kruispunt-level confidence)
 //  — Route-herkenning basis (sequentie-opslag)
@@ -2049,6 +2049,15 @@ canvas.addEventListener('click', (e) => {
     // Tap BINNEN 80px van actieve bbox → vergrendel stevig
     zoomVergrendeld = true;
     vergrendeldNodeId = dichtstbijOSM?.id ?? null;
+    // V11.13.8: ook bboxOverride zetten zodat het slotje verschijnt (r3069
+    // conditie) en de effectieve lock verlengd wordt van BBOX_ANCHOR_TIMEOUT
+    // (15s) naar TAP_FORCE_TIMEOUT (25s). bboxAnchorCx/Cy zijn genormaliseerd
+    // (0-1); bboxOverride moet YOLO-space (0..640) zijn — zie r1956 comment.
+    bboxOverride = { cx: bboxAnchorCx * YOLO_SIZE, cy: bboxAnchorCy * YOLO_SIZE };
+    bboxOverrideTijd = Date.now();
+    leerLog('TAP-LOCK: nodeId=' + (vergrendeldNodeId || '?') +
+            ' cx=' + bboxOverride.cx.toFixed(0) +
+            ' cy=' + bboxOverride.cy.toFixed(0));
   } else {
     // Tap BUITEN 80px → zoek andere bbox binnen 80px van tap
     if (dichtstbij && minAfst <= 200) {
