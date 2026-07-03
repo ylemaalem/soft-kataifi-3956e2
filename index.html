@@ -421,7 +421,7 @@
 <div id="startscherm">
   <div id="s-icoon">🚦</div>
   <div id="s-titel">Stoplicht<span>IQ</span></div>
-  <div id="s-versie">V11.14.0 — patroon-vertrouwen (V4-multi + bevestig-drempel 2)</div>
+  <div id="s-versie">V11.14.1 — dashboard-snelheid (localStorage pre-index)</div>
   <div id="s-model-wrap">
     <div id="s-model-rij">
       <div id="s-model-label">🤖 YOLOv8 model laden…</div>
@@ -615,7 +615,7 @@
 
 <script>
 // ═══════════════════════════════════════════════════════════════
-//  StoplichtIQ V11.14.0
+//  StoplichtIQ V11.14.1
 //  V11.10: Zelfkalibratie + vergrendeling + crop smoothing
 //  — S1+S2 bevestiging (kruispunt-level confidence)
 //  — Route-herkenning basis (sequentie-opslag)
@@ -1309,10 +1309,16 @@ function nodeIsInBekendeRoute(nodeId) {
   return false;
 }
 
-function vindRouteDataVoorNode(nodeId) {
+function vindRouteDataVoorNode(nodeId, lsIndex = null) {
   let gevonden = null;
-  for (let i = 0; i < localStorage.length; i++) {
-    const k = localStorage.key(i);
+  // V11.14.1: gebruik pre-index als beschikbaar. routeKeys bevat alleen
+  // sl_route_-sleutels waar deze nodeId in zit — geen full localStorage-scan.
+  const routeKeys = lsIndex
+    ? (lsIndex.get(String(nodeId))?.routeKeys ?? [])
+    : null;
+  const scanLen = routeKeys ? routeKeys.length : localStorage.length;
+  for (let i = 0; i < scanLen; i++) {
+    const k = routeKeys ? routeKeys[i] : localStorage.key(i);
     if (!k || !k.startsWith('sl_route_')) continue;
     if (!k.includes(nodeId)) continue;
     try {
@@ -1433,10 +1439,16 @@ function berekenRichtingPct(nodeId, aanrij, afrij, dd) {
   return { pct: legacyPct, metingen: aantal };
 }
 
-function verzamelV5Richtingen(nodeId) {
+function verzamelV5Richtingen(nodeId, lsIndex = null) {
   const richtingen = [];
-  for (let i = 0; i < localStorage.length; i++) {
-    const k = localStorage.key(i);
+  // V11.14.1: gebruik pre-index als beschikbaar. v5Keys bevat alleen
+  // sl_v5_${nodeId}_-sleutels — geen full localStorage-scan.
+  const v5Keys = lsIndex
+    ? (lsIndex.get(String(nodeId))?.v5Keys ?? [])
+    : null;
+  const scanLen = v5Keys ? v5Keys.length : localStorage.length;
+  for (let i = 0; i < scanLen; i++) {
+    const k = v5Keys ? v5Keys[i] : localStorage.key(i);
     if (!k || !k.startsWith(`${LS_PREFIX_V5}${nodeId}_`)) continue;
     const rest = k.replace(`${LS_PREFIX_V5}${nodeId}_`, '');
     const delen = rest.split('_');
@@ -3824,13 +3836,19 @@ function openDashboard() {
   uitgeklapteDD = null;
   const zoekInput = document.getElementById('dash-zoek');
   if (zoekInput) zoekInput.value = '';
-  laadDashboard();
-  updateTrainframesTeller();
-  updateCamStatsTeller();
+  // V11.14.1: toon dashboard direct met placeholder, dan zware berekening
+  // in de volgende tick zodat de browser eerst kan renderen.
   document.getElementById('dashboard').classList.remove('verborgen');
+  const lijstEl = document.getElementById('dash-lijst');
+  if (lijstEl) lijstEl.innerHTML = '<div style="padding:24px;text-align:center;color:rgba(255,255,255,0.4);font-family:monospace;font-size:12px;">Laden…</div>';
   if (radarSheetOpen) sluitRadarSheet();
   const rh = document.getElementById('radar-handle');
   if (rh) rh.style.display = 'none';
+  setTimeout(() => {
+    laadDashboard();
+    updateTrainframesTeller();
+    updateCamStatsTeller();
+  }, 0);
 }
 
 function sluitDashboard() {
@@ -3930,6 +3948,32 @@ function laadDashboard() {
     document.getElementById('ds-gem-pct').textContent='0%';
     return;
   }
+  // V11.14.1: pre-index localStorage — één scan i.p.v. 3 × N scans in renderers.
+  // Route-sleutels bevatten meerdere nodeIds: sl_route_${n1}_${n2}_${n3} (r1289).
+  // v5-sleutels: sl_v5_${nodeId}_... — nodeId is eerste veld na prefix.
+  // richting-sleutels: sl_richting_${nodeId} — rest na prefix IS de nodeId.
+  const lsIndex = new Map();
+  const v5Prefix = LS_PREFIX_V5;
+  const routePrefix = 'sl_route_';
+  const richtingPrefix = 'sl_richting_';
+  const zorgEntry = (nodeId) => {
+    if (!lsIndex.has(nodeId)) lsIndex.set(nodeId, { v5Keys: [], routeKeys: [], richtingRaw: null });
+    return lsIndex.get(nodeId);
+  };
+  for (let i = 0; i < localStorage.length; i++) {
+    const k = localStorage.key(i);
+    if (!k) continue;
+    if (k.startsWith(v5Prefix)) {
+      const nodeId = k.slice(v5Prefix.length).split('_')[0];
+      zorgEntry(nodeId).v5Keys.push(k);
+    } else if (k.startsWith(routePrefix)) {
+      const nodesInKey = k.slice(routePrefix.length).split('_');
+      for (const nodeId of nodesInKey) zorgEntry(nodeId).routeKeys.push(k);
+    } else if (k.startsWith(richtingPrefix)) {
+      const nodeId = k.slice(richtingPrefix.length);
+      zorgEntry(nodeId).richtingRaw = localStorage.getItem(k);
+    }
+  }
   const data = ids.map(id => {
     const pct  = berekenLeerPct(id);
     const alleM = Object.keys(DD).flatMap(d => laadM(id,d));
@@ -4013,11 +4057,11 @@ function laadDashboard() {
       return gem ? formateerCyclustijd(gem, duurs.length?Math.min(...duurs):null, duurs.length?Math.max(...duurs):null) : '';
     }).filter(Boolean).join(' ');
     // V9.0: Richtingen per node uitklappend
-    const v9RichtingenHTML = renderV9RichtingenVoorNode(d.id, actiefDD);
-    const routeData = vindRouteDataVoorNode(d.id);
+    const v9RichtingenHTML = renderV9RichtingenVoorNode(d.id, actiefDD, lsIndex);
+    const routeData = vindRouteDataVoorNode(d.id, lsIndex);
     const routeHTML = routeData ? `<div style="font-size:9px;color:var(--blauw);margin-top:4px">📍 Deel van bekende route — gem. totaal ${routeData.gemTotaal}s</div>` : '';
     // V11.1: V5 richtings-% per rijrichting
-    const v5Richt = verzamelV5Richtingen(d.id);
+    const v5Richt = verzamelV5Richtingen(d.id, lsIndex);
     const v5HTML = v5Richt.length > 0 ? `<div style="font-size:9px;color:rgba(255,255,255,0.4);margin-top:4px;display:flex;flex-direction:column;gap:2px"><div style="color:rgba(255,255,255,0.5);font-weight:600">Per rijrichting:</div>${v5Richt.map(r => `<div>${r.aanrij} → ${r.afrij} (${DD[r.dd]?.ic||''} ${r.dd}): <span style="color:${r.pct>=60?'var(--groen)':r.pct>=30?'var(--oranje)':'var(--rood)'}">${r.pct}%</span> (${r.metingen}x)</div>`).join('')}</div>` : '';
     return `<div class="sl-kaart">
       <div class="sl-kaart-header">
@@ -4668,12 +4712,17 @@ function renderRichtingBadge(nodeId) {
 }
 
 // V9.0: Per-richting data renderen in dashboard
-function renderV9RichtingenVoorNode(nodeId, dd) {
+function renderV9RichtingenVoorNode(nodeId, dd, lsIndex = null) {
   const richtingPijlen = { N:'↑N', NO:'↗NO', O:'→O', ZO:'↘ZO', Z:'↓Z', ZW:'↙ZW', W:'←W', NW:'↖NW' };
   const richtingItems = [];
   const gezieneSleutels = new Set();
-  for (let i = 0; i < localStorage.length; i++) {
-    const k = localStorage.key(i);
+  // V11.14.1: gebruik pre-index als beschikbaar (O(1) i.p.v. O(localStorage.length))
+  const v5Keys = lsIndex
+    ? (lsIndex.get(String(nodeId))?.v5Keys ?? [])
+    : null;
+  const scanLen = v5Keys ? v5Keys.length : localStorage.length;
+  for (let i = 0; i < scanLen; i++) {
+    const k = v5Keys ? v5Keys[i] : localStorage.key(i);
     if (!k || !k.startsWith(`${LS_PREFIX_V5}${nodeId}_`)) continue;
     const rest = k.replace(`${LS_PREFIX_V5}${nodeId}_`, '');
     const delen = rest.split('_');
