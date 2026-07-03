@@ -421,7 +421,7 @@
 <div id="startscherm">
   <div id="s-icoon">🚦</div>
   <div id="s-titel">Stoplicht<span>IQ</span></div>
-  <div id="s-versie">V11.14.1 — dashboard-snelheid (localStorage pre-index)</div>
+  <div id="s-versie">V11.14.2 — bevestigknoppen persistent (timeout weg)</div>
   <div id="s-model-wrap">
     <div id="s-model-rij">
       <div id="s-model-label">🤖 YOLOv8 model laden…</div>
@@ -615,7 +615,7 @@
 
 <script>
 // ═══════════════════════════════════════════════════════════════
-//  StoplichtIQ V11.14.1
+//  StoplichtIQ V11.14.2
 //  V11.10: Zelfkalibratie + vergrendeling + crop smoothing
 //  — S1+S2 bevestiging (kruispunt-level confidence)
 //  — Route-herkenning basis (sequentie-opslag)
@@ -741,6 +741,9 @@ const CD_VAAG    = 'vaag';
 const CD_NU      = 'nu';
 
 // V11.8.0: Bevestigingsknoppen
+// V11.14.2: timeout niet meer actief in tickCd — knoppen verdwijnen
+// alleen bij wegrijden (>15 km/u) of na gebruikers-druk. Bewaard voor
+// toekomstig gebruik.
 const BEVESTIG_TOON_MS = 15000;
 
 // V11.8.0: Tap timeout (was 10000 hardcoded)
@@ -3587,9 +3590,11 @@ function tickCd() {
       verbergRichtingKnoppen();
     }
   }
-  // Verberg bij snelheid > 15 of timeout
+  // V11.14.2: verberg alleen bij wegrijden (>15 km/u). Timeout-tak
+  // verwijderd — knoppen blijven staan tot gebruiker drukt (r3463) of
+  // de fase naar groen wisselt (r3301).
   if (bevestigActief) {
-    if (snelheidKmh > 15 || (countdownNulTijd && (Date.now() - countdownNulTijd) > BEVESTIG_TOON_MS)) {
+    if (snelheidKmh > 15) {
       bevestigActief = false;
       bevestigWrap.classList.remove('actief');
     }
