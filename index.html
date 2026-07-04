@@ -421,7 +421,7 @@
 <div id="startscherm">
   <div id="s-icoon">🚦</div>
   <div id="s-titel">Stoplicht<span>IQ</span></div>
-  <div id="s-versie">V11.14.2 — bevestigknoppen persistent (timeout weg)</div>
+  <div id="s-versie">V11.14.3 — countdown continuïteit bij dropout</div>
   <div id="s-model-wrap">
     <div id="s-model-rij">
       <div id="s-model-label">🤖 YOLOv8 model laden…</div>
@@ -615,7 +615,7 @@
 
 <script>
 // ═══════════════════════════════════════════════════════════════
-//  StoplichtIQ V11.14.2
+//  StoplichtIQ V11.14.3
 //  V11.10: Zelfkalibratie + vergrendeling + crop smoothing
 //  — S1+S2 bevestiging (kruispunt-level confidence)
 //  — Route-herkenning basis (sequentie-opslag)
@@ -739,6 +739,12 @@ const CD_ZEKER   = 'zeker';
 const CD_GESCHAT = 'geschat';
 const CD_VAAG    = 'vaag';
 const CD_NU      = 'nu';
+
+// V11.14.3: max dropout-duur (in seconden bovenop activeCdDoel) waarna
+// countdown doorloopt i.p.v. herstart. Bij korte YOLO-dropout: cdStart
+// wordt teruggerekend naar origineel startmoment. Bij langere pauze
+// (echte cyclus-omdraaiing na groen): guard vuurt niet, normale herstart.
+const CD_DROPOUT_MAX_S = 12;
 
 // V11.8.0: Bevestigingsknoppen
 // V11.14.2: timeout niet meer actief in tickCd — knoppen verdwijnen
@@ -1838,6 +1844,10 @@ const dInfo=document.getElementById('d-info');
 // ── APP STAAT ─────────────────────────────────────────────────
 let onnxSession=null, modelGeladen=false, modelLaadStart=null;
 let fase=null, faseStart=null, activeCdDoel=0, cdStart=null;
+// V11.14.3: wall-clock startmoment + nodeId voor dropout-continuïteit.
+// cdWallStart wordt nooit expliciet gereset — de guard in startCd
+// (elapsedS < activeCdDoel + CD_DROPOUT_MAX_S) beslist of herstel geldt.
+let cdWallStart = null, cdWallNodeId = null;
 // V11.8.0: Countdown modus state
 let activeCdModus=null, activeCdMin=null, activeCdMax=null;
 // V11.8.0: Bevestigingsknoppen state
@@ -3469,7 +3479,22 @@ function updateUI(f, horizontaal) {
 }
 
 function startCd() {
-  cdStart = performance.now();
+  // V11.14.3: dropout-continuïteit. Bij een korte YOLO-dropout op dezelfde
+  // node reken cdStart terug naar het originele startmoment zodat de
+  // countdown doorloopt i.p.v. herstart. Guards: zelfde node, activeCdDoel
+  // al gezet, elapsed < activeCdDoel + CD_DROPOUT_MAX_S (echte cyclus-
+  // omdraaiingen na groen vallen buiten dit venster).
+  const nuMs = Date.now();
+  const huidigeNodeId = dichtstbijOSM ? String(dichtstbijOSM.id) : null;
+  const zelfdeNode = cdWallNodeId !== null && cdWallNodeId === huidigeNodeId;
+  const elapsedS = cdWallStart !== null ? (nuMs - cdWallStart) / 1000 : Infinity;
+  if (zelfdeNode && activeCdDoel > 0 && elapsedS < activeCdDoel + CD_DROPOUT_MAX_S) {
+    cdStart = performance.now() - elapsedS * 1000;
+  } else {
+    cdStart = performance.now();
+    cdWallStart = nuMs;
+    cdWallNodeId = huidigeNodeId;
+  }
   cdBereikteNul = false;
   cdPill.classList.add('actief');
   if (dichtstbijOSM) {
