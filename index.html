@@ -421,7 +421,7 @@
 <div id="startscherm">
   <div id="s-icoon">🚦</div>
   <div id="s-titel">Stoplicht<span>IQ</span></div>
-  <div id="s-versie">V11.14.3 — countdown continuïteit bij dropout</div>
+  <div id="s-versie">V11.14.4 — tap-overrule waterdicht (FIX 1a+1b)</div>
   <div id="s-model-wrap">
     <div id="s-model-rij">
       <div id="s-model-label">🤖 YOLOv8 model laden…</div>
@@ -615,7 +615,7 @@
 
 <script>
 // ═══════════════════════════════════════════════════════════════
-//  StoplichtIQ V11.14.3
+//  StoplichtIQ V11.14.4
 //  V11.10: Zelfkalibratie + vergrendeling + crop smoothing
 //  — S1+S2 bevestiging (kruispunt-level confidence)
 //  — Route-herkenning basis (sequentie-opslag)
@@ -2092,13 +2092,25 @@ canvas.addEventListener('click', (e) => {
     bboxOverride = { cx: bboxAnchorCx * YOLO_SIZE, cy: bboxAnchorCy * YOLO_SIZE };
     bboxOverrideTijd = Date.now();
   } else {
-    // Tap BUITEN 80px → zoek andere bbox binnen 80px van tap
+    // Tap BUITEN 200px van huidige anchor → expliciete gebruikers-intent
+    // om weg te breken van de vorige lock.
+    // V11.14.4 FIX 1b: reset vergrendeldNodeId + bboxAnchor zodat LOCK 1
+    // in selecteerBesteDetectie (r2668) de nieuwe bboxOverride niet
+    // blokkeert tot BBOX_ANCHOR_TIMEOUT afloopt.
+    vergrendeldNodeId = null;
+    bboxAnchorCx = null; bboxAnchorCy = null; bboxAnchorTijd = 0;
     if (dichtstbij && minAfst <= 200) {
       // Wissel actieve bbox naar die bbox
       bboxOverride = { cx: dichtstbij.cx, cy: dichtstbij.cy };
       bboxOverrideTijd = Date.now();
     } else {
-      // Geen andere bbox dichtbij → crop forceren
+      // V11.14.4 FIX 1a: geen detectie binnen 200px van tap → zet
+      // bboxOverride op de TAP-locatie zelf. LOCK 2 in selecteerBeste-
+      // Detectie kiest dan de closest detectie t.o.v. tap zodra YOLO
+      // iets vindt (geen afstand-drempel). cropHint blijft ook: helpt
+      // YOLO om de tap-locatie beter te scannen.
+      bboxOverride = { cx: yoloX, cy: yoloY };
+      bboxOverrideTijd = Date.now();
       if (cropHintPositie) {
         const hx = cropHintPositie.x - videoX, hy = cropHintPositie.y - videoY;
         if (Math.sqrt(hx*hx + hy*hy) < 50) {
