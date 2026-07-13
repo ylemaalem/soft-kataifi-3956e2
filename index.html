@@ -421,7 +421,7 @@
 <div id="startscherm">
   <div id="s-icoon">🚦</div>
   <div id="s-titel">Stoplicht<span>IQ</span></div>
-  <div id="s-versie">V11.15.1 — knoppen na dropout (wildcard-reset weg)</div>
+  <div id="s-versie">V11.15.2 — GPS-voorbij bbox-reset</div>
   <div id="s-model-wrap">
     <div id="s-model-rij">
       <div id="s-model-label">🤖 YOLOv8 model laden…</div>
@@ -615,7 +615,7 @@
 
 <script>
 // ═══════════════════════════════════════════════════════════════
-//  StoplichtIQ V11.15.1
+//  StoplichtIQ V11.15.2
 //  V11.10: Zelfkalibratie + vergrendeling + crop smoothing
 //  — S1+S2 bevestiging (kruispunt-level confidence)
 //  — Route-herkenning basis (sequentie-opslag)
@@ -5667,6 +5667,16 @@ async function onGPS(pos) {
       (Date.now()-zoomVergrendelTijdstip) > 3000) {
     zoomVergrendeld=false; huidigActiefStoplichtPositie=null;
     vergrendeldNodeId = null;
+    // V11.15.2: reset ook bbox-state bij GPS-voorbij zodat de app niet
+    // 15-25s aan het oude stoplicht blijft kleven. Volgorde: eerst state
+    // resetten, dan tekenOverlay(null) — anders tekent tekenOverlay de
+    // anchor-cirkel/TAP-indicator opnieuw ondanks de wis-intentie.
+    bboxOverride = null;
+    bboxOverrideTijd = 0;
+    bboxAnchorCx = null;
+    bboxAnchorCy = null;
+    bboxAnchorTijd = 0;
+    tekenOverlay(null);
   }
   // V8.8.1: Tikinterface verbergen als kruispunt voorbij of snelheid >30 na passeren
   if (richtingKnoppenNodeId && huidigActiefStoplichtPositie &&
