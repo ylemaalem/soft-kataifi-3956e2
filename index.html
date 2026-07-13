@@ -421,7 +421,7 @@
 <div id="startscherm">
   <div id="s-icoon">🚦</div>
   <div id="s-titel">Stoplicht<span>IQ</span></div>
-  <div id="s-versie">V11.15.0 — fase7 model (pijlklassen)</div>
+  <div id="s-versie">V11.15.1 — knoppen na dropout (wildcard-reset weg)</div>
   <div id="s-model-wrap">
     <div id="s-model-rij">
       <div id="s-model-label">🤖 YOLOv8 model laden…</div>
@@ -615,7 +615,7 @@
 
 <script>
 // ═══════════════════════════════════════════════════════════════
-//  StoplichtIQ V11.15.0
+//  StoplichtIQ V11.15.1
 //  V11.10: Zelfkalibratie + vergrendeling + crop smoothing
 //  — S1+S2 bevestiging (kruispunt-level confidence)
 //  — Route-herkenning basis (sequentie-opslag)
@@ -3484,9 +3484,10 @@ function updateUI(f, horizontaal) {
     cdPill.classList.remove('actief');
     cdPillGetal.textContent = '—'; cdPillGetal.style.color = '#fff';
     cdPillLabel.textContent = 'groen over';
-    // W3: verberg bevestigknoppen bij fase-wissel naar niet-rood/groen
-    bevestigActief = false;
-    bevestigWrap.classList.remove('actief');
+    // V11.15.1: wildcard-reset verwijderd — bij oranje-hik
+    // blijven knoppen intact; andere 5 reset-plekken
+    // (drukken, snelheid>15, resetNeutraal, node-wissel,
+    // initieel) doen hun werk correct.
   }
 }
 
