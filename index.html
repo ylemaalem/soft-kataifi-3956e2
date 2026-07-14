@@ -421,7 +421,7 @@
 <div id="startscherm">
   <div id="s-icoon">🚦</div>
   <div id="s-titel">Stoplicht<span>IQ</span></div>
-  <div id="s-versie">V11.15.2 — GPS-voorbij bbox-reset</div>
+  <div id="s-versie">V11.15.3 — tap-overrule (FIX A: Pad B<200, FIX B: Pad A)</div>
   <div id="s-model-wrap">
     <div id="s-model-rij">
       <div id="s-model-label">🤖 YOLOv8 model laden…</div>
@@ -615,7 +615,7 @@
 
 <script>
 // ═══════════════════════════════════════════════════════════════
-//  StoplichtIQ V11.15.2
+//  StoplichtIQ V11.15.3
 //  V11.10: Zelfkalibratie + vergrendeling + crop smoothing
 //  — S1+S2 bevestiging (kruispunt-level confidence)
 //  — Route-herkenning basis (sequentie-opslag)
@@ -2057,6 +2057,12 @@ canvas.addEventListener('click', (e) => {
       bboxOverride = { cx: dichtstbij.cx, cy: dichtstbij.cy };
       bboxOverrideTijd = Date.now();
     } else {
+      // V11.15.3 FIX B: geen detectie binnen 200px van tap — zet
+      // bboxOverride op de tap-locatie zelf zodat het slotje toch
+      // verschijnt en LOCK 2 de eerstvolgende detectie in de buurt
+      // oppikt. Consistent met V11.14.4 FIX 1a voor Pad B >= 200.
+      bboxOverride = { cx: yoloX, cy: yoloY };
+      bboxOverrideTijd = Date.now();
       if (cropHintPositie) {
         const hx = cropHintPositie.x - videoX, hy = cropHintPositie.y - videoY;
         if (Math.sqrt(hx*hx + hy*hy) < 50) {
@@ -2082,14 +2088,20 @@ canvas.addEventListener('click', (e) => {
   );
 
   if (tapToAnchor < 200) {
-    // Tap BINNEN 80px van actieve bbox → vergrendel stevig
+    // V11.15.3 FIX A: tap DICHTBIJ anchor — gebruik tap-intentie i.p.v.
+    // dichtstbijOSM (GPS-based). Bij portaal met meerdere stoplichten
+    // dichtbij elkaar in canvas is dichtstbijOSM willekeurig; wees de
+    // tap-locatie dominant. Reset LOCK 1 (vergrendeldNodeId + bboxAnchor)
+    // zodat LOCK 2 (bboxOverride) de closest detectie t.o.v. de tap kiest
+    // — consistent met Pad B >= 200 (V11.14.4 FIX 1a+1b).
     zoomVergrendeld = true;
-    vergrendeldNodeId = dichtstbijOSM?.id ?? null;
-    // V11.13.8: ook bboxOverride zetten zodat het slotje verschijnt (r3069
-    // conditie) en de effectieve lock verlengd wordt van BBOX_ANCHOR_TIMEOUT
-    // (15s) naar TAP_FORCE_TIMEOUT (25s). bboxAnchorCx/Cy zijn genormaliseerd
-    // (0-1); bboxOverride moet YOLO-space (0..640) zijn — zie r1956 comment.
-    bboxOverride = { cx: bboxAnchorCx * YOLO_SIZE, cy: bboxAnchorCy * YOLO_SIZE };
+    vergrendeldNodeId = null;
+    bboxAnchorCx = null; bboxAnchorCy = null; bboxAnchorTijd = 0;
+    if (dichtstbij && minAfst <= 200) {
+      bboxOverride = { cx: dichtstbij.cx, cy: dichtstbij.cy };
+    } else {
+      bboxOverride = { cx: yoloX, cy: yoloY };
+    }
     bboxOverrideTijd = Date.now();
   } else {
     // Tap BUITEN 200px van huidige anchor → expliciete gebruikers-intent
