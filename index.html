@@ -421,7 +421,7 @@
 <div id="startscherm">
   <div id="s-icoon">🚦</div>
   <div id="s-titel">Stoplicht<span>IQ</span></div>
-  <div id="s-versie">V11.15.3 — tap-overrule (FIX A: Pad B<200, FIX B: Pad A)</div>
+  <div id="s-versie">V11.15.4 — export/import fixes (feedback + whitelist)</div>
   <div id="s-model-wrap">
     <div id="s-model-rij">
       <div id="s-model-label">🤖 YOLOv8 model laden…</div>
@@ -552,7 +552,7 @@
   </div>
   <div style="display:flex;gap:10px;padding:12px 16px;background:rgba(255,255,255,0.05);border-radius:10px;margin:0 18px 12px;align-items:center;flex-wrap:wrap;">
     <button onclick="openKaartOverlay()" style="flex:1;padding:10px 14px;background:rgba(10,132,255,0.2);color:#0A84FF;border:1px solid rgba(10,132,255,0.4);border-radius:8px;font-size:13px;cursor:pointer;min-width:100px;">🗺 Toon kaart</button>
-    <button onclick="exporteerData()" style="flex:1;padding:10px 14px;background:rgba(99,199,99,0.2);color:#63c763;border:1px solid rgba(99,199,99,0.4);border-radius:8px;font-size:13px;cursor:pointer;min-width:120px;">📤 Exporteer backup</button>
+    <button id="export-backup-btn" onclick="exporteerData()" style="flex:1;padding:10px 14px;background:rgba(99,199,99,0.2);color:#63c763;border:1px solid rgba(99,199,99,0.4);border-radius:8px;font-size:13px;cursor:pointer;min-width:120px;">📤 Exporteer backup</button>
     <label style="flex:1;min-width:120px;">
       <input type="file" accept=".json" style="display:none;" onchange="importeerData(this.files[0]);this.value=''">
       <span style="display:block;padding:10px 14px;background:rgba(99,99,199,0.2);color:#6363c7;border:1px solid rgba(99,99,199,0.4);border-radius:8px;font-size:13px;cursor:pointer;text-align:center;">📥 Importeer backup</span>
@@ -570,7 +570,7 @@
     <div style="display:flex;gap:8px;flex-wrap:wrap">
       <button id="tf-toggle-btn" onclick="toggleTrainframes()" style="flex:1;padding:8px 12px;background:rgba(52,199,89,0.2);color:#34C759;border:1px solid rgba(52,199,89,0.4);border-radius:8px;font-size:12px;cursor:pointer;min-width:100px">▶ Verzamelen</button>
       <button id="oranje-focus-btn" onclick="toggleOranjeFocus()" style="flex:1;padding:8px 12px;background:rgba(245,158,11,0.15);color:#f59e0b;border:1px solid rgba(245,158,11,0.3);border-radius:8px;font-size:12px;cursor:pointer;min-width:100px">🟠 Oranje uit</button>
-      <button onclick="exporteerTrainframes()" style="flex:1;padding:8px 12px;background:rgba(191,90,242,0.2);color:#BF5AF2;border:1px solid rgba(191,90,242,0.4);border-radius:8px;font-size:12px;cursor:pointer;min-width:100px">📦 Exporteer</button>
+      <button id="export-trainframes-btn" onclick="exporteerTrainframes()" style="flex:1;padding:8px 12px;background:rgba(191,90,242,0.2);color:#BF5AF2;border:1px solid rgba(191,90,242,0.4);border-radius:8px;font-size:12px;cursor:pointer;min-width:100px">📦 Exporteer</button>
       <button onclick="verwijderTrainframes()" style="padding:8px 12px;background:rgba(255,48,48,0.15);color:#FF3030;border:1px solid rgba(255,48,48,0.3);border-radius:8px;font-size:12px;cursor:pointer">🗑 Wis</button>
     </div>
     <div style="font-size:9px;color:rgba(255,255,255,0.3);line-height:1.4">Verzamelt 640x640 frames met YOLO labels tijdens detectie.</div>
@@ -615,7 +615,7 @@
 
 <script>
 // ═══════════════════════════════════════════════════════════════
-//  StoplichtIQ V11.15.3
+//  StoplichtIQ V11.15.4
 //  V11.10: Zelfkalibratie + vergrendeling + crop smoothing
 //  — S1+S2 bevestiging (kruispunt-level confidence)
 //  — Route-herkenning basis (sequentie-opslag)
@@ -4180,33 +4180,55 @@ function tijdGeleden(ts) {
 
 // ── DATA EXPORT/IMPORT ────────────────────────────────────────
 function exporteerData() {
-  try {
-    const exportData = { versie:'11.4.4', exportDatum:new Date().toISOString(), app:'StoplichtIQ', data:{}, scores:{} };
-    for (const key of Object.keys(localStorage)) {
-      if (key.startsWith('sl_v10_')||key.startsWith('sl_v5_')||key.startsWith('sl_v4_')||key.startsWith('sl_v3_')||key.startsWith('sl_tag_')||key.startsWith('sl_naam_')||key.startsWith('sl_richting_')||key.startsWith('sl_route_')||key.startsWith('sl_bevestig_')||key.startsWith('sl_pos_')||key==='sl_cam_stats'||key==='sl_stad_cache') {
-        try { exportData.data[key] = JSON.parse(localStorage.getItem(key)); }
-        catch(e) { exportData.data[key] = localStorage.getItem(key); }
-      }
-    }
-    const aantalItems = Object.keys(exportData.data).length;
-    if (!aantalItems) { alert('Geen data om te exporteren.'); return; }
-    for (const id of haalAlleOsmIds()) { exportData.scores[id] = berekenDrieScores(id); }
-    const jsonString  = JSON.stringify(exportData, null, 2);
-    const bestandsnaam = `stoplichtiq-backup-${new Date().toISOString().slice(0,10)}.json`;
-    if (navigator.share && navigator.canShare) {
-      const bestand = new File([jsonString], bestandsnaam, { type:'application/json' });
-      if (navigator.canShare({ files:[bestand] })) {
-        navigator.share({ files:[bestand], title:'StoplichtIQ Backup' }).catch(e=>{ if(e.name!=='AbortError')console.warn(e.message); });
-        return;
-      }
-    }
+  // V11.15.4 Fix 3: loading-indicator direct zichtbaar, zwaar werk in
+  // volgende tick zodat UI eerst kan renderen.
+  const btn = document.getElementById('export-backup-btn');
+  const origTekst = btn ? btn.textContent : null;
+  if (btn) { btn.textContent = '⏳ Bezig...'; btn.disabled = true; }
+  const herstelBtn = () => { if (btn) { btn.textContent = origTekst; btn.disabled = false; } };
+  const downloadFallback = (jsonString, bestandsnaam) => {
     const blob = new Blob([jsonString], { type:'application/json' });
     const url  = URL.createObjectURL(blob);
     const link = document.createElement('a');
     link.href=url; link.download=bestandsnaam;
     document.body.appendChild(link); link.click(); document.body.removeChild(link);
     setTimeout(()=>URL.revokeObjectURL(url), 1000);
-  } catch(e) { alert('Export mislukt: '+e.message); }
+  };
+  setTimeout(() => {
+    try {
+      const exportData = { versie:'11.4.4', exportDatum:new Date().toISOString(), app:'StoplichtIQ', data:{}, scores:{} };
+      for (const key of Object.keys(localStorage)) {
+        if (key.startsWith('sl_v10_')||key.startsWith('sl_v5_')||key.startsWith('sl_v4_')||key.startsWith('sl_v3_')||key.startsWith('sl_tag_')||key.startsWith('sl_naam_')||key.startsWith('sl_richting_')||key.startsWith('sl_route_')||key.startsWith('sl_bevestig_')||key.startsWith('sl_pos_')||key==='sl_cam_stats'||key==='sl_stad_cache') {
+          try { exportData.data[key] = JSON.parse(localStorage.getItem(key)); }
+          catch(e) { exportData.data[key] = localStorage.getItem(key); }
+        }
+      }
+      const aantalItems = Object.keys(exportData.data).length;
+      if (!aantalItems) { alert('Geen data om te exporteren.'); herstelBtn(); return; }
+      for (const id of haalAlleOsmIds()) { exportData.scores[id] = berekenDrieScores(id); }
+      // V11.15.4 Fix 1: geen indent — payload ~halveert (~3.5MB → ~2MB).
+      const jsonString  = JSON.stringify(exportData);
+      const bestandsnaam = `stoplichtiq-backup-${new Date().toISOString().slice(0,10)}.json`;
+      if (navigator.share && navigator.canShare) {
+        const bestand = new File([jsonString], bestandsnaam, { type:'application/json' });
+        if (navigator.canShare({ files:[bestand] })) {
+          // V11.15.4 Fix 2: expliciete feedback + Blob-fallback bij share-fout.
+          navigator.share({ files:[bestand], title:'StoplichtIQ Backup' })
+            .then(() => { alert('✅ Backup gedeeld'); herstelBtn(); })
+            .catch(e => {
+              if (e && e.name === 'AbortError') { herstelBtn(); return; }
+              alert('⚠️ Delen mislukt, download start...');
+              downloadFallback(jsonString, bestandsnaam);
+              herstelBtn();
+            });
+          return;
+        }
+      }
+      downloadFallback(jsonString, bestandsnaam);
+      alert('✅ Backup gedownload');
+      herstelBtn();
+    } catch(e) { alert('Export mislukt: '+e.message); herstelBtn(); }
+  }, 0);
 }
 
 function importeerData(bestand) {
@@ -4222,7 +4244,10 @@ function importeerData(bestand) {
       if (!bevestigd) return;
       let toegevoegd=0, overgeslagen=0;
       for (const [key, waarde] of Object.entries(importData.data)) {
-        if (!key.startsWith('sl_v10_')&&!key.startsWith('sl_v5_')&&!key.startsWith('sl_v4_')&&!key.startsWith('sl_v3_')&&!key.startsWith('sl_tag_')&&!key.startsWith('sl_naam_')&&!key.startsWith('sl_richting_')&&!key.startsWith('sl_route_')&&key!=='sl_stad_cache') { overgeslagen++; continue; }
+        // V11.15.4 Fix 4: whitelist gesynchroniseerd met exporteerData —
+        // sl_bevestig_, sl_pos_ en sl_cam_stats zaten wél in de export
+        // maar werden bij import stil overgeslagen.
+        if (!key.startsWith('sl_v10_')&&!key.startsWith('sl_v5_')&&!key.startsWith('sl_v4_')&&!key.startsWith('sl_v3_')&&!key.startsWith('sl_tag_')&&!key.startsWith('sl_naam_')&&!key.startsWith('sl_richting_')&&!key.startsWith('sl_route_')&&!key.startsWith('sl_bevestig_')&&!key.startsWith('sl_pos_')&&key!=='sl_cam_stats'&&key!=='sl_stad_cache') { overgeslagen++; continue; }
         if (localStorage.getItem(key) !== null) { overgeslagen++; continue; }
         try { localStorage.setItem(key, JSON.stringify(waarde)); toegevoegd++; } catch(e) { overgeslagen++; }
       }
@@ -5404,13 +5429,26 @@ function updateTrainframesTeller() {
 }
 
 async function exporteerTrainframes() {
+  // V11.15.4 Fix 5: loading-indicator + zichtbare share-feedback met
+  // Blob-fallback bij share-fout (analoog aan exporteerData).
+  const btn = document.getElementById('export-trainframes-btn');
+  const origTekst = btn ? btn.textContent : null;
+  if (btn) { btn.textContent = '⏳ Bezig...'; btn.disabled = true; }
+  const herstelBtn = () => { if (btn) { btn.textContent = origTekst; btn.disabled = false; } };
+  const downloadFallback = (jsonString, bestandsnaam) => {
+    const blob = new Blob([jsonString],{type:'application/json'});
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob); a.download = bestandsnaam;
+    document.body.appendChild(a); a.click(); document.body.removeChild(a);
+    setTimeout(()=>URL.revokeObjectURL(a.href), 1000);
+  };
   try {
     if (!trainframesDB) await openTrainframesDB();
     const tx  = trainframesDB.transaction('frames','readonly');
     const req = tx.objectStore('frames').getAll();
     req.onsuccess = () => {
       const frames = req.result;
-      if (!frames.length) { alert('Geen trainframes om te exporteren.'); return; }
+      if (!frames.length) { alert('Geen trainframes om te exporteren.'); herstelBtn(); return; }
       const exportData = {
         versie:'8.5', app:'StoplichtIQ', exportDatum:new Date().toISOString(),
         aantalFrames:frames.length,
@@ -5425,16 +5463,23 @@ async function exporteerTrainframes() {
       if (navigator.share&&navigator.canShare) {
         const bestand = new File([jsonString], bestandsnaam, { type:'application/json' });
         if (navigator.canShare({ files:[bestand] })) {
-          navigator.share({ files:[bestand], title:'StoplichtIQ Trainframes' }).catch(()=>{});
+          navigator.share({ files:[bestand], title:'StoplichtIQ Trainframes' })
+            .then(() => { alert('✅ Trainframes gedeeld'); herstelBtn(); })
+            .catch(e => {
+              if (e && e.name === 'AbortError') { herstelBtn(); return; }
+              alert('⚠️ Delen mislukt, download start...');
+              downloadFallback(jsonString, bestandsnaam);
+              herstelBtn();
+            });
           return;
         }
       }
-      const blob = new Blob([jsonString],{type:'application/json'});
-      const a=document.createElement('a');a.href=URL.createObjectURL(blob);a.download=bestandsnaam;
-      document.body.appendChild(a);a.click();document.body.removeChild(a);
+      downloadFallback(jsonString, bestandsnaam);
+      alert('✅ Trainframes gedownload');
+      herstelBtn();
     };
-    req.onerror = () => alert('Export mislukt.');
-  } catch(e) { alert('Export mislukt: '+e.message); }
+    req.onerror = () => { alert('Export mislukt.'); herstelBtn(); };
+  } catch(e) { alert('Export mislukt: '+e.message); herstelBtn(); }
 }
 
 async function verwijderTrainframes() {
