@@ -421,7 +421,7 @@
 <div id="startscherm">
   <div id="s-icoon">🚦</div>
   <div id="s-titel">Stoplicht<span>IQ</span></div>
-  <div id="s-versie">V11.15.4 — export/import fixes (feedback + whitelist)</div>
+  <div id="s-versie">V11.15.5 — klasse-naam zichtbaar (ROOD_PIJL_LINKS)</div>
   <div id="s-model-wrap">
     <div id="s-model-rij">
       <div id="s-model-label">🤖 YOLOv8 model laden…</div>
@@ -615,7 +615,7 @@
 
 <script>
 // ═══════════════════════════════════════════════════════════════
-//  StoplichtIQ V11.15.4
+//  StoplichtIQ V11.15.5
 //  V11.10: Zelfkalibratie + vergrendeling + crop smoothing
 //  — S1+S2 bevestiging (kruispunt-level confidence)
 //  — Route-herkenning basis (sequentie-opslag)
@@ -732,6 +732,14 @@ const PIJL_RICHTING = {
   7: 'rechts',    // groen_pijl_rechts
   8: 'rechtdoor', // rood_pijl_rechtdoor
   9: 'rechtdoor'  // groen_pijl_rechtdoor
+};
+// V11.15.5: leesbare klasse-namen voor UI-label + trainframes-export.
+// Klasse 2 ('uit') ontbreekt bewust — al gefilterd door KLASSE_MAP.
+const KLASSE_NAMEN = {
+  0: 'ROOD_ROND', 1: 'GROEN_ROND', 3: 'ORANJE_ROND',
+  4: 'ROOD_PIJL_LINKS', 5: 'ROOD_PIJL_RECHTS',
+  6: 'GROEN_PIJL_LINKS', 7: 'GROEN_PIJL_RECHTS',
+  8: 'ROOD_PIJL_RECHTDOOR', 9: 'GROEN_PIJL_RECHTDOOR'
 };
 
 // V11.8.0: Countdown modus constanten
@@ -2922,9 +2930,11 @@ function _verwerkWorkerResultaat(detecties) {
   debugWaarden.ai = `ai:${kleur} ${(gesmoothedScore*100).toFixed(0)}% [${detecties.length}]`;
   laatsteAI = {
     kleur, horizontaal: beste.w > beste.h*1.3, score: gesmoothedScore,
+    // V11.15.5: klasse-id doorgegeven zodat tekenOverlay het label
+    // kan uitbreiden met pijl-varianten (ROOD_PIJL_LINKS etc.).
     box: { x:(beste.x1-lbPadX)/lbScale + (cropRegio ? cropRegio.x : 0),
            y:(beste.y1-lbPadY)/lbScale + (cropRegio ? cropRegio.y : 0),
-           w:beste.w/lbScale, h:beste.h/lbScale, kleur }
+           w:beste.w/lbScale, h:beste.h/lbScale, kleur, klasse: beste.klasse }
   };
   nieuwAIResultaat = true;
   // V8.9.12: Camera-node detectiestatistiek — registreer als conf≥0.60, geen OSM binnen 40m, rijdend
@@ -3133,7 +3143,12 @@ function tekenOverlay(box, score, horizontaal) {
   if (box.kleur) {
     octx.fillStyle=kCSS; octx.globalAlpha=0.9; octx.font='bold 13px monospace';
     const tapIndicator = (typeof bboxOverride !== 'undefined' && bboxOverride !== null) ? ' 🔒' : '';
-    const label = `${box.kleur.toUpperCase()}${horizontaal?' ↔':' ↕'}${score?' '+(score*100).toFixed(0)+'%':''}${tapIndicator}`;
+    // V11.15.5: klasse-naam ipv alleen kleur — fallback naar kleur bij
+    // ontbrekend klasse-veld (edge-case oude cache), voorkomt "undefined".
+    const klasseNaam = (box.klasse !== undefined && KLASSE_NAMEN[box.klasse])
+      ? KLASSE_NAMEN[box.klasse]
+      : box.kleur.toUpperCase();
+    const label = `${klasseNaam}${horizontaal?' ↔':' ↕'}${score?' '+(score*100).toFixed(0)+'%':''}${tapIndicator}`;
     octx.fillText(label, x1, y1-6);
   }
 }
@@ -5454,7 +5469,10 @@ async function exporteerTrainframes() {
         aantalFrames:frames.length,
         frames:frames.map(f => {
           const klasseNr = parseInt((f.label || '').split(' ')[0]);
-          const klasseNaam = klasseNr === 0 ? 'rood' : klasseNr === 1 ? 'groen' : klasseNr === 3 ? 'oranje' : 'onbekend';
+          // V11.15.5: hergebruik KLASSE_NAMEN — pijl-klassen (4-9) krijgen
+          // nu ook een leesbare naam ipv 'onbekend'. lowercase voor
+          // consistente Python-trainingsdata-conventie.
+          const klasseNaam = KLASSE_NAMEN[klasseNr] ? KLASSE_NAMEN[klasseNr].toLowerCase() : 'onbekend';
           return { naam:`train_${f.tijd}.jpg`, jpeg:f.jpeg, label:f.label, bron:f.bron, tijd:f.tijd, klasse:klasseNaam };
         })
       };
