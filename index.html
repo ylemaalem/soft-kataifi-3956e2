@@ -289,6 +289,21 @@
     .correctie-item-afstand{font-size:22px;font-weight:700;color:#f59e0b;font-family:'Share Tech Mono',monospace;margin-top:2px;line-height:1}
     .correctie-item-hoek{font-size:13px;color:rgba(255,255,255,0.4);margin-top:2px}
     .correctie-item-badge{font-size:10px;font-weight:600;padding:2px 6px;border-radius:6px;background:rgba(52,199,89,0.2);color:var(--groen);border:1px solid rgba(52,199,89,0.3);letter-spacing:0.06em;align-self:flex-start;flex-shrink:0;text-transform:uppercase}
+    /* V11.15.6: klasse-correctie bottom-sheet — patroon van #correctie-overlay hergebruikt */
+    #klasse-correctie-overlay{display:none;position:fixed;inset:0;z-index:500;background:rgba(0,0,0,0.60);backdrop-filter:blur(2px)}
+    #klasse-correctie-sheet{position:absolute;bottom:0;left:0;right:0;background:rgba(0,0,0,0.92);border-radius:16px 16px 0 0;max-height:60vh;overflow-y:auto;padding:16px;padding-bottom:env(safe-area-inset-bottom,16px)}
+    #klasse-correctie-titel{font-size:14px;font-weight:600;color:rgba(255,255,255,0.75);letter-spacing:0.08em;text-transform:uppercase;margin-bottom:12px;text-align:center;font-family:'Rajdhani',sans-serif}
+    #klasse-correctie-grid{display:grid;grid-template-columns:repeat(2,1fr);gap:8px;margin-bottom:12px}
+    .klasse-correctie-tegel{min-height:56px;padding:12px 10px;background:#0e1419;border:1px solid #1a2230;border-radius:10px;color:#fff;font-size:11px;font-weight:600;font-family:'Rajdhani',sans-serif;letter-spacing:0.04em;cursor:pointer;transition:transform .1s,background .15s;-webkit-tap-highlight-color:transparent}
+    .klasse-correctie-tegel:active{transform:scale(0.96)}
+    .klasse-correctie-tegel.k-rood{background:rgba(255,48,48,0.12);border-color:rgba(255,48,48,0.35)}
+    .klasse-correctie-tegel.k-groen{background:rgba(52,199,89,0.12);border-color:rgba(52,199,89,0.35)}
+    .klasse-correctie-tegel.k-oranje{background:rgba(245,158,11,0.12);border-color:rgba(245,158,11,0.35)}
+    #klasse-correctie-annuleer{display:flex;align-items:center;justify-content:center;min-height:48px;width:100%;background:rgba(255,255,255,0.06);border:1px solid rgba(255,255,255,0.15);border-radius:10px;font-size:14px;font-weight:600;color:#fff;cursor:pointer;font-family:'Rajdhani',sans-serif;letter-spacing:0.08em;text-transform:uppercase;transition:background .15s}
+    #klasse-correctie-annuleer:active{background:rgba(255,255,255,0.12)}
+    /* V11.15.6: trigger-knop rechtsonder (Optie B — buiten canvas-tap-pad) */
+    #klasse-correctie-btn{position:fixed;bottom:12px;right:12px;z-index:44;width:44px;height:44px;padding:0;background:rgba(0,0,0,0.75);color:rgba(255,255,255,0.85);border:1px solid rgba(255,255,255,0.25);border-radius:22px;font-size:18px;cursor:pointer;backdrop-filter:blur(8px);transition:opacity .2s;-webkit-tap-highlight-color:transparent}
+    #klasse-correctie-btn:disabled{opacity:0.4;cursor:not-allowed}
     /* ── V10.0.2: V9 Richtingen Modal ── */
     #v9-overlay{position:fixed;inset:0;z-index:250;background:#080A0C;
       display:flex;flex-direction:column;
@@ -366,6 +381,9 @@
 
 <button id="sl-tag-btn" onclick="">🏷️ Tag dit stoplicht</button>
 
+<!-- V11.15.6: trigger-knop klasse-correctie (rechtsonder, Optie B) -->
+<button id="klasse-correctie-btn" onclick="openKlasseCorrectie()" title="Klasse corrigeren" aria-label="Klasse corrigeren">✎</button>
+
 <!-- Tag overlay -->
 
 <div id="sl-tag-overlay" style="display:none;position:fixed;bottom:100px;left:50%;transform:translateX(-50%);background:rgba(0,0,0,0.92);border:1px solid rgba(255,255,255,0.12);border-radius:14px;padding:14px 16px;z-index:9999;width:270px;box-shadow:0 4px 20px rgba(0,0,0,0.6);">
@@ -382,6 +400,16 @@
   <div id="correctie-sheet" onclick="event.stopPropagation()">
     <div id="correctie-sluiten" onclick="sluitCorrectielijst()">✕ Sluiten</div>
     <div id="correctie-lijst"></div>
+  </div>
+</div>
+
+<!-- V11.15.6: klasse-correctie bottom-sheet — tegels worden dynamisch
+     gegenereerd uit KLASSE_NAMEN bij eerste openKlasseCorrectie() -->
+<div id="klasse-correctie-overlay" onclick="sluitKlasseCorrectie()">
+  <div id="klasse-correctie-sheet" onclick="event.stopPropagation()">
+    <div id="klasse-correctie-titel">Wat is dit echt?</div>
+    <div id="klasse-correctie-grid"></div>
+    <button id="klasse-correctie-annuleer" onclick="sluitKlasseCorrectie()">Annuleren</button>
   </div>
 </div>
 
@@ -421,7 +449,7 @@
 <div id="startscherm">
   <div id="s-icoon">🚦</div>
   <div id="s-titel">Stoplicht<span>IQ</span></div>
-  <div id="s-versie">V11.15.5 — klasse-naam zichtbaar (ROOD_PIJL_LINKS)</div>
+  <div id="s-versie">V11.15.6 — klasse-correctie UI (bottom-sheet, alleen bij stilstand)</div>
   <div id="s-model-wrap">
     <div id="s-model-rij">
       <div id="s-model-label">🤖 YOLOv8 model laden…</div>
@@ -615,7 +643,7 @@
 
 <script>
 // ═══════════════════════════════════════════════════════════════
-//  StoplichtIQ V11.15.5
+//  StoplichtIQ V11.15.6
 //  V11.10: Zelfkalibratie + vergrendeling + crop smoothing
 //  — S1+S2 bevestiging (kruispunt-level confidence)
 //  — Route-herkenning basis (sequentie-opslag)
@@ -5092,6 +5120,64 @@ function sluitCorrectielijst() {
   if (overlay) overlay.style.display = 'none';
 }
 
+// V11.15.6: klasse-correctie bottom-sheet (UI-only, opslag volgt in V11.15.7).
+// Snapshot van laatsteAI.box bij openen zodat de gebruikers-keuze aan de
+// juiste detectie gekoppeld wordt, ook als YOLO tussentijds een andere
+// detectie levert.
+let klasseCorrectieActief = false;
+let klasseCorrectieDoelBox = null;
+
+function genereerKlasseCorrectieTegels() {
+  const grid = document.getElementById('klasse-correctie-grid');
+  if (!grid || grid.children.length > 0) return; // eenmalig
+  // KLASSE_NAMEN → kleur-tint (via KLASSE_MAP als bron-van-waarheid)
+  for (const nr of Object.keys(KLASSE_NAMEN)) {
+    const nrInt = parseInt(nr);
+    const tegel = document.createElement('button');
+    tegel.className = 'klasse-correctie-tegel k-' + (KLASSE_MAP[nrInt] || '');
+    tegel.dataset.klasse = nr;
+    tegel.textContent = KLASSE_NAMEN[nr];
+    tegel.addEventListener('click', () => kiesCorrectieKlasse(nrInt));
+    grid.appendChild(tegel);
+  }
+}
+
+function openKlasseCorrectie() {
+  if (snelheidKmh > 15) return;               // guard: alleen bij stilstand
+  if (!laatsteAI || !laatsteAI.box) return;    // guard: alleen bij actieve detectie
+  genereerKlasseCorrectieTegels();
+  klasseCorrectieDoelBox = { ...laatsteAI.box };
+  klasseCorrectieActief = true;
+  const overlay = document.getElementById('klasse-correctie-overlay');
+  if (overlay) overlay.style.display = 'block';
+}
+
+function sluitKlasseCorrectie() {
+  klasseCorrectieActief = false;
+  klasseCorrectieDoelBox = null;
+  const overlay = document.getElementById('klasse-correctie-overlay');
+  if (overlay) overlay.style.display = 'none';
+}
+
+function kiesCorrectieKlasse(nieuweKlasse) {
+  // V11.15.7 vult dit verder in met IndexedDB-opslag als bron:'klasse_correctie'.
+  console.log('klasse-correctie gekozen:', nieuweKlasse,
+    'was:', klasseCorrectieDoelBox && klasseCorrectieDoelBox.klasse,
+    'box:', klasseCorrectieDoelBox);
+  sluitKlasseCorrectie();
+}
+
+// V11.15.6: knop-visibility + disabled state. Roep vanuit lus() aan met
+// throttle (bijv. elke ~30 frames = 2Hz) zodat we geen DOM per frame raken.
+function updateKlasseCorrectieBtnState() {
+  const btn = document.getElementById('klasse-correctie-btn');
+  if (!btn) return;
+  const heeftDetectie = !!(laatsteAI && laatsteAI.box);
+  const stilstaand = snelheidKmh <= 15;
+  btn.disabled = !(heeftDetectie && stilstaand);
+  // opacity via CSS :disabled — geen inline styling nodig
+}
+
 // Bug 2 + Bug 3: Handmatige node-selectie
 function selecteerNodeHandmatig(nodeId) {
   sluitCorrectielijst();
@@ -5980,6 +6066,8 @@ function lus(mijnGeneratie) {
   }
 
   frameT++;
+  // V11.15.6: klasse-correctie-knop state throttled (2Hz i.p.v. per frame).
+  if (frameT % 30 === 0) updateKlasseCorrectieBtnState();
   // V8.7g: YOLO zo snel mogelijk opnieuw starten zodra worker klaar is
   // Web Worker draait los van camera — geen reden om te wachten op frame interval
   // aiBezig=false betekent worker klaar → direct nieuwe run starten
