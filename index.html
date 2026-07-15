@@ -449,7 +449,7 @@
 <div id="startscherm">
   <div id="s-icoon">🚦</div>
   <div id="s-titel">Stoplicht<span>IQ</span></div>
-  <div id="s-versie">V11.15.6 — klasse-correctie UI (bottom-sheet, alleen bij stilstand)</div>
+  <div id="s-versie">V11.15.7 — klasse-correctie opslag (bron: klasse_correctie)</div>
   <div id="s-model-wrap">
     <div id="s-model-rij">
       <div id="s-model-label">🤖 YOLOv8 model laden…</div>
@@ -643,7 +643,7 @@
 
 <script>
 // ═══════════════════════════════════════════════════════════════
-//  StoplichtIQ V11.15.6
+//  StoplichtIQ V11.15.7
 //  V11.10: Zelfkalibratie + vergrendeling + crop smoothing
 //  — S1+S2 bevestiging (kruispunt-level confidence)
 //  — Route-herkenning basis (sequentie-opslag)
@@ -5126,6 +5126,14 @@ function sluitCorrectielijst() {
 // detectie levert.
 let klasseCorrectieActief = false;
 let klasseCorrectieDoelBox = null;
+// V11.15.7: jpeg-snapshot bij openen zodat het correcte frame bewaard
+// blijft, ook als de camera-view tussen open en keuze verandert.
+let klasseCorrectieJpeg = null;
+// V11.15.7: sessie-quotum voor klasse-correcties (apart van TRAINFRAMES_MAX
+// zodat correctie-frames een eigen budget hebben en de hoofd-teller niet
+// verzadigen).
+let correctieTellerSessie = 0;
+const CORRECTIE_MAX_SESSIE = 100;
 
 function genereerKlasseCorrectieTegels() {
   const grid = document.getElementById('klasse-correctie-grid');
@@ -5147,6 +5155,14 @@ function openKlasseCorrectie() {
   if (!laatsteAI || !laatsteAI.box) return;    // guard: alleen bij actieve detectie
   genereerKlasseCorrectieTegels();
   klasseCorrectieDoelBox = { ...laatsteAI.box };
+  // V11.15.7: snapshot jpeg NU zodat het correcte frame bewaard blijft,
+  // ook als camera-view tussen open en keuze verandert (5-10s window).
+  try {
+    klasseCorrectieJpeg = yoloCanvas.toDataURL('image/jpeg', TRAINFRAMES_JPEG_KWALITEIT);
+  } catch (e) {
+    klasseCorrectieJpeg = null;
+    console.warn('klasse-correctie jpeg-snapshot mislukt:', e);
+  }
   klasseCorrectieActief = true;
   const overlay = document.getElementById('klasse-correctie-overlay');
   if (overlay) overlay.style.display = 'block';
@@ -5155,16 +5171,63 @@ function openKlasseCorrectie() {
 function sluitKlasseCorrectie() {
   klasseCorrectieActief = false;
   klasseCorrectieDoelBox = null;
+  klasseCorrectieJpeg = null;
   const overlay = document.getElementById('klasse-correctie-overlay');
   if (overlay) overlay.style.display = 'none';
 }
 
 function kiesCorrectieKlasse(nieuweKlasse) {
-  // V11.15.7 vult dit verder in met IndexedDB-opslag als bron:'klasse_correctie'.
-  console.log('klasse-correctie gekozen:', nieuweKlasse,
-    'was:', klasseCorrectieDoelBox && klasseCorrectieDoelBox.klasse,
-    'box:', klasseCorrectieDoelBox);
+  // V11.15.7: gebruik snapshots van box+jpeg uit open-tijd zodat de
+  // opgeslagen data het moment van kiezen exact weerspiegelt.
+  if (klasseCorrectieDoelBox && klasseCorrectieJpeg) {
+    slaKlasseCorrectieOp(nieuweKlasse, klasseCorrectieDoelBox, klasseCorrectieJpeg);
+  }
   sluitKlasseCorrectie();
+}
+
+// V11.15.7: sla klasse-correctie op als trainframe met bron
+// 'klasse_correctie'. Hergebruikt de bestaande frames-store — geen
+// schema-migratie. Label bevat de DOOR GEBRUIKER GECORRIGEERDE klasse
+// (nieuweKlasse), niet wat het model dacht. Volgt hetzelfde
+// YOLO-normalized-center-XY-WH label-format als slaTrainframeOp
+// (6 decimalen, r5487). Box-coordinaten zijn display-canvas-space
+// (r2935-2937) — dezelfde conversie als slaTrainframeOp-aanroep
+// op r3230-3233.
+async function slaKlasseCorrectieOp(nieuweKlasse, box, jpeg) {
+  if (correctieTellerSessie >= CORRECTIE_MAX_SESSIE) {
+    console.warn('Klasse-correctie sessie-quotum bereikt (' + CORRECTIE_MAX_SESSIE + ')');
+    return;
+  }
+  if (!jpeg) { console.warn('slaKlasseCorrectieOp: geen jpeg-snapshot'); return; }
+  try {
+    const bx = box.x - (cropRegio ? cropRegio.x : 0);
+    const by = box.y - (cropRegio ? cropRegio.y : 0);
+    const yx = bx * lbScale + lbPadX;
+    const yy = by * lbScale + lbPadY;
+    const yw = box.w * lbScale;
+    const yh = box.h * lbScale;
+    const ncx = (yx + yw/2) / YOLO_SIZE;
+    const ncy = (yy + yh/2) / YOLO_SIZE;
+    const nw  = yw / YOLO_SIZE;
+    const nh  = yh / YOLO_SIZE;
+    const label = `${nieuweKlasse} ${ncx.toFixed(6)} ${ncy.toFixed(6)} ${nw.toFixed(6)} ${nh.toFixed(6)}`;
+
+    if (!trainframesDB) await openTrainframesDB();
+    const tx = trainframesDB.transaction('frames', 'readwrite');
+    await new Promise((resolve, reject) => {
+      const req = tx.objectStore('frames').add({
+        jpeg, label, tijd: Date.now(),
+        bron: 'klasse_correctie', twijfel: false
+      });
+      req.onsuccess = () => resolve();
+      req.onerror = (e) => reject(e.target.error);
+    });
+    correctieTellerSessie++;
+    console.log('klasse-correctie opgeslagen — klasse=' + nieuweKlasse +
+      ' sessie=' + correctieTellerSessie + '/' + CORRECTIE_MAX_SESSIE);
+  } catch (e) {
+    console.warn('slaKlasseCorrectieOp fout:', e);
+  }
 }
 
 // V11.15.6: knop-visibility + disabled state. Roep vanuit lus() aan met
