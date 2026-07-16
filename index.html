@@ -449,7 +449,7 @@
 <div id="startscherm">
   <div id="s-icoon">🚦</div>
   <div id="s-titel">Stoplicht<span>IQ</span></div>
-  <div id="s-versie">V11.15.7 — klasse-correctie opslag (bron: klasse_correctie)</div>
+  <div id="s-versie">V11.15.8 — sticky-lock + cropHint herstel</div>
   <div id="s-model-wrap">
     <div id="s-model-rij">
       <div id="s-model-label">🤖 YOLOv8 model laden…</div>
@@ -643,7 +643,7 @@
 
 <script>
 // ═══════════════════════════════════════════════════════════════
-//  StoplichtIQ V11.15.7
+//  StoplichtIQ V11.15.8
 //  V11.10: Zelfkalibratie + vergrendeling + crop smoothing
 //  — S1+S2 bevestiging (kruispunt-level confidence)
 //  — Route-herkenning basis (sequentie-opslag)
@@ -2027,6 +2027,15 @@ let laatsteDetecties = [];
 // Opgeslagen in YOLO-pixels (cx,cy) — niet genormaliseerd.
 let bboxOverride = null;  // { cx: float, cy: float } in YOLO 0..640 ruimte
 let bboxOverrideTijd = 0;
+// V11.15.8: sticky detectie-identiteit voor LOCK 2 — voorkomt dat LOCK 2
+// elke YOLO-run een andere closest kiest bij naburige detecties.
+// KLASSE_MAP (r723) fungeert direct als familie-bron ('rood'/'groen'/'oranje').
+// Bij sticky-miss <STICKY_MISS_MAX runs return {s1:null} zodat aiMissRuns/
+// TOLERANTIE_RUNS de bbox kort laten staan (bestaand tolerantie-pad).
+let stickyDetectie = null;      // { cx, cy, familie, tijd }
+let stickyMissTeller = 0;
+const STICKY_MATCH_PX = 80;
+const STICKY_MISS_MAX = 5;
 let voorkeursBboxCx   = null;
 let voorkeursBboxCy   = null;
 let voorkeursBboxRuns = 0;
@@ -2089,9 +2098,14 @@ canvas.addEventListener('click', (e) => {
 
   // Pad A: geen actieve S1 bbox → crop forceren naar taplocatie
   if (!heeftActieveBbox) {
+    // V11.15.8 Fix 2d: nieuwe tap → sticky reset zodat run 1 opnieuw closest-op-tap kiest
+    stickyDetectie = null; stickyMissTeller = 0;
     if (dichtstbij && minAfst <= 200) {
       bboxOverride = { cx: dichtstbij.cx, cy: dichtstbij.cy };
       bboxOverrideTijd = Date.now();
+      // V11.15.8 Fix 1: cropHint ook bij tap OP detectie (was regressie — cirkeltje bleef weg)
+      cropHintPositie = { x: videoX, y: videoY };
+      cropHintTeller = 10;
     } else {
       // V11.15.3 FIX B: geen detectie binnen 200px van tap — zet
       // bboxOverride op de tap-locatie zelf zodat het slotje toch
@@ -2133,12 +2147,17 @@ canvas.addEventListener('click', (e) => {
     zoomVergrendeld = true;
     vergrendeldNodeId = null;
     bboxAnchorCx = null; bboxAnchorCy = null; bboxAnchorTijd = 0;
+    // V11.15.8 Fix 2d: nieuwe tap → sticky reset (run 1 opnieuw closest)
+    stickyDetectie = null; stickyMissTeller = 0;
     if (dichtstbij && minAfst <= 200) {
       bboxOverride = { cx: dichtstbij.cx, cy: dichtstbij.cy };
     } else {
       bboxOverride = { cx: yoloX, cy: yoloY };
     }
     bboxOverrideTijd = Date.now();
+    // V11.15.8 Fix 1: cropHint ook bij tap dichtbij anchor (was regressie)
+    cropHintPositie = { x: videoX, y: videoY };
+    cropHintTeller = 10;
   } else {
     // Tap BUITEN 200px van huidige anchor → expliciete gebruikers-intent
     // om weg te breken van de vorige lock.
@@ -2147,6 +2166,8 @@ canvas.addEventListener('click', (e) => {
     // blokkeert tot BBOX_ANCHOR_TIMEOUT afloopt.
     vergrendeldNodeId = null;
     bboxAnchorCx = null; bboxAnchorCy = null; bboxAnchorTijd = 0;
+    // V11.15.8 Fix 2d: nieuwe tap → sticky reset (run 1 opnieuw closest)
+    stickyDetectie = null; stickyMissTeller = 0;
     if (dichtstbij && minAfst <= 200) {
       // Wissel actieve bbox naar die bbox
       bboxOverride = { cx: dichtstbij.cx, cy: dichtstbij.cy };
@@ -2744,10 +2765,57 @@ function selecteerBesteDetectie(detecties) {
 
   // V11.4.5: bbox override — kies dichtstbijzijnde detectie t.o.v. vergrendelde positie
   // V11.7.0: 30s timeout op override
+  // V11.15.8 Fix 2b: sticky detectie-identiteit i.p.v. closest-per-run.
+  // Eerste run na tap: closest-op-override + sticky opslaan.
+  // Vervolgruns: prefereer kandidaten binnen STICKY_MATCH_PX van sticky-positie
+  // (zelfde familie via KLASSE_MAP wint bij meerdere kandidaten). Geen kandidaat
+  // binnen radius: sticky-miss++. Miss <STICKY_MISS_MAX: return {s1:null} zodat
+  // aiMissRuns/TOLERANTIE_RUNS de bbox kort laten staan (bestaand tolerantie-pad,
+  // sluit aan bij 'ai:filter'-flow). Miss ≥MAX: sticky reset, hervat closest.
   if (bboxOverride !== null) {
     if (Date.now() - bboxOverrideTijd > TAP_FORCE_TIMEOUT) {
       bboxOverride = null;
+      stickyDetectie = null; stickyMissTeller = 0;
     } else {
+      // Sticky-tak: één keer gekozen detectie behouden mits nog binnen radius
+      if (stickyDetectie !== null) {
+        const kandidaten = [];
+        for (const det of bruikbaar) {
+          const dx = det.cx - stickyDetectie.cx;
+          const dy = det.cy - stickyDetectie.cy;
+          const afst = Math.sqrt(dx*dx + dy*dy);
+          if (afst < STICKY_MATCH_PX) kandidaten.push({ det, afst });
+        }
+        if (kandidaten.length > 0) {
+          let match;
+          if (kandidaten.length === 1) {
+            match = kandidaten[0].det;
+          } else {
+            // Meerdere binnen radius: prefereer zelfde familie, anders dichtstbij
+            const zelfdeFamilie = kandidaten.filter(k => KLASSE_MAP[k.det.klasse] === stickyDetectie.familie);
+            const pool = zelfdeFamilie.length > 0 ? zelfdeFamilie : kandidaten;
+            pool.sort((a, b) => a.afst - b.afst);
+            match = pool[0].det;
+          }
+          stickyDetectie.cx = match.cx;
+          stickyDetectie.cy = match.cy;
+          const nieuweFamilie = KLASSE_MAP[match.klasse];
+          if (nieuweFamilie) stickyDetectie.familie = nieuweFamilie;
+          stickyDetectie.tijd = Date.now();
+          stickyMissTeller = 0;
+          if (match.klasse >= 4) verwerkPijlDetectie(match.klasse, match.score ?? match.conf ?? 0);
+          return { s1: match, s2Rest: bruikbaar.filter(d => d !== match) };
+        }
+        // Geen kandidaat binnen radius
+        stickyMissTeller++;
+        if (stickyMissTeller < STICKY_MISS_MAX) {
+          return { s1: null, s2Rest: bruikbaar };
+        }
+        // Miss-quotum overschreden: sticky loslaten, hervat closest-fallback hieronder
+        stickyDetectie = null;
+        stickyMissTeller = 0;
+      }
+      // Eerste run OF sticky verlopen: closest-op-override → nieuwe sticky
       let besteOv = null;
       let minOvAfst = Infinity;
       for (const det of bruikbaar) {
@@ -2757,6 +2825,12 @@ function selecteerBesteDetectie(detecties) {
         if (afst < minOvAfst) { minOvAfst = afst; besteOv = det; }
       }
       if (besteOv) {
+        stickyDetectie = {
+          cx: besteOv.cx, cy: besteOv.cy,
+          familie: KLASSE_MAP[besteOv.klasse] || null,
+          tijd: Date.now()
+        };
+        stickyMissTeller = 0;
         if (besteOv.klasse >= 4) verwerkPijlDetectie(besteOv.klasse, besteOv.score ?? besteOv.conf ?? 0);
         return { s1: besteOv, s2Rest: bruikbaar.filter(d => d !== besteOv) };
       }
@@ -3350,6 +3424,7 @@ function resetNeutraal() {
   // V11.4.5: bbox override vrijgeven bij volledige reset
   bboxOverride = null; bboxOverrideTijd = 0;
   bboxAnchorCx = null; bboxAnchorCy = null; bboxAnchorTijd = 0;
+  stickyDetectie = null; stickyMissTeller = 0; // V11.15.8
   // Zoom ontgrendelen
   zoomVergrendeld=false; huidigActiefStoplichtPositie=null;
   vergrendeldNodeId = null;
@@ -3405,6 +3480,7 @@ function verwerkFase(nieuw, horizontaal, conf=null) {
     groenStart = nu;
     bboxOverride = null; bboxOverrideTijd = 0;
     bboxAnchorCx = null; bboxAnchorCy = null; bboxAnchorTijd = 0;
+    stickyDetectie = null; stickyMissTeller = 0; // V11.15.8
     // V11.12.2: voorkeursBbox NIET direct resetten bij groen — dit hield de
     // detectie instabiel tijdens het bevestig-knoppen venster (15s),
     // waardoor knoppen voortijdig verdwenen. Voorkeur blijft nog
@@ -5796,6 +5872,7 @@ function updateDichtbij(lat, lon) {
     bijwerkLeerkaart(nieuw); bijwerkDashboardKnop();
     bboxOverride = null; bboxOverrideTijd = 0;  // V11.4.5: override vervalt bij echte node-wissel
     vergrendeldNodeId = null;  // V11.10.0: vergrendeling breken bij node-wissel
+    stickyDetectie = null; stickyMissTeller = 0; // V11.15.8
     // V11.13.4: bij node-wissel is de vorige-fase-context van het oude
     // kruispunt niet meer relevant voor het nieuwe.
     vorigeFaseVoorRood = null;
@@ -5900,6 +5977,7 @@ async function onGPS(pos) {
     bboxAnchorCx = null;
     bboxAnchorCy = null;
     bboxAnchorTijd = 0;
+    stickyDetectie = null; stickyMissTeller = 0; // V11.15.8
     tekenOverlay(null);
   }
   // V8.8.1: Tikinterface verbergen als kruispunt voorbij of snelheid >30 na passeren
