@@ -449,7 +449,7 @@
 <div id="startscherm">
   <div id="s-icoon">🚦</div>
   <div id="s-titel">Stoplicht<span>IQ</span></div>
-  <div id="s-versie">V11.15.8 — sticky-lock + cropHint herstel</div>
+  <div id="s-versie">V11.15.10 — DEBUG: klasse-verdeling logger (tijdelijk)</div>
   <div id="s-model-wrap">
     <div id="s-model-rij">
       <div id="s-model-label">🤖 YOLOv8 model laden…</div>
@@ -600,6 +600,8 @@
       <button id="oranje-focus-btn" onclick="toggleOranjeFocus()" style="flex:1;padding:8px 12px;background:rgba(245,158,11,0.15);color:#f59e0b;border:1px solid rgba(245,158,11,0.3);border-radius:8px;font-size:12px;cursor:pointer;min-width:100px">🟠 Oranje uit</button>
       <button id="export-trainframes-btn" onclick="exporteerTrainframes()" style="flex:1;padding:8px 12px;background:rgba(191,90,242,0.2);color:#BF5AF2;border:1px solid rgba(191,90,242,0.4);border-radius:8px;font-size:12px;cursor:pointer;min-width:100px">📦 Exporteer</button>
       <button onclick="verwijderTrainframes()" style="padding:8px 12px;background:rgba(255,48,48,0.15);color:#FF3030;border:1px solid rgba(255,48,48,0.3);border-radius:8px;font-size:12px;cursor:pointer">🗑 Wis</button>
+      <!-- V11.15.10 DEBUG: conf-log export voor diagnose confidence-verdunning — TIJDELIJK -->
+      <button id="export-conflog-btn" onclick="exporteerConfLog()" style="flex:1;padding:8px 12px;background:rgba(245,158,11,0.15);color:#f59e0b;border:1px solid rgba(245,158,11,0.35);border-radius:8px;font-size:12px;cursor:pointer;min-width:100px">📊 Exp. conf-log</button>
     </div>
     <div style="font-size:9px;color:rgba(255,255,255,0.3);line-height:1.4">Verzamelt 640x640 frames met YOLO labels tijdens detectie.</div>
     <div style="margin-top:6px;display:flex;align-items:center;justify-content:space-between">
@@ -643,7 +645,7 @@
 
 <script>
 // ═══════════════════════════════════════════════════════════════
-//  StoplichtIQ V11.15.8
+//  StoplichtIQ V11.15.10
 //  V11.10: Zelfkalibratie + vergrendeling + crop smoothing
 //  — S1+S2 bevestiging (kruispunt-level confidence)
 //  — Route-herkenning basis (sequentie-opslag)
@@ -2230,6 +2232,46 @@ let yoloWorker=null, workerKlaar=false, workerFoutTeller=0;
 const WORKER_MAX_FOUTEN=3;
 const confidenceBuffer=new Map();
 const SMOOTH_WINDOW=5, SMOOTH_GEWICHT=1.5, SMOOTH_MIN_RUNS=3;
+// V11.15.10 DEBUG: tijdelijke klasse-verdeling logger — TIJDELIJK, VERWIJDEREN NA DIAGNOSE.
+// Doel: bewijzen/ontkrachten confidence-verdunning-hypothese (NC=10 model verdeelt
+// waarschijnlijkheid over 4 rood-klassen bij pijl-onzekerheid, argmax r2673-2677
+// gooit rest weg). Elke ~1s de volledige 10-scores van beste-anchor loggen.
+const klasseVerdelingLog = [];
+const KLASSE_VERDELING_MAX = 300;
+let laatstConfLog = 0;
+let debugLaatsteAlle = null;
+let debugLaatsteTopKlasse = -1;
+let debugLaatsteTopScore = 0;
+// V11.15.10 DEBUG: helper — leest debug-globals + debugWaarden.ai, throttlet 1/s.
+// Aangeroepen NA elke debugWaarden.ai-update in _verwerkWorkerResultaat.
+function logKlasseVerdelingIndienBeschikbaar() {
+  if (debugLaatsteAlle === null) return;
+  if (debugLaatsteTopScore <= 0.05) return;
+  const nu = Date.now();
+  if (nu - laatstConfLog < 1000) return;
+  laatstConfLog = nu;
+  const alle = debugLaatsteAlle;
+  const somRood   = (alle[0]||0) + (alle[4]||0) + (alle[5]||0) + (alle[8]||0);
+  const somGroen  = (alle[1]||0) + (alle[6]||0) + (alle[7]||0) + (alle[9]||0);
+  const somOranje = alle[3] || 0;
+  const ai = debugWaarden.ai || '';
+  let debugCode = 'ok';
+  if (ai === 'ai:weg') debugCode = 'weg';
+  else if (ai === 'ai:filter') debugCode = 'filter';
+  else if (ai === 'ai:uit') debugCode = 'uit';
+  klasseVerdelingLog.push({
+    t: nu,
+    top: debugLaatsteTopKlasse,
+    topScore: Math.round(debugLaatsteTopScore * 1000) / 1000,
+    somRood:   Math.round(somRood   * 1000) / 1000,
+    somGroen:  Math.round(somGroen  * 1000) / 1000,
+    somOranje: Math.round(somOranje * 1000) / 1000,
+    alle: alle.map(s => Math.round(s * 1000) / 1000),
+    afstandM: (dichtstbijOSM && typeof dichtstbijOSM.afstand === 'number') ? Math.round(dichtstbijOSM.afstand) : null,
+    debugCode
+  });
+  if (klasseVerdelingLog.length > KLASSE_VERDELING_MAX) klasseVerdelingLog.shift();
+}
 
 // V8.5: Trainingsdata
 const TRAINFRAMES_MAX=500;
@@ -2667,6 +2709,10 @@ function postprocessYOLO(outputData, dims) {
   // Dynamisch max_y bij lage snelheid (file detectie)
   const dynamischMaxY = (typeof snelheidKmh==='number' && !isNaN(snelheidKmh) && snelheidKmh<15)
     ? 0.85 : MAX_Y_RATIO;
+  // V11.15.10 DEBUG: reset tracker per run — TIJDELIJK
+  let debugBestAnchorIdx = -1;
+  let debugBestAnchorScore = 0;
+  let debugBestAnchorKlasse = -1;
   for (let i=0; i<numAnchors; i++) {
     const cx=outputData[0*numAnchors+i], cy=outputData[1*numAnchors+i];
     const w=outputData[2*numAnchors+i], h=outputData[3*numAnchors+i];
@@ -2674,6 +2720,12 @@ function postprocessYOLO(outputData, dims) {
     for (let c=0; c<NC; c++) {
       const score = outputData[(4+c)*numAnchors+i];
       if (score > maxScore) { maxScore=score; maxKlasse=c; }
+    }
+    // V11.15.10 DEBUG: onthoud beste anchor pre-filter voor logger — TIJDELIJK
+    if (maxKlasse !== -1 && maxKlasse !== 2 && maxScore > debugBestAnchorScore) {
+      debugBestAnchorIdx = i;
+      debugBestAnchorScore = maxScore;
+      debugBestAnchorKlasse = maxKlasse;
     }
     if (maxKlasse===2) continue;  // klasse 2 = uit, altijd overslaan
     if (maxScore < CONF_DREMPEL) continue;
@@ -2686,6 +2738,16 @@ function postprocessYOLO(outputData, dims) {
       x1:cx-w/2, y1:cy-h/2, x2:cx+w/2, y2:cy+h/2,
       w, h, cx, cy
     });
+  }
+  // V11.15.10 DEBUG: vul globals voor logger — TIJDELIJK
+  if (debugBestAnchorIdx !== -1) {
+    const alle = new Array(NC);
+    for (let c=0; c<NC; c++) alle[c] = outputData[(4+c)*numAnchors+debugBestAnchorIdx];
+    debugLaatsteAlle = alle;
+    debugLaatsteTopKlasse = debugBestAnchorKlasse;
+    debugLaatsteTopScore = debugBestAnchorScore;
+  } else {
+    debugLaatsteAlle = null;
   }
   detections.sort((a,b) => b.score-a.score);
   return nmsFilter(detections);
@@ -2993,6 +3055,7 @@ function _verwerkWorkerResultaat(detecties) {
     s1GebruikteNodesDezeRun.clear();
     // V10.0.5: Green collapse check bij geen detectie
     verwerkGreenCollapse(detecties, 0);
+    try { logKlasseVerdelingIndienBeschikbaar(); } catch(e) {} // V11.15.10 DEBUG
     return;
   }
   const { s1:beste, s2Rest } = selecteerBesteDetectie(detecties);
@@ -3001,6 +3064,7 @@ function _verwerkWorkerResultaat(detecties) {
     debugWaarden.ai = 'ai:filter';
     laatsteAI = null; nieuwAIResultaat = true;
     verwerkS2(s2Rest); s1GebruikteNodesDezeRun.clear();
+    try { logKlasseVerdelingIndienBeschikbaar(); } catch(e) {} // V11.15.10 DEBUG
     return;
   }
   const kleur = KLASSE_MAP[beste.klasse];
@@ -3008,6 +3072,7 @@ function _verwerkWorkerResultaat(detecties) {
     debugWaarden.ai = 'ai:uit';
     laatsteAI = null; nieuwAIResultaat = true;
     verwerkS2(s2Rest); s1GebruikteNodesDezeRun.clear();
+    try { logKlasseVerdelingIndienBeschikbaar(); } catch(e) {} // V11.15.10 DEBUG
     return;
   }
   const gpsDichtbij = dichtstbijOSM && typeof dichtstbijOSM.afstand === 'number' && dichtstbijOSM.afstand <= 40;
@@ -3061,6 +3126,7 @@ function _verwerkWorkerResultaat(detecties) {
     directeRunNodig = false;
     setTimeout(() => { if (!aiBezig) voerAIUit(); }, 0);
   }
+  try { logKlasseVerdelingIndienBeschikbaar(); } catch(e) {} // V11.15.10 DEBUG
 }
 
 
@@ -5733,6 +5799,56 @@ async function verwijderTrainframes() {
     tx.objectStore('frames').clear();
     tx.oncomplete = () => { trainframesTeller=0; updateTrainframesTeller(); };
   } catch(e) { alert('Verwijderen mislukt: '+e.message); }
+}
+
+// V11.15.10 DEBUG: exporteer klasseVerdelingLog voor rijtest-analyse — TIJDELIJK
+function exporteerConfLog() {
+  const btn = document.getElementById('export-conflog-btn');
+  const origTekst = btn ? btn.textContent : null;
+  if (btn) { btn.textContent = '⏳ Bezig...'; btn.disabled = true; }
+  const herstelBtn = () => { if (btn) { btn.textContent = origTekst; btn.disabled = false; } };
+  const downloadFallback = (jsonString, bestandsnaam) => {
+    const blob = new Blob([jsonString], { type:'application/json' });
+    const url  = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href=url; link.download=bestandsnaam;
+    document.body.appendChild(link); link.click(); document.body.removeChild(link);
+    setTimeout(()=>URL.revokeObjectURL(url), 1000);
+  };
+  setTimeout(() => {
+    try {
+      if (klasseVerdelingLog.length === 0) {
+        alert('Nog geen conf-log entries. Rijd eerst even.');
+        herstelBtn(); return;
+      }
+      const exportData = {
+        versie: '11.15.10-debug',
+        exportDatum: new Date().toISOString(),
+        app: 'StoplichtIQ',
+        aantalEntries: klasseVerdelingLog.length,
+        entries: klasseVerdelingLog
+      };
+      const jsonString = JSON.stringify(exportData);
+      const bestandsnaam = `stoplichtiq-conflog-${new Date().toISOString().slice(0,10)}.json`;
+      if (navigator.share && navigator.canShare) {
+        const bestand = new File([jsonString], bestandsnaam, { type:'application/json' });
+        if (navigator.canShare({ files:[bestand] })) {
+          navigator.share({ files:[bestand], title:'StoplichtIQ Conf-log' })
+            .then(() => { alert('✅ Conf-log gedeeld'); herstelBtn(); })
+            .catch(e => {
+              if (e && e.name === 'AbortError') { herstelBtn(); return; }
+              alert('⚠️ Delen mislukt, download start...');
+              downloadFallback(jsonString, bestandsnaam);
+              herstelBtn();
+            });
+          return;
+        }
+      }
+      downloadFallback(jsonString, bestandsnaam);
+      alert('✅ Conf-log gedownload');
+      herstelBtn();
+    } catch(e) { alert('Export mislukt: '+e.message); herstelBtn(); }
+  }, 0);
 }
 
 // ── STAD ──────────────────────────────────────────────────────
