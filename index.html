@@ -505,7 +505,7 @@
 <div id="startscherm">
   <div id="s-icoon">🚦</div>
   <div id="s-titel">Stoplicht<span>IQ</span></div>
-  <div id="s-versie">V11.16.2 — richtingen samenvoegen (selectie + keuze + undo)</div>
+  <div id="s-versie">V11.16.3 — multiframe klasse-correctie + auto groen-oogst</div>
   <div id="s-model-wrap">
     <div id="s-model-rij">
       <div id="s-model-label">🤖 YOLOv8 model laden…</div>
@@ -703,7 +703,7 @@
 
 <script>
 // ═══════════════════════════════════════════════════════════════
-//  StoplichtIQ V11.16.2
+//  StoplichtIQ V11.16.3
 //  V11.10: Zelfkalibratie + vergrendeling + crop smoothing
 //  — S1+S2 bevestiging (kruispunt-level confidence)
 //  — Route-herkenning basis (sequentie-opslag)
@@ -3191,6 +3191,7 @@ function _verwerkWorkerResultaat(detecties) {
     setTimeout(() => { if (!aiBezig) voerAIUit(); }, 0);
   }
   try { logKlasseVerdelingIndienBeschikbaar(); } catch(e) {} // V11.15.10 DEBUG
+  try { verwerkCorrectieMultiframe(); } catch(e) {} // V11.16.3: multiframe/groen-oogst
 }
 
 
@@ -3555,6 +3556,7 @@ function resetNeutraal() {
   bboxOverride = null; bboxOverrideTijd = 0;
   bboxAnchorCx = null; bboxAnchorCy = null; bboxAnchorTijd = 0;
   stickyDetectie = null; stickyMissTeller = 0; // V11.15.8
+  correctieMultiframe = null; wachtGroenIntentie = null; // V11.16.3
   // Zoom ontgrendelen
   zoomVergrendeld=false; huidigActiefStoplichtPositie=null;
   vergrendeldNodeId = null;
@@ -3608,6 +3610,21 @@ function verwerkFase(nieuw, horizontaal, conf=null) {
   }
   if (nieuw === 'groen') {
     groenStart = nu;
+    // V11.16.3 W3: auto-oogst groen. Volgorde per instructie — EERST intentie
+    // consumeren naar een groen correctieMultiframe (overschrijft een eventueel
+    // lopende rode multiframe), DAAROM staat de rood-wis in de else-tak zodat
+    // die alleen vuurt als er géén intentie te consumeren is.
+    if (wachtGroenIntentie
+        && (Date.now() - wachtGroenIntentie.gezetOp) < 180000) { // 180s vervalvenster
+      correctieMultiframe = {
+        klasse: wachtGroenIntentie.groenKlasse, resterend: MULTIFRAME_AANTAL,
+        laatsteOpslag: 0, doelBox: wachtGroenIntentie.doelBox,
+        bron: 'klasse_correctie_groen', startVenster: Date.now(), maxVensterMs: 8000
+      };
+    } else if (correctieMultiframe && correctieMultiframe.bron === 'klasse_correctie') {
+      correctieMultiframe = null; // lopende rode multiframe niet meer relevant bij groen
+    }
+    wachtGroenIntentie = null; // intentie is verbruikt of verlopen
     bboxOverride = null; bboxOverrideTijd = 0;
     bboxAnchorCx = null; bboxAnchorCy = null; bboxAnchorTijd = 0;
     stickyDetectie = null; stickyMissTeller = 0; // V11.15.8
@@ -5371,6 +5388,16 @@ let klasseCorrectieJpeg = null;
 let correctieTellerSessie = 0;
 const CORRECTIE_MAX_SESSIE = 100;
 
+// V11.15.13 (V11.16.3): multiframe correctie + automatische groen-oogst.
+// Eén handmatige correctie levert 3 verse rode frames + 3 groene frames op.
+let correctieMultiframe = null;  // {klasse, resterend, laatsteOpslag, doelBox, bron, startVenster, maxVensterMs}
+let wachtGroenIntentie = null;   // {groenKlasse, doelBox, gezetOp}
+const MULTIFRAME_AANTAL = 3;
+const MULTIFRAME_MIN_MS = 300;   // min tijd tussen verse frames
+const MULTIFRAME_MATCH_PX = 120; // zelfde-stoplicht drempel (== sticky)
+// Rood-klasse → corresponderende groen-klasse (uit KLASSE_NAMEN-structuur)
+const ROOD_NAAR_GROEN = { 0:1, 4:6, 5:7, 8:9 };
+
 function genereerKlasseCorrectieTegels() {
   const grid = document.getElementById('klasse-correctie-grid');
   if (!grid || grid.children.length > 0) return; // eenmalig
@@ -5389,6 +5416,8 @@ function genereerKlasseCorrectieTegels() {
 function openKlasseCorrectie() {
   if (snelheidKmh > 15) return;               // guard: alleen bij stilstand
   if (!laatsteAI || !laatsteAI.box) return;    // guard: alleen bij actieve detectie
+  // V11.16.3: nieuwe ✎-tap breekt een lopende multiframe/intentie af (vervangt)
+  correctieMultiframe = null; wachtGroenIntentie = null;
   genereerKlasseCorrectieTegels();
   klasseCorrectieDoelBox = { ...laatsteAI.box };
   // V11.15.7: snapshot jpeg NU zodat het correcte frame bewaard blijft,
@@ -5415,8 +5444,23 @@ function sluitKlasseCorrectie() {
 function kiesCorrectieKlasse(nieuweKlasse) {
   // V11.15.7: gebruik snapshots van box+jpeg uit open-tijd zodat de
   // opgeslagen data het moment van kiezen exact weerspiegelt.
-  if (klasseCorrectieDoelBox && klasseCorrectieJpeg) {
-    slaKlasseCorrectieOp(nieuweKlasse, klasseCorrectieDoelBox, klasseCorrectieJpeg);
+  const doelBox = klasseCorrectieDoelBox ? { ...klasseCorrectieDoelBox } : null;
+  if (doelBox && klasseCorrectieJpeg) {
+    slaKlasseCorrectieOp(nieuweKlasse, doelBox, klasseCorrectieJpeg); // frame 1 (open-snapshot)
+    // V11.16.3 W1: multiframe — nog 2 verse rode frames oogsten
+    correctieMultiframe = {
+      klasse: nieuweKlasse, resterend: MULTIFRAME_AANTAL - 1,
+      laatsteOpslag: Date.now(), doelBox,
+      bron: 'klasse_correctie', startVenster: Date.now(), maxVensterMs: 10000
+    };
+    // V11.16.3 W2: wacht-op-groen intentie (alleen bij ROOD-familie klasse)
+    if (ROOD_NAAR_GROEN[nieuweKlasse] !== undefined) {
+      wachtGroenIntentie = { groenKlasse: ROOD_NAAR_GROEN[nieuweKlasse], doelBox, gezetOp: Date.now() };
+      toonToast('✅ Opgeslagen als ' + (KLASSE_NAMEN[nieuweKlasse] || ('klasse ' + nieuweKlasse)) + ' — groene fase wordt automatisch verzameld');
+    } else {
+      wachtGroenIntentie = null; // groen/oranje-correctie zet geen intentie
+      toonToast('✅ Opgeslagen als ' + (KLASSE_NAMEN[nieuweKlasse] || ('klasse ' + nieuweKlasse)));
+    }
   }
   sluitKlasseCorrectie();
 }
@@ -5429,11 +5473,11 @@ function kiesCorrectieKlasse(nieuweKlasse) {
 // (6 decimalen, r5487). Box-coordinaten zijn display-canvas-space
 // (r2935-2937) — dezelfde conversie als slaTrainframeOp-aanroep
 // op r3230-3233.
-async function slaKlasseCorrectieOp(nieuweKlasse, box, jpeg) {
+async function slaKlasseCorrectieOp(nieuweKlasse, box, jpeg, bron = 'klasse_correctie') {
   if (correctieTellerSessie >= CORRECTIE_MAX_SESSIE) {
     console.warn('Klasse-correctie sessie-quotum bereikt (' + CORRECTIE_MAX_SESSIE + ')');
     toonToast('⚠️ Correctie-limiet sessie bereikt'); // V11.16.1
-    return;
+    return false; // V11.16.3: signaal quota-stop voor multiframe
   }
   if (!jpeg) { console.warn('slaKlasseCorrectieOp: geen jpeg-snapshot'); return; }
   try {
@@ -5454,19 +5498,49 @@ async function slaKlasseCorrectieOp(nieuweKlasse, box, jpeg) {
     await new Promise((resolve, reject) => {
       const req = tx.objectStore('frames').add({
         jpeg, label, tijd: Date.now(),
-        bron: 'klasse_correctie', twijfel: false
+        bron, twijfel: false   // V11.16.3: bron parametriseerbaar (rood/groen-oogst)
       });
       req.onsuccess = () => resolve();
       req.onerror = (e) => reject(e.target.error);
     });
     correctieTellerSessie++;
     console.log('klasse-correctie opgeslagen — klasse=' + nieuweKlasse +
-      ' sessie=' + correctieTellerSessie + '/' + CORRECTIE_MAX_SESSIE);
-    // V11.16.1: zichtbare bevestiging (was alleen console.log)
-    toonToast('✅ Opgeslagen als ' + (KLASSE_NAMEN[nieuweKlasse] || ('klasse ' + nieuweKlasse)));
+      ' bron=' + bron + ' sessie=' + correctieTellerSessie + '/' + CORRECTIE_MAX_SESSIE);
+    // V11.16.3: toast NIET hier — caller (kiesCorrectieKlasse) toont één toast;
+    // multiframe/groen-oogst blijven stil (alleen console).
+    return true;
   } catch (e) {
     console.warn('slaKlasseCorrectieOp fout:', e);
+    return false;
   }
+}
+
+// V11.16.3 W1b/W3: één oogst-pad voor rode multiframe (bron 'klasse_correctie')
+// én groen-oogst (bron 'klasse_correctie_groen'). Aangeroepen aan het einde van
+// _verwerkWorkerResultaat (success-pad → verse laatsteAI.box beschikbaar).
+function verwerkCorrectieMultiframe() {
+  const cm = correctieMultiframe;
+  if (!cm) return;
+  const nu = Date.now();
+  // venster-timeout (rood 10s, groen 8s) → stop met wat er is
+  if (cm.startVenster && (nu - cm.startVenster) > cm.maxVensterMs) { correctieMultiframe = null; return; }
+  if (cm.resterend <= 0) { correctieMultiframe = null; return; }
+  if ((nu - cm.laatsteOpslag) < MULTIFRAME_MIN_MS) return;
+  const box = laatsteAI && laatsteAI.box;
+  if (!box) return;
+  // positie-validatie: zelfde stoplicht als bij de correctie
+  const dx = box.x - cm.doelBox.x, dy = box.y - cm.doelBox.y;
+  if (Math.sqrt(dx*dx + dy*dy) > MULTIFRAME_MATCH_PX) return;
+  // groen-oogst: alleen echte groen-familie detecties labelen
+  if (cm.bron === 'klasse_correctie_groen' && KLASSE_MAP[box.klasse] !== 'groen') return;
+  let jpeg;
+  try { jpeg = yoloCanvas.toDataURL('image/jpeg', TRAINFRAMES_JPEG_KWALITEIT); }
+  catch(e) { return; }
+  const ok = slaKlasseCorrectieOp(cm.klasse, box, jpeg, cm.bron); // async, fire-and-forget
+  cm.resterend--; cm.laatsteOpslag = nu;
+  console.log('V11.15.13 ' + (cm.bron === 'klasse_correctie_groen' ? 'groen-oogst' : 'multiframe') +
+    ': rest ' + cm.resterend + ' als ' + (KLASSE_NAMEN[cm.klasse] || cm.klasse));
+  if (cm.resterend <= 0) correctieMultiframe = null;
 }
 
 // V11.15.6: knop-visibility + disabled state. Roep vanuit lus() aan met
@@ -6412,6 +6486,7 @@ function updateDichtbij(lat, lon) {
     bboxOverride = null; bboxOverrideTijd = 0;  // V11.4.5: override vervalt bij echte node-wissel
     vergrendeldNodeId = null;  // V11.10.0: vergrendeling breken bij node-wissel
     stickyDetectie = null; stickyMissTeller = 0; // V11.15.8
+    correctieMultiframe = null; wachtGroenIntentie = null; // V11.16.3: geen oogst op ander kruispunt
     // V11.13.4: bij node-wissel is de vorige-fase-context van het oude
     // kruispunt niet meer relevant voor het nieuwe.
     vorigeFaseVoorRood = null;
@@ -6517,6 +6592,7 @@ async function onGPS(pos) {
     bboxAnchorCy = null;
     bboxAnchorTijd = 0;
     stickyDetectie = null; stickyMissTeller = 0; // V11.15.8
+    correctieMultiframe = null; wachtGroenIntentie = null; // V11.16.3
     tekenOverlay(null);
   }
   // V8.8.1: Tikinterface verbergen als kruispunt voorbij of snelheid >30 na passeren
