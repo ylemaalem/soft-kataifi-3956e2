@@ -304,6 +304,26 @@
     /* V11.15.6: trigger-knop rechtsonder (Optie B — buiten canvas-tap-pad) */
     #klasse-correctie-btn{position:fixed;bottom:12px;right:12px;z-index:44;width:44px;height:44px;padding:0;background:rgba(0,0,0,0.75);color:rgba(255,255,255,0.85);border:1px solid rgba(255,255,255,0.25);border-radius:22px;font-size:18px;cursor:pointer;backdrop-filter:blur(8px);transition:opacity .2s;-webkit-tap-highlight-color:transparent}
     #klasse-correctie-btn:disabled{opacity:0.4;cursor:not-allowed}
+    /* ── V11.16.1: node-info chip + bottom-sheet ── */
+    #node-info-chip{display:none;align-items:center;gap:4px;height:26px;padding:0 10px;margin-left:8px;background:rgba(0,0,0,0.55);border:1px solid rgba(255,255,255,0.15);border-radius:13px;font-size:12px;font-family:'Share Tech Mono',monospace;color:rgba(255,255,255,0.85);cursor:pointer;flex-shrink:0;transition:opacity .2s;-webkit-tap-highlight-color:transparent}
+    #node-info-chip.zichtbaar{display:inline-flex}
+    #node-info-chip:disabled,#node-info-chip.disabled{opacity:0.4;cursor:not-allowed}
+    #node-info-overlay{display:none;position:fixed;inset:0;z-index:500;background:rgba(0,0,0,0.60);backdrop-filter:blur(2px)}
+    #node-info-sheet{position:absolute;bottom:0;left:0;right:0;background:rgba(0,0,0,0.92);border-radius:16px 16px 0 0;max-height:65vh;overflow-y:auto;padding:16px;padding-bottom:env(safe-area-inset-bottom,16px)}
+    #node-info-header{display:flex;align-items:flex-start;justify-content:space-between;gap:10px;margin-bottom:12px}
+    #node-info-naam{font-size:15px;font-weight:700;color:#fff;line-height:1.2}
+    #node-info-sub{font-size:11px;color:rgba(255,255,255,0.4);margin-top:2px}
+    #node-info-neutraal{flex-shrink:0;padding:6px 10px;border-radius:8px;font-size:11px;font-weight:600;font-family:'Rajdhani',sans-serif;letter-spacing:0.04em;cursor:pointer;border:1px solid rgba(255,255,255,0.25);background:transparent;color:rgba(255,255,255,0.7);transition:background .15s;-webkit-tap-highlight-color:transparent}
+    #node-info-neutraal.actief{background:var(--accent,#f59e0b);border-color:var(--accent,#f59e0b);color:#000}
+    #node-info-neutraal-uitleg{font-size:11px;color:rgba(255,255,255,0.4);margin:-6px 0 12px;line-height:1.4}
+    .ni-rij{display:flex;align-items:center;gap:10px;padding:10px 8px;border-bottom:1px solid #1a2230}
+    .ni-rij-pijl{font-size:18px;width:22px;text-align:center;flex-shrink:0}
+    .ni-rij-label{font-size:12px;color:rgba(255,255,255,0.85);flex-shrink:0;min-width:64px}
+    .ni-rij-dds{display:flex;flex-wrap:wrap;gap:8px;font-size:11px;font-family:'Share Tech Mono',monospace}
+    .ni-rij-algemeen{background:rgba(255,255,255,0.03)}
+    .ni-leeg{font-size:12px;color:rgba(255,255,255,0.4);padding:12px 8px;line-height:1.5}
+    #node-info-sluiten{display:flex;align-items:center;justify-content:center;min-height:48px;width:100%;margin-top:12px;background:rgba(255,255,255,0.06);border:1px solid rgba(255,255,255,0.15);border-radius:10px;font-size:14px;font-weight:600;color:#fff;cursor:pointer;font-family:'Rajdhani',sans-serif;letter-spacing:0.08em;text-transform:uppercase;transition:background .15s}
+    #node-info-sluiten:active{background:rgba(255,255,255,0.12)}
     /* ── V10.0.2: V9 Richtingen Modal ── */
     #v9-overlay{position:fixed;inset:0;z-index:250;background:#080A0C;
       display:flex;flex-direction:column;
@@ -413,6 +433,22 @@
   </div>
 </div>
 
+<!-- V11.16.1: node-info bottom-sheet — richtingen per node ter plekke -->
+<div id="node-info-overlay" onclick="sluitNodeInfo()">
+  <div id="node-info-sheet" onclick="event.stopPropagation()">
+    <div id="node-info-header">
+      <div>
+        <div id="node-info-naam">—</div>
+        <div id="node-info-sub"></div>
+      </div>
+      <button id="node-info-neutraal" onclick="toggleNodeNeutraal()">Ⓝ Neutraal</button>
+    </div>
+    <div id="node-info-neutraal-uitleg">Geen vaste rijrichting — richtingknoppen worden verborgen</div>
+    <div id="node-info-body"></div>
+    <button id="node-info-sluiten" onclick="sluitNodeInfo()">Sluiten</button>
+  </div>
+</div>
+
 <!-- V8.8: Rijrichting tikinterface -->
 <div id="richting-knoppen">
   <div id="richting-label">Welke kant ga jij op?</div>
@@ -449,7 +485,7 @@
 <div id="startscherm">
   <div id="s-icoon">🚦</div>
   <div id="s-titel">Stoplicht<span>IQ</span></div>
-  <div id="s-versie">V11.16.0 — proactieve rijrichting (GLOSA-guard + voorlopig-countdown + knoppen bij GPS-lock)</div>
+  <div id="s-versie">V11.16.1 — node-info panel + neutraal-markering + toast</div>
   <div id="s-model-wrap">
     <div id="s-model-rij">
       <div id="s-model-label">🤖 YOLOv8 model laden…</div>
@@ -547,6 +583,8 @@
     <div id="leer-kaart">
       <div id="leer-header">
         <div id="leer-naam">Wacht op GPS…</div>
+        <!-- V11.16.1: node-info chip — richtingen ter plekke bekijken -->
+        <button id="node-info-chip" onclick="openNodeInfo()" title="Richtingen voor dit stoplicht" aria-label="Richtingen voor dit stoplicht">🧭 <span id="node-info-chip-teller">0</span></button>
         <div id="leer-nieuw-badge">Nieuw</div>
       </div>
       <div id="leer-pct-rij">
@@ -645,7 +683,7 @@
 
 <script>
 // ═══════════════════════════════════════════════════════════════
-//  StoplichtIQ V11.16.0
+//  StoplichtIQ V11.16.1
 //  V11.10: Zelfkalibratie + vergrendeling + crop smoothing
 //  — S1+S2 bevestiging (kruispunt-level confidence)
 //  — Route-herkenning basis (sequentie-opslag)
@@ -1624,8 +1662,14 @@ function kiesCountdownBron(nodeId, dd, aanrijRichting, preSelectieAfrij) {
 
   let resultaat = null;
 
+  // V11.16.1 c2: neutrale node (geen vaste rijrichting) → sla de V5-richting-
+  // specifieke stappen 1-3 over en gebruik direct de V4-globale cyclus.
+  // Richting-data is voor zo'n node niet betekenisvol; het aggregaat is
+  // correcter dan een toevallige richting-subset.
+  const neutraal = isNodeNeutraal(nodeId);
+
   // Stap 1: pre-selectie via richtingknop (als >= V9_MIN_METINGEN)
-  if (!resultaat && aanrijRichting && preSelectieAfrij) {
+  if (!resultaat && !neutraal && aanrijRichting && preSelectieAfrij) {
     const m1 = laadMV5Geclusterd(nodeId, aanrijRichting, preSelectieAfrij, dd);
     if (m1.length >= V9_MIN_METINGEN) {
       const gem = gewGem(m1);
@@ -1637,7 +1681,7 @@ function kiesCountdownBron(nodeId, dd, aanrijRichting, preSelectieAfrij) {
   }
 
   // Stap 2: rechtdoor default (aanrij + 180°)
-  if (!resultaat && aanrijRichting) {
+  if (!resultaat && !neutraal && aanrijRichting) {
     const h = v9AanrijSnelheidHeading ?? v9AanrijHeading;
     if (h != null) {
       const afrijRechtdoor = gpsHeadingNaarWindrichting((((h % 360) + 360) % 360 + 180) % 360);
@@ -1653,7 +1697,7 @@ function kiesCountdownBron(nodeId, dd, aanrijRichting, preSelectieAfrij) {
   }
 
   // Stap 3: alle V5 richtingen samen voor deze node (gemiddelde)
-  if (!resultaat) {
+  if (!resultaat && !neutraal) {
     const alleV5 = haalAlleV5MetingenVoorNode(nodeId, dd);
     if (alleV5.length >= V9_MIN_METINGEN) {
       const gem = gewGem(alleV5);
@@ -3995,11 +4039,13 @@ function bijwerkLeerkaart(osm) {
     leerNaam.textContent='Wacht op GPS…'; leerBadge.textContent='—';
     leerBadge.className='leer-nieuw-badge';
     leerPctBalk.style.width='0%'; leerPctGetal.textContent='0%';
+    updateNodeInfoChip(null); // V11.16.1: chip verbergen zonder node
     return;
   }
   const dd = getoondDagdeel || huidigDDActief();
   const pct=berekenLeerPct(osm.id), kleur=leerKleur(pct);
   leerNaam.textContent = osm.naam || `Stoplicht ${osm.id}`;
+  updateNodeInfoChip(String(osm.id)); // V11.16.1: chip-teller bij node-wissel
   const totM = Object.keys(DD).reduce((s,d)=>s+laadM(osm.id,d).length, 0);
   // V9: ook V5 metingen tellen
   const totV5 = haalAlleV5MetingenVoorNode(osm.id, dd).length;
@@ -4409,7 +4455,7 @@ function exporteerData() {
     try {
       const exportData = { versie:'11.4.4', exportDatum:new Date().toISOString(), app:'StoplichtIQ', data:{}, scores:{} };
       for (const key of Object.keys(localStorage)) {
-        if (key.startsWith('sl_v10_')||key.startsWith('sl_v5_')||key.startsWith('sl_v4_')||key.startsWith('sl_v3_')||key.startsWith('sl_tag_')||key.startsWith('sl_naam_')||key.startsWith('sl_richting_')||key.startsWith('sl_route_')||key.startsWith('sl_bevestig_')||key.startsWith('sl_pos_')||key==='sl_cam_stats'||key==='sl_stad_cache') {
+        if (key.startsWith('sl_v10_')||key.startsWith('sl_v5_')||key.startsWith('sl_v4_')||key.startsWith('sl_v3_')||key.startsWith('sl_tag_')||key.startsWith('sl_naam_')||key.startsWith('sl_richting_')||key.startsWith('sl_route_')||key.startsWith('sl_bevestig_')||key.startsWith('sl_pos_')||key.startsWith('sl_neutraal_')||key==='sl_cam_stats'||key==='sl_stad_cache') {
           try { exportData.data[key] = JSON.parse(localStorage.getItem(key)); }
           catch(e) { exportData.data[key] = localStorage.getItem(key); }
         }
@@ -4458,7 +4504,7 @@ function importeerData(bestand) {
         // V11.15.4 Fix 4: whitelist gesynchroniseerd met exporteerData —
         // sl_bevestig_, sl_pos_ en sl_cam_stats zaten wél in de export
         // maar werden bij import stil overgeslagen.
-        if (!key.startsWith('sl_v10_')&&!key.startsWith('sl_v5_')&&!key.startsWith('sl_v4_')&&!key.startsWith('sl_v3_')&&!key.startsWith('sl_tag_')&&!key.startsWith('sl_naam_')&&!key.startsWith('sl_richting_')&&!key.startsWith('sl_route_')&&!key.startsWith('sl_bevestig_')&&!key.startsWith('sl_pos_')&&key!=='sl_cam_stats'&&key!=='sl_stad_cache') { overgeslagen++; continue; }
+        if (!key.startsWith('sl_v10_')&&!key.startsWith('sl_v5_')&&!key.startsWith('sl_v4_')&&!key.startsWith('sl_v3_')&&!key.startsWith('sl_tag_')&&!key.startsWith('sl_naam_')&&!key.startsWith('sl_richting_')&&!key.startsWith('sl_route_')&&!key.startsWith('sl_bevestig_')&&!key.startsWith('sl_pos_')&&!key.startsWith('sl_neutraal_')&&key!=='sl_cam_stats'&&key!=='sl_stad_cache') { overgeslagen++; continue; }
         if (localStorage.getItem(key) !== null) { overgeslagen++; continue; }
         try { localStorage.setItem(key, JSON.stringify(waarde)); toegevoegd++; } catch(e) { overgeslagen++; }
       }
@@ -4905,6 +4951,8 @@ function toonRichtingKnoppen(nodeId) {
   // anders intercepteert richting-knoppen (z:46) alle taps op bevestig-wrap (z:10 via #ui)
   if (bevestigActief) return;
   if (!nodeId) return;
+  // V11.16.1 c1: neutrale node heeft geen vaste rijrichting → geen knoppen.
+  if (isNodeNeutraal(nodeId)) return;
   if (richtingGedruktVoorNode === nodeId) return;
   // V10.0.3: Richtingkeuze lock — niet opnieuw tonen als keuze al gemaakt voor deze node
   if (richtingLockNodeId === nodeId && richtingLockKeuze) return;
@@ -5364,6 +5412,7 @@ function kiesCorrectieKlasse(nieuweKlasse) {
 async function slaKlasseCorrectieOp(nieuweKlasse, box, jpeg) {
   if (correctieTellerSessie >= CORRECTIE_MAX_SESSIE) {
     console.warn('Klasse-correctie sessie-quotum bereikt (' + CORRECTIE_MAX_SESSIE + ')');
+    toonToast('⚠️ Correctie-limiet sessie bereikt'); // V11.16.1
     return;
   }
   if (!jpeg) { console.warn('slaKlasseCorrectieOp: geen jpeg-snapshot'); return; }
@@ -5393,6 +5442,8 @@ async function slaKlasseCorrectieOp(nieuweKlasse, box, jpeg) {
     correctieTellerSessie++;
     console.log('klasse-correctie opgeslagen — klasse=' + nieuweKlasse +
       ' sessie=' + correctieTellerSessie + '/' + CORRECTIE_MAX_SESSIE);
+    // V11.16.1: zichtbare bevestiging (was alleen console.log)
+    toonToast('✅ Opgeslagen als ' + (KLASSE_NAMEN[nieuweKlasse] || ('klasse ' + nieuweKlasse)));
   } catch (e) {
     console.warn('slaKlasseCorrectieOp fout:', e);
   }
@@ -5407,6 +5458,140 @@ function updateKlasseCorrectieBtnState() {
   const stilstaand = snelheidKmh <= 15;
   btn.disabled = !(heeftDetectie && stilstaand);
   // opacity via CSS :disabled — geen inline styling nodig
+  // V11.16.1: node-info chip speed-guard (2Hz vanuit lus() zoals klasse-btn)
+  const chip = document.getElementById('node-info-chip');
+  if (chip) chip.classList.toggle('disabled', snelheidKmh > 15);
+}
+
+// ── V11.16.1: TOAST (generiek, hergebruikt #leer-toast) ───────
+function toonToast(tekst) {
+  const el = document.getElementById('leer-toast');
+  if (!el) return;
+  el.textContent = tekst;
+  el.classList.add('zichtbaar');
+  if (leerToastTimer) clearTimeout(leerToastTimer);
+  leerToastTimer = setTimeout(() => { el.classList.remove('zichtbaar'); }, 2000);
+}
+
+// ── V11.16.1: NEUTRAAL-MARKERING ──────────────────────────────
+function isNodeNeutraal(nodeId) {
+  if (!nodeId) return false;
+  return localStorage.getItem('sl_neutraal_' + nodeId) === '1';
+}
+
+// ── V11.16.1: NODE-INFO PANEL ─────────────────────────────────
+// Glyph-only afrij-pijlen (verzamelV5Richtingen levert windrichtingen).
+const AFRIJ_PIJL = { N:'↑', NO:'↗', O:'→', ZO:'↘', Z:'↓', ZW:'↙', W:'←', NW:'↖' };
+let nodeInfoNodeId = null;          // node waarvoor het panel geopend is
+let nodeInfoChipLaatsteNode = null; // cache — chip alleen herberekenen bij node-wissel
+
+// Chip-teller bijwerken. Aangeroepen vanuit bijwerkLeerkaart (node-wissel-hook).
+function updateNodeInfoChip(nodeId) {
+  const chip = document.getElementById('node-info-chip');
+  const tellerEl = document.getElementById('node-info-chip-teller');
+  if (!chip || !tellerEl) return;
+  if (!nodeId) { chip.classList.remove('zichtbaar'); nodeInfoChipLaatsteNode = null; return; }
+  if (String(nodeId) === nodeInfoChipLaatsteNode) { chip.classList.add('zichtbaar'); return; }
+  nodeInfoChipLaatsteNode = String(nodeId);
+  chip.classList.add('zichtbaar');
+  if (isNodeNeutraal(nodeId)) {
+    tellerEl.textContent = 'Ⓝ';
+    return;
+  }
+  // uniek aantal aanrij→afrij combinaties (dagdelen niet apart geteld)
+  const combos = new Set();
+  for (const r of verzamelV5Richtingen(nodeId)) combos.add(r.aanrij + '_' + r.afrij);
+  tellerEl.textContent = String(combos.size);
+}
+
+function openNodeInfo() {
+  if (snelheidKmh > 15) return;          // guard: alleen bij stilstand
+  const nodeId = dichtstbijOSM ? String(dichtstbijOSM.id) : null;
+  if (!nodeId) return;
+  nodeInfoNodeId = nodeId;
+  renderNodeInfo(nodeId);
+  const overlay = document.getElementById('node-info-overlay');
+  if (overlay) overlay.style.display = 'block';
+}
+
+function sluitNodeInfo() {
+  const overlay = document.getElementById('node-info-overlay');
+  if (overlay) overlay.style.display = 'none';
+  // chip-teller kan gewijzigd zijn door neutraal-toggle → forceer herberekening
+  nodeInfoChipLaatsteNode = null;
+  if (nodeInfoNodeId) updateNodeInfoChip(nodeInfoNodeId);
+  nodeInfoNodeId = null;
+}
+
+function toggleNodeNeutraal() {
+  if (!nodeInfoNodeId) return;
+  if (isNodeNeutraal(nodeInfoNodeId)) {
+    localStorage.removeItem('sl_neutraal_' + nodeInfoNodeId);
+  } else {
+    try { localStorage.setItem('sl_neutraal_' + nodeInfoNodeId, '1'); } catch(e) {}
+  }
+  renderNodeInfo(nodeInfoNodeId); // her-render header + toggle-staat
+}
+
+function renderNodeInfo(nodeId) {
+  const naamEl = document.getElementById('node-info-naam');
+  const subEl  = document.getElementById('node-info-sub');
+  const bodyEl = document.getElementById('node-info-body');
+  const toggle = document.getElementById('node-info-neutraal');
+  const uitleg = document.getElementById('node-info-neutraal-uitleg');
+  if (!naamEl || !bodyEl) return;
+  const sl = osmCache.find(s => String(s.id) === String(nodeId));
+  const cachedNaam = localStorage.getItem('sl_naam_' + nodeId) || '';
+  const naam = (sl && sl.naam) || cachedNaam || ('Stoplicht ' + nodeId);
+  const delen = naam.split(',');
+  naamEl.textContent = delen[0].trim();
+  const stad = delen.length > 1 ? delen.slice(1).join(',').trim() + ' · ' : '';
+  subEl.textContent = stad + 'id ' + nodeId;
+  // neutraal-toggle staat
+  const neutraal = isNodeNeutraal(nodeId);
+  if (toggle) toggle.classList.toggle('actief', neutraal);
+  if (uitleg) uitleg.style.display = neutraal ? 'block' : 'none';
+
+  let html = '';
+  // Algemeen-rij (V4-globaal) per dagdeel met data
+  const dd4 = [];
+  for (const d of Object.keys(DD)) {
+    const m = laadM(nodeId, d);
+    if (!m.length) continue;
+    const pct = Math.min(95, Math.max(m.length * 4, berekenObsScore(m)));
+    dd4.push(`${DD[d].ic} <span style="color:${ni_kleur(pct)}">${pct}%</span> (${m.length}×)`);
+  }
+  if (dd4.length) {
+    html += `<div class="ni-rij ni-rij-algemeen"><div class="ni-rij-pijl">⬤</div>`
+         +  `<div class="ni-rij-label">Algemeen</div><div class="ni-rij-dds">${dd4.join(' ')}</div></div>`;
+  }
+  // Richting-rijen: groepeer per aanrij_afrij, dagdelen als sub-items
+  const richtingen = verzamelV5Richtingen(nodeId); // {aanrij, afrij, dd, pct, metingen}
+  const groepen = new Map(); // 'aanrij_afrij' → { aanrij, afrij, dds:[], totaal }
+  for (const r of richtingen) {
+    const key = r.aanrij + '_' + r.afrij;
+    if (!groepen.has(key)) groepen.set(key, { aanrij: r.aanrij, afrij: r.afrij, dds: [], totaal: 0 });
+    const g = groepen.get(key);
+    g.dds.push(`${DD[r.dd]?.ic || r.dd} <span style="color:${ni_kleur(r.pct)}">${r.pct}%</span> (${r.metingen}×)`);
+    g.totaal += r.metingen;
+  }
+  const gesorteerd = [...groepen.values()].sort((a, b) => b.totaal - a.totaal);
+  for (const g of gesorteerd) {
+    const pijl = AFRIJ_PIJL[g.afrij] || '·';
+    html += `<div class="ni-rij" data-aanrij="${g.aanrij}" data-afrij="${g.afrij}">`
+         +  `<div class="ni-rij-pijl">${pijl}</div>`
+         +  `<div class="ni-rij-label">${g.aanrij} → ${g.afrij}</div>`
+         +  `<div class="ni-rij-dds">${g.dds.join(' ')}</div></div>`;
+  }
+  if (!gesorteerd.length) {
+    html += `<div class="ni-leeg">Nog geen richtingen opgeslagen voor dit stoplicht.</div>`;
+  }
+  bodyEl.innerHTML = html;
+}
+
+// kleurcodering identiek aan dashboard: ≥60 groen, ≥30 oranje, anders rood
+function ni_kleur(pct) {
+  return pct >= 60 ? 'var(--groen)' : pct >= 30 ? 'var(--oranje)' : 'var(--rood)';
 }
 
 // Bug 2 + Bug 3: Handmatige node-selectie
