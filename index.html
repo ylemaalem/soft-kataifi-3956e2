@@ -449,7 +449,7 @@
 <div id="startscherm">
   <div id="s-icoon">🚦</div>
   <div id="s-titel">Stoplicht<span>IQ</span></div>
-  <div id="s-versie">V11.15.10 — DEBUG: klasse-verdeling logger (tijdelijk)</div>
+  <div id="s-versie">V11.16.0 — proactieve rijrichting (GLOSA-guard + voorlopig-countdown + knoppen bij GPS-lock)</div>
   <div id="s-model-wrap">
     <div id="s-model-rij">
       <div id="s-model-label">🤖 YOLOv8 model laden…</div>
@@ -645,7 +645,7 @@
 
 <script>
 // ═══════════════════════════════════════════════════════════════
-//  StoplichtIQ V11.15.10
+//  StoplichtIQ V11.16.0
 //  V11.10: Zelfkalibratie + vergrendeling + crop smoothing
 //  — S1+S2 bevestiging (kruispunt-level confidence)
 //  — Route-herkenning basis (sequentie-opslag)
@@ -3782,6 +3782,17 @@ function tickCd() {
   }
   cdPillGetal.style.color = over <= 6 ? 'var(--groen)' : '#fff';
 
+  // V11.16.0 B2: markeer de countdown "voorlopig" zolang de rijrichting
+  // onbekend is bij een multi-richting node. huidigCdBron 'v4_multi' of
+  // 'V5 alle' betekent aggregaat over meerdere stoplichten; zonder getikte
+  // afrij (v9PreSelectieAfrij) is dit dus een schatting die na een tik naar
+  // de richting-specifieke cyclus switcht. Puur visueel — geen invloed op
+  // de countdown-waarde zelf.
+  if (v9PreSelectieAfrij == null && (huidigCdBron === 'v4_multi' || huidigCdBron === 'V5 alle')) {
+    cdPillLabel.textContent = cdPillLabel.textContent + ' · richting?';
+    cdPillGetal.style.color = 'rgba(255,255,255,0.55)';
+  }
+
   // V11.13.3: vroege trigger voor countdownNulTijd in CD_VAAG.
   // Zonder deze trigger blijft countdownNulTijd null als groen valt
   // tussen activeCdMin en activeCdDoel, waardoor BIJNA-correcties
@@ -3887,6 +3898,12 @@ function berekenGlosa() {
   if (snelheidKmh < 5 || snelheidKmh > 80) return null;
   const pct = berekenLeerPct(dichtstbijOSM.id);
   if (pct < 40) return null;
+  // V11.16.0 B1: geen GLOSA-advies bij multi-richting node zolang de afrij
+  // onbekend is — activeCdDoel is dan een aggregaat van meerdere stoplichten
+  // (bron v4_multi / 'V5 alle'), advies zou op de verkeerde cyclustijd staan.
+  // Zodra de gebruiker een richting tikt (v9PreSelectieAfrij) of de node maar
+  // één rijrichting kent, werkt GLOSA weer.
+  if (v9PreSelectieAfrij == null && !isEenRichtingNode(dichtstbijOSM.id)) return null;
   const vri = berekenVRIScore(dichtstbijOSM.id);
   const s2c = zoekS2BevestigingScore(dichtstbijOSM.id, gewGem(laadM(dichtstbijOSM.id, huidigDDActief())) || 0);
   const glosaDrempel = s2c >= 1 ? 60 : VRI_BETROUWBAARHEID_GLOSA;
@@ -3960,6 +3977,15 @@ function checkOsmVoorspelling() {
     const el2 = document.getElementById('fase-sub');
     if (el1) el1.textContent = v9bron?.v5 ? '📍 V9 rijrichting voorspelling' : '📍 OSM voorspelling';
     if (el2) el2.textContent = `Bekend kruispunt — ~${Math.round(activeCdDoel)}s gemiddeld`;
+    // V11.16.0 B3: proactief richting-knoppen tonen bij GPS-vergrendeling
+    // zonder camera-detectie (bekend kruispunt). Alleen bij stilstand en
+    // alleen voor multi-richting nodes — bij één rijrichting is een tik
+    // zinloos. toonRichtingKnoppen heeft eigen guards (bevestigActief,
+    // richtingGedruktVoorNode, richtingLock). Zo weet de app de richting
+    // vóór de countdown definitief wordt (LAAG 1).
+    if (snelheidKmh < 15 && !isEenRichtingNode(dichtstbijOSM.id)) {
+      toonRichtingKnoppen(String(dichtstbijOSM.id));
+    }
   }
 }
 
