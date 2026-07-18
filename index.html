@@ -322,8 +322,23 @@
     .ni-rij-dds{display:flex;flex-wrap:wrap;gap:8px;font-size:11px;font-family:'Share Tech Mono',monospace}
     .ni-rij-algemeen{background:rgba(255,255,255,0.03)}
     .ni-leeg{font-size:12px;color:rgba(255,255,255,0.4);padding:12px 8px;line-height:1.5}
-    #node-info-sluiten{display:flex;align-items:center;justify-content:center;min-height:48px;width:100%;margin-top:12px;background:rgba(255,255,255,0.06);border:1px solid rgba(255,255,255,0.15);border-radius:10px;font-size:14px;font-weight:600;color:#fff;cursor:pointer;font-family:'Rajdhani',sans-serif;letter-spacing:0.08em;text-transform:uppercase;transition:background .15s}
-    #node-info-sluiten:active{background:rgba(255,255,255,0.12)}
+    #node-info-footer{display:flex;gap:8px;margin-top:12px}
+    #node-info-merge,#node-info-sluiten{display:flex;align-items:center;justify-content:center;min-height:48px;flex:1;background:rgba(255,255,255,0.06);border:1px solid rgba(255,255,255,0.15);border-radius:10px;font-size:14px;font-weight:600;color:#fff;cursor:pointer;font-family:'Rajdhani',sans-serif;letter-spacing:0.08em;text-transform:uppercase;transition:background .15s}
+    #node-info-merge:active,#node-info-sluiten:active{background:rgba(255,255,255,0.12)}
+    #node-info-merge:disabled{opacity:0.4;cursor:not-allowed}
+    #node-info-merge.actief{background:rgba(245,158,11,0.18);border-color:rgba(245,158,11,0.5);color:var(--accent,#f59e0b)}
+    /* V11.16.2: merge selectie-modus */
+    #node-info-instructie{display:none;font-size:12px;color:var(--accent,#f59e0b);margin-bottom:8px;font-weight:600}
+    #node-info-instructie.zichtbaar{display:block}
+    .ni-rij.selecteerbaar{cursor:pointer}
+    .ni-rij.geselecteerd{border:1px solid var(--accent,#f59e0b);border-radius:8px;background:rgba(245,158,11,0.10)}
+    .ni-rij-vink{width:16px;flex-shrink:0;color:var(--accent,#f59e0b);font-size:14px;text-align:center}
+    #node-info-mergedialoog{background:rgba(245,158,11,0.06);border:1px solid rgba(245,158,11,0.25);border-radius:10px;padding:12px;margin-top:10px}
+    #node-info-mergedialoog .md-titel{font-size:13px;font-weight:600;color:#fff;margin-bottom:10px}
+    #node-info-mergedialoog button{display:block;width:100%;min-height:44px;margin-bottom:8px;background:#0e1419;border:1px solid #1a2230;border-radius:8px;color:#fff;font-size:13px;font-weight:600;font-family:'Rajdhani',sans-serif;cursor:pointer;transition:background .15s}
+    #node-info-mergedialoog button:active{background:rgba(255,255,255,0.08)}
+    #node-info-mergedialoog button.md-annuleer{background:transparent;color:rgba(255,255,255,0.6)}
+    .toast-actie{margin-left:10px;padding:3px 10px;background:var(--accent,#f59e0b);color:#000;border:none;border-radius:6px;font-size:11px;font-weight:700;cursor:pointer;font-family:'Rajdhani',sans-serif}
     /* ── V10.0.2: V9 Richtingen Modal ── */
     #v9-overlay{position:fixed;inset:0;z-index:250;background:#080A0C;
       display:flex;flex-direction:column;
@@ -444,8 +459,13 @@
       <button id="node-info-neutraal" onclick="toggleNodeNeutraal()">Ⓝ Neutraal</button>
     </div>
     <div id="node-info-neutraal-uitleg">Geen vaste rijrichting — richtingknoppen worden verborgen</div>
+    <div id="node-info-instructie"></div>
     <div id="node-info-body"></div>
-    <button id="node-info-sluiten" onclick="sluitNodeInfo()">Sluiten</button>
+    <div id="node-info-mergedialoog" style="display:none"></div>
+    <div id="node-info-footer">
+      <button id="node-info-merge" onclick="startMergeModus()">⇄ Samenvoegen</button>
+      <button id="node-info-sluiten" onclick="sluitNodeInfo()">Sluiten</button>
+    </div>
   </div>
 </div>
 
@@ -485,7 +505,7 @@
 <div id="startscherm">
   <div id="s-icoon">🚦</div>
   <div id="s-titel">Stoplicht<span>IQ</span></div>
-  <div id="s-versie">V11.16.1 — node-info panel + neutraal-markering + toast</div>
+  <div id="s-versie">V11.16.2 — richtingen samenvoegen (selectie + keuze + undo)</div>
   <div id="s-model-wrap">
     <div id="s-model-rij">
       <div id="s-model-label">🤖 YOLOv8 model laden…</div>
@@ -683,7 +703,7 @@
 
 <script>
 // ═══════════════════════════════════════════════════════════════
-//  StoplichtIQ V11.16.1
+//  StoplichtIQ V11.16.2
 //  V11.10: Zelfkalibratie + vergrendeling + crop smoothing
 //  — S1+S2 bevestiging (kruispunt-level confidence)
 //  — Route-herkenning basis (sequentie-opslag)
@@ -5464,13 +5484,29 @@ function updateKlasseCorrectieBtnState() {
 }
 
 // ── V11.16.1: TOAST (generiek, hergebruikt #leer-toast) ───────
-function toonToast(tekst) {
+// V11.16.2: optionele actie-knop {label, fn, duurMs} — voor undo.
+function toonToast(tekst, actie) {
   const el = document.getElementById('leer-toast');
   if (!el) return;
-  el.textContent = tekst;
+  if (actie && actie.label) {
+    el.innerHTML = '';
+    const sp = document.createElement('span'); sp.textContent = tekst;
+    el.appendChild(sp);
+    const b = document.createElement('button');
+    b.className = 'toast-actie'; b.textContent = actie.label;
+    b.onclick = (e) => {
+      e.stopPropagation();
+      el.classList.remove('zichtbaar');
+      if (leerToastTimer) clearTimeout(leerToastTimer);
+      actie.fn();
+    };
+    el.appendChild(b);
+  } else {
+    el.textContent = tekst;
+  }
   el.classList.add('zichtbaar');
   if (leerToastTimer) clearTimeout(leerToastTimer);
-  leerToastTimer = setTimeout(() => { el.classList.remove('zichtbaar'); }, 2000);
+  leerToastTimer = setTimeout(() => { el.classList.remove('zichtbaar'); }, (actie && actie.duurMs) || 2000);
 }
 
 // ── V11.16.1: NEUTRAAL-MARKERING ──────────────────────────────
@@ -5484,6 +5520,10 @@ function isNodeNeutraal(nodeId) {
 const AFRIJ_PIJL = { N:'↑', NO:'↗', O:'→', ZO:'↘', Z:'↓', ZW:'↙', W:'←', NW:'↖' };
 let nodeInfoNodeId = null;          // node waarvoor het panel geopend is
 let nodeInfoChipLaatsteNode = null; // cache — chip alleen herberekenen bij node-wissel
+// V11.16.2: merge-modus (richtingen samenvoegen)
+let mergeModusAan = false;
+let mergeSelectie = [];             // max 2 keys: 'ALG' of `${aanrij}>${afrij}`
+let mergeUndoBuffer = null;         // { nodeId, sleutels:{key:value|null} } — 1 niveau, sessie
 
 // Chip-teller bijwerken. Aangeroepen vanuit bijwerkLeerkaart (node-wissel-hook).
 function updateNodeInfoChip(nodeId) {
@@ -5509,6 +5549,7 @@ function openNodeInfo() {
   const nodeId = dichtstbijOSM ? String(dichtstbijOSM.id) : null;
   if (!nodeId) return;
   nodeInfoNodeId = nodeId;
+  mergeModusAan = false; mergeSelectie = []; // V11.16.2: schone start
   renderNodeInfo(nodeId);
   const overlay = document.getElementById('node-info-overlay');
   if (overlay) overlay.style.display = 'block';
@@ -5517,6 +5558,7 @@ function openNodeInfo() {
 function sluitNodeInfo() {
   const overlay = document.getElementById('node-info-overlay');
   if (overlay) overlay.style.display = 'none';
+  mergeModusAan = false; mergeSelectie = []; sluitMergeDialoog(); // V11.16.2
   // chip-teller kan gewijzigd zijn door neutraal-toggle → forceer herberekening
   nodeInfoChipLaatsteNode = null;
   if (nodeInfoNodeId) updateNodeInfoChip(nodeInfoNodeId);
@@ -5552,6 +5594,14 @@ function renderNodeInfo(nodeId) {
   if (toggle) toggle.classList.toggle('actief', neutraal);
   if (uitleg) uitleg.style.display = neutraal ? 'block' : 'none';
 
+  // V11.16.2: helper — bouwt een rij, selecteerbaar in merge-modus
+  const selCls = (key) => mergeModusAan
+    ? ' selecteerbaar' + (mergeSelectie.includes(key) ? ' geselecteerd' : '')
+    : '';
+  const vink = (key) => mergeModusAan
+    ? `<div class="ni-rij-vink">${mergeSelectie.includes(key) ? '✓' : ''}</div>` : '';
+  const klik = (key) => mergeModusAan ? ` onclick="klikMergeRij('${key}')"` : '';
+
   let html = '';
   // Algemeen-rij (V4-globaal) per dagdeel met data
   const dd4 = [];
@@ -5562,7 +5612,7 @@ function renderNodeInfo(nodeId) {
     dd4.push(`${DD[d].ic} <span style="color:${ni_kleur(pct)}">${pct}%</span> (${m.length}×)`);
   }
   if (dd4.length) {
-    html += `<div class="ni-rij ni-rij-algemeen"><div class="ni-rij-pijl">⬤</div>`
+    html += `<div class="ni-rij ni-rij-algemeen${selCls('ALG')}" data-key="ALG"${klik('ALG')}>${vink('ALG')}<div class="ni-rij-pijl">⬤</div>`
          +  `<div class="ni-rij-label">Algemeen</div><div class="ni-rij-dds">${dd4.join(' ')}</div></div>`;
   }
   // Richting-rijen: groepeer per aanrij_afrij, dagdelen als sub-items
@@ -5578,15 +5628,177 @@ function renderNodeInfo(nodeId) {
   const gesorteerd = [...groepen.values()].sort((a, b) => b.totaal - a.totaal);
   for (const g of gesorteerd) {
     const pijl = AFRIJ_PIJL[g.afrij] || '·';
-    html += `<div class="ni-rij" data-aanrij="${g.aanrij}" data-afrij="${g.afrij}">`
+    const mkey = `${g.aanrij}>${g.afrij}`;
+    html += `<div class="ni-rij${selCls(mkey)}" data-aanrij="${g.aanrij}" data-afrij="${g.afrij}" data-key="${mkey}"${klik(mkey)}>${vink(mkey)}`
          +  `<div class="ni-rij-pijl">${pijl}</div>`
          +  `<div class="ni-rij-label">${g.aanrij} → ${g.afrij}</div>`
-         +  `<div class="ni-rij-dds">${g.dds.join(' ')}</div></div>`;
+         +  `<div class="ni-rij-dds">${g.dds.join(' ')} <span style="color:rgba(255,255,255,0.35)">Σ${g.totaal}×</span></div></div>`;
   }
   if (!gesorteerd.length) {
     html += `<div class="ni-leeg">Nog geen richtingen opgeslagen voor dit stoplicht.</div>`;
   }
   bodyEl.innerHTML = html;
+
+  // V11.16.2: instructie + footer-knop-staat + dialoog verbergen bij re-render
+  const instr = document.getElementById('node-info-instructie');
+  if (instr) {
+    instr.classList.toggle('zichtbaar', mergeModusAan);
+    instr.textContent = 'Kies twee richtingen om samen te voegen (of een richting + Algemeen)';
+  }
+  const mergeBtn = document.getElementById('node-info-merge');
+  if (mergeBtn) {
+    mergeBtn.classList.toggle('actief', mergeModusAan);
+    if (mergeModusAan) {
+      const n = mergeSelectie.length;
+      mergeBtn.textContent = n === 2 ? 'Voeg samen (2)' : `Kies richtingen (${n})`;
+      // minimaal 1 echte richting vereist (ALG+ALG kan niet, en ALG bestaat maar 1×)
+      const heeftRichting = mergeSelectie.some(k => k !== 'ALG');
+      mergeBtn.disabled = !(n === 2 && heeftRichting);
+      mergeBtn.onclick = toonMergeDialoog;
+    } else {
+      mergeBtn.textContent = '⇄ Samenvoegen';
+      mergeBtn.disabled = false;
+      mergeBtn.onclick = startMergeModus;
+    }
+  }
+  const dlg = document.getElementById('node-info-mergedialoog');
+  if (dlg) dlg.style.display = 'none';
+}
+
+// V11.16.2: merge-modus aan/uit
+function startMergeModus() {
+  mergeModusAan = !mergeModusAan;
+  mergeSelectie = [];
+  if (nodeInfoNodeId) renderNodeInfo(nodeInfoNodeId);
+}
+
+// V11.16.2: rij-selectie in merge-modus (max 2)
+function klikMergeRij(key) {
+  if (!mergeModusAan) return;
+  const idx = mergeSelectie.indexOf(key);
+  if (idx !== -1) {
+    mergeSelectie.splice(idx, 1);
+  } else {
+    if (mergeSelectie.length >= 2) { toonToast('Max 2'); return; }
+    mergeSelectie.push(key);
+  }
+  if (nodeInfoNodeId) renderNodeInfo(nodeInfoNodeId);
+}
+
+// V11.16.2: keuze-dialoog "welke blijft?" (in-sheet, geen native confirm)
+function toonMergeDialoog() {
+  if (mergeSelectie.length !== 2) return;
+  const dlg = document.getElementById('node-info-mergedialoog');
+  if (!dlg) return;
+  const parse = (k) => k === 'ALG' ? 'ALG' : { aanrij: k.split('>')[0], afrij: k.split('>')[1] };
+  const a = parse(mergeSelectie[0]), b = parse(mergeSelectie[1]);
+  const totaal = (sel) => {
+    if (sel === 'ALG') return 0;
+    let t = 0;
+    for (const d of Object.keys(DD)) t += laadMV5(nodeInfoNodeId, sel.aanrij, sel.afrij, d).length;
+    return t;
+  };
+  const label = (sel) => sel === 'ALG' ? '⬤ Algemeen'
+    : `${AFRIJ_PIJL[sel.afrij] || '·'} ${sel.aanrij} → ${sel.afrij} (${totaal(sel)}×)`;
+  let html = '';
+  if (a === 'ALG' || b === 'ALG') {
+    const richting = a === 'ALG' ? b : a;
+    html = `<div class="md-titel">${label(richting)} samenvoegen met Algemeen — richting-label vervalt, ${totaal(richting)} metingen blijven behouden.</div>`
+         + `<button onclick="voerMergeUit('${richting.aanrij}>${richting.afrij}','ALG')">Samenvoegen met Algemeen</button>`
+         + `<button class="md-annuleer" onclick="sluitMergeDialoog()">Annuleren</button>`;
+  } else {
+    html = `<div class="md-titel">Welke richting wil je behouden?</div>`
+         + `<button onclick="voerMergeUit('${mergeSelectie[1]}','${mergeSelectie[0]}')">Behoud ${label(a)}</button>`
+         + `<button onclick="voerMergeUit('${mergeSelectie[0]}','${mergeSelectie[1]}')">Behoud ${label(b)}</button>`
+         + `<button class="md-annuleer" onclick="sluitMergeDialoog()">Annuleren</button>`;
+  }
+  dlg.innerHTML = html;
+  dlg.style.display = 'block';
+}
+
+function sluitMergeDialoog() {
+  const dlg = document.getElementById('node-info-mergedialoog');
+  if (dlg) dlg.style.display = 'none';
+}
+
+// V11.16.2: voer merge uit. bronKey/doelKey zijn 'aanrij>afrij' of 'ALG'.
+function voerMergeUit(bronKey, doelKey) {
+  const nodeId = nodeInfoNodeId;
+  if (!nodeId || bronKey === 'ALG') { sluitMergeDialoog(); return; }
+  const bron = { aanrij: bronKey.split('>')[0], afrij: bronKey.split('>')[1] };
+  const doel = doelKey === 'ALG' ? 'ALGEMEEN' : { aanrij: doelKey.split('>')[0], afrij: doelKey.split('>')[1] };
+  mergeRichtingen(nodeId, bron, doel);
+}
+
+// De merge-operatie met undo-snapshot en quota-rollback.
+function mergeRichtingen(nodeId, bron, doel) {
+  // 1. undo-snapshot van alle betrokken sleutels (bron + doel, alle dagdelen)
+  const sleutels = {};
+  for (const d of Object.keys(DD)) {
+    const bk = v5Sleutel(nodeId, bron.aanrij, bron.afrij, d);
+    sleutels[bk] = localStorage.getItem(bk);
+    if (doel !== 'ALGEMEEN') {
+      const dk = v5Sleutel(nodeId, doel.aanrij, doel.afrij, d);
+      sleutels[dk] = localStorage.getItem(dk);
+    }
+  }
+  mergeUndoBuffer = { nodeId, sleutels };
+  console.log('[merge] snapshot', Object.keys(sleutels).map(k =>
+    k + '=' + (sleutels[k] ? (JSON.parse(sleutels[k]).length + 'm') : '∅')).join(' '));
+
+  // 2. operatie per dagdeel
+  try {
+    for (const d of Object.keys(DD)) {
+      const bronKey = v5Sleutel(nodeId, bron.aanrij, bron.afrij, d);
+      const bronArr = laadMV5(nodeId, bron.aanrij, bron.afrij, d);
+      if (!bronArr.length) continue;
+      if (doel === 'ALGEMEEN') {
+        // dual-write (S0.2): metingen staan al in V4 → alleen V5 opruimen (verliesloos)
+        localStorage.removeItem(bronKey);
+      } else {
+        const doelKey = v5Sleutel(nodeId, doel.aanrij, doel.afrij, d);
+        let samen = laadMV5(nodeId, doel.aanrij, doel.afrij, d).concat(bronArr);
+        samen.sort((a, b) => gew(b.tijd) - gew(a.tijd)); // recency-gewogen, oudste eruit
+        if (samen.length > MAX_METINGEN) samen = samen.slice(0, MAX_METINGEN);
+        localStorage.setItem(doelKey, JSON.stringify(samen));
+        localStorage.removeItem(bronKey);
+      }
+    }
+  } catch (e) {
+    // 3. quota-rollback: alle sleutels exact terugzetten
+    console.warn('[merge] fout — rollback', e);
+    for (const k of Object.keys(sleutels)) {
+      if (sleutels[k] === null) localStorage.removeItem(k);
+      else { try { localStorage.setItem(k, sleutels[k]); } catch(_) {} }
+    }
+    mergeUndoBuffer = null;
+    mergeModusAan = false; mergeSelectie = [];
+    renderNodeInfo(nodeId);
+    toonToast('⚠️ Opslag vol — samenvoegen teruggedraaid');
+    return;
+  }
+
+  // 4. afgeleiden invalideren + her-render
+  nodeInfoChipLaatsteNode = null;
+  mergeModusAan = false; mergeSelectie = [];
+  renderNodeInfo(nodeId);
+  updateNodeInfoChip(nodeId);
+  // 5. toast met undo (6s)
+  toonToast('✅ Samengevoegd', { label: 'Ongedaan maken', duurMs: 6000, fn: mergeUndoUitvoeren });
+}
+
+// V11.16.2: undo — alle sleutels uit de buffer exact terugzetten
+function mergeUndoUitvoeren() {
+  if (!mergeUndoBuffer) return;
+  const { nodeId, sleutels } = mergeUndoBuffer;
+  for (const k of Object.keys(sleutels)) {
+    if (sleutels[k] === null) localStorage.removeItem(k);
+    else { try { localStorage.setItem(k, sleutels[k]); } catch(_) {} }
+  }
+  mergeUndoBuffer = null;
+  nodeInfoChipLaatsteNode = null;
+  if (nodeInfoNodeId) { renderNodeInfo(nodeInfoNodeId); updateNodeInfoChip(nodeInfoNodeId); }
+  toonToast('↩️ Teruggedraaid');
 }
 
 // kleurcodering identiek aan dashboard: ≥60 groen, ≥30 oranje, anders rood
