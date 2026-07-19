@@ -2102,6 +2102,15 @@ let stickyDetectie = null;      // { cx, cy, familie, tijd }
 let stickyMissTeller = 0;
 const STICKY_MATCH_PX = 80;
 const STICKY_MISS_MAX = 5;
+
+// V11.16.4 Fix A+C: tap-seed detectie identity. Handler-`dichtstbij`
+// wordt in selecteerBesteDetectie als voorrang-selectie gebruikt boven
+// blinde closest-op-bboxOverride, zodat run 1 na tap gegarandeerd het
+// door de handler gekozen stoplicht pakt (i.p.v. mogelijk ander stoplicht
+// dat toevallig dichter bij bboxOverride ligt op vers frame).
+let tapSeedDetectie = null;      // { cx, cy, familie, tijd }
+const TAP_SEED_TIMEOUT  = 3000;  // 3s vervalvenster (~6 YOLO-runs)
+const TAP_SEED_MATCH_PX = 50;    // compacter dan STICKY_MATCH_PX: 1× intentie, geen drift
 let voorkeursBboxCx   = null;
 let voorkeursBboxCy   = null;
 let voorkeursBboxRuns = 0;
@@ -2156,6 +2165,20 @@ canvas.addEventListener('click', (e) => {
     const dy = det.cy - yoloY;
     const afst = Math.sqrt(dx*dx + dy*dy);
     if (afst < minAfst) { minAfst = afst; dichtstbij = det; }
+  }
+
+  // V11.16.4 Fix A+C: bewaar handler-`dichtstbij` als seed voor run 1
+  // van selecteerBesteDetectie. Alleen wanneer handler zeker weet welk
+  // stoplicht bedoeld is (≤200px van tap). Anders seed clearen — geen
+  // zekerheid → geen forcering.
+  if (dichtstbij && minAfst <= 200) {
+    tapSeedDetectie = {
+      cx: dichtstbij.cx, cy: dichtstbij.cy,
+      familie: KLASSE_MAP[dichtstbij.klasse] || null,
+      tijd: Date.now()
+    };
+  } else {
+    tapSeedDetectie = null;
   }
 
   // Heeft de huidige S1 een actieve bbox?
@@ -2902,6 +2925,7 @@ function selecteerBesteDetectie(detecties) {
     if (Date.now() - bboxOverrideTijd > TAP_FORCE_TIMEOUT) {
       bboxOverride = null;
       stickyDetectie = null; stickyMissTeller = 0;
+      tapSeedDetectie = null; // V11.16.4
     } else {
       // Sticky-tak: één keer gekozen detectie behouden mits nog binnen radius
       if (stickyDetectie !== null) {
@@ -2940,6 +2964,43 @@ function selecteerBesteDetectie(detecties) {
         // Miss-quotum overschreden: sticky loslaten, hervat closest-fallback hieronder
         stickyDetectie = null;
         stickyMissTeller = 0;
+      }
+      // V11.16.4 Fix A+C: tap-seed voorrang boven blinde closest-op-bboxOverride.
+      // Als handler een `dichtstbij` binnen 200px van tap koos én de seed is nog
+      // vers (<3s), zoek een detectie binnen TAP_SEED_MATCH_PX van de seed-positie
+      // (zelfde familie prefereert). Winnaar = s1 direct, sticky wordt hierop
+      // geseed → geen 5-run misfire door verkeerd closest-argmin. Seed wordt bij
+      // eerste geslaagde match verbruikt zodat vervolg-runs door de sticky-tak
+      // gaan; blijft anders staan tot verval voor eventuele volgende run.
+      if (tapSeedDetectie && Date.now() - tapSeedDetectie.tijd < TAP_SEED_TIMEOUT) {
+        const seedKand = [];
+        for (const det of bruikbaar) {
+          const dx = det.cx - tapSeedDetectie.cx;
+          const dy = det.cy - tapSeedDetectie.cy;
+          const afst = Math.sqrt(dx*dx + dy*dy);
+          if (afst < TAP_SEED_MATCH_PX) seedKand.push({ det, afst });
+        }
+        if (seedKand.length > 0) {
+          let match;
+          if (tapSeedDetectie.familie) {
+            const zelfdeFam = seedKand.filter(k => KLASSE_MAP[k.det.klasse] === tapSeedDetectie.familie);
+            const pool = zelfdeFam.length > 0 ? zelfdeFam : seedKand;
+            pool.sort((a, b) => a.afst - b.afst);
+            match = pool[0].det;
+          } else {
+            seedKand.sort((a, b) => a.afst - b.afst);
+            match = seedKand[0].det;
+          }
+          stickyDetectie = {
+            cx: match.cx, cy: match.cy,
+            familie: KLASSE_MAP[match.klasse] || null,
+            tijd: Date.now()
+          };
+          stickyMissTeller = 0;
+          tapSeedDetectie = null; // seed verbruikt
+          if (match.klasse >= 4) verwerkPijlDetectie(match.klasse, match.score ?? match.conf ?? 0);
+          return { s1: match, s2Rest: bruikbaar.filter(d => d !== match) };
+        }
       }
       // Eerste run OF sticky verlopen: closest-op-override → nieuwe sticky
       let besteOv = null;
@@ -3556,6 +3617,7 @@ function resetNeutraal() {
   bboxOverride = null; bboxOverrideTijd = 0;
   bboxAnchorCx = null; bboxAnchorCy = null; bboxAnchorTijd = 0;
   stickyDetectie = null; stickyMissTeller = 0; // V11.15.8
+  tapSeedDetectie = null; // V11.16.4
   correctieMultiframe = null; wachtGroenIntentie = null; // V11.16.3
   // Zoom ontgrendelen
   zoomVergrendeld=false; huidigActiefStoplichtPositie=null;
@@ -3628,6 +3690,7 @@ function verwerkFase(nieuw, horizontaal, conf=null) {
     bboxOverride = null; bboxOverrideTijd = 0;
     bboxAnchorCx = null; bboxAnchorCy = null; bboxAnchorTijd = 0;
     stickyDetectie = null; stickyMissTeller = 0; // V11.15.8
+    tapSeedDetectie = null; // V11.16.4
     // V11.12.2: voorkeursBbox NIET direct resetten bij groen — dit hield de
     // detectie instabiel tijdens het bevestig-knoppen venster (15s),
     // waardoor knoppen voortijdig verdwenen. Voorkeur blijft nog
@@ -6486,6 +6549,7 @@ function updateDichtbij(lat, lon) {
     bboxOverride = null; bboxOverrideTijd = 0;  // V11.4.5: override vervalt bij echte node-wissel
     vergrendeldNodeId = null;  // V11.10.0: vergrendeling breken bij node-wissel
     stickyDetectie = null; stickyMissTeller = 0; // V11.15.8
+    tapSeedDetectie = null; // V11.16.4
     correctieMultiframe = null; wachtGroenIntentie = null; // V11.16.3: geen oogst op ander kruispunt
     // V11.13.4: bij node-wissel is de vorige-fase-context van het oude
     // kruispunt niet meer relevant voor het nieuwe.
@@ -6592,6 +6656,7 @@ async function onGPS(pos) {
     bboxAnchorCy = null;
     bboxAnchorTijd = 0;
     stickyDetectie = null; stickyMissTeller = 0; // V11.15.8
+    tapSeedDetectie = null; // V11.16.4
     correctieMultiframe = null; wachtGroenIntentie = null; // V11.16.3
     tekenOverlay(null);
   }
