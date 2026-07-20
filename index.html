@@ -505,7 +505,7 @@
 <div id="startscherm">
   <div id="s-icoon">🚦</div>
   <div id="s-titel">Stoplicht<span>IQ</span></div>
-  <div id="s-versie">V11.16.3 — multiframe klasse-correctie + auto groen-oogst</div>
+  <div id="s-versie">V11.16.5 — sticky identity-secundairen + herstel-radius</div>
   <div id="s-model-wrap">
     <div id="s-model-rij">
       <div id="s-model-label">🤖 YOLOv8 model laden…</div>
@@ -703,7 +703,7 @@
 
 <script>
 // ═══════════════════════════════════════════════════════════════
-//  StoplichtIQ V11.16.3
+//  StoplichtIQ V11.16.5
 //  V11.10: Zelfkalibratie + vergrendeling + crop smoothing
 //  — S1+S2 bevestiging (kruispunt-level confidence)
 //  — Route-herkenning basis (sequentie-opslag)
@@ -2098,10 +2098,21 @@ let bboxOverrideTijd = 0;
 // KLASSE_MAP (r723) fungeert direct als familie-bron ('rood'/'groen'/'oranje').
 // Bij sticky-miss <STICKY_MISS_MAX runs return {s1:null} zodat aiMissRuns/
 // TOLERANTIE_RUNS de bbox kort laten staan (bestaand tolerantie-pad).
-let stickyDetectie = null;      // { cx, cy, familie, tijd }
+let stickyDetectie = null;      // V11.16.5: { cx, cy, familie, hoogte, klasse, tijd }
 let stickyMissTeller = 0;
 const STICKY_MATCH_PX = 80;
 const STICKY_MISS_MAX = 5;
+
+// V11.16.5 Fix B: identity-secundairen — hoogte-continuiteit + klasse-familie
+// als soft-penalty binnen sticky-match, en STICKY_HERSTEL_PX fallback bij
+// miss-quotum om drift-continuiteit te behouden ipv terug te vallen op de
+// vaste bboxOverride-tap-positie. hoogte + klasse zitten IN het stickyDetectie
+// object (niet aparte globals) → auto-mee-gereset op alle 9 stickyDetectie=null
+// plekken. leerLog throttle-state hieronder.
+const STICKY_HOOGTE_TOLERANTIE = 0.40;   // ±40% bbox-hoogte tolerantie
+const STICKY_KLASSE_PENALTY_PX = 30;     // virtuele afstand-straf per mismatch
+const STICKY_HERSTEL_PX        = 120;    // ruimere radius bij miss-quotum-fallback
+let stickyBLogLaatst = 0;               // throttle voor [STICKY-B] leerLog (1×/s)
 
 // V11.16.4 Fix A+C: tap-seed detectie identity. Handler-`dichtstbij`
 // wordt in selecteerBesteDetectie als voorrang-selectie gebruikt boven
@@ -2927,28 +2938,53 @@ function selecteerBesteDetectie(detecties) {
       stickyDetectie = null; stickyMissTeller = 0;
       tapSeedDetectie = null; // V11.16.4
     } else {
-      // Sticky-tak: één keer gekozen detectie behouden mits nog binnen radius
+      // V11.16.5 Fix B W2: bewaar-var voor herstel-stap (moet buiten if-block leven).
+      let laatsteStickyPos = null;
+      // Sticky-tak: één keer gekozen detectie behouden mits nog binnen radius.
+      // V11.16.5 Fix B W1: identity-secundairen. Kandidaten binnen STICKY_MATCH_PX
+      // krijgen een effAfst = euclid + penalty bij hoogte-mismatch (>±40%) en/of
+      // familie-mismatch. Winnaar = laagste effAfst (vervangt oude familie-filter).
+      // Penalties zijn zacht — bij echte fase-overgang (rood→groen zelfde stoplicht)
+      // wint 20px+penalty nog steeds van 60px zonder penalty.
       if (stickyDetectie !== null) {
         const kandidaten = [];
         for (const det of bruikbaar) {
           const dx = det.cx - stickyDetectie.cx;
           const dy = det.cy - stickyDetectie.cy;
           const afst = Math.sqrt(dx*dx + dy*dy);
-          if (afst < STICKY_MATCH_PX) kandidaten.push({ det, afst });
+          if (afst < STICKY_MATCH_PX) {
+            let effAfst = afst;
+            let penHoogte = false, penKlasse = false;
+            if (stickyDetectie.hoogte && stickyDetectie.hoogte > 0) {
+              const ratio = det.h / stickyDetectie.hoogte;
+              if (ratio < (1 - STICKY_HOOGTE_TOLERANTIE) || ratio > (1 + STICKY_HOOGTE_TOLERANTIE)) {
+                effAfst += STICKY_KLASSE_PENALTY_PX;
+                penHoogte = true;
+              }
+            }
+            if (stickyDetectie.klasse !== null && stickyDetectie.klasse !== undefined) {
+              if (KLASSE_MAP[det.klasse] !== KLASSE_MAP[stickyDetectie.klasse]) {
+                effAfst += STICKY_KLASSE_PENALTY_PX;
+                penKlasse = true;
+              }
+            }
+            kandidaten.push({ det, afst, effAfst, penHoogte, penKlasse });
+          }
         }
         if (kandidaten.length > 0) {
-          let match;
-          if (kandidaten.length === 1) {
-            match = kandidaten[0].det;
-          } else {
-            // Meerdere binnen radius: prefereer zelfde familie, anders dichtstbij
-            const zelfdeFamilie = kandidaten.filter(k => KLASSE_MAP[k.det.klasse] === stickyDetectie.familie);
-            const pool = zelfdeFamilie.length > 0 ? zelfdeFamilie : kandidaten;
-            pool.sort((a, b) => a.afst - b.afst);
-            match = pool[0].det;
+          kandidaten.sort((a, b) => a.effAfst - b.effAfst);
+          const winner = kandidaten[0];
+          const match = winner.det;
+          // W3 log: alleen als winner penalty kreeg én throttle open
+          if ((winner.penHoogte || winner.penKlasse) && (Date.now() - stickyBLogLaatst > 1000)) {
+            const tag = winner.penHoogte && winner.penKlasse ? 'beide' : (winner.penHoogte ? 'hoogte' : 'klasse');
+            leerLog('[STICKY-B] penalty=' + tag + ' pre=' + winner.afst.toFixed(0) + ' eff=' + winner.effAfst.toFixed(0));
+            stickyBLogLaatst = Date.now();
           }
           stickyDetectie.cx = match.cx;
           stickyDetectie.cy = match.cy;
+          stickyDetectie.hoogte = match.h;
+          stickyDetectie.klasse = match.klasse;
           const nieuweFamilie = KLASSE_MAP[match.klasse];
           if (nieuweFamilie) stickyDetectie.familie = nieuweFamilie;
           stickyDetectie.tijd = Date.now();
@@ -2961,9 +2997,62 @@ function selecteerBesteDetectie(detecties) {
         if (stickyMissTeller < STICKY_MISS_MAX) {
           return { s1: null, s2Rest: bruikbaar };
         }
-        // Miss-quotum overschreden: sticky loslaten, hervat closest-fallback hieronder
+        // Miss-quotum overschreden: sticky loslaten. V11.16.5 W2: bewaar
+        // eerst de laatste positie/identity zodat de herstel-stap hieronder
+        // drift-continuiteit behoudt ipv terug te vallen op de vaste tap.
+        laatsteStickyPos = {
+          cx: stickyDetectie.cx, cy: stickyDetectie.cy,
+          hoogte: stickyDetectie.hoogte || 0,
+          klasse: (stickyDetectie.klasse !== null && stickyDetectie.klasse !== undefined) ? stickyDetectie.klasse : null
+        };
         stickyDetectie = null;
         stickyMissTeller = 0;
+      }
+      // V11.16.5 Fix B W2: herstel-stap. Als sticky net is losgelaten door
+      // miss-quotum, zoek eerst binnen STICKY_HERSTEL_PX van de laatste
+      // sticky-positie (met W1 effAfst-berekening). Behoudt continuiteit
+      // bij tijdelijke occlusie zonder terug te vallen op de vaste bboxOverride.
+      if (laatsteStickyPos) {
+        const herKand = [];
+        for (const det of bruikbaar) {
+          const dx = det.cx - laatsteStickyPos.cx;
+          const dy = det.cy - laatsteStickyPos.cy;
+          const afst = Math.sqrt(dx*dx + dy*dy);
+          if (afst < STICKY_HERSTEL_PX) {
+            let effAfst = afst;
+            if (laatsteStickyPos.hoogte > 0) {
+              const ratio = det.h / laatsteStickyPos.hoogte;
+              if (ratio < (1 - STICKY_HOOGTE_TOLERANTIE) || ratio > (1 + STICKY_HOOGTE_TOLERANTIE)) {
+                effAfst += STICKY_KLASSE_PENALTY_PX;
+              }
+            }
+            if (laatsteStickyPos.klasse !== null && KLASSE_MAP[det.klasse] !== KLASSE_MAP[laatsteStickyPos.klasse]) {
+              effAfst += STICKY_KLASSE_PENALTY_PX;
+            }
+            herKand.push({ det, afst, effAfst });
+          }
+        }
+        const hersteld = herKand.length > 0;
+        if (hersteld) herKand.sort((a, b) => a.effAfst - b.effAfst);
+        if (Date.now() - stickyBLogLaatst > 1000) {
+          leerLog('[STICKY-B] herstel ' + (hersteld
+            ? 'ok afst=' + herKand[0].afst.toFixed(0)
+            : 'faal geen kand<' + STICKY_HERSTEL_PX + 'px → valt door naar bboxOverride'));
+          stickyBLogLaatst = Date.now();
+        }
+        if (hersteld) {
+          const match = herKand[0].det;
+          stickyDetectie = {
+            cx: match.cx, cy: match.cy,
+            familie: KLASSE_MAP[match.klasse] || null,
+            hoogte: match.h, klasse: match.klasse,
+            tijd: Date.now()
+          };
+          stickyMissTeller = 0;
+          if (match.klasse >= 4) verwerkPijlDetectie(match.klasse, match.score ?? match.conf ?? 0);
+          return { s1: match, s2Rest: bruikbaar.filter(d => d !== match) };
+        }
+        // Geen herstel-match: valt door naar tap-seed voorrang + closest-op-bboxOverride
       }
       // V11.16.4 Fix A+C: tap-seed voorrang boven blinde closest-op-bboxOverride.
       // Als handler een `dichtstbij` binnen 200px van tap koos én de seed is nog
@@ -2994,6 +3083,7 @@ function selecteerBesteDetectie(detecties) {
           stickyDetectie = {
             cx: match.cx, cy: match.cy,
             familie: KLASSE_MAP[match.klasse] || null,
+            hoogte: match.h, klasse: match.klasse, // V11.16.5 Fix B
             tijd: Date.now()
           };
           stickyMissTeller = 0;
@@ -3015,6 +3105,7 @@ function selecteerBesteDetectie(detecties) {
         stickyDetectie = {
           cx: besteOv.cx, cy: besteOv.cy,
           familie: KLASSE_MAP[besteOv.klasse] || null,
+          hoogte: besteOv.h, klasse: besteOv.klasse, // V11.16.5 Fix B
           tijd: Date.now()
         };
         stickyMissTeller = 0;
