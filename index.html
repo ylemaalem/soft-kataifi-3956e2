@@ -505,7 +505,7 @@
 <div id="startscherm">
   <div id="s-icoon">🚦</div>
   <div id="s-titel">Stoplicht<span>IQ</span></div>
-  <div id="s-versie">V11.16.5 — sticky identity-secundairen + herstel-radius</div>
+  <div id="s-versie">V11.16.6 — conflog localStorage-persist (iOS purge-proof)</div>
   <div id="s-model-wrap">
     <div id="s-model-rij">
       <div id="s-model-label">🤖 YOLOv8 model laden…</div>
@@ -703,7 +703,7 @@
 
 <script>
 // ═══════════════════════════════════════════════════════════════
-//  StoplichtIQ V11.16.5
+//  StoplichtIQ V11.16.6
 //  V11.10: Zelfkalibratie + vergrendeling + crop smoothing
 //  — S1+S2 bevestiging (kruispunt-level confidence)
 //  — Route-herkenning basis (sequentie-opslag)
@@ -2334,7 +2334,10 @@ const SMOOTH_WINDOW=5, SMOOTH_GEWICHT=1.5, SMOOTH_MIN_RUNS=3;
 // Doel: bewijzen/ontkrachten confidence-verdunning-hypothese (NC=10 model verdeelt
 // waarschijnlijkheid over 4 rood-klassen bij pijl-onzekerheid, argmax r2673-2677
 // gooit rest weg). Elke ~1s de volledige 10-scores van beste-anchor loggen.
-const klasseVerdelingLog = [];
+// V11.16.6: let + load-uit-localStorage (iOS Safari backgrounding-purge-proof)
+let klasseVerdelingLog = [];
+try { klasseVerdelingLog = JSON.parse(localStorage.getItem('sl_conflog') || '[]'); }
+catch(e) { klasseVerdelingLog = []; }
 const KLASSE_VERDELING_MAX = 300;
 let laatstConfLog = 0;
 let debugLaatsteAlle = null;
@@ -2357,7 +2360,7 @@ function logKlasseVerdelingIndienBeschikbaar() {
   if (ai === 'ai:weg') debugCode = 'weg';
   else if (ai === 'ai:filter') debugCode = 'filter';
   else if (ai === 'ai:uit') debugCode = 'uit';
-  klasseVerdelingLog.push({
+  const entry = {
     t: nu,
     top: debugLaatsteTopKlasse,
     topScore: Math.round(debugLaatsteTopScore * 1000) / 1000,
@@ -2367,8 +2370,18 @@ function logKlasseVerdelingIndienBeschikbaar() {
     alle: alle.map(s => Math.round(s * 1000) / 1000),
     afstandM: (dichtstbijOSM && typeof dichtstbijOSM.afstand === 'number') ? Math.round(dichtstbijOSM.afstand) : null,
     debugCode
-  });
+  };
+  klasseVerdelingLog.push(entry);
   if (klasseVerdelingLog.length > KLASSE_VERDELING_MAX) klasseVerdelingLog.shift();
+  // V11.16.6: persisteer naar localStorage (iOS Safari purge-proof, cap 50)
+  try {
+    let opslag = [];
+    try { opslag = JSON.parse(localStorage.getItem('sl_conflog') || '[]'); }
+    catch(e) { opslag = []; }
+    opslag.push(entry);
+    if (opslag.length > 50) opslag = opslag.slice(-50);
+    localStorage.setItem('sl_conflog', JSON.stringify(opslag));
+  } catch(e) { /* localStorage vol/geblokkeerd — in-memory werkt nog */ }
 }
 
 // V8.5: Trainingsdata
@@ -6468,6 +6481,11 @@ function exporteerConfLog() {
   };
   setTimeout(() => {
     try {
+      // V11.16.6: vangnet — in-memory leeg? probeer localStorage (race na page-reload)
+      if (klasseVerdelingLog.length === 0) {
+        try { klasseVerdelingLog = JSON.parse(localStorage.getItem('sl_conflog') || '[]'); }
+        catch(e) {}
+      }
       if (klasseVerdelingLog.length === 0) {
         alert('Nog geen conf-log entries. Rijd eerst even.');
         herstelBtn(); return;
@@ -6485,17 +6503,22 @@ function exporteerConfLog() {
         const bestand = new File([jsonString], bestandsnaam, { type:'application/json' });
         if (navigator.canShare({ files:[bestand] })) {
           navigator.share({ files:[bestand], title:'StoplichtIQ Conf-log' })
-            .then(() => { alert('✅ Conf-log gedeeld'); herstelBtn(); })
+            .then(() => {
+              try { localStorage.removeItem('sl_conflog'); } catch(e) {} // V11.16.6
+              alert('✅ Conf-log gedeeld'); herstelBtn();
+            })
             .catch(e => {
               if (e && e.name === 'AbortError') { herstelBtn(); return; }
               alert('⚠️ Delen mislukt, download start...');
               downloadFallback(jsonString, bestandsnaam);
+              try { localStorage.removeItem('sl_conflog'); } catch(e2) {} // V11.16.6
               herstelBtn();
             });
           return;
         }
       }
       downloadFallback(jsonString, bestandsnaam);
+      try { localStorage.removeItem('sl_conflog'); } catch(e) {} // V11.16.6
       alert('✅ Conf-log gedownload');
       herstelBtn();
     } catch(e) { alert('Export mislukt: '+e.message); herstelBtn(); }
