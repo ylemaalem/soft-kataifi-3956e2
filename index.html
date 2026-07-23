@@ -505,7 +505,7 @@
 <div id="startscherm">
   <div id="s-icoon">🚦</div>
   <div id="s-titel">Stoplicht<span>IQ</span></div>
-  <div id="s-versie">V11.16.9 — cropHint-levensduur losgekoppeld van bboxOverride (Fix A)</div>
+  <div id="s-versie">V11.16.10 — tap-lock niet meer geraakt door verwerkFase(groen) (root-cause fix)</div>
   <div id="s-model-wrap">
     <div id="s-model-rij">
       <div id="s-model-label">🤖 YOLOv8 model laden…</div>
@@ -703,7 +703,7 @@
 
 <script>
 // ═══════════════════════════════════════════════════════════════
-//  StoplichtIQ V11.16.9
+//  StoplichtIQ V11.16.10
 //  V11.10: Zelfkalibratie + vergrendeling + crop smoothing
 //  — S1+S2 bevestiging (kruispunt-level confidence)
 //  — Route-herkenning basis (sequentie-opslag)
@@ -2206,7 +2206,6 @@ canvas.addEventListener('click', (e) => {
       // V11.15.8 Fix 1: cropHint ook bij tap OP detectie (was regressie — cirkeltje bleef weg)
       cropHintPositie = { x: videoX, y: videoY };
       cropHintTeller = 10;
-      cropHintForceerTot = Date.now() + 2000; // V11.16.9
     } else {
       // V11.15.3 FIX B: geen detectie binnen 200px van tap — zet
       // bboxOverride op de tap-locatie zelf zodat het slotje toch
@@ -2219,16 +2218,13 @@ canvas.addEventListener('click', (e) => {
         if (Math.sqrt(hx*hx + hy*hy) < 50) {
           cropHintPositie = null;
           cropHintTeller = 0;
-          cropHintForceerTot = 0; // V11.16.9
         } else {
           cropHintPositie = { x: videoX, y: videoY };
           cropHintTeller = 10;
-          cropHintForceerTot = Date.now() + 2000; // V11.16.9
         }
       } else {
         cropHintPositie = { x: videoX, y: videoY };
         cropHintTeller = 10;
-        cropHintForceerTot = Date.now() + 2000; // V11.16.9
       }
     }
     // V11.16.8 Fix 1a: forceer volgende YOLO-run naar cropRegio-actief (niet skipCrop)
@@ -2266,7 +2262,6 @@ canvas.addEventListener('click', (e) => {
     // V11.15.8 Fix 1: cropHint ook bij tap dichtbij anchor (was regressie)
     cropHintPositie = { x: videoX, y: videoY };
     cropHintTeller = 10;
-    cropHintForceerTot = Date.now() + 2000; // V11.16.9
     cropAlternatieTeller = 3; // V11.16.8 Fix 1a: zie Pad A commentaar
   } else {
     // Tap BUITEN 200px van huidige anchor → expliciete gebruikers-intent
@@ -2295,16 +2290,13 @@ canvas.addEventListener('click', (e) => {
         if (Math.sqrt(hx*hx + hy*hy) < 50) {
           cropHintPositie = null;
           cropHintTeller = 0;
-          cropHintForceerTot = 0; // V11.16.9
         } else {
           cropHintPositie = { x: videoX, y: videoY };
           cropHintTeller = 10;
-          cropHintForceerTot = Date.now() + 2000; // V11.16.9
         }
       } else {
         cropHintPositie = { x: videoX, y: videoY };
         cropHintTeller = 10;
-        cropHintForceerTot = Date.now() + 2000; // V11.16.9
       }
     }
     cropAlternatieTeller = 3; // V11.16.8 Fix 1a: zie Pad A commentaar
@@ -2337,7 +2329,6 @@ let lbPadX=0, lbPadY=0, lbScale=1;
 let cropRegio = null;              // { x, y, w, h } in video pixels — null = geen crop
 let cropHintPositie = null;        // { x, y } in video pixels — taplocatie hint
 let cropHintTeller = 0;            // resterende YOLO runs voor tap hint
-let cropHintForceerTot = 0;        // V11.16.9: deadline (ms epoch) waarbinnen cropHint gerefresht blijft ook zonder bboxOverride
 let cropAlternatieTeller = 0;      // S2 alternatie elke 5e run
 
 // V8.3: Web Worker + Confidence smoothing
@@ -2639,16 +2630,10 @@ function preprocessVoorYOLO() {
   const vW = video.videoWidth, vH = video.videoHeight;
 
   // W4: Persistente tap crop — houd cropHint actief zolang tap-override loopt
-  // V11.16.9: OF binnen cropHintForceerTot-venster (indicator-levensduur
-  // losgekoppeld van bboxOverride — verwerkFase(groen) r3850 nulled bboxOverride
-  // maar de gebruiker verwacht nog 2s cirkel/stippellijnen ter bevestiging).
-  if ((bboxOverride && Date.now() - bboxOverrideTijd < TAP_FORCE_TIMEOUT)
-      || Date.now() < cropHintForceerTot) {
-    if (bboxOverride) {
-      const tapCamX = (bboxOverride.cx - lbPadX) / lbScale + (cropRegio ? cropRegio.x : 0);
-      const tapCamY = (bboxOverride.cy - lbPadY) / lbScale + (cropRegio ? cropRegio.y : 0);
-      cropHintPositie = { x: tapCamX, y: tapCamY };
-    }
+  if (bboxOverride && Date.now() - bboxOverrideTijd < TAP_FORCE_TIMEOUT) {
+    const tapCamX = (bboxOverride.cx - lbPadX) / lbScale + (cropRegio ? cropRegio.x : 0);
+    const tapCamY = (bboxOverride.cy - lbPadY) / lbScale + (cropRegio ? cropRegio.y : 0);
+    cropHintPositie = { x: tapCamX, y: tapCamY };
     cropHintTeller = 10;
   }
 
@@ -3862,8 +3847,17 @@ function verwerkFase(nieuw, horizontaal, conf=null) {
       correctieMultiframe = null; // lopende rode multiframe niet meer relevant bij groen
     }
     wachtGroenIntentie = null; // intentie is verbruikt of verlopen
-    bboxOverride = null; bboxOverrideTijd = 0;
-    bboxAnchorCx = null; bboxAnchorCy = null; bboxAnchorTijd = 0;
+    // V11.16.10: bboxOverride + bboxAnchor NIET meer wissen bij fase-groen.
+    // Historie: V11.7.1 (8e8151f) introduceerde bboxOverride-wis, V11.8.0
+    // (609498d) idem bboxAnchor. Doel toen: tap-lock loslaten om 10s (nu 25s)
+    // hangen na groen-passage te voorkomen. Sinds V11.10/V11.15.2 dekken
+    // node-wissel (r6719) en GPS-voorbij (r6823) dat al af voor rijdende
+    // gebruikers. Effect verwijdering: cropHint blijft na groen zichtbaar
+    // tot TAP_FORCE_TIMEOUT (25s) of tot passage — matcht gebruikersintentie
+    // (V11.16.9 fix wilde precies dit bereiken maar deed het via een
+    // ontkoppelde levensduur-variabele; deze release lost de root cause op).
+    // sticky+tapSeed reset blijven staan: die zijn detectie-identiteits-
+    // mechanismen die per fase-cyclus mogen resetten.
     stickyDetectie = null; stickyMissTeller = 0; // V11.15.8
     tapSeedDetectie = null; // V11.16.4
     // V11.12.2: voorkeursBbox NIET direct resetten bij groen — dit hield de
