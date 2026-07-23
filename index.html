@@ -505,7 +505,7 @@
 <div id="startscherm">
   <div id="s-icoon">🚦</div>
   <div id="s-titel">Stoplicht<span>IQ</span></div>
-  <div id="s-versie">V11.16.10 — tap-lock niet meer geraakt door verwerkFase(groen) (root-cause fix)</div>
+  <div id="s-versie">V11.16.11 — bbox-bevriezing bij rijden: radius-cap fallback + ruimere sticky-herstel</div>
   <div id="s-model-wrap">
     <div id="s-model-rij">
       <div id="s-model-label">🤖 YOLOv8 model laden…</div>
@@ -703,7 +703,7 @@
 
 <script>
 // ═══════════════════════════════════════════════════════════════
-//  StoplichtIQ V11.16.10
+//  StoplichtIQ V11.16.11
 //  V11.10: Zelfkalibratie + vergrendeling + crop smoothing
 //  — S1+S2 bevestiging (kruispunt-level confidence)
 //  — Route-herkenning basis (sequentie-opslag)
@@ -2111,7 +2111,7 @@ const STICKY_MISS_MAX = 5;
 // plekken. leerLog throttle-state hieronder.
 const STICKY_HOOGTE_TOLERANTIE = 0.40;   // ±40% bbox-hoogte tolerantie
 const STICKY_KLASSE_PENALTY_PX = 30;     // virtuele afstand-straf per mismatch
-const STICKY_HERSTEL_PX        = 60;     // V11.16.8: verkleind van 120 → voorkomt sticky-hop naar naburige lamp in portaal
+const STICKY_HERSTEL_PX        = 100;    // V11.16.11: 60→100 — 60 was te streng, viel te snel door naar closest-fallback bij rijden. Harde familie-check (V11.16.8) blijft in herstel-tak (r3085-3088) portaal-hop tegenhouden.
 let stickyBLogLaatst = 0;               // throttle voor [STICKY-B] leerLog (1×/s)
 
 // V11.16.4 Fix A+C: tap-seed detectie identity. Handler-`dichtstbij`
@@ -3166,6 +3166,18 @@ function selecteerBesteDetectie(detecties) {
         const dy = det.cy - bboxOverride.cy;
         const afst = Math.sqrt(dx*dx + dy*dy);
         if (afst < minOvAfst) { minOvAfst = afst; besteOv = det; }
+      }
+      // V11.16.11 W1: radius-cap op closest-fallback. Zonder cap trekt de argmin
+      // bij rijden de bbox naar de bevroren tap-positie ipv de huidige stoplicht-
+      // cluster (bboxOverride blijft 25s statisch, gebruiker rijdt 200m verder).
+      // 180px = ruim genoeg voor normale tap-afwijking bij stilstand, smal genoeg
+      // om bevriezing bij snel rijden te stoppen. Sticky+miss reset zodat volgende
+      // run vers kan seeden via tap-seed of sticky-tak (indien getriggerd).
+      // s2Rest: bruikbaar meegegeven voor consistentie met r3055 sticky-miss return.
+      if (minOvAfst > 180) {
+        stickyDetectie = null;
+        stickyMissTeller = 0;
+        return { s1: null, s2Rest: bruikbaar };
       }
       if (besteOv) {
         stickyDetectie = {
