@@ -505,7 +505,7 @@
 <div id="startscherm">
   <div id="s-icoon">🚦</div>
   <div id="s-titel">Stoplicht<span>IQ</span></div>
-  <div id="s-versie">V11.16.6 — conflog localStorage-persist (iOS purge-proof)</div>
+  <div id="s-versie">V11.16.7 — kleurgroep-aggregatie (familie-som drempel)</div>
   <div id="s-model-wrap">
     <div id="s-model-rij">
       <div id="s-model-label">🤖 YOLOv8 model laden…</div>
@@ -703,7 +703,7 @@
 
 <script>
 // ═══════════════════════════════════════════════════════════════
-//  StoplichtIQ V11.16.6
+//  StoplichtIQ V11.16.7
 //  V11.10: Zelfkalibratie + vergrendeling + crop smoothing
 //  — S1+S2 bevestiging (kruispunt-level confidence)
 //  — Route-herkenning basis (sequentie-opslag)
@@ -2360,10 +2360,20 @@ function logKlasseVerdelingIndienBeschikbaar() {
   if (ai === 'ai:weg') debugCode = 'weg';
   else if (ai === 'ai:filter') debugCode = 'filter';
   else if (ai === 'ai:uit') debugCode = 'uit';
+  // V11.16.7: familiescore = som van de familie waartoe de topklasse hoort.
+  // Dezelfde waarde die postprocessYOLO r2851 nu tegen CONF_DREMPEL vergelijkt.
+  // Bewijs-veld voor rijtest-analyse: hoeveel detecties zouden zonder de fix
+  // gefaald hebben (topScore<CONF_DREMPEL, familiescore>=CONF_DREMPEL)?
+  const topFam = KLASSE_MAP[debugLaatsteTopKlasse];
+  let familiescore = 0;
+  if (topFam === 'rood')        familiescore = somRood;
+  else if (topFam === 'groen')  familiescore = somGroen;
+  else if (topFam === 'oranje') familiescore = somOranje;
   const entry = {
     t: nu,
     top: debugLaatsteTopKlasse,
     topScore: Math.round(debugLaatsteTopScore * 1000) / 1000,
+    familiescore: Math.round(familiescore * 1000) / 1000,
     somRood:   Math.round(somRood   * 1000) / 1000,
     somGroen:  Math.round(somGroen  * 1000) / 1000,
     somOranje: Math.round(somOranje * 1000) / 1000,
@@ -2827,9 +2837,15 @@ function postprocessYOLO(outputData, dims) {
   for (let i=0; i<numAnchors; i++) {
     const cx=outputData[0*numAnchors+i], cy=outputData[1*numAnchors+i];
     const w=outputData[2*numAnchors+i], h=outputData[3*numAnchors+i];
+    // V11.16.7: verzamel VOLLEDIGE 10-klassen vector zodat we (a) familie-som
+    // kunnen berekenen voor de drempel-check en (b) alleScores op de detectie
+    // kunnen meegeven aan selecteerBesteDetectie / S2 / logger voor identieke
+    // familie-som logica downstream.
+    const alleScores = new Array(NC);
     let maxScore=0, maxKlasse=-1;
     for (let c=0; c<NC; c++) {
       const score = outputData[(4+c)*numAnchors+i];
+      alleScores[c] = score;
       if (score > maxScore) { maxScore=score; maxKlasse=c; }
     }
     // V11.15.10 DEBUG: onthoud beste anchor pre-filter voor logger — TIJDELIJK
@@ -2839,13 +2855,24 @@ function postprocessYOLO(outputData, dims) {
       debugBestAnchorKlasse = maxKlasse;
     }
     if (maxKlasse===2) continue;  // klasse 2 = uit, altijd overslaan
-    if (maxScore < CONF_DREMPEL) continue;
+    // V11.16.7: familie-som drempel i.p.v. topklasse-drempel. NC=10 verdeelt
+    // bij pijl-onzekerheid confidence over 4 rood-varianten (0/4/5/8) — topklasse
+    // haalt dan 22-30% terwijl somRood 50-65% is. Detectie blijft ai:filter/ai:weg
+    // krijgen ondanks duidelijke rode kleur. Familie-som lost dit op zonder de
+    // klasse zelf te veranderen (topklasse blijft basis voor pijl/rondbepaling).
+    let famScore = maxScore;
+    const fam = KLASSE_MAP[maxKlasse];
+    if (fam === 'rood')        famScore = alleScores[0] + alleScores[4] + alleScores[5] + alleScores[8];
+    else if (fam === 'groen')  famScore = alleScores[1] + alleScores[6] + alleScores[7] + alleScores[9];
+    else if (fam === 'oranje') famScore = alleScores[3];
+    if (famScore < CONF_DREMPEL) continue;
     if (cy/YOLO_SIZE > dynamischMaxY) continue;
     if (h < MIN_H_PX) continue;
     if (w/YOLO_SIZE > MAX_BOX_W_RATIO) continue;
     if (h > 0 && w/h > MAX_WH_RATIO) continue;
     detections.push({
       klasse:maxKlasse, score:maxScore,
+      alleScores, // V11.16.7 — 10-klassen vector voor familieScore() downstream
       x1:cx-w/2, y1:cy-h/2, x2:cx+w/2, y2:cy+h/2,
       w, h, cx, cy
     });
@@ -2911,6 +2938,22 @@ function zijnDichtBijElkaar(d1, d2) {
   const dx = Math.abs(d1.cx - d2.cx);
   const dy = Math.abs(d1.cy - d2.cy);
   return Math.sqrt(dx*dx + dy*dy) < 80;
+}
+
+// V11.16.7: familie-som (rood/groen/oranje) van de topklasse-familie voor
+// downstream drempels (S2 r3411, log-veld). Fallback op detectie.score als
+// alleScores ontbreekt — voorkomt hard-fail op detectie-objecten van vóór
+// de vector-uitbreiding (geen in productie, defensief).
+function familieScore(detectie) {
+  if (!detectie) return 0;
+  const fam = KLASSE_MAP[detectie.klasse];
+  if (!fam) return detectie.score || 0;
+  const vec = detectie.alleScores;
+  if (!vec || vec.length !== 10) return detectie.score || 0;
+  if (fam === 'rood')   return (vec[0]||0)+(vec[4]||0)+(vec[5]||0)+(vec[8]||0);
+  if (fam === 'groen')  return (vec[1]||0)+(vec[6]||0)+(vec[7]||0)+(vec[9]||0);
+  if (fam === 'oranje') return vec[3]||0;
+  return detectie.score || 0;
 }
 
 function selecteerBesteDetectie(detecties) {
@@ -3408,7 +3451,10 @@ function verwerkS2(overigeBboxen) {
     if (!match) continue;
     if (s1GebruikteNodesDezeRun.has(match.nodeId)) continue;
     // Minimale drempel voor überhaupt verwerken — trainframes mogen lager zijn dan leergeheugen
-    if (bbox.score < 0.35) continue;
+    // V11.16.7: familie-som i.p.v. topklasse-score (zelfde reden als postprocess r2851).
+    // Leergeheugen-gate r3418 en trainframe-twijfel r3420 blijven op bbox.score (topklasse)
+    // want die beoordelen klasse-specifieke zekerheid, niet aanwezigheid-van-stoplicht.
+    if (familieScore(bbox) < 0.35) continue;
     zichtbareS2Nodes.add(match.nodeId);
     s2BboxTeller.set(match.nodeId, (s2BboxTeller.get(match.nodeId)||0)+1);
     s2ActieveBboxen++;
