@@ -505,7 +505,7 @@
 <div id="startscherm">
   <div id="s-icoon">🚦</div>
   <div id="s-titel">Stoplicht<span>IQ</span></div>
-  <div id="s-versie">V11.16.7 — kleurgroep-aggregatie (familie-som drempel)</div>
+  <div id="s-versie">V11.16.8 — crop-vertraging + sticky-hop fix (Fix 1a + 2a)</div>
   <div id="s-model-wrap">
     <div id="s-model-rij">
       <div id="s-model-label">🤖 YOLOv8 model laden…</div>
@@ -703,7 +703,7 @@
 
 <script>
 // ═══════════════════════════════════════════════════════════════
-//  StoplichtIQ V11.16.7
+//  StoplichtIQ V11.16.8
 //  V11.10: Zelfkalibratie + vergrendeling + crop smoothing
 //  — S1+S2 bevestiging (kruispunt-level confidence)
 //  — Route-herkenning basis (sequentie-opslag)
@@ -2111,7 +2111,7 @@ const STICKY_MISS_MAX = 5;
 // plekken. leerLog throttle-state hieronder.
 const STICKY_HOOGTE_TOLERANTIE = 0.40;   // ±40% bbox-hoogte tolerantie
 const STICKY_KLASSE_PENALTY_PX = 30;     // virtuele afstand-straf per mismatch
-const STICKY_HERSTEL_PX        = 120;    // ruimere radius bij miss-quotum-fallback
+const STICKY_HERSTEL_PX        = 60;     // V11.16.8: verkleind van 120 → voorkomt sticky-hop naar naburige lamp in portaal
 let stickyBLogLaatst = 0;               // throttle voor [STICKY-B] leerLog (1×/s)
 
 // V11.16.4 Fix A+C: tap-seed detectie identity. Handler-`dichtstbij`
@@ -2227,6 +2227,10 @@ canvas.addEventListener('click', (e) => {
         cropHintTeller = 10;
       }
     }
+    // V11.16.8 Fix 1a: forceer volgende YOLO-run naar cropRegio-actief (niet skipCrop)
+    // zodat groene cirkel + stippellijnen zichtbaar zijn bij eerste tap. Teller=3
+    // → volgende preprocess ++ naar 4 → 4%5!=0 → skipCrop false.
+    cropAlternatieTeller = 3;
     return;
   }
 
@@ -2258,6 +2262,7 @@ canvas.addEventListener('click', (e) => {
     // V11.15.8 Fix 1: cropHint ook bij tap dichtbij anchor (was regressie)
     cropHintPositie = { x: videoX, y: videoY };
     cropHintTeller = 10;
+    cropAlternatieTeller = 3; // V11.16.8 Fix 1a: zie Pad A commentaar
   } else {
     // Tap BUITEN 200px van huidige anchor → expliciete gebruikers-intent
     // om weg te breken van de vorige lock.
@@ -2294,6 +2299,7 @@ canvas.addEventListener('click', (e) => {
         cropHintTeller = 10;
       }
     }
+    cropAlternatieTeller = 3; // V11.16.8 Fix 1a: zie Pad A commentaar
   }
 });
 
@@ -3075,15 +3081,19 @@ function selecteerBesteDetectie(detecties) {
           const dy = det.cy - laatsteStickyPos.cy;
           const afst = Math.sqrt(dx*dx + dy*dy);
           if (afst < STICKY_HERSTEL_PX) {
+            // V11.16.8 Fix 2a: harde familie-check ipv soft penalty. Herstel-tak
+            // mag NIET meer hoppen naar naburige lamp met andere kleur; alleen
+            // dezelfde-familie kandidaten kwalificeren. Faal → val door naar
+            // closest-op-bboxOverride (bestaand vangnet, ongewijzigd).
+            if (laatsteStickyPos.klasse !== null && KLASSE_MAP[det.klasse] !== KLASSE_MAP[laatsteStickyPos.klasse]) {
+              continue;
+            }
             let effAfst = afst;
             if (laatsteStickyPos.hoogte > 0) {
               const ratio = det.h / laatsteStickyPos.hoogte;
               if (ratio < (1 - STICKY_HOOGTE_TOLERANTIE) || ratio > (1 + STICKY_HOOGTE_TOLERANTIE)) {
                 effAfst += STICKY_KLASSE_PENALTY_PX;
               }
-            }
-            if (laatsteStickyPos.klasse !== null && KLASSE_MAP[det.klasse] !== KLASSE_MAP[laatsteStickyPos.klasse]) {
-              effAfst += STICKY_KLASSE_PENALTY_PX;
             }
             herKand.push({ det, afst, effAfst });
           }
