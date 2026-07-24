@@ -505,7 +505,7 @@
 <div id="startscherm">
   <div id="s-icoon">🚦</div>
   <div id="s-titel">Stoplicht<span>IQ</span></div>
-  <div id="s-versie">V11.16.15 — cropAlternatieTeller=1 na tap (4 non-skip runs gegarandeerd)</div>
+  <div id="s-versie">V11.17.0 — Release 1: schaduw-logging voorspelmethodes (M1-M4)</div>
   <div id="s-model-wrap">
     <div id="s-model-rij">
       <div id="s-model-label">🤖 YOLOv8 model laden…</div>
@@ -703,7 +703,7 @@
 
 <script>
 // ═══════════════════════════════════════════════════════════════
-//  StoplichtIQ V11.16.15
+//  StoplichtIQ V11.17.0
 //  V11.10: Zelfkalibratie + vergrendeling + crop smoothing
 //  — S1+S2 bevestiging (kruispunt-level confidence)
 //  — Route-herkenning basis (sequentie-opslag)
@@ -977,6 +977,45 @@ function gewSpreiding(m) {
   const duurs = bron.filter(x => x.duur > 0).map(x => x.duur);
   if (duurs.length < 2) return 0;
   return Math.max(...duurs) - Math.min(...duurs);
+}
+
+// V11.17.0 Release 1: schaduw-voorspelmethodes. Vier pure functies die naast
+// de huidige methode meedraaien; alleen data-verzameling voor Release 2.
+function methodeM1(metingen) {
+  if (!metingen || metingen.length === 0) return null;
+  return gewGem(metingen);
+}
+function methodeM2(metingen) {
+  if (!metingen || metingen.length === 0) return null;
+  const sorted = [...metingen].sort((a, b) => b.tijd - a.tijd);
+  const laatste = sorted.slice(0, 3);
+  if (laatste.length === 0) return null;
+  const gewichten = [3, 2, 1];
+  let som = 0, gew = 0;
+  for (let i = 0; i < laatste.length; i++) {
+    som += laatste[i].duur * gewichten[i];
+    gew += gewichten[i];
+  }
+  return gew > 0 ? som / gew : null;
+}
+function methodeM3(metingen) {
+  if (!metingen || metingen.length === 0) return null;
+  const nuDag = new Date().getDay();
+  const filter = metingen.filter(m => new Date(m.tijd).getDay() === nuDag);
+  if (filter.length < 2) return null;
+  return gewGem(filter);
+}
+function methodeM4(metingen) {
+  if (!metingen || metingen.length === 0) return null;
+  const nuUur = new Date().getHours();
+  const filter = metingen.filter(m => {
+    const mUur = new Date(m.tijd).getHours();
+    let verschil = Math.abs(mUur - nuUur);
+    if (verschil > 12) verschil = 24 - verschil;
+    return verschil <= 1;
+  });
+  if (filter.length < 2) return null;
+  return gewGem(filter);
 }
 
 function berekenObsScore(metingen) {
@@ -1777,6 +1816,52 @@ function kiesCountdownBron(nodeId, dd, aanrijRichting, preSelectieAfrij) {
   return resultaat;
 }
 
+// V11.17.0 Release 1: reconstrueer metingen-bron op basis van winnende
+// kiesCountdownBron-uitkomst en bereken alle 4 methodes. Voor 'osm_voorspelling'
+// en 'lerend' zijn er geen leergeheugen-metingen → alle methodes null.
+function berekenSchaduwWaarden(nodeId, dd, aanrijRichting, preSelectieAfrij, winnenBron) {
+  const leeg = { m1: null, m2: null, m3: null, m4: null };
+  if (!nodeId || !dd || !winnenBron) return leeg;
+  let metingen = null;
+  if (winnenBron === 'V5 alle') {
+    metingen = haalAlleV5MetingenVoorNode(nodeId, dd);
+  } else if (winnenBron === 'V5 ↑') {
+    const h = v9AanrijSnelheidHeading ?? v9AanrijHeading;
+    if (h != null && aanrijRichting) {
+      const afrijRechtdoor = gpsHeadingNaarWindrichting((((h % 360) + 360) % 360 + 180) % 360);
+      metingen = laadMV5Geclusterd(nodeId, aanrijRichting, afrijRechtdoor, dd);
+    }
+  } else if (winnenBron && winnenBron.startsWith('V5 ') && aanrijRichting && preSelectieAfrij) {
+    metingen = laadMV5Geclusterd(nodeId, aanrijRichting, preSelectieAfrij, dd);
+  } else if (winnenBron === 'V4' || winnenBron === 'v4_s2bevestigd'
+          || winnenBron === 'v4_multi' || winnenBron === 'V4_fallback') {
+    metingen = laadM(nodeId, dd);
+  }
+  if (!metingen || !metingen.length) return leeg;
+  return {
+    m1: methodeM1(metingen),
+    m2: methodeM2(metingen),
+    m3: methodeM3(metingen),
+    m4: methodeM4(metingen)
+  };
+}
+
+// V11.17.0 Release 1: bereken schaduw-nulmoment relatief aan het echte
+// nul-moment. Diff met basisCyclusSec (activeCdDoel) geeft de mX-nul-tijd:
+// als methode X 5s meer voorspelt, ligt de mX-nul 5s later.
+function updateSchaduwCountdownNul(basisCyclusSec) {
+  if (!countdownNulTijd || !basisCyclusSec) {
+    schaduwCountdownNul = { m1: null, m2: null, m3: null, m4: null };
+    return;
+  }
+  schaduwCountdownNul = {
+    m1: schaduwWaarden.m1 != null ? countdownNulTijd + (schaduwWaarden.m1 - basisCyclusSec) * 1000 : null,
+    m2: schaduwWaarden.m2 != null ? countdownNulTijd + (schaduwWaarden.m2 - basisCyclusSec) * 1000 : null,
+    m3: schaduwWaarden.m3 != null ? countdownNulTijd + (schaduwWaarden.m3 - basisCyclusSec) * 1000 : null,
+    m4: schaduwWaarden.m4 != null ? countdownNulTijd + (schaduwWaarden.m4 - basisCyclusSec) * 1000 : null,
+  };
+}
+
 // ── V9.0: DELAYED WRITE ───────────────────────────────────────
 function voerV9DelayedWriteUit(huidigeHeading) {
   leerLog('V9START duur:' + v9KandidaatDuur + ' node:' + v9KandidaatNode);
@@ -1961,6 +2046,12 @@ let countdownNulTijd=null, cdBereikteNul=false, bevestigActief=false;
 // in beide tickCd-branches dezelfde sleutel oplevert.
 let bevestigGedaanVoorFase=null, laatsteRoodFaseStart=null;
 let huidigCdBron=null, huidigCdWaarde=null;
+// V11.17.0 Release 1: schaduw-voorspellingen — per methode de voorspelde
+// cyclusduur (sec) resp. het voorspelde nul-moment (ms epoch). Gevuld door
+// berekenSchaduwWaarden() bij countdown-start en updateSchaduwCountdownNul()
+// bij nul-bereik in tickCd. Puur voor bevestig-log; geen invloed op UI.
+let schaduwWaarden = { m1: null, m2: null, m3: null, m4: null };
+let schaduwCountdownNul = { m1: null, m2: null, m3: null, m4: null };
 let laatsteFase=null, laatsteFaseStart=null;
 // V11.13.4: bewaart welke fase ONMIDDELLIJK voorafging aan de huidige
 // rode fase — alleen gezet bij een ECHTE fase-wissel naar rood, niet
@@ -4049,6 +4140,8 @@ function startCd() {
       activeCdMax = v9bron.cdMax;
       huidigCdBron = v9bron.bron;
       huidigCdWaarde = v9bron.gem;
+      schaduwWaarden = berekenSchaduwWaarden(dichtstbijOSM.id, dd, aanrij, v9PreSelectieAfrij, v9bron.bron);
+      schaduwCountdownNul = { m1: null, m2: null, m3: null, m4: null };
     } else if (v9bron && v9bron.lerend) {
       cdStart = null;
       activeCdDoel = 0;
@@ -4067,6 +4160,8 @@ function startCd() {
         activeCdMax = cdMax;
         huidigCdBron = 'V4_fallback';
         huidigCdWaarde = gem;
+        schaduwWaarden = berekenSchaduwWaarden(dichtstbijOSM.id, dd, aanrij, v9PreSelectieAfrij, 'V4_fallback');
+        schaduwCountdownNul = { m1: null, m2: null, m3: null, m4: null };
       }
     }
   }
@@ -4135,12 +4230,14 @@ function tickCd() {
     cdBereikteNul = true;
     countdownNulTijd = Date.now();
     huidigCdWaarde = activeCdDoel;
+    updateSchaduwCountdownNul(activeCdDoel);
   }
   // W3: Detecteer countdown bereikt 0
   if (over === 0 && !cdBereikteNul) {
     cdBereikteNul = true;
     countdownNulTijd = Date.now();
     huidigCdWaarde = activeCdDoel;
+    updateSchaduwCountdownNul(activeCdDoel);
   }
   // V11.10.1: Bevestigknoppen tonen bij actieve countdown + snelheid < 15
   const cdPillActief = cdPill.classList.contains('actief');
@@ -4189,13 +4286,21 @@ function bevestigCountdown(categorie) {
   let data;
   try { data = JSON.parse(localStorage.getItem(sleutel)) || []; }
   catch(e) { data = []; }
+  const nu = Date.now();
+  const schaduwLog = {
+    m1: { voorspeldeCyclus: schaduwWaarden.m1, autoVerschilMs: schaduwCountdownNul.m1 != null ? nu - schaduwCountdownNul.m1 : null },
+    m2: { voorspeldeCyclus: schaduwWaarden.m2, autoVerschilMs: schaduwCountdownNul.m2 != null ? nu - schaduwCountdownNul.m2 : null },
+    m3: { voorspeldeCyclus: schaduwWaarden.m3, autoVerschilMs: schaduwCountdownNul.m3 != null ? nu - schaduwCountdownNul.m3 : null },
+    m4: { voorspeldeCyclus: schaduwWaarden.m4, autoVerschilMs: schaduwCountdownNul.m4 != null ? nu - schaduwCountdownNul.m4 : null }
+  };
   data.push({
-    ts: Date.now(),
+    ts: nu,
     categorie,
     dagdeel: huidigDD(),
     bron: huidigCdBron,
     countdownWaarde: huidigCdWaarde,
-    autoVerschilMs: autoVerschil
+    autoVerschilMs: autoVerschil,
+    schaduw: schaduwLog
   });
   if (data.length > 20) data = data.slice(-20);
   try { localStorage.setItem(sleutel, JSON.stringify(data)); }
@@ -4302,6 +4407,8 @@ function checkOsmVoorspelling() {
       huidigCdBron = 'osm_voorspelling';
     }
     huidigCdWaarde = activeCdDoel;
+    schaduwWaarden = berekenSchaduwWaarden(dichtstbijOSM.id, dd, aanrij, v9PreSelectieAfrij, huidigCdBron);
+    schaduwCountdownNul = { m1: null, m2: null, m3: null, m4: null };
     osmVoorspellingActief = true;
     startCd();
     const el1 = document.getElementById('fase-bron');
