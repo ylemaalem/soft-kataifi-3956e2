@@ -505,7 +505,7 @@
 <div id="startscherm">
   <div id="s-icoon">🚦</div>
   <div id="s-titel">Stoplicht<span>IQ</span></div>
-  <div id="s-versie">V11.16.11 — bbox-bevriezing bij rijden: radius-cap fallback + ruimere sticky-herstel</div>
+  <div id="s-versie">V11.16.12 — richting-labels in rijdersperspectief (↑/←/→ + Algemeen)</div>
   <div id="s-model-wrap">
     <div id="s-model-rij">
       <div id="s-model-label">🤖 YOLOv8 model laden…</div>
@@ -703,7 +703,7 @@
 
 <script>
 // ═══════════════════════════════════════════════════════════════
-//  StoplichtIQ V11.16.11
+//  StoplichtIQ V11.16.12
 //  V11.10: Zelfkalibratie + vergrendeling + crop smoothing
 //  — S1+S2 bevestiging (kruispunt-level confidence)
 //  — Route-herkenning basis (sequentie-opslag)
@@ -5835,7 +5835,25 @@ function isNodeNeutraal(nodeId) {
 
 // ── V11.16.1: NODE-INFO PANEL ─────────────────────────────────
 // Glyph-only afrij-pijlen (verzamelV5Richtingen levert windrichtingen).
-const AFRIJ_PIJL = { N:'↑', NO:'↗', O:'→', ZO:'↘', Z:'↓', ZW:'↙', W:'←', NW:'↖' };
+// V11.16.12: converteert (aanrij, afrij) kompas-paar naar rijdersperspectief.
+// aanrij = kompaspositie waaruit auto arriveert, afrij = kompaspositie waar
+// auto naartoe vertrekt. Zelfde semantiek als berekenAfrijRichtingViaTik r1450:
+// rechtdoor = afrij (aanrij+180)°, linksaf = (aanrij+90)°, rechtsaf = (aanrij-90)°.
+// Vensters van 90° breed rondom elke categorie; 135°/225° randen tellen als
+// rechtdoor (meest frequente scenario, ook meest verwachte fallback).
+// U-turn (aanrij===afrij, diff<45° of >315°) → '↶ Terug' als edge case.
+function rijdersPijlLabel(aanrij, afrij) {
+  if (aanrij === 'ALG' || afrij === 'ALG') return { pijl: '⬤', tekst: 'Algemeen' };
+  const graden = { N:0, NO:45, O:90, ZO:135, Z:180, ZW:225, W:270, NW:315 };
+  const a = graden[aanrij];
+  const b = graden[afrij];
+  if (a === undefined || b === undefined) return { pijl: '·', tekst: `${aanrij||'?'} → ${afrij||'?'}` };
+  const diff = ((b - a) + 360) % 360;
+  if (diff >= 135 && diff <= 225) return { pijl: '↑', tekst: 'Rechtdoor' };
+  if (diff >= 45  && diff <= 135) return { pijl: '←', tekst: 'Linksaf' };
+  if (diff >= 225 && diff <= 315) return { pijl: '→', tekst: 'Rechtsaf' };
+  return { pijl: '↶', tekst: 'Terug' };
+}
 let nodeInfoNodeId = null;          // node waarvoor het panel geopend is
 let nodeInfoChipLaatsteNode = null; // cache — chip alleen herberekenen bij node-wissel
 // V11.16.2: merge-modus (richtingen samenvoegen)
@@ -5945,11 +5963,12 @@ function renderNodeInfo(nodeId) {
   }
   const gesorteerd = [...groepen.values()].sort((a, b) => b.totaal - a.totaal);
   for (const g of gesorteerd) {
-    const pijl = AFRIJ_PIJL[g.afrij] || '·';
+    // V11.16.12: rijderspijl + label vervangen AFRIJ_PIJL + tekst 'aanrij → afrij'.
+    const r = rijdersPijlLabel(g.aanrij, g.afrij);
     const mkey = `${g.aanrij}>${g.afrij}`;
     html += `<div class="ni-rij${selCls(mkey)}" data-aanrij="${g.aanrij}" data-afrij="${g.afrij}" data-key="${mkey}"${klik(mkey)}>${vink(mkey)}`
-         +  `<div class="ni-rij-pijl">${pijl}</div>`
-         +  `<div class="ni-rij-label">${g.aanrij} → ${g.afrij}</div>`
+         +  `<div class="ni-rij-pijl">${r.pijl}</div>`
+         +  `<div class="ni-rij-label">${r.tekst}</div>`
          +  `<div class="ni-rij-dds">${g.dds.join(' ')} <span style="color:rgba(255,255,255,0.35)">Σ${g.totaal}×</span></div></div>`;
   }
   if (!gesorteerd.length) {
@@ -6016,8 +6035,12 @@ function toonMergeDialoog() {
     for (const d of Object.keys(DD)) t += laadMV5(nodeInfoNodeId, sel.aanrij, sel.afrij, d).length;
     return t;
   };
-  const label = (sel) => sel === 'ALG' ? '⬤ Algemeen'
-    : `${AFRIJ_PIJL[sel.afrij] || '·'} ${sel.aanrij} → ${sel.afrij} (${totaal(sel)}×)`;
+  // V11.16.12: rijderspijl + label via rijdersPijlLabel — consistent met renderNodeInfo richting-rijen.
+  const label = (sel) => {
+    if (sel === 'ALG') return '⬤ Algemeen';
+    const r = rijdersPijlLabel(sel.aanrij, sel.afrij);
+    return `${r.pijl} ${r.tekst} (${totaal(sel)}×)`;
+  };
   let html = '';
   if (a === 'ALG' || b === 'ALG') {
     const richting = a === 'ALG' ? b : a;
