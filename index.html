@@ -505,7 +505,7 @@
 <div id="startscherm">
   <div id="s-icoon">🚦</div>
   <div id="s-titel">Stoplicht<span>IQ</span></div>
-  <div id="s-versie">V11.16.14 — HUD familie-som + Terug filter + stippellijn ontkoppeld</div>
+  <div id="s-versie">V11.16.15 — cropAlternatieTeller=1 na tap (4 non-skip runs gegarandeerd)</div>
   <div id="s-model-wrap">
     <div id="s-model-rij">
       <div id="s-model-label">🤖 YOLOv8 model laden…</div>
@@ -703,7 +703,7 @@
 
 <script>
 // ═══════════════════════════════════════════════════════════════
-//  StoplichtIQ V11.16.14
+//  StoplichtIQ V11.16.15
 //  V11.10: Zelfkalibratie + vergrendeling + crop smoothing
 //  — S1+S2 bevestiging (kruispunt-level confidence)
 //  — Route-herkenning basis (sequentie-opslag)
@@ -2230,7 +2230,7 @@ canvas.addEventListener('click', (e) => {
     // V11.16.8 Fix 1a: forceer volgende YOLO-run naar cropRegio-actief (niet skipCrop)
     // zodat groene cirkel + stippellijnen zichtbaar zijn bij eerste tap. Teller=3
     // → volgende preprocess ++ naar 4 → 4%5!=0 → skipCrop false.
-    cropAlternatieTeller = 3;
+    cropAlternatieTeller = 1;
     return;
   }
 
@@ -2262,7 +2262,7 @@ canvas.addEventListener('click', (e) => {
     // V11.15.8 Fix 1: cropHint ook bij tap dichtbij anchor (was regressie)
     cropHintPositie = { x: videoX, y: videoY };
     cropHintTeller = 10;
-    cropAlternatieTeller = 3; // V11.16.8 Fix 1a: zie Pad A commentaar
+    cropAlternatieTeller = 1; // V11.16.8 Fix 1a: zie Pad A commentaar
   } else {
     // Tap BUITEN 200px van huidige anchor → expliciete gebruikers-intent
     // om weg te breken van de vorige lock.
@@ -2299,7 +2299,7 @@ canvas.addEventListener('click', (e) => {
         cropHintTeller = 10;
       }
     }
-    cropAlternatieTeller = 3; // V11.16.8 Fix 1a: zie Pad A commentaar
+    cropAlternatieTeller = 1; // V11.16.8 Fix 1a: zie Pad A commentaar
   }
 });
 
