@@ -505,7 +505,7 @@
 <div id="startscherm">
   <div id="s-icoon">🚦</div>
   <div id="s-titel">Stoplicht<span>IQ</span></div>
-  <div id="s-versie">V11.16.12 — richting-labels in rijdersperspectief (↑/←/→ + Algemeen)</div>
+  <div id="s-versie">V11.16.13 — tap-indicator ontkoppeld van cropRegio (fix skipCrop-flicker)</div>
   <div id="s-model-wrap">
     <div id="s-model-rij">
       <div id="s-model-label">🤖 YOLOv8 model laden…</div>
@@ -703,7 +703,7 @@
 
 <script>
 // ═══════════════════════════════════════════════════════════════
-//  StoplichtIQ V11.16.12
+//  StoplichtIQ V11.16.13
 //  V11.10: Zelfkalibratie + vergrendeling + crop smoothing
 //  — S1+S2 bevestiging (kruispunt-level confidence)
 //  — Route-herkenning basis (sequentie-opslag)
@@ -3511,24 +3511,30 @@ function tekenOverlay(box, score, horizontaal) {
     octx.stroke();
     octx.restore();
   }
-  // V11.7.0: crop indicator + tap indicator altijd tonen (ook bij ai:weg/ai:filter)
+  // V11.7.0: crop indicator (stippellijn-rechthoek) — blijft binnen cropRegio-guard.
   if (cropRegio) {
     octx.save();
     octx.strokeStyle = 'rgba(0,200,80,0.6)';
     octx.lineWidth = 2;
     octx.setLineDash([6, 4]);
     octx.strokeRect(cropRegio.x, cropRegio.y, cropRegio.w, cropRegio.h);
-    octx.setLineDash([]);
-    if (cropHintPositie && cropHintTeller > 0) {
-      const hx = cropHintPositie.x, hy = cropHintPositie.y;
-      octx.strokeStyle = 'rgba(0,200,80,0.8)';
-      octx.lineWidth = 2;
-      octx.beginPath(); octx.arc(hx, hy, 14, 0, Math.PI * 2); octx.stroke();
-      octx.beginPath(); octx.moveTo(hx-6,hy-6); octx.lineTo(hx+6,hy+6); octx.stroke();
-      octx.beginPath(); octx.moveTo(hx+6,hy-6); octx.lineTo(hx-6,hy+6); octx.stroke();
-      octx.fillStyle = 'rgba(0,200,80,0.9)'; octx.font = 'bold 11px monospace';
-      octx.fillText(cropHintTeller + '×', hx + 18, hy + 4);
-    }
+    octx.restore();
+  }
+  // V11.16.13: tap-indicator (cirkel + kruis + teller) ONTKOPPELD van cropRegio.
+  // Skip-crop frames zetten cropRegio elke 5e run op null (r2644) — de tap-
+  // indicator is een intent-feedback en mag daar niet aan gekoppeld zijn. Bij
+  // actieve bboxOverride blijven cropHintPositie/Teller onvoorwaardelijk
+  // gerefresht via preprocessVoorYOLO r2632-2637, dus positie klopt altijd.
+  if (cropHintPositie && cropHintTeller > 0) {
+    const hx = cropHintPositie.x, hy = cropHintPositie.y;
+    octx.save();
+    octx.strokeStyle = 'rgba(0,200,80,0.8)';
+    octx.lineWidth = 2;
+    octx.beginPath(); octx.arc(hx, hy, 14, 0, Math.PI * 2); octx.stroke();
+    octx.beginPath(); octx.moveTo(hx-6,hy-6); octx.lineTo(hx+6,hy+6); octx.stroke();
+    octx.beginPath(); octx.moveTo(hx+6,hy-6); octx.lineTo(hx-6,hy+6); octx.stroke();
+    octx.fillStyle = 'rgba(0,200,80,0.9)'; octx.font = 'bold 11px monospace';
+    octx.fillText(cropHintTeller + '×', hx + 18, hy + 4);
     octx.restore();
   }
   // V11.10.0 W3: tap indicator alleen tonen als aiTeller<2 OF geen actieve bbox OF niet vergrendeld
