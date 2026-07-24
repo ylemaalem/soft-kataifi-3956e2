@@ -505,7 +505,7 @@
 <div id="startscherm">
   <div id="s-icoon">🚦</div>
   <div id="s-titel">Stoplicht<span>IQ</span></div>
-  <div id="s-versie">V11.16.13 — tap-indicator ontkoppeld van cropRegio (fix skipCrop-flicker)</div>
+  <div id="s-versie">V11.16.14 — HUD familie-som + Terug filter + stippellijn ontkoppeld</div>
   <div id="s-model-wrap">
     <div id="s-model-rij">
       <div id="s-model-label">🤖 YOLOv8 model laden…</div>
@@ -703,7 +703,7 @@
 
 <script>
 // ═══════════════════════════════════════════════════════════════
-//  StoplichtIQ V11.16.13
+//  StoplichtIQ V11.16.14
 //  V11.10: Zelfkalibratie + vergrendeling + crop smoothing
 //  — S1+S2 bevestiging (kruispunt-level confidence)
 //  — Route-herkenning basis (sequentie-opslag)
@@ -2330,6 +2330,7 @@ let cropRegio = null;              // { x, y, w, h } in video pixels — null = 
 let cropHintPositie = null;        // { x, y } in video pixels — taplocatie hint
 let cropHintTeller = 0;            // resterende YOLO runs voor tap hint
 let cropAlternatieTeller = 0;      // S2 alternatie elke 5e run
+let laatsteCropRegio = null;       // cache voor overlay tijdens skipCrop
 
 // V8.3: Web Worker + Confidence smoothing
 let yoloWorker=null, workerKlaar=false, workerFoutTeller=0;
@@ -2642,6 +2643,7 @@ function preprocessVoorYOLO() {
   const skipCrop = (cropAlternatieTeller % 5 === 0);
   const afst = dichtstbijOSM ? dichtstbijOSM.afstand : 999;
   cropRegio = skipCrop ? null : berekenCropRegio(vW, vH, afst);
+  if (cropRegio) laatsteCropRegio = cropRegio;
 
   if (!skipCrop && cropHintTeller > 0) {
     cropHintTeller--;
@@ -3388,11 +3390,11 @@ function _verwerkWorkerResultaat(detecties) {
     }
     bboxAnchorTijd = Date.now();
   }
-  debugWaarden.ai = `ai:${kleur} ${(gesmoothedScore*100).toFixed(0)}% [${detecties.length}]`;
+  const famScore = familieScore(beste);
+  debugWaarden.ai = `ai:${kleur} ${(famScore*100).toFixed(0)}% [${detecties.length}]`;
   laatsteAI = {
     kleur, horizontaal: beste.w > beste.h*1.3, score: gesmoothedScore,
-    // V11.15.5: klasse-id doorgegeven zodat tekenOverlay het label
-    // kan uitbreiden met pijl-varianten (ROOD_PIJL_LINKS etc.).
+    fScore: famScore,
     box: { x:(beste.x1-lbPadX)/lbScale + (cropRegio ? cropRegio.x : 0),
            y:(beste.y1-lbPadY)/lbScale + (cropRegio ? cropRegio.y : 0),
            w:beste.w/lbScale, h:beste.h/lbScale, kleur, klasse: beste.klasse }
@@ -3511,20 +3513,18 @@ function tekenOverlay(box, score, horizontaal) {
     octx.stroke();
     octx.restore();
   }
-  // V11.7.0: crop indicator (stippellijn-rechthoek) — blijft binnen cropRegio-guard.
-  if (cropRegio) {
-    octx.save();
-    octx.strokeStyle = 'rgba(0,200,80,0.6)';
-    octx.lineWidth = 2;
-    octx.setLineDash([6, 4]);
-    octx.strokeRect(cropRegio.x, cropRegio.y, cropRegio.w, cropRegio.h);
-    octx.restore();
+  // V11.16.14: stippellijn + cirkel + kruis + teller ontkoppeld van cropRegio.
+  if (cropHintPositie && cropHintTeller > 0) {
+    const cr = cropRegio || laatsteCropRegio;
+    if (cr) {
+      octx.save();
+      octx.strokeStyle = 'rgba(0,200,80,0.6)';
+      octx.lineWidth = 2;
+      octx.setLineDash([6, 4]);
+      octx.strokeRect(cr.x, cr.y, cr.w, cr.h);
+      octx.restore();
+    }
   }
-  // V11.16.13: tap-indicator (cirkel + kruis + teller) ONTKOPPELD van cropRegio.
-  // Skip-crop frames zetten cropRegio elke 5e run op null (r2644) — de tap-
-  // indicator is een intent-feedback en mag daar niet aan gekoppeld zijn. Bij
-  // actieve bboxOverride blijven cropHintPositie/Teller onvoorwaardelijk
-  // gerefresht via preprocessVoorYOLO r2632-2637, dus positie klopt altijd.
   if (cropHintPositie && cropHintTeller > 0) {
     const hx = cropHintPositie.x, hy = cropHintPositie.y;
     octx.save();
@@ -3644,7 +3644,7 @@ function verwerkDetecties() {
       aiKleur = aiR.kleur;
       aiTeller = 1;
     }
-    tekenOverlay(aiR.box, aiR.score, aiR.horizontaal);
+    tekenOverlay(aiR.box, aiR.fScore, aiR.horizontaal);
     geenTeller = 0;
     debugWaarden.info = `${aiR.kleur} ${aiTeller}/${AI_DREMPEL}`;
 
@@ -5971,6 +5971,7 @@ function renderNodeInfo(nodeId) {
   for (const g of gesorteerd) {
     // V11.16.12: rijderspijl + label vervangen AFRIJ_PIJL + tekst 'aanrij → afrij'.
     const r = rijdersPijlLabel(g.aanrij, g.afrij);
+    if (r.tekst === 'Terug' && g.totaal < 3) continue;
     const mkey = `${g.aanrij}>${g.afrij}`;
     html += `<div class="ni-rij${selCls(mkey)}" data-aanrij="${g.aanrij}" data-afrij="${g.afrij}" data-key="${mkey}"${klik(mkey)}>${vink(mkey)}`
          +  `<div class="ni-rij-pijl">${r.pijl}</div>`
