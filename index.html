@@ -505,7 +505,7 @@
 <div id="startscherm">
   <div id="s-icoon">🚦</div>
   <div id="s-titel">Stoplicht<span>IQ</span></div>
-  <div id="s-versie">V11.17.1 — cropHint refresh via camera-pixel cache (root-cause fix)</div>
+  <div id="s-versie">V11.17.2 — radius-cap conditioneel (na eerste match) — fix eerste-tap-doet-niets</div>
   <div id="s-model-wrap">
     <div id="s-model-rij">
       <div id="s-model-label">🤖 YOLOv8 model laden…</div>
@@ -703,7 +703,7 @@
 
 <script>
 // ═══════════════════════════════════════════════════════════════
-//  StoplichtIQ V11.17.1
+//  StoplichtIQ V11.17.2
 //  V11.10: Zelfkalibratie + vergrendeling + crop smoothing
 //  — S1+S2 bevestiging (kruispunt-level confidence)
 //  — Route-herkenning basis (sequentie-opslag)
@@ -2191,6 +2191,11 @@ let bboxOverrideTijd = 0;
 // werd. Zetten waar bboxOverride gezet wordt; nullen waar bboxOverride genuld wordt.
 let bboxOverrideCamX = null;
 let bboxOverrideCamY = null;
+// V11.17.2: telt succesvolle sticky-matches ná een tap. Zolang 0: closest-
+// fallback is onbegrensd (herstelt V11.16.10-gedrag voor eerste-tap-scenario
+// bij stale-coord mismatch). Zodra >0: cap 180px actief tegen bevriezing bij
+// rijden (V11.16.11-gedrag). Reset naar 0 in tap-handler + bboxOverride-wis.
+let bboxOverrideMatchTeller = 0;
 // V11.15.8: sticky detectie-identiteit voor LOCK 2 — voorkomt dat LOCK 2
 // elke YOLO-run een andere closest kiest bij naburige detecties.
 // KLASSE_MAP (r723) fungeert direct als familie-bron ('rood'/'groen'/'oranje').
@@ -2302,6 +2307,7 @@ canvas.addEventListener('click', (e) => {
       bboxOverride = { cx: dichtstbij.cx, cy: dichtstbij.cy };
       bboxOverrideTijd = Date.now();
       bboxOverrideCamX = videoX; bboxOverrideCamY = videoY;
+      bboxOverrideMatchTeller = 0;
       // V11.15.8 Fix 1: cropHint ook bij tap OP detectie (was regressie — cirkeltje bleef weg)
       cropHintPositie = { x: videoX, y: videoY };
       cropHintTeller = 10;
@@ -2313,6 +2319,7 @@ canvas.addEventListener('click', (e) => {
       bboxOverride = { cx: yoloX, cy: yoloY };
       bboxOverrideTijd = Date.now();
       bboxOverrideCamX = videoX; bboxOverrideCamY = videoY;
+      bboxOverrideMatchTeller = 0;
       if (cropHintPositie) {
         const hx = cropHintPositie.x - videoX, hy = cropHintPositie.y - videoY;
         if (Math.sqrt(hx*hx + hy*hy) < 50) {
@@ -2360,6 +2367,7 @@ canvas.addEventListener('click', (e) => {
     }
     bboxOverrideTijd = Date.now();
     bboxOverrideCamX = videoX; bboxOverrideCamY = videoY;
+    bboxOverrideMatchTeller = 0;
     // V11.15.8 Fix 1: cropHint ook bij tap dichtbij anchor (was regressie)
     cropHintPositie = { x: videoX, y: videoY };
     cropHintTeller = 10;
@@ -2379,6 +2387,7 @@ canvas.addEventListener('click', (e) => {
       bboxOverride = { cx: dichtstbij.cx, cy: dichtstbij.cy };
       bboxOverrideTijd = Date.now();
       bboxOverrideCamX = videoX; bboxOverrideCamY = videoY;
+      bboxOverrideMatchTeller = 0;
     } else {
       // V11.14.4 FIX 1a: geen detectie binnen 200px van tap → zet
       // bboxOverride op de TAP-locatie zelf. LOCK 2 in selecteerBeste-
@@ -2388,6 +2397,7 @@ canvas.addEventListener('click', (e) => {
       bboxOverride = { cx: yoloX, cy: yoloY };
       bboxOverrideTijd = Date.now();
       bboxOverrideCamX = videoX; bboxOverrideCamY = videoY;
+      bboxOverrideMatchTeller = 0;
       if (cropHintPositie) {
         const hx = cropHintPositie.x - videoX, hy = cropHintPositie.y - videoY;
         if (Math.sqrt(hx*hx + hy*hy) < 50) {
@@ -3105,6 +3115,7 @@ function selecteerBesteDetectie(detecties) {
     if (Date.now() - bboxOverrideTijd > TAP_FORCE_TIMEOUT) {
       bboxOverride = null;
       bboxOverrideCamX = null; bboxOverrideCamY = null;
+      bboxOverrideMatchTeller = 0;
       stickyDetectie = null; stickyMissTeller = 0;
       tapSeedDetectie = null; // V11.16.4
     } else {
@@ -3275,14 +3286,13 @@ function selecteerBesteDetectie(detecties) {
         const afst = Math.sqrt(dx*dx + dy*dy);
         if (afst < minOvAfst) { minOvAfst = afst; besteOv = det; }
       }
-      // V11.16.11 W1: radius-cap op closest-fallback. Zonder cap trekt de argmin
-      // bij rijden de bbox naar de bevroren tap-positie ipv de huidige stoplicht-
-      // cluster (bboxOverride blijft 25s statisch, gebruiker rijdt 200m verder).
-      // 180px = ruim genoeg voor normale tap-afwijking bij stilstand, smal genoeg
-      // om bevriezing bij snel rijden te stoppen. Sticky+miss reset zodat volgende
-      // run vers kan seeden via tap-seed of sticky-tak (indien getriggerd).
-      // s2Rest: bruikbaar meegegeven voor consistentie met r3055 sticky-miss return.
-      if (minOvAfst > 180) {
+      // V11.17.2: radius-cap alleen ná eerste succesvolle match op deze tap-lock.
+      // Zonder eerste match (bboxOverrideMatchTeller===0): onbegrensd — geeft
+      // V11.16.10-gedrag terug voor eerste-tap-scenario waar bboxOverride.cx/cy
+      // in stale coord-ruimte staat t.o.v. huidige preprocess-crop. Met ≥1 match:
+      // cap actief tegen bevriezing bij rijden (V11.16.11-gedrag). Semantiek:
+      // "geef tap altijd één kans om te landen; daarna cap tegen drift-bevriezing."
+      if (bboxOverrideMatchTeller > 0 && minOvAfst > 180) {
         stickyDetectie = null;
         stickyMissTeller = 0;
         return { s1: null, s2Rest: bruikbaar };
@@ -3295,6 +3305,7 @@ function selecteerBesteDetectie(detecties) {
           tijd: Date.now()
         };
         stickyMissTeller = 0;
+        bboxOverrideMatchTeller++;
         if (besteOv.klasse >= 4) verwerkPijlDetectie(besteOv.klasse, besteOv.score ?? besteOv.conf ?? 0);
         return { s1: besteOv, s2Rest: bruikbaar.filter(d => d !== besteOv) };
       }
@@ -3900,6 +3911,7 @@ function resetNeutraal() {
   // V11.4.5: bbox override vrijgeven bij volledige reset
   bboxOverride = null; bboxOverrideTijd = 0;
   bboxOverrideCamX = null; bboxOverrideCamY = null;
+  bboxOverrideMatchTeller = 0;
   bboxAnchorCx = null; bboxAnchorCy = null; bboxAnchorTijd = 0;
   stickyDetectie = null; stickyMissTeller = 0; // V11.15.8
   tapSeedDetectie = null; // V11.16.4
@@ -6892,6 +6904,7 @@ function updateDichtbij(lat, lon) {
     bijwerkLeerkaart(nieuw); bijwerkDashboardKnop();
     bboxOverride = null; bboxOverrideTijd = 0;  // V11.4.5: override vervalt bij echte node-wissel
     bboxOverrideCamX = null; bboxOverrideCamY = null;
+    bboxOverrideMatchTeller = 0;
     vergrendeldNodeId = null;  // V11.10.0: vergrendeling breken bij node-wissel
     stickyDetectie = null; stickyMissTeller = 0; // V11.15.8
     tapSeedDetectie = null; // V11.16.4
@@ -6998,6 +7011,7 @@ async function onGPS(pos) {
     bboxOverride = null;
     bboxOverrideTijd = 0;
     bboxOverrideCamX = null; bboxOverrideCamY = null;
+    bboxOverrideMatchTeller = 0;
     bboxAnchorCx = null;
     bboxAnchorCy = null;
     bboxAnchorTijd = 0;
