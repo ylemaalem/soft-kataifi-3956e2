@@ -505,7 +505,7 @@
 <div id="startscherm">
   <div id="s-icoon">🚦</div>
   <div id="s-titel">Stoplicht<span>IQ</span></div>
-  <div id="s-versie">V11.17.2 — radius-cap conditioneel (na eerste match) — fix eerste-tap-doet-niets</div>
+  <div id="s-versie">V11.17.3 — rijrichting-symbool (↑/←/→) in countdown-pill</div>
   <div id="s-model-wrap">
     <div id="s-model-rij">
       <div id="s-model-label">🤖 YOLOv8 model laden…</div>
@@ -703,7 +703,7 @@
 
 <script>
 // ═══════════════════════════════════════════════════════════════
-//  StoplichtIQ V11.17.2
+//  StoplichtIQ V11.17.3
 //  V11.10: Zelfkalibratie + vergrendeling + crop smoothing
 //  — S1+S2 bevestiging (kruispunt-level confidence)
 //  — Route-herkenning basis (sequentie-opslag)
@@ -1493,6 +1493,16 @@ function berekenAfrijRichtingViaTik(aanrijHeading, tikrichting) {
   if (tikrichting === 'links')     return gpsHeadingNaarWindrichting((h + 90)  % 360);
   if (tikrichting === 'rechts')    return gpsHeadingNaarWindrichting((h - 90 + 360) % 360);
   return gpsHeadingNaarWindrichting((h + 180) % 360); // default rechtdoor
+}
+
+// V11.17.3: rijdersperspectief-symbool voor countdown-pill. Bron:
+// richtingLockKeuze (zie tikRichting r5410). Onbekend/neutraal → geen
+// symbool (kernregel: liever niks dan verkeerd).
+function richtingSymbool(richting) {
+  if (richting === 'links')     return '← ';
+  if (richting === 'rechtdoor') return '↑ ';
+  if (richting === 'rechts')    return '→ ';
+  return '';
 }
 
 function verwerkPijlDetectie(klasse, conf) {
@@ -4214,24 +4224,26 @@ function tickCd() {
   cdPill.classList.add('actief');
 
   // W2: Modus-afhankelijke weergave
+  // V11.17.3: prefix rijdersperspectief-symbool bij bekende tikrichting.
+  const rs = richtingSymbool(richtingLockKeuze);
   if (activeCdModus === CD_NU || over === 0) {
-    cdPillGetal.textContent = 'nu';
+    cdPillGetal.textContent = rs + 'nu';
     cdPillLabel.textContent = 'elk moment';
   } else if (activeCdModus === CD_VAAG && activeCdMin != null) {
     const minOver = Math.max(0, Math.ceil(activeCdMin - ver));
     const maxOver = Math.ceil(activeCdMax - ver);
     if (maxOver <= 0) {
-      cdPillGetal.textContent = 'nu';
+      cdPillGetal.textContent = rs + 'nu';
       cdPillLabel.textContent = 'elk moment';
     } else {
-      cdPillGetal.textContent = minOver + '-' + maxOver + 's';
+      cdPillGetal.textContent = rs + minOver + '-' + maxOver + 's';
       cdPillLabel.textContent = 'onzeker';
     }
   } else if (activeCdModus === CD_GESCHAT) {
-    cdPillGetal.textContent = '~' + Math.ceil(over) + 's';
+    cdPillGetal.textContent = rs + '~' + Math.ceil(over) + 's';
     cdPillLabel.textContent = 'geschat';
   } else {
-    cdPillGetal.textContent = (over < 1 ? '<1' : Math.ceil(over)) + 's';
+    cdPillGetal.textContent = rs + (over < 1 ? '<1' : Math.ceil(over)) + 's';
     cdPillLabel.textContent = 'groen over';
   }
   cdPillGetal.style.color = over <= 6 ? 'var(--groen)' : '#fff';
