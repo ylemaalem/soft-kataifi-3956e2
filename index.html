@@ -157,6 +157,18 @@
     .rb-pct{font-family:'Share Tech Mono',monospace;font-size:11px;font-weight:700;min-width:32px;text-align:right}
     .rb-cyc{font-family:'Share Tech Mono',monospace;font-size:10px;color:rgba(255,255,255,0.55);min-width:28px;text-align:right}
     .rb-leeg{font-size:10px;color:rgba(255,255,255,0.3);text-align:center;padding:3px 0;font-style:italic}
+    /* V11.17.6: toevoeg-rij voor ontbrekende richtingen — compacte knopjes
+       zodat je bij een nieuw kruispunt de eerste keuze kunt zetten. */
+    .rb-toevoeg{display:flex;gap:4px;padding-top:3px;margin-top:2px;
+      border-top:1px dashed rgba(255,255,255,0.08)}
+    .rb-tv-btn{flex:1;background:rgba(56,189,248,0.08);color:#7dd3fc;
+      border:1px solid rgba(56,189,248,0.2);border-radius:5px;
+      font-family:'Rajdhani',sans-serif;font-size:10px;font-weight:600;
+      letter-spacing:0.04em;padding:4px 6px;cursor:pointer;
+      -webkit-tap-highlight-color:transparent;display:flex;align-items:center;
+      justify-content:center;gap:4px;min-height:22px}
+    .rb-tv-btn:active{background:rgba(56,189,248,0.16)}
+    .rb-tv-pijl{font-size:11px;line-height:1}
     /* V11.17.4 W5: tag-knop verborgen in rijweergave — opslag/overlay/dashboard/export blijven intact */
     #sl-tag-btn{position:fixed;bottom:50px;left:50%;transform:translateX(-50%);
       display:none!important;z-index:45;padding:12px 24px;
@@ -533,7 +545,7 @@
 <div id="startscherm">
   <div id="s-icoon">🚦</div>
   <div id="s-titel">Stoplicht<span>IQ</span></div>
-  <div id="s-versie">V11.17.5 — losse overlay uitgefaseerd + vroege-keuze resets sluitend</div>
+  <div id="s-versie">V11.17.6 — toevoeg-rij voor ontbrekende richtingen</div>
   <div id="s-model-wrap">
     <div id="s-model-rij">
       <div id="s-model-label">🤖 YOLOv8 model laden…</div>
@@ -742,7 +754,7 @@
 
 <script>
 // ═══════════════════════════════════════════════════════════════
-//  StoplichtIQ V11.17.5
+//  StoplichtIQ V11.17.6
 //  V11.10: Zelfkalibratie + vergrendeling + crop smoothing
 //  — S1+S2 bevestiging (kruispunt-level confidence)
 //  — Route-herkenning basis (sequentie-opslag)
@@ -4668,11 +4680,28 @@ function renderRichtingBlok(osm) {
   const heeftAlg = algMetTot > 0;
   const zichtbareRichtingen = rijen.slice(0, heeftAlg ? 3 : 4); // max 4 rijen totaal incl. ALG
 
-  if (!heeftAlg && zichtbareRichtingen.length === 0) {
-    body.innerHTML = '<div class="rb-leeg">Nog geen data voor dit stoplicht</div>';
-    blok.classList.remove('verborgen');
-    return;
+  // V11.17.6: welke van {links, rechtdoor, rechts} zijn AL bekend voor deze node?
+  // Basis: alle groepen (rijen, niet zichtbareRichtingen) — een richting die
+  // buiten de max-4 valt telt ook als aanwezig. ALG is bewust geen richting.
+  const aanwezig = new Set();
+  for (const r of rijen) {
+    const t = r.label.tekst.toLowerCase();
+    const richt = t.startsWith('linksaf') ? 'links'
+                : t.startsWith('rechtsaf') ? 'rechts'
+                : 'rechtdoor';
+    aanwezig.add(richt);
   }
+  const ontbrekend = ['links', 'rechtdoor', 'rechts'].filter(r => !aanwezig.has(r));
+  const tvIcoon = { links: '←', rechtdoor: '↑', rechts: '→' };
+  const tvLabel = { links: 'Linksaf', rechtdoor: 'Rechtdoor', rechts: 'Rechtsaf' };
+  const tvHtml = ontbrekend.length > 0
+    ? '<div class="rb-toevoeg">'
+      + ontbrekend.map(r =>
+          `<button class="rb-tv-btn" onclick="tikRichting('${r}')">`
+          + `<span class="rb-tv-pijl">${tvIcoon[r]}</span>${tvLabel[r]}</button>`
+        ).join('')
+      + '</div>'
+    : '';
 
   const cycTxt = (c) => c != null ? c + 's' : '—';
   let html = '';
@@ -4699,7 +4728,17 @@ function renderRichtingBlok(osm) {
          + `<div class="rb-pct" style="color:${kleur}">${r.pct}%</div>`
          + `<div class="rb-cyc">${cycTxt(r.cyc)}</div></div>`;
   }
-  body.innerHTML = html;
+
+  // V11.17.6: nieuw kruispunt zonder ALG én zonder V5-richtingen — voorheen
+  // gaf dat een leeg-melding zonder actie. Toon nu de toevoeg-rij zodat de
+  // eerste keuze meteen kan; leeg-melding verdwijnt.
+  if (!heeftAlg && zichtbareRichtingen.length === 0 && ontbrekend.length === 0) {
+    body.innerHTML = '<div class="rb-leeg">Nog geen data voor dit stoplicht</div>';
+    blok.classList.remove('verborgen');
+    return;
+  }
+
+  body.innerHTML = html + tvHtml;
   blok.classList.remove('verborgen');
 }
 
