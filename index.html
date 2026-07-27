@@ -123,19 +123,43 @@
     #leer-pct-balk{height:100%;width:0%;border-radius:3px;transition:width .8s ease,background .4s}
     #leer-pct-getal{font-family:'Share Tech Mono',monospace;font-size:14px;
       font-weight:700;color:#fff;min-width:36px;text-align:right;transition:color .4s}
-    #dd-rij{display:flex;gap:4px}
-    .dd{display:flex;flex-direction:column;align-items:center;gap:1px;flex:1;
+    /* V11.17.4 W1: dagdeel-strip compact — één regel, chips i.p.v. tegels */
+    #dd-rij{display:flex;gap:4px;align-items:center}
+    .dd{display:flex;flex-direction:row;align-items:center;gap:3px;flex:1;
       background:rgba(255,255,255,0.04);border:1px solid var(--border);
-      border-radius:8px;padding:4px 5px;transition:all .3s;cursor:pointer}
-    .dd.actief{background:rgba(52,199,89,.08);border-color:rgba(52,199,89,.3);outline:2px solid var(--blauw)}
-    .dd-ic{font-size:9px}
-    .dd-val{font-family:'Share Tech Mono',monospace;font-size:9px;color:var(--dim)}
-    .dd-cnt{font-size:8px;color:rgba(255,255,255,0.2)}
+      border-radius:6px;padding:2px 5px;transition:all .2s;cursor:pointer;
+      justify-content:center;min-height:16px;opacity:0.55}
+    .dd.actief{background:rgba(52,199,89,.08);border-color:rgba(52,199,89,.3);outline:1px solid var(--blauw);opacity:1}
+    .dd-ic{font-size:9px;line-height:1}
+    .dd-val{font-family:'Share Tech Mono',monospace;font-size:9px;color:var(--dim);line-height:1}
+    .dd-cnt{font-size:8px;color:rgba(255,255,255,0.35);line-height:1}
     .dd.actief .dd-val{color:var(--groen)}
-    .dd.actief .dd-cnt{color:rgba(52,199,89,.5)}
-    /* Tag knop: fixed boven bodem-balk, zichtbaar tijdens rijden */
+    .dd.actief .dd-cnt{color:rgba(52,199,89,.6)}
+    /* V11.17.4 W2: richting-blok binnen #leer-kaart — rijen zijn de keuze-knoppen */
+    #richting-blok{display:flex;flex-direction:column;gap:3px;padding-top:2px;
+      border-top:1px solid rgba(255,255,255,0.06)}
+    #richting-blok.verborgen{display:none}
+    .rb-kop{display:flex;align-items:center;justify-content:space-between;padding:0 2px}
+    .rb-kop-titel{font-size:9px;color:var(--dim);letter-spacing:0.12em;text-transform:uppercase;font-weight:600}
+    .rb-sluit{background:transparent;border:none;color:rgba(255,255,255,0.35);
+      font-size:14px;cursor:pointer;padding:0 4px;line-height:1;
+      -webkit-tap-highlight-color:transparent}
+    .rb-sluit:active{color:rgba(255,255,255,0.7)}
+    .rb-rij{display:flex;align-items:center;gap:8px;padding:5px 8px;
+      background:rgba(255,255,255,0.04);border:1px solid var(--border);
+      border-radius:6px;cursor:pointer;min-height:24px;
+      -webkit-tap-highlight-color:transparent;transition:background .15s,border-color .15s}
+    .rb-rij:active{background:rgba(255,255,255,0.08)}
+    .rb-rij.actief{background:rgba(74,222,128,.12);border-color:rgba(74,222,128,.4)}
+    .rb-pijl{font-size:13px;line-height:1;min-width:14px;text-align:center;color:#fff}
+    .rb-label{flex:1;font-size:11px;color:rgba(255,255,255,0.85);letter-spacing:0.02em;
+      white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+    .rb-pct{font-family:'Share Tech Mono',monospace;font-size:11px;font-weight:700;min-width:32px;text-align:right}
+    .rb-cyc{font-family:'Share Tech Mono',monospace;font-size:10px;color:rgba(255,255,255,0.55);min-width:28px;text-align:right}
+    .rb-leeg{font-size:10px;color:rgba(255,255,255,0.3);text-align:center;padding:3px 0;font-style:italic}
+    /* V11.17.4 W5: tag-knop verborgen in rijweergave — opslag/overlay/dashboard/export blijven intact */
     #sl-tag-btn{position:fixed;bottom:50px;left:50%;transform:translateX(-50%);
-      display:none;z-index:45;padding:12px 24px;
+      display:none!important;z-index:45;padding:12px 24px;
       min-width:120px;min-height:56px;
       background:rgba(0,0,0,0.75);color:rgba(255,255,255,0.85);
       border:1px solid rgba(255,255,255,0.25);border-radius:20px;
@@ -505,7 +529,7 @@
 <div id="startscherm">
   <div id="s-icoon">🚦</div>
   <div id="s-titel">Stoplicht<span>IQ</span></div>
-  <div id="s-versie">V11.17.3 — rijrichting-symbool (↑/←/→) in countdown-pill</div>
+  <div id="s-versie">V11.17.4 — compact UI-blok + countdown-continuïteit bij richtingkeuze</div>
   <div id="s-model-wrap">
     <div id="s-model-rij">
       <div id="s-model-label">🤖 YOLOv8 model laden…</div>
@@ -612,6 +636,17 @@
         <div id="leer-pct-balk-bg"><div id="leer-pct-balk"></div></div>
         <div id="leer-pct-getal">0%</div>
       </div>
+      <!-- V11.17.4 W2: richting-blok — rijen zijn zelf de keuze-knoppen.
+           W7 bekend gedrag: als user ✕ tikt en dan FOUT drukt, blijft het blok
+           dicht tot node-wissel/GPS-voorbij/resetNeutraal. Acceptabel als
+           user-explicit action; ✕ signaleert "ik wil dit niet zien". -->
+      <div id="richting-blok" class="verborgen">
+        <div class="rb-kop">
+          <div class="rb-kop-titel">Richting</div>
+          <button class="rb-sluit" onclick="sluitRichtingBlok()" aria-label="Verberg richtingen">✕</button>
+        </div>
+        <div id="richting-blok-body"></div>
+      </div>
       <div id="dd-rij">
         <div class="dd" id="dd-ochtend" onclick="selecteerDagdeel('ochtend')"><div class="dd-ic">🌅</div><div class="dd-val" id="dv-ochtend">—</div><div class="dd-cnt" id="dc-ochtend">0x</div></div>
         <div class="dd" id="dd-dag" onclick="selecteerDagdeel('dag')"><div class="dd-ic">☀️</div><div class="dd-val" id="dv-dag">—</div><div class="dd-cnt" id="dc-dag">0x</div></div>
@@ -703,7 +738,7 @@
 
 <script>
 // ═══════════════════════════════════════════════════════════════
-//  StoplichtIQ V11.17.3
+//  StoplichtIQ V11.17.4
 //  V11.10: Zelfkalibratie + vergrendeling + crop smoothing
 //  — S1+S2 bevestiging (kruispunt-level confidence)
 //  — Route-herkenning basis (sequentie-opslag)
@@ -2113,6 +2148,10 @@ let richtingResetDebounce = null;
 let bboxDichtbij = false;
 // V8.8.2: Richtingknop éénmalig per rode fase
 let richtingGedruktVoorNode = null;
+// V11.17.4 W3: gebruiker-getikte ✕ verbergt richting-blok tot node-wissel.
+// Reset op: resetNeutraal, bijwerkDichtstbij node-wissel, onGPS GPS-voorbij,
+// selecteerNodeHandmatig, en de snelheids-guard in onGPS.
+let richtingBlokVerborgen = false;
 
 // V10.0.5: Green Confidence Collapse — oranje detectie via groen-instort
 const ORANGEFRAMES_MAX = 200;
@@ -3923,6 +3962,7 @@ function resetNeutraal() {
   bboxOverrideCamX = null; bboxOverrideCamY = null;
   bboxOverrideMatchTeller = 0;
   bboxAnchorCx = null; bboxAnchorCy = null; bboxAnchorTijd = 0;
+  richtingBlokVerborgen = false;  // V11.17.4 W3: reset ✕-status bij volledige reset
   stickyDetectie = null; stickyMissTeller = 0; // V11.15.8
   tapSeedDetectie = null; // V11.16.4
   correctieMultiframe = null; wachtGroenIntentie = null; // V11.16.3
@@ -4293,15 +4333,16 @@ function tickCd() {
     if (!bevestigActief && !_bevAlGedaan) {
       bevestigActief = true;
       bevestigWrap.classList.add('actief');
-      // V11.12.2: voorkom tap-overlap — richting-knoppen mogen niet over bevestig-knoppen liggen
-      verbergRichtingKnoppen();
+      // V11.17.4 W4: verbergRichtingKnoppen()-aanroep verwijderd. Nieuwe
+      // richting-lijst in #leer-kaart is sibling van #bevestig-wrap; geen
+      // z-index/tap-interceptie meer. Guard in toonRichtingKnoppen r5386
+      // blijft voor de losse #richting-knoppen overlay.
     }
   } else if (fase === 'groen' && cdBereikteNul && stilstaand) {
     if (!bevestigActief && !_bevAlGedaan) {
       bevestigActief = true;
       bevestigWrap.classList.add('actief');
-      // V11.12.2: voorkom tap-overlap
-      verbergRichtingKnoppen();
+      // V11.17.4 W4: idem — geen verbergaanroep meer.
     }
   }
   // V11.14.2: verberg alleen bij wegrijden (>15 km/u). Timeout-tak
@@ -4474,6 +4515,7 @@ function bijwerkLeerkaart(osm) {
     leerBadge.className='leer-nieuw-badge';
     leerPctBalk.style.width='0%'; leerPctGetal.textContent='0%';
     updateNodeInfoChip(null); // V11.16.1: chip verbergen zonder node
+    renderRichtingBlok(null); // V11.17.4 W2: leeg richting-blok bij geen node
     return;
   }
   const dd = getoondDagdeel || huidigDDActief();
@@ -4555,6 +4597,149 @@ function bijwerkLeerkaart(osm) {
     leerPctGetal.textContent = pctGlobaal + '%';
     leerPctGetal.style.color = kleurGlobaal;
     leerPctGetal.style.fontSize = '';
+  }
+  renderRichtingBlok(osm); // V11.17.4 W2: richting-lijst per node
+}
+
+// V11.17.4 W2: render de richting-rijen in #leer-kaart.
+// Hergebruikt: verzamelV5Richtingen, rijdersPijlLabel, berekenRichtingPct
+// (per dagdeel), gewGem+laadMV5Geclusterd voor cyclustijd, ni_kleur voor kleur,
+// tikRichting voor keuze-actie. GEEN nieuwe scoring-logica — de aggregatie
+// over dagdelen is een gewogen gemiddelde op basis van bestaande outputs.
+function renderRichtingBlok(osm) {
+  const blok = document.getElementById('richting-blok');
+  const body = document.getElementById('richting-blok-body');
+  if (!blok || !body) return;
+  if (!osm || richtingBlokVerborgen) {
+    blok.classList.add('verborgen');
+    return;
+  }
+  const nodeId = String(osm.id);
+
+  // ALG-rij: alle dagdelen aggregeren via bestaande V4-scoring.
+  const algDds = [];
+  let algMetTot = 0, algPctWeighted = 0, algCycSum = 0, algCycCount = 0;
+  for (const d of Object.keys(DD)) {
+    const m = laadM(nodeId, d);
+    if (!m.length) continue;
+    const pctD = Math.min(95, Math.max(m.length * 4, berekenObsScore(m)));
+    algDds.push({ dd: d, m, pctD });
+    algMetTot += m.length;
+    algPctWeighted += pctD * m.length;
+    const gemD = gewGem(m);
+    if (gemD) { algCycSum += gemD * m.length; algCycCount += m.length; }
+  }
+  const algPct = algMetTot > 0 ? Math.round(algPctWeighted / algMetTot) : 0;
+  const algCyc = algCycCount > 0 ? Math.round(algCycSum / algCycCount) : null;
+
+  // Richting-rijen: groepeer op aanrij_afrij, aggregeer pct/cyclustijd over dagdelen.
+  const richtingen = verzamelV5Richtingen(nodeId); // [{aanrij, afrij, dd, pct, metingen}]
+  const groepen = new Map();
+  for (const r of richtingen) {
+    const key = r.aanrij + '_' + r.afrij;
+    if (!groepen.has(key)) groepen.set(key, {
+      aanrij: r.aanrij, afrij: r.afrij, metingen: 0, pctSum: 0, cycSum: 0, cycCount: 0
+    });
+    const g = groepen.get(key);
+    g.metingen += r.metingen;
+    g.pctSum += r.pct * r.metingen;
+    // cyclustijd per (aanrij,afrij,dagdeel) via bestaande gewGem-helper
+    const mDd = laadMV5Geclusterd(nodeId, r.aanrij, r.afrij, r.dd);
+    const gemDd = gewGem(mDd);
+    if (gemDd) { g.cycSum += gemDd * r.metingen; g.cycCount += r.metingen; }
+  }
+  const rijen = [...groepen.values()]
+    .map(g => ({
+      aanrij: g.aanrij, afrij: g.afrij, metingen: g.metingen,
+      pct: g.metingen > 0 ? Math.round(g.pctSum / g.metingen) : 0,
+      cyc: g.cycCount > 0 ? Math.round(g.cycSum / g.cycCount) : null,
+      label: rijdersPijlLabel(g.aanrij, g.afrij)
+    }))
+    .filter(r => !(r.label.tekst === 'Terug' && r.metingen < 3))
+    .sort((a, b) => b.metingen - a.metingen);
+
+  const heeftAlg = algMetTot > 0;
+  const zichtbareRichtingen = rijen.slice(0, heeftAlg ? 3 : 4); // max 4 rijen totaal incl. ALG
+
+  if (!heeftAlg && zichtbareRichtingen.length === 0) {
+    body.innerHTML = '<div class="rb-leeg">Nog geen data voor dit stoplicht</div>';
+    blok.classList.remove('verborgen');
+    return;
+  }
+
+  const cycTxt = (c) => c != null ? c + 's' : '—';
+  let html = '';
+  if (heeftAlg) {
+    const kleur = ni_kleur(algPct);
+    html += `<div class="rb-rij" onclick="tikRichting('rechtdoor')" data-key="ALG">`
+         + `<div class="rb-pijl">⬤</div>`
+         + `<div class="rb-label">Algemeen</div>`
+         + `<div class="rb-pct" style="color:${kleur}">${algPct}%</div>`
+         + `<div class="rb-cyc">${cycTxt(algCyc)}</div></div>`;
+  }
+  for (const r of zichtbareRichtingen) {
+    const kleur = ni_kleur(r.pct);
+    // richting-parameter voor tikRichting: mapping via labeltekst
+    // 'Linksaf'→links, 'Rechtdoor'→rechtdoor, 'Rechtsaf'→rechts, 'Terug'→rechtdoor (fallback)
+    const t = r.label.tekst.toLowerCase();
+    const richt = t.startsWith('linksaf') ? 'links'
+                : t.startsWith('rechtsaf') ? 'rechts'
+                : 'rechtdoor';
+    const gekozen = (richtingLockKeuze === richt && richtingLockNodeId === nodeId) ? ' actief' : '';
+    html += `<div class="rb-rij${gekozen}" onclick="tikRichting('${richt}')" data-key="${r.aanrij}>${r.afrij}">`
+         + `<div class="rb-pijl">${r.label.pijl}</div>`
+         + `<div class="rb-label">${r.label.tekst}</div>`
+         + `<div class="rb-pct" style="color:${kleur}">${r.pct}%</div>`
+         + `<div class="rb-cyc">${cycTxt(r.cyc)}</div></div>`;
+  }
+  body.innerHTML = html;
+  blok.classList.remove('verborgen');
+}
+
+function sluitRichtingBlok() {
+  richtingBlokVerborgen = true;
+  const blok = document.getElementById('richting-blok');
+  if (blok) blok.classList.add('verborgen');
+}
+
+// V11.17.4 W8a: bron/cyclustijd bijwerken BINNEN de lopende countdown zonder
+// cdStart/cdWallStart/cdWallNodeId/cdBereikteNul aan te raken. Dit voorkomt
+// dat een richtingkeuze midden in een rode fase de verstreken tijd terugzet
+// naar nul via de fresh-start-tak in startCd() (r4164). Bij lerende-tak of
+// geen bruikbare data: fallback op de vorige activeCdDoel (countdown blijft
+// doorlopen) in plaats van cdStart=null te zetten.
+function pasBronAanBinnenLopendeCd() {
+  if (!dichtstbijOSM) return;
+  const dd = huidigDDActief();
+  const aanrij = v9AanrijHeading != null ? gpsHeadingNaarWindrichting(v9AanrijSnelheidHeading ?? v9AanrijHeading) : null;
+  const v9bron = kiesCountdownBron(dichtstbijOSM.id, dd, aanrij, v9PreSelectieAfrij);
+  if (v9bron && v9bron.gem) {
+    activeCdDoel = v9bron.gem;
+    activeCdModus = v9bron.modus;
+    activeCdMin = v9bron.cdMin;
+    activeCdMax = v9bron.cdMax;
+    huidigCdBron = v9bron.bron;
+    huidigCdWaarde = v9bron.gem;
+    schaduwWaarden = berekenSchaduwWaarden(dichtstbijOSM.id, dd, aanrij, v9PreSelectieAfrij, v9bron.bron);
+    schaduwCountdownNul = { m1: null, m2: null, m3: null, m4: null };
+  } else if (v9bron && v9bron.lerend) {
+    // W8a fallback: geen bruikbare data voor deze richting → laat vorige
+    // activeCdDoel staan. Countdown breekt NIET; user krijgt geen '?' meer
+    // op een richting-tik. Bron-label wel bijwerken zodat het duidelijk is.
+    huidigCdBron = 'V4_fallback_na_richting';
+  } else {
+    // Geen v9bron uberhaupt — probeer V4 als noodgreep, anders bestaande houden.
+    const m = laadM(dichtstbijOSM.id, dd);
+    const gem = gewGem(m);
+    if (gem) {
+      activeCdDoel = gem;
+      const md = bepaalCdModus(gem, m);
+      activeCdModus = md.modus; activeCdMin = md.cdMin; activeCdMax = md.cdMax;
+      huidigCdBron = 'V4_fallback';
+      huidigCdWaarde = gem;
+      schaduwWaarden = berekenSchaduwWaarden(dichtstbijOSM.id, dd, aanrij, v9PreSelectieAfrij, 'V4_fallback');
+      schaduwCountdownNul = { m1: null, m2: null, m3: null, m4: null };
+    }
   }
 }
 
@@ -5446,8 +5631,14 @@ function tikRichting(richting) {
   if (v9AanrijHeading != null || v9AanrijSnelheidHeading != null) {
     const h = v9AanrijSnelheidHeading ?? v9AanrijHeading;
     v9PreSelectieAfrij = berekenAfrijRichtingViaTik(h, richting);
-    // Ververs countdown als al actief
-    if (fase === 'rood' && dichtstbijOSM && activeCdDoel > 0) startCd();
+    // V11.17.4 W8a: BINNEN lopende rode fase alleen bron bijwerken — NIET
+    // startCd() aanroepen, want die kan door dropout-guard (r4161) op een
+    // fresh-start-tak vallen en de verstreken tijd wissen. Guard: alleen
+    // als we in een actieve rode fase met bekende bron zitten. Buiten die
+    // guard blijft de oude flow — geen countdown-actie hier.
+    if (fase === 'rood' && dichtstbijOSM && activeCdDoel > 0 && laatsteRoodFaseStart) {
+      pasBronAanBinnenLopendeCd();
+    }
   } else if (v9PreSelectieAfrij === null) {
     // Nog geen V9 heading — sla tikrichting op voor later
     v9PreSelectieAfrij = richting; // tijdelijk als tekstlabel, wordt omgezet bij write
@@ -6313,6 +6504,7 @@ function selecteerNodeHandmatig(nodeId) {
   activeCdDoel  = gewGem(laadM(sl.id, huidigDDActief())) || 0;
   // Bug 2: Rijrichting direct resetten
   resetRijrichtingState();
+  richtingBlokVerborgen = false;  // V11.17.4 W3: handmatige node-correctie = blok weer zichtbaar
   // Bug 3: Hoofdscherm volledig vernieuwen
   refreshHoofdschermVoorActieveNode();
   // V8.9.12: Harde lock — blokkeer auto-selectie tot GPS-voorbij
@@ -6917,6 +7109,7 @@ function updateDichtbij(lat, lon) {
     bboxOverride = null; bboxOverrideTijd = 0;  // V11.4.5: override vervalt bij echte node-wissel
     bboxOverrideCamX = null; bboxOverrideCamY = null;
     bboxOverrideMatchTeller = 0;
+    richtingBlokVerborgen = false;  // V11.17.4 W3: nieuw kruispunt = blok weer zichtbaar
     vergrendeldNodeId = null;  // V11.10.0: vergrendeling breken bij node-wissel
     stickyDetectie = null; stickyMissTeller = 0; // V11.15.8
     tapSeedDetectie = null; // V11.16.4
@@ -7030,15 +7223,18 @@ async function onGPS(pos) {
     stickyDetectie = null; stickyMissTeller = 0; // V11.15.8
     tapSeedDetectie = null; // V11.16.4
     correctieMultiframe = null; wachtGroenIntentie = null; // V11.16.3
+    richtingBlokVerborgen = false;  // V11.17.4 W3: kruispunt voorbij = blok weer zichtbaar bij volgende node
     tekenOverlay(null);
   }
   // V8.8.1: Tikinterface verbergen als kruispunt voorbij of snelheid >30 na passeren
   if (richtingKnoppenNodeId && huidigActiefStoplichtPositie &&
       isStoplichtVoorbij(huidigActiefStoplichtPositie, {lat,lon}, getSmoothedHeading())) {
     verbergRichtingKnoppen();
+    richtingBlokVerborgen = false;  // V11.17.4 W3: kruispunt voorbij = blok reset
   }
   if (richtingKnoppenNodeId && dichtstbijOSM && dichtstbijOSM.afstand < 15 && snelheidKmh > 30) {
     verbergRichtingKnoppen();
+    richtingBlokVerborgen = false;  // V11.17.4 W3: doorrijden = blok reset
   }
   // V11.13.6: zoom-unlock bij nadering. Drempel uit constante voor
   // vindbaarheid; eerder stond hier de magische 20 direct in code.
