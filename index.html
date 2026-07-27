@@ -241,8 +241,12 @@
     .vri-grijs{background:rgba(255,255,255,.08);color:rgba(255,255,255,.5);border:1px solid rgba(255,255,255,.15)}
     .vri-geel{background:rgba(255,214,10,.12);color:#FFD60A;border:1px solid rgba(255,214,10,.25)}
     .vri-onbekend{background:rgba(255,255,255,.04);color:rgba(255,255,255,.3);border:1px solid rgba(255,255,255,.08)}
+    /* V11.17.5 W1: losse overlay uitgefaseerd — nieuwe richting-rijen in
+       #leer-kaart (V11.17.4 W2) zijn de primaire keuze-UI. tikRichting,
+       toonRichtingKnoppen en verbergRichtingKnoppen blijven intact voor
+       de bestaande call-sites; alleen de zichtbaarheid is uitgezet. */
     #richting-knoppen{position:fixed;bottom:100px;left:10px;right:10px;z-index:46;
-      display:none;flex-direction:column;align-items:center;gap:6px;pointer-events:auto}
+      display:none!important;flex-direction:column;align-items:center;gap:6px;pointer-events:auto}
     #richting-label{font-size:11px;color:rgba(255,255,255,0.6);letter-spacing:0.06em;text-align:center}
     #richting-rij{display:flex;width:100%;gap:4px}
     .richting-btn{flex:1;height:90px;border:1px solid rgba(255,255,255,0.2);border-radius:12px;
@@ -529,7 +533,7 @@
 <div id="startscherm">
   <div id="s-icoon">🚦</div>
   <div id="s-titel">Stoplicht<span>IQ</span></div>
-  <div id="s-versie">V11.17.4 — compact UI-blok + countdown-continuïteit bij richtingkeuze</div>
+  <div id="s-versie">V11.17.5 — losse overlay uitgefaseerd + vroege-keuze resets sluitend</div>
   <div id="s-model-wrap">
     <div id="s-model-rij">
       <div id="s-model-label">🤖 YOLOv8 model laden…</div>
@@ -738,7 +742,7 @@
 
 <script>
 // ═══════════════════════════════════════════════════════════════
-//  StoplichtIQ V11.17.4
+//  StoplichtIQ V11.17.5
 //  V11.10: Zelfkalibratie + vergrendeling + crop smoothing
 //  — S1+S2 bevestiging (kruispunt-level confidence)
 //  — Route-herkenning basis (sequentie-opslag)
@@ -3963,6 +3967,9 @@ function resetNeutraal() {
   bboxOverrideMatchTeller = 0;
   bboxAnchorCx = null; bboxAnchorCy = null; bboxAnchorTijd = 0;
   richtingBlokVerborgen = false;  // V11.17.4 W3: reset ✕-status bij volledige reset
+  // V11.17.5 W3: richtingLock ontbrak in resetNeutraal — vroege keuze bleef
+  // plakken. Nu opgeruimd samen met de andere node-gebonden state.
+  richtingLockKeuze = null; richtingLockNodeId = null;
   stickyDetectie = null; stickyMissTeller = 0; // V11.15.8
   tapSeedDetectie = null; // V11.16.4
   correctieMultiframe = null; wachtGroenIntentie = null; // V11.16.3
@@ -7224,6 +7231,8 @@ async function onGPS(pos) {
     tapSeedDetectie = null; // V11.16.4
     correctieMultiframe = null; wachtGroenIntentie = null; // V11.16.3
     richtingBlokVerborgen = false;  // V11.17.4 W3: kruispunt voorbij = blok weer zichtbaar bij volgende node
+    // V11.17.5 W3: keuze mag niet doorwerken naar het volgende kruispunt.
+    richtingLockKeuze = null; richtingLockNodeId = null;
     tekenOverlay(null);
   }
   // V8.8.1: Tikinterface verbergen als kruispunt voorbij of snelheid >30 na passeren
@@ -7272,7 +7281,10 @@ async function onGPS(pos) {
         v9AanrijHeading = smoothedH;
         v9KandidaatDuur = null;
         v9KandidaatDagdeel = null;
-        v9PreSelectieAfrij = null;
+        // V11.17.5 W2: bewaar een expliciete richtingkeuze uit tikRichting.
+        // Zonder guard wist elke nadering-frame een vroege keuze; met guard
+        // wordt hij alleen gewist als er nog niets is gekozen.
+        if (!richtingLockKeuze) v9PreSelectieAfrij = null;
       }
     }
 
