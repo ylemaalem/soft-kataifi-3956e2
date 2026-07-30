@@ -549,7 +549,7 @@
 <div id="startscherm">
   <div id="s-icoon">🚦</div>
   <div id="s-titel">Stoplicht<span>IQ</span></div>
-  <div id="s-versie">V11.17.10 — cyclus-cap 180s + mediaan-aggregatie (Release A)</div>
+  <div id="s-versie">V11.17.11 — fase-volgorde-machine (Laag 1-3)</div>
   <div id="s-model-wrap">
     <div id="s-model-rij">
       <div id="s-model-label">🤖 YOLOv8 model laden…</div>
@@ -758,7 +758,7 @@
 
 <script>
 // ═══════════════════════════════════════════════════════════════
-//  StoplichtIQ V11.17.10
+//  StoplichtIQ V11.17.11
 //  V11.10: Zelfkalibratie + vergrendeling + crop smoothing
 //  — S1+S2 bevestiging (kruispunt-level confidence)
 //  — Route-herkenning basis (sequentie-opslag)
@@ -811,6 +811,16 @@ const AI_DREMPEL       = 2;
 // TOLERANTIE_RUNS=3: bij 850ms inferentie = 2.5s buffer voor reset
 // Veilig: staleFaseFrameTeller reset alsnog na max 5s als YOLO niet herbevestigt
 const TOLERANTIE_RUNS  = 5;
+
+// V11.17.11: fase-volgorde-machine — dempt onmogelijke overgangen zonder
+// AI_DREMPEL of TOLERANTIE_RUNS zelf aan te raken. Volgorde-kennis werkt
+// als lichte laag bovenop de bestaande teller.
+const AI_DREMPEL_ONVERWACHT       = 3;    // Laag 2: +1 bevestiging bij onverwachte omslag
+const FSCORE_OVERRIDE_DREMPEL     = 0.35; // Laag 3a: familiescore-drempel voor escape
+const FSCORE_OVERRIDE_MIN_RUNS    = 2;    // Laag 3a: aantal opeenvolgende hoge-fScore-runs
+const VOLGORDE_LOG_INTERVAL_MS    = 1000; // diagnose [VOLGORDE] throttle
+const VOLGORDE_KENNIS_RESET_MS    = 5000; // Laag 3b/c: amnesia-venster na reset
+const VOLGORDE_VOLGENDE = Object.freeze({ groen:'oranje', oranje:'rood', rood:'groen' });
 
 // V8.7: Stale fase timer — dynamisch berekend in updateStaleMax()
 // Minimaal 5 seconden, of 4x de gemeten inferentie tijd
@@ -2152,6 +2162,10 @@ let huidigePos=null, huidigeRichting=0;
 let dichtstbijOSM=null, vorigOsmId=null;
 let osmCache=[], cacheCentrum=null, cacheGeladen=false, cacheBezig=false;
 let aiTeller=0, aiKleur=null, geenTeller=0;
+// V11.17.11: fase-volgorde-machine staat
+let hogeFScoreRuns = 0;          // Laag 3a: opeenvolgende runs met fScore ≥ FSCORE_OVERRIDE_DREMPEL
+let volgordeLogLaatste = 0;      // [VOLGORDE] throttle
+let volgordeKennisResetTijd = 0; // Laag 3b/c: timestamp van laatste amnesia-trigger
 let audioCtx=null, wakeLock=null, frameT=0;
 let cameraTrack=null;
 
@@ -3581,6 +3595,44 @@ function resetConfidenceBuffer(zichtbareKlassen) {
   }
 }
 
+// ── V11.17.11: FASE-VOLGORDE-MACHINE ──────────────────────────
+// Ondersteunende laag bovenop AI_DREMPEL. Nooit leidend: bij een
+// consistente detectie wint altijd wat de camera ziet — via de
+// familiescore-escape of via het amnesia-venster na Laag 3-reset.
+function isVerwachteOmslag(vanFase, naarKleur) {
+  // Amnesia na node-wissel/GPS-voorbij/handmatige tap: geen verwachting.
+  if ((Date.now() - volgordeKennisResetTijd) < VOLGORDE_KENNIS_RESET_MS) return true;
+  if (!vanFase) return true;              // geen voorafgaande fase → geen verwachting
+  if (vanFase === naarKleur) return true; // triviaal (verwerkFase early-returned al)
+  return VOLGORDE_VOLGENDE[vanFase] === naarKleur;
+}
+
+function effectieveAiDrempel(vanFase, naarKleur) {
+  if (isVerwachteOmslag(vanFase, naarKleur)) return AI_DREMPEL;
+  // Laag 3a: familiescore-escape overrulet de verhoging.
+  if (hogeFScoreRuns >= FSCORE_OVERRIDE_MIN_RUNS) return AI_DREMPEL;
+  return AI_DREMPEL_ONVERWACHT;
+}
+
+function volgordeLog(reden, van, naar, extras) {
+  const nu = Date.now();
+  if (nu - volgordeLogLaatste < VOLGORDE_LOG_INTERVAL_MS) return;
+  volgordeLogLaatste = nu;
+  const kern = extras
+    ? Object.entries(extras).map(([k, v]) => `${k}=${v}`).join(' ')
+    : '';
+  console.log(`[VOLGORDE] ${reden} van=${van || '-'} naar=${naar || '-'} ${kern}`);
+}
+
+function resetVolgordeKennis(reden) {
+  // Laag 3b+c: mens/context grijpt in — volgende omslag krijgt geen
+  // verwachting mee. Grijpt NIET in op de lopende meting (fase/faseStart);
+  // dat is scope Release B. Zet alleen de volgordemachine op amnesia.
+  volgordeKennisResetTijd = Date.now();
+  hogeFScoreRuns = 0;
+  volgordeLog('reset:' + reden, fase, null);
+}
+
 // ── WORKER RESULTAAT VERWERKING ───────────────────────────────
 function _verwerkWorkerResultaat(detecties) {
   laatsteDetecties = detecties;
@@ -3896,12 +3948,17 @@ function verwerkDetecties() {
 
   if (aiR && aiR.kleur) {
     aiMissRuns = 0;
+    // V11.17.11 Laag 3a: fScore-teller loopt PARALLEL aan aiTeller.
+    // Reset op elke lage-fScore-frame (streak-eis) én op kleurwissel.
+    const _hoogFScore = (aiR.fScore || 0) >= FSCORE_OVERRIDE_DREMPEL;
     if (aiR.kleur === aiKleur) {
       aiTeller++;
+      hogeFScoreRuns = _hoogFScore ? hogeFScoreRuns + 1 : 0;
     } else {
       // Kleurwissel: hard resetten — voorkomt dat rood-teller naar groen doorloopt
       aiKleur = aiR.kleur;
       aiTeller = 1;
+      hogeFScoreRuns = _hoogFScore ? 1 : 0;
     }
     tekenOverlay(aiR.box, aiR.fScore, aiR.horizontaal);
     geenTeller = 0;
@@ -3936,8 +3993,16 @@ function verwerkDetecties() {
       slaTrainframeOp('s1', kNr, (yx+yw/2)/YOLO_SIZE, (yy+yh/2)/YOLO_SIZE, yw/YOLO_SIZE, yh/YOLO_SIZE, true);
     }
 
+    // V11.17.11: fase-volgorde-machine — effectieve drempel is AI_DREMPEL(2)
+    // bij verwachte omslag of familiescore-escape, anders AI_DREMPEL_ONVERWACHT(3).
+    const _effDrempel = effectieveAiDrempel(fase, aiR.kleur);
+    // Log-punt: omslag zou vuren onder oude regel maar wordt nu gedempt.
+    if (aiTeller >= AI_DREMPEL && aiTeller < _effDrempel && aiR.kleur !== fase) {
+      volgordeLog('gedempt', fase, aiR.kleur,
+        { teller: aiTeller, drempel: _effDrempel, fscoreOK: hogeFScoreRuns });
+    }
     // AI_DREMPEL=2: officieel — fase, leergeheugen, countdown, zoom vergrendeling
-    if (aiTeller >= AI_DREMPEL) {
+    if (aiTeller >= _effDrempel) {
       staleFaseFrameTeller = 0;
       if (!zoomVergrendeld) {
         zoomVergrendeld = true; vergrendeldZoomNiveau = huidigeZoom;
@@ -3986,7 +4051,8 @@ function verwerkDetecties() {
   aiMissRuns++;
   if (aiMissRuns > TOLERANTIE_RUNS) {
     tekenOverlay(null);
-    if (!zoomTransitieActief) { aiTeller=0; aiKleur=null; }
+    // V11.17.11: fase-teller reset gaat gepaard met fScore-streak reset.
+    if (!zoomTransitieActief) { aiTeller=0; aiKleur=null; hogeFScoreRuns=0; }
     // V8.7i: Zoom ontgrendelen als tolerantie overschreden en geen officiële fase
     // Voorkomt dat vroege vergrendeling te lang vasthoudt bij false positive
     if (fase === null && zoomVergrendeld) {
@@ -4221,6 +4287,7 @@ function verwerkFase(nieuw, horizontaal, conf=null) {
     oranjeCollapseTrigger = false;
   }
   fase = nieuw; faseStart = nu; geenTeller = 0; aiTeller = 0; aiKleur = nieuw;
+  hogeFScoreRuns = 0;                          // V11.17.11: fScore-streak begint opnieuw
   faseBevestigd = nieuw;                       // V11.5.4: Nieuwe fase direct bevestigen
   // V11.5.2: Fase-continuïteit bij dropout
   if (nieuw === laatsteFase && laatsteFaseStart) {
@@ -6648,6 +6715,7 @@ function selecteerNodeHandmatig(nodeId) {
   // vlag voor de veiligheidsregel in checkNodeCorrectieStilstand) niet
   // kloppen als de gebruiker tapt terwijl auto-lock al liep.
   stilstandAutoLock = false;
+  resetVolgordeKennis('handmatig-tap'); // V11.17.11 Laag 3b: mens heeft het woord
   // V10.0.3: Richtingkeuze lock resetten bij handmatige node-wissel
   if (richtingLockNodeId && richtingLockNodeId !== String(nodeId)) {
     richtingLockNodeId = null;
@@ -7282,6 +7350,7 @@ function updateDichtbij(lat, lon) {
     // V11.13.4: bij node-wissel is de vorige-fase-context van het oude
     // kruispunt niet meer relevant voor het nieuwe.
     vorigeFaseVoorRood = null;
+    resetVolgordeKennis('node-wissel'); // V11.17.11 Laag 3c
     v9PijlDetectieRichting = null; v9PijlDetectieConf = 0; v9PijlDetectieTijd = 0;
     if (!sessionHersteld) { bboxAnchorCx = null; bboxAnchorCy = null; bboxAnchorTijd = 0; }
     // W3: reset bevestig state bij node-wissel
@@ -7416,6 +7485,7 @@ function corrigeerNodeAutomatisch(nieuweNode, reden) {
   bevestigWrap.classList.remove('actief');
   correctieMultiframe = null; wachtGroenIntentie = null;
   vorigeFaseVoorRood = null;
+  resetVolgordeKennis('auto-correctie'); // V11.17.11 Laag 3c: nieuwe node = amnesia
 
   // node-switch
   vorigOsmId = nieuw.id;
@@ -7527,6 +7597,7 @@ async function onGPS(pos) {
       isStoplichtVoorbij(huidigActiefStoplichtPositie, {lat,lon}, getSmoothedHeading()) &&
       (Date.now()-zoomVergrendelTijdstip) > 3000) {
     zoomVergrendeld=false; huidigActiefStoplichtPositie=null;
+    resetVolgordeKennis('gps-voorbij'); // V11.17.11 Laag 3c
     vergrendeldNodeId = null;
     // V11.15.2: reset ook bbox-state bij GPS-voorbij zodat de app niet
     // 15-25s aan het oude stoplicht blijft kleven. Volgorde: eerst state
