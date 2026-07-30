@@ -86,6 +86,8 @@
     #kruispunt-blok{text-align:right;min-width:0;flex-shrink:1}
     #kruispunt-naam{font-size:11px;font-weight:600;color:#fff;
       white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:150px}
+    /* V11.17.9 W2: node-keuze twijfel — oranje kleur, geen layout-verandering. */
+    #kruispunt-naam.twijfel{color:var(--oranje)}
     #kruispunt-af{font-family:'Share Tech Mono',monospace;font-size:13px;
       color:var(--blauw);margin-top:1px}
     #kruispunt-dd{font-size:9px;color:rgba(255,255,255,0.3);margin-top:1px}
@@ -547,7 +549,7 @@
 <div id="startscherm">
   <div id="s-icoon">🚦</div>
   <div id="s-titel">Stoplicht<span>IQ</span></div>
-  <div id="s-versie">V11.17.8 — richting-rijen groter, Terug uit toevoeg-check, RADAR-handle rechts</div>
+  <div id="s-versie">V11.17.9 — node-twijfel-waarschuwing + hercontrole bij stilstand</div>
   <div id="s-model-wrap">
     <div id="s-model-rij">
       <div id="s-model-label">🤖 YOLOv8 model laden…</div>
@@ -756,7 +758,7 @@
 
 <script>
 // ═══════════════════════════════════════════════════════════════
-//  StoplichtIQ V11.17.8
+//  StoplichtIQ V11.17.9
 //  V11.10: Zelfkalibratie + vergrendeling + crop smoothing
 //  — S1+S2 bevestiging (kruispunt-level confidence)
 //  — Route-herkenning basis (sequentie-opslag)
@@ -2620,6 +2622,20 @@ const PIJL_AUTO_DREMPEL     = 0.50;
 const PIJL_AUTO_GELDIG_MS   = 10000;
 let laatsteNodeWisselTijd   = 0;
 const NODE_WISSEL_MIN_INTERVAL_MS = 10000;
+
+// V11.17.9: node-keuze twijfel-detectie (W1) + hercontrole bij stilstand (W3).
+// Drempels als benoemde constanten — geen losse getallen in de logica.
+const NODE_CHK_DELTA_M            = 25;    // W1a: verschil gekozen–closest voor twijfel
+const NODE_CHK_STANDSTILL_MAX_M   = 40;    // W1b: max afstand bij stilstand voor twijfel
+const NODE_CHK_STANDSTILL_KMH     = 3;     // W1b+W3: stilstand-drempel (km/u)
+const NODE_CHK_STANDSTILL_DUUR_MS = 3000;  // W3: minimum stilstand-duur voor hercontrole
+const NODE_CHK_CORRECTIE_MARGE_M  = 20;    // W3: alternatief moet zoveel dichterbij zijn
+const NODE_CHK_HEADING_MAX_GRAD   = 60;    // W3: heading-match tolerantie (indien beschikbaar)
+const NODE_CHK_LOG_INTERVAL_MS    = 1000;  // W5: [NODE-CHK] throttle voor twijfel-events
+let dichtstbijOSMTwijfel   = false;        // W1: huidige twijfel-vlag (edge-getriggerd log)
+let laatsteNodeCorrectieTijd = 0;          // W3: bounce-guard (hergebruikt NODE_WISSEL_MIN_INTERVAL_MS)
+let nodeChkLaatsteLog      = 0;            // W5: throttle-timer voor twijfel-log
+let puurDichtsteNodeCache  = null;         // W1: pure closest — {..., afstand} uit laatste updateDichtbij
 
 // V11: Route-herkenning buffer
 let routeBuffer = [];
@@ -6605,6 +6621,11 @@ function selecteerNodeHandmatig(nodeId) {
   handmatigGeselecteerdNodeId = String(nodeId);
   handmatigGeselecteerdTimestamp = Date.now();
   handmatigLockActief = true;
+  // V11.17.9 W3-fix: expliciete tap wist stilstandAutoLock — anders zou de
+  // combinatie handmatigLockActief && !stilstandAutoLock (de "echte tap"-
+  // vlag voor de veiligheidsregel in checkNodeCorrectieStilstand) niet
+  // kloppen als de gebruiker tapt terwijl auto-lock al liep.
+  stilstandAutoLock = false;
   // V10.0.3: Richtingkeuze lock resetten bij handmatige node-wissel
   if (richtingLockNodeId && richtingLockNodeId !== String(nodeId)) {
     richtingLockNodeId = null;
@@ -7130,7 +7151,26 @@ async function forceerVerreFocus(stream) {
 
 // ── OSM HELPERS ───────────────────────────────────────────────
 function updateDichtbij(lat, lon) {
-  if (!osmCache.length) { kNaam.textContent='Geen kaartdata'; kAf.textContent='—'; return; }
+  if (!osmCache.length) {
+    kNaam.textContent='Geen kaartdata'; kAf.textContent='—';
+    // V11.17.9 W1+W2: geen cache = geen twijfel + class wissen
+    puurDichtsteNodeCache = null;
+    dichtstbijOSMTwijfel = false;
+    kNaam.classList.remove('twijfel');
+    return;
+  }
+  // V11.17.9 W1: bereken pure-closest éénmalig — hergebruikt door twijfel-
+  // detectie én door checkNodeCorrectieStilstand later in onGPS.
+  let puurClosest = null, puurClosestAf = Infinity;
+  for (const sl of osmCache) {
+    const af = afstand(lat, lon, sl.lat, sl.lon);
+    if (af < puurClosestAf) { puurClosestAf = af; puurClosest = { ...sl, afstand: af }; }
+  }
+  puurDichtsteNodeCache = puurClosest;
+  // V11.17.9 W2-guard: bij een échte gebruikerstap (handmatig-lock zonder
+  // stilstand-auto) geen twijfel-signaal — hun keuze is de waarheid.
+  const isEchteHandmatig = handmatigLockActief && !stilstandAutoLock;
+
   // V8.9.12: Harde lock — handmatige selectie blokkeert auto-selectie
   if (handmatigLockActief && dichtstbijOSM) {
     const af = afstand(lat, lon, dichtstbijOSM.lat, dichtstbijOSM.lon);
@@ -7138,6 +7178,15 @@ function updateDichtbij(lat, lon) {
     kNaam.textContent = (dichtstbijOSM.naam || 'Stoplicht') + ' 🔒';
     kAf.textContent   = af < 1000 ? `${Math.round(af)}m` : `${(af/1000).toFixed(1)}km`;
     kDD.textContent   = `${DD[huidigDDActief()].ic} ${huidigDDActief()}`;
+    // V11.17.9 W1+W2: bij stilstand-auto-lock alsnog twijfel evalueren
+    // (die lock kan op verkeerde node geland zijn); bij echte tap niet.
+    const twijfelInLock = !isEchteHandmatig
+      && berekenNodeChkTwijfel(dichtstbijOSM, puurClosest);
+    if (twijfelInLock && !dichtstbijOSMTwijfel) {
+      nodeChkLog('twijfel-start', dichtstbijOSM, puurClosest, false);
+    }
+    dichtstbijOSMTwijfel = twijfelInLock;
+    kNaam.classList.toggle('twijfel', twijfelInLock);
     return;
   }
   const nieuw = vindDichtbij(lat, lon, huidigeRichting);
@@ -7229,9 +7278,163 @@ function updateDichtbij(lat, lon) {
   } else {
     dichtstbijOSM = nieuw;
   }
+  // V11.17.9 W1+W2: twijfel-vlag + oranje kleur op #kruispunt-naam.
+  // Edge-getriggerd log — alleen bij overgang naar twijfel, niet elke tick.
+  const twijfelNu = !isEchteHandmatig
+    && berekenNodeChkTwijfel(dichtstbijOSM, puurClosest);
+  if (twijfelNu && !dichtstbijOSMTwijfel) {
+    nodeChkLog('twijfel-start', dichtstbijOSM, puurClosest, false);
+  }
+  dichtstbijOSMTwijfel = twijfelNu;
+  kNaam.classList.toggle('twijfel', twijfelNu);
   if (cacheCentrum && afstand(lat,lon,cacheCentrum.lat,cacheCentrum.lon)>OSM_REFRESH && !cacheBezig) {
     downloadOSM(lat, lon);
   }
+}
+
+// V11.17.9 W1: bepaal of de huidige node-keuze twijfelachtig is.
+// Twee triggers: (a) gekozen is NIET closest en verschil > drempel, of
+// (b) bij stilstand is de gekozen node verder weg dan bij een correct
+// kruispunt voor de hand ligt.
+function berekenNodeChkTwijfel(gekozen, closest) {
+  if (!gekozen || !closest) return false;
+  const gekozenAf = gekozen.afstand ?? 999;
+  const closestAf = closest.afstand ?? 999;
+  if (String(gekozen.id) !== String(closest.id)
+      && (gekozenAf - closestAf) > NODE_CHK_DELTA_M) return true;
+  if (snelheidKmh < NODE_CHK_STANDSTILL_KMH
+      && gekozenAf > NODE_CHK_STANDSTILL_MAX_M) return true;
+  return false;
+}
+
+// V11.17.9 W5: throttled diagnose. Twijfel-events worden gethrottled
+// (max 1/sec, edge-triggered vanuit updateDichtbij); correctie-events
+// NIET — die zijn zeldzaam en belangrijk. Prefix [NODE-CHK].
+function nodeChkLog(reden, gekozen, closest, gecorrigeerd) {
+  if (!gecorrigeerd) {
+    const nu = Date.now();
+    if (nu - nodeChkLaatsteLog < NODE_CHK_LOG_INTERVAL_MS) return;
+    nodeChkLaatsteLog = nu;
+  }
+  const gAf = gekozen ? Math.round(gekozen.afstand ?? -1) : '-';
+  const cAf = closest ? Math.round(closest.afstand ?? -1) : '-';
+  const gId = gekozen ? gekozen.id : '-';
+  const cId = closest ? closest.id : '-';
+  const handmatig = (handmatigLockActief && !stilstandAutoLock) ? 1 : 0;
+  const kmh = (typeof snelheidKmh === 'number') ? snelheidKmh.toFixed(1) : '?';
+  console.log(`[NODE-CHK] ${reden} gek=${gId}(${gAf}m) closest=${cId}(${cAf}m) kmh=${kmh} hand=${handmatig} corr=${gecorrigeerd?1:0}`);
+}
+
+// V11.17.9 W3: hercontrole bij stilstand. Corrigeert alleen als álle
+// voorwaarden gelden. KRITIEKE VEILIGHEIDSREGEL: een handmatig
+// (echte tap) gekozen node wordt NOOIT automatisch overschreven —
+// stilstandAutoLock === false onderscheidt tap van auto-lock.
+function checkNodeCorrectieStilstand(lat, lon) {
+  // 1. stilstand-drempel
+  if (snelheidKmh >= NODE_CHK_STANDSTILL_KMH) return;
+  // 2. minimum stilstand-duur — één GPS-hapering triggert niets
+  if (stilstandSinds === 0
+      || (Date.now() - stilstandSinds) < NODE_CHK_STANDSTILL_DUUR_MS) return;
+  // 3. bounce-guard — geen correctie kort na een vorige
+  if ((Date.now() - laatsteNodeCorrectieTijd) < NODE_WISSEL_MIN_INTERVAL_MS) return;
+  // 4. er moet een gekozen node én een closest zijn
+  if (!dichtstbijOSM || !puurDichtsteNodeCache) return;
+  // 5. VEILIGHEID: handmatige tap NOOIT overschrijven.
+  //    handmatigLockActief && !stilstandAutoLock  =  echte tap.
+  if (handmatigLockActief && !stilstandAutoLock) return;
+  const closest = puurDichtsteNodeCache;
+  // 6. closest moet anders zijn dan gekozen
+  if (String(closest.id) === String(dichtstbijOSM.id)) return;
+  // 7. closest moet duidelijk dichterbij zijn (marge)
+  const gekozenAf = dichtstbijOSM.afstand ?? 999;
+  const closestAf = closest.afstand ?? 999;
+  if ((gekozenAf - closestAf) < NODE_CHK_CORRECTIE_MARGE_M) return;
+  // 8. heading moet passen bij closest — alleen als heading bekend is.
+  //    Bij standstill kan getSmoothedHeading nog een geldige oude waarde
+  //    uit de aanrij bevatten; als er niets is, sla check over (marge
+  //    uit voorwaarde 7 blijft dan de enige gate).
+  const heading = getSmoothedHeading();
+  if (heading != null) {
+    const dLon = (closest.lon - lon) * Math.PI / 180;
+    const lat1 = lat * Math.PI / 180;
+    const lat2 = closest.lat * Math.PI / 180;
+    const y = Math.sin(dLon) * Math.cos(lat2);
+    const x = Math.cos(lat1) * Math.sin(lat2)
+              - Math.sin(lat1) * Math.cos(lat2) * Math.cos(dLon);
+    const bearing = (Math.atan2(y, x) * 180 / Math.PI + 360) % 360;
+    let rv = Math.abs(heading - bearing); if (rv > 180) rv = 360 - rv;
+    if (rv > NODE_CHK_HEADING_MAX_GRAD) return;
+  }
+  // alle gates open — corrigeer
+  corrigeerNodeAutomatisch(closest, 'stilstand-hercontrole');
+}
+
+// V11.17.9 W3+W4: voer de node-correctie uit. Gedraagt zich als een
+// echte node-wissel: sluit lopende cyclus af, reset countdown en
+// richting-blok, reset bbox-anchors. Zet daarna de stilstand-auto-lock
+// op de NIEUWE node — hergebruikt bestaand lock-mechanisme (onGPS
+// :7325-7336) zodat vindDichtbij ons niet terugdraait via score-hysterese.
+function corrigeerNodeAutomatisch(nieuweNode, reden) {
+  if (!nieuweNode || !huidigePos) return;
+  const oude = dichtstbijOSM;
+  const af = afstand(huidigePos.lat, huidigePos.lon, nieuweNode.lat, nieuweNode.lon);
+  const nieuw = { ...nieuweNode, afstand: af };
+
+  // fase-continuïteit: bewaar groene fase van oude node
+  if (fase === 'groen' && groenStart && oude) {
+    slaGroenOpBijPasseren(oude.id);
+  }
+
+  // lopende meting en countdown afbreken — begon bij oude node,
+  // is niet geldig voor nieuwe (W4: liever weggooien dan verkeerd opslaan)
+  cdPill.classList.remove('actief');
+  cdStart = null;
+  activeCdModus = null; activeCdMin = null; activeCdMax = null;
+  bevestigActief = false; cdBereikteNul = false;
+  bevestigWrap.classList.remove('actief');
+  correctieMultiframe = null; wachtGroenIntentie = null;
+  vorigeFaseVoorRood = null;
+
+  // node-switch
+  vorigOsmId = nieuw.id;
+  dichtstbijOSM = nieuw;
+  laatsteNodeWisselTijd = Date.now();
+  laatsteNodeCorrectieTijd = Date.now();
+
+  // nieuwe cd-doel op basis van leergeheugen van nieuwe node
+  activeCdDoel = gewGem(laadM(nieuw.id, huidigDDActief())) || 0;
+
+  // UI-refresh + richting-state
+  bijwerkLeerkaart(nieuw); bijwerkDashboardKnop();
+  resetRijrichtingState();
+  richtingBlokVerborgen = false;
+
+  // bbox-state resetten (mirror van updateDichtbij node-wissel-pad)
+  bboxOverride = null; bboxOverrideTijd = 0;
+  bboxOverrideCamX = null; bboxOverrideCamY = null;
+  bboxOverrideMatchTeller = 0;
+  vergrendeldNodeId = null;
+  bboxAnchorCx = null; bboxAnchorCy = null; bboxAnchorTijd = 0;
+  stickyDetectie = null; stickyMissTeller = 0;
+  tapSeedDetectie = null;
+  v9PijlDetectieRichting = null; v9PijlDetectieConf = 0; v9PijlDetectieTijd = 0;
+
+  // richting-lock hoort bij oude node
+  richtingLockNodeId = null; richtingLockKeuze = null;
+
+  // Verplaats de stilstand-auto-lock naar de nieuwe node zodat score-
+  // hysterese in vindDichtbij ons niet terugdraait naar het foute idee.
+  handmatigGeselecteerdNodeId = String(nieuw.id);
+  handmatigGeselecteerdTimestamp = Date.now();
+  handmatigLockActief = true;
+  stilstandAutoLock = true;
+
+  // twijfel-vlag opnieuw evalueren op de nieuwe keuze
+  dichtstbijOSMTwijfel = false;
+  kNaam.classList.remove('twijfel');
+
+  // W5: correctie-log (niet gethrottled)
+  nodeChkLog(reden, oude, nieuw, true);
 }
 
 // ── GPS ───────────────────────────────────────────────────────
@@ -7340,6 +7543,10 @@ async function onGPS(pos) {
   pGPS.className='pill-dot b'; pGPST.textContent='GPS';
   if (!cacheGeladen && !cacheBezig) downloadOSM(lat, lon);
   else if (cacheGeladen) updateDichtbij(lat, lon);
+  // V11.17.9 W3: hercontrole ná updateDichtbij zodat puurDichtsteNodeCache
+  // en dichtstbijOSM.afstand vers zijn. Zelf gated op stilstand + duur +
+  // veiligheidsregel — draait vaak leeg maar is goedkoop.
+  if (cacheGeladen) checkNodeCorrectieStilstand(lat, lon);
   refreshStadIndienNodig(lat, lon);
 
   // V9.0: Nadering detectie + delayed write
