@@ -545,7 +545,7 @@
 <div id="startscherm">
   <div id="s-icoon">🚦</div>
   <div id="s-titel">Stoplicht<span>IQ</span></div>
-  <div id="s-versie">V11.17.6 — toevoeg-rij voor ontbrekende richtingen</div>
+  <div id="s-versie">V11.17.7 — diagnose-instrumentatie ai:filter (afwijsreden + kandidaat-metadata)</div>
   <div id="s-model-wrap">
     <div id="s-model-rij">
       <div id="s-model-label">🤖 YOLOv8 model laden…</div>
@@ -754,7 +754,7 @@
 
 <script>
 // ═══════════════════════════════════════════════════════════════
-//  StoplichtIQ V11.17.6
+//  StoplichtIQ V11.17.7
 //  V11.10: Zelfkalibratie + vergrendeling + crop smoothing
 //  — S1+S2 bevestiging (kruispunt-level confidence)
 //  — Route-herkenning basis (sequentie-opslag)
@@ -2528,6 +2528,13 @@ let laatstConfLog = 0;
 let debugLaatsteAlle = null;
 let debugLaatsteTopKlasse = -1;
 let debugLaatsteTopScore = 0;
+// V11.17.7 W1/W2: diagnose-globals — afwijsreden en kandidaat-metadata worden
+// in _verwerkWorkerResultaat gezet en door logKlasseVerdelingIndienBeschikbaar
+// naar de conf-log-entry geschreven.
+let debugLaatsteAfwijsReden = null; // 'ok'|'weg'|'lock_afst'|'sticky_miss'|'radius_cap'|'te_klein'|'onder_horizon'|'te_breed'|'buiten_rand'|'geen_klasse'|null
+let debugLaatsteKandH = null;       // bbox-hoogte in YOLO-pixels van hoogst-scorende bruikbare kandidaat
+let debugLaatsteKandCy = null;      // cy als fractie 0..1 van beeldhoogte
+let debugLaatsteKandKlasse = null;  // topklasse-index van kandidaat
 // V11.15.10 DEBUG: helper — leest debug-globals + debugWaarden.ai, throttlet 1/s.
 // Aangeroepen NA elke debugWaarden.ai-update in _verwerkWorkerResultaat.
 function logKlasseVerdelingIndienBeschikbaar() {
@@ -2564,7 +2571,12 @@ function logKlasseVerdelingIndienBeschikbaar() {
     somOranje: Math.round(somOranje * 1000) / 1000,
     alle: alle.map(s => Math.round(s * 1000) / 1000),
     afstandM: (dichtstbijOSM && typeof dichtstbijOSM.afstand === 'number') ? Math.round(dichtstbijOSM.afstand) : null,
-    debugCode
+    debugCode,
+    // V11.17.7 W2: afwijsreden + kandidaat-metadata voor rood-groen diagnose.
+    afwijsReden:     debugLaatsteAfwijsReden,
+    kandidaatH:      debugLaatsteKandH,
+    kandidaatCy:     debugLaatsteKandCy != null ? Math.round(debugLaatsteKandCy * 1000) / 1000 : null,
+    kandidaatKlasse: debugLaatsteKandKlasse
   };
   klasseVerdelingLog.push(entry);
   if (klasseVerdelingLog.length > KLASSE_VERDELING_MAX) klasseVerdelingLog.shift();
@@ -3145,9 +3157,12 @@ function familieScore(detectie) {
 }
 
 function selecteerBesteDetectie(detecties) {
-  if (!detecties.length) return { s1:null, s2Rest:[] };
+  // V11.17.7 W1: laatsteAfwijsReden houdt bij welke filter/tak het beste-kandidaat
+  // laat vallen. Alleen loggen, geen gedragswijziging.
+  let laatsteAfwijsReden = null;
+  if (!detecties.length) return { s1:null, s2Rest:[], afwijsReden:'leeg' };
   const bruikbaar = detecties.filter(d => KLASSE_MAP[d.klasse]);
-  if (!bruikbaar.length) return { s1:null, s2Rest:[] };
+  if (!bruikbaar.length) return { s1:null, s2Rest:[], afwijsReden:'geen_klasse' };
 
   // V11.10.0 W5: vergrendeldNodeId — negeer andere bboxen, gebruik alleen anchor-positie
   if (vergrendeldNodeId && bboxAnchorCx !== null && (Date.now() - bboxAnchorTijd) < BBOX_ANCHOR_TIMEOUT) {
@@ -3162,9 +3177,9 @@ function selecteerBesteDetectie(detecties) {
     }
     if (besteLock && minLockAfst < 120) {
       if (besteLock.klasse >= 4) verwerkPijlDetectie(besteLock.klasse, besteLock.score ?? besteLock.conf ?? 0);
-      return { s1: besteLock, s2Rest: bruikbaar.filter(d => d !== besteLock) };
+      return { s1: besteLock, s2Rest: bruikbaar.filter(d => d !== besteLock), afwijsReden:'ok' };
     }
-    return { s1: null, s2Rest: bruikbaar };
+    return { s1: null, s2Rest: bruikbaar, afwijsReden:'lock_afst' };
   }
 
   // V11.4.5: bbox override — kies dichtstbijzijnde detectie t.o.v. vergrendelde positie
@@ -3236,12 +3251,12 @@ function selecteerBesteDetectie(detecties) {
           stickyDetectie.tijd = Date.now();
           stickyMissTeller = 0;
           if (match.klasse >= 4) verwerkPijlDetectie(match.klasse, match.score ?? match.conf ?? 0);
-          return { s1: match, s2Rest: bruikbaar.filter(d => d !== match) };
+          return { s1: match, s2Rest: bruikbaar.filter(d => d !== match), afwijsReden:'ok' };
         }
         // Geen kandidaat binnen radius
         stickyMissTeller++;
         if (stickyMissTeller < STICKY_MISS_MAX) {
-          return { s1: null, s2Rest: bruikbaar };
+          return { s1: null, s2Rest: bruikbaar, afwijsReden:'sticky_miss' };
         }
         // Miss-quotum overschreden: sticky loslaten. V11.16.5 W2: bewaar
         // eerst de laatste positie/identity zodat de herstel-stap hieronder
@@ -3300,7 +3315,7 @@ function selecteerBesteDetectie(detecties) {
           };
           stickyMissTeller = 0;
           if (match.klasse >= 4) verwerkPijlDetectie(match.klasse, match.score ?? match.conf ?? 0);
-          return { s1: match, s2Rest: bruikbaar.filter(d => d !== match) };
+          return { s1: match, s2Rest: bruikbaar.filter(d => d !== match), afwijsReden:'ok' };
         }
         // Geen herstel-match: valt door naar tap-seed voorrang + closest-op-bboxOverride
       }
@@ -3339,7 +3354,7 @@ function selecteerBesteDetectie(detecties) {
           stickyMissTeller = 0;
           tapSeedDetectie = null; // seed verbruikt
           if (match.klasse >= 4) verwerkPijlDetectie(match.klasse, match.score ?? match.conf ?? 0);
-          return { s1: match, s2Rest: bruikbaar.filter(d => d !== match) };
+          return { s1: match, s2Rest: bruikbaar.filter(d => d !== match), afwijsReden:'ok' };
         }
       }
       // Eerste run OF sticky verlopen: closest-op-override → nieuwe sticky
@@ -3360,7 +3375,7 @@ function selecteerBesteDetectie(detecties) {
       if (bboxOverrideMatchTeller > 0 && minOvAfst > 180) {
         stickyDetectie = null;
         stickyMissTeller = 0;
-        return { s1: null, s2Rest: bruikbaar };
+        return { s1: null, s2Rest: bruikbaar, afwijsReden:'radius_cap' };
       }
       if (besteOv) {
         stickyDetectie = {
@@ -3372,7 +3387,7 @@ function selecteerBesteDetectie(detecties) {
         stickyMissTeller = 0;
         bboxOverrideMatchTeller++;
         if (besteOv.klasse >= 4) verwerkPijlDetectie(besteOv.klasse, besteOv.score ?? besteOv.conf ?? 0);
-        return { s1: besteOv, s2Rest: bruikbaar.filter(d => d !== besteOv) };
+        return { s1: besteOv, s2Rest: bruikbaar.filter(d => d !== besteOv), afwijsReden:'ok' };
       }
     }
   }
@@ -3384,11 +3399,14 @@ function selecteerBesteDetectie(detecties) {
 
   for (const det of bruikbaar) {
     // ── HARDE FILTERS — alleen absolute onmogelijkheden ──────────
-    if (det.w < 4 || det.h < 4) continue;
-    if (det.cy/YOLO_SIZE > MAX_Y_RATIO) continue;
-    if (det.w/YOLO_SIZE > MAX_BOX_W_RATIO) continue;
+    // V11.17.7 W1: eerste continue-reden onthouden (detecties zijn op score
+    // gesorteerd, dus de eerste = hoogst-scorende kandidaat). Geen gedrag-
+    // wijziging — alleen loggen.
+    if (det.w < 4 || det.h < 4) { if (laatsteAfwijsReden === null) laatsteAfwijsReden = 'te_klein'; continue; }
+    if (det.cy/YOLO_SIZE > MAX_Y_RATIO) { if (laatsteAfwijsReden === null) laatsteAfwijsReden = 'onder_horizon'; continue; }
+    if (det.w/YOLO_SIZE > MAX_BOX_W_RATIO) { if (laatsteAfwijsReden === null) laatsteAfwijsReden = 'te_breed'; continue; }
     const relX = det.cx/YOLO_SIZE;
-    if (relX < S1_EDGE_MIN || relX > S1_EDGE_MAX) continue;
+    if (relX < S1_EDGE_MIN || relX > S1_EDGE_MAX) { if (laatsteAfwijsReden === null) laatsteAfwijsReden = 'buiten_rand'; continue; }
 
     // ── SCORE BEREKENING ──────────────────────────────────────────
 
@@ -3497,7 +3515,9 @@ function selecteerBesteDetectie(detecties) {
     }
   }
 
-  return { s1:beste, s2Rest:bruikbaar.filter(d=>d!==beste) };
+  // V11.17.7 W1: als beste bestaat -> 'ok', anders reden van eerste-continue
+  // (of null als loop 0x liep — dan is bruikbaar leeg maar dat is al eerder gevangen).
+  return { s1:beste, s2Rest:bruikbaar.filter(d=>d!==beste), afwijsReden: beste ? 'ok' : (laatsteAfwijsReden || 'geen_kandidaat') };
 }
 
 // ── CONFIDENCE SMOOTHING ──────────────────────────────────────
@@ -3528,6 +3548,9 @@ function _verwerkWorkerResultaat(detecties) {
   resetConfidenceBuffer(zichtbareKlassen);
   if (!detecties.length) {
     debugWaarden.ai = 'ai:weg';
+    // V11.17.7 W2: diagnose-globals bij geen detectie — alle vier null.
+    debugLaatsteAfwijsReden = 'weg';
+    debugLaatsteKandH = null; debugLaatsteKandCy = null; debugLaatsteKandKlasse = null;
     laatsteAI = null; nieuwAIResultaat = true;
     bboxDichtbij = false; // V8.8.2
     s1GebruikteNodesDezeRun.clear();
@@ -3536,10 +3559,19 @@ function _verwerkWorkerResultaat(detecties) {
     try { logKlasseVerdelingIndienBeschikbaar(); } catch(e) {} // V11.15.10 DEBUG
     return;
   }
-  const { s1:beste, s2Rest } = selecteerBesteDetectie(detecties);
+  const { s1:beste, s2Rest, afwijsReden } = selecteerBesteDetectie(detecties);
+  // V11.17.7 W2: hoogst-scorende bruikbare kandidaat (detecties zijn al op score
+  // gesorteerd in postprocessYOLO r3078). Gebruikt voor kandidaatH/Cy/Klasse-log.
+  const bruikbaarLog = detecties.find(d => KLASSE_MAP[d.klasse]);
+  debugLaatsteAfwijsReden = afwijsReden || null;
   if (beste && dichtstbijOSM) s1GebruikteNodesDezeRun.add(String(dichtstbijOSM.id));
   if (!beste) {
     debugWaarden.ai = 'ai:filter';
+    // V11.17.7 W2: bij filter — metadata van de hoogst-scorende bruikbare
+    // kandidaat (null als bruikbaar-lijst leeg is).
+    debugLaatsteKandH = bruikbaarLog ? bruikbaarLog.h : null;
+    debugLaatsteKandCy = bruikbaarLog ? (bruikbaarLog.cy / YOLO_SIZE) : null;
+    debugLaatsteKandKlasse = bruikbaarLog ? bruikbaarLog.klasse : null;
     laatsteAI = null; nieuwAIResultaat = true;
     verwerkS2(s2Rest); s1GebruikteNodesDezeRun.clear();
     try { logKlasseVerdelingIndienBeschikbaar(); } catch(e) {} // V11.15.10 DEBUG
@@ -3548,11 +3580,16 @@ function _verwerkWorkerResultaat(detecties) {
   const kleur = KLASSE_MAP[beste.klasse];
   if (!kleur) {
     debugWaarden.ai = 'ai:uit';
+    // V11.17.7 W2: 'uit' is in de praktijk dead code (klasse 2 is al eerder
+    // gefilterd), maar voor consistentie: metadata van beste (=uit-detectie).
+    debugLaatsteKandH = beste.h; debugLaatsteKandCy = beste.cy / YOLO_SIZE; debugLaatsteKandKlasse = beste.klasse;
     laatsteAI = null; nieuwAIResultaat = true;
     verwerkS2(s2Rest); s1GebruikteNodesDezeRun.clear();
     try { logKlasseVerdelingIndienBeschikbaar(); } catch(e) {} // V11.15.10 DEBUG
     return;
   }
+  // V11.17.7 W2: succes-tak — metadata van de gekozen s1.
+  debugLaatsteKandH = beste.h; debugLaatsteKandCy = beste.cy / YOLO_SIZE; debugLaatsteKandKlasse = beste.klasse;
   const gpsDichtbij = dichtstbijOSM && typeof dichtstbijOSM.afstand === 'number' && dichtstbijOSM.afstand <= 40;
   bboxDichtbij = (beste.h > 140) || (beste.h > 96 && gpsDichtbij);
   const gesmoothedScore = pasConfidenceSmoothingToe(beste.klasse, beste.score);
