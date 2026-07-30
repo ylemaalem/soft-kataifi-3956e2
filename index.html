@@ -549,7 +549,7 @@
 <div id="startscherm">
   <div id="s-icoon">🚦</div>
   <div id="s-titel">Stoplicht<span>IQ</span></div>
-  <div id="s-versie">V11.17.9 — node-twijfel-waarschuwing + hercontrole bij stilstand</div>
+  <div id="s-versie">V11.17.10 — cyclus-cap 180s + mediaan-aggregatie (Release A)</div>
   <div id="s-model-wrap">
     <div id="s-model-rij">
       <div id="s-model-label">🤖 YOLOv8 model laden…</div>
@@ -758,7 +758,7 @@
 
 <script>
 // ═══════════════════════════════════════════════════════════════
-//  StoplichtIQ V11.17.9
+//  StoplichtIQ V11.17.10
 //  V11.10: Zelfkalibratie + vergrendeling + crop smoothing
 //  — S1+S2 bevestiging (kruispunt-level confidence)
 //  — Route-herkenning basis (sequentie-opslag)
@@ -1020,10 +1020,32 @@ function huidigDDActief(timestamp=null) {
 // ── GEWOGEN GEMIDDELDE ────────────────────────────────────────
 function gew(ts, hwt = HALFWAARDETIJD_CYCLUS) { return Math.exp(-(Date.now()-ts)/86400000/hwt); }
 function gewGem(m, hwt = HALFWAARDETIJD_CYCLUS) {
+  // V11.17.10 Laag 2b: gewogen MEDIAAN i.p.v. gemiddelde. Reden: één
+  // corrupte cyclusmeting (dropout-continuïteit die 200-300s produceert)
+  // vervuilde het gemiddelde, waarna checkCyclusReset via een relatieve
+  // drempel steeds ruimhartiger werd (sneeuwbal). De mediaan is
+  // ongevoelig voor zulke uitschieters. Signatuur ongewijzigd:
+  // null bij lege set, anders duur in seconden. Naam blijft `gewGem`
+  // — alle 30+ consumers werken transparant met de nieuwe waarde.
   if (!m.length) return null;
-  let wS=0, gS=0;
-  for (const x of m) { const w=gew(x.tijd, hwt); gS+=x.duur*w; wS+=w; }
-  return wS>0 ? gS/wS : null;
+  const paren = [];
+  for (const x of m) {
+    if (!(x.duur > 0)) continue;
+    const w = gew(x.tijd, hwt);
+    if (!(w > 0)) continue;
+    paren.push({ d: x.duur, w });
+  }
+  if (!paren.length) return null;
+  paren.sort((a, b) => a.d - b.d);
+  let totaal = 0;
+  for (const p of paren) totaal += p.w;
+  const helft = totaal / 2;
+  let cum = 0;
+  for (const p of paren) {
+    cum += p.w;
+    if (cum >= helft) return p.d;
+  }
+  return paren[paren.length - 1].d;
 }
 
 function gewSpreiding(m) {
@@ -1198,7 +1220,7 @@ function toggleLeerLog() {
 function slaOp(osmId, richting, duur, conf=null, bypassAfstand=false, gewichtOverride=null, minDuurOverride=null) {
   leerLog('SLAOP node:' + osmId + ' duur:' + duur + ' conf:' + (conf ? conf.toFixed(2) : '?'));
   const minDuur = (minDuurOverride != null) ? minDuurOverride : 4;
-  if (!osmId || duur < minDuur || duur > 300) return false;
+  if (!osmId || duur < minDuur || duur > 180) return false;  // V11.17.10 Laag 2a: cap 300→180s
   const obsNu = faseStart ? Math.round((performance.now() - faseStart) / 1000) : null;
   const totaalMCheck = Object.keys(DD).reduce((s, d) => s + laadM(osmId, d).length, 0);
   if (totaalMCheck === 0 && (obsNu == null || obsNu < OBS_MINIMUM) && conf != null && conf < 0.20) return false;
@@ -1246,7 +1268,7 @@ function slaOp(osmId, richting, duur, conf=null, bypassAfstand=false, gewichtOve
 
 // V11.5.0: Groene fase opslaan voor volledige cyclus dataset
 function slaGroenOp(osmId, richting, duur, obs) {
-  if (!osmId || !duur || duur < 3 || duur > 300) return;
+  if (!osmId || !duur || duur < 3 || duur > 180) return;  // V11.17.10 Laag 2a: cap 300→180s
   const dd = (typeof huidigDagdeelFinaal !== 'undefined'
     && huidigDagdeelFinaal) ? huidigDagdeelFinaal : huidigDD();
   const sleutel = `${LS_PREFIX}${osmId}_${dd}_groen`;
@@ -1279,7 +1301,7 @@ function slaGroenOpBijPasseren(osmId) {
   if (laatsteGroenNode && laatsteGroenNode !== String(osmId)) return;
   const nu = performance.now();
   const dur = (nu - groenStart) / 1000;
-  if (dur < 3 || dur > 300) return;
+  if (dur < 3 || dur > 180) return;  // V11.17.10 Laag 2a: cap 300→180s
   slaGroenOp(osmId, huidigeRichting, dur, dur);
   leerLog('GROEN bij passeren: ' +
     Math.round(dur) + 's opgeslagen voor ' + osmId);
@@ -1626,7 +1648,7 @@ function laadMV5Geclusterd(nodeId, aanrij, afrij, dd) {
 }
 
 function slaOpV5(nodeId, aanrij, afrij, dd, duur, gewicht) {
-  if (!nodeId || !aanrij || !afrij || !dd || !duur || duur < 4 || duur > 300) return;
+  if (!nodeId || !aanrij || !afrij || !dd || !duur || duur < 4 || duur > 180) return;  // V11.17.10 Laag 2a: cap 300→180s
   const sleutel = v5Sleutel(nodeId, aanrij, afrij, dd);
   let m = laadMV5(nodeId, aanrij, afrij, dd);
   m.push({ duur: Math.round(duur), tijd: Date.now(), gewicht: gewicht ?? 1.0 });
@@ -4152,7 +4174,7 @@ function verwerkFase(nieuw, horizontaal, conf=null) {
     // detectiefout. Sta een lagere minimumduur toe in dat specifieke geval.
     const isGeverifieerdRood = (vorigeFaseVoorRood === 'oranje');
     const effectieveMinDur = isGeverifieerdRood ? 1 : minDur;
-    if (fase === 'rood' && dur > effectieveMinDur && dur < 300 && dichtstbijOSM) {
+    if (fase === 'rood' && dur > effectieveMinDur && dur < 180 && dichtstbijOSM) {  // V11.17.10 Laag 2a: cap 300→180s
       const afstandM = dichtstbijOSM.afstand;
       const volledigeCyclus = berekenCyclusTijd(nodeId, huidigDDActief());
       leerLog('VERWERKFASE fase:' + fase +
