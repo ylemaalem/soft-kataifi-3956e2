@@ -145,9 +145,10 @@
       font-size:14px;cursor:pointer;padding:0 4px;line-height:1;
       -webkit-tap-highlight-color:transparent}
     .rb-sluit:active{color:rgba(255,255,255,0.7)}
-    .rb-rij{display:flex;align-items:center;gap:8px;padding:5px 8px;
+    /* V11.17.8 W1: 44px+ tikdoel — rij ~52px met border. */
+    .rb-rij{display:flex;align-items:center;gap:8px;padding:8px 8px;
       background:rgba(255,255,255,0.04);border:1px solid var(--border);
-      border-radius:6px;cursor:pointer;min-height:24px;
+      border-radius:6px;cursor:pointer;min-height:36px;
       -webkit-tap-highlight-color:transparent;transition:background .15s,border-color .15s}
     .rb-rij:active{background:rgba(255,255,255,0.08)}
     .rb-rij.actief{background:rgba(74,222,128,.12);border-color:rgba(74,222,128,.4)}
@@ -161,12 +162,13 @@
        zodat je bij een nieuw kruispunt de eerste keuze kunt zetten. */
     .rb-toevoeg{display:flex;gap:4px;padding-top:3px;margin-top:2px;
       border-top:1px dashed rgba(255,255,255,0.08)}
+    /* V11.17.8 W1: 44px+ tikdoel — knopje ~50px met border. */
     .rb-tv-btn{flex:1;background:rgba(56,189,248,0.08);color:#7dd3fc;
       border:1px solid rgba(56,189,248,0.2);border-radius:5px;
       font-family:'Rajdhani',sans-serif;font-size:10px;font-weight:600;
-      letter-spacing:0.04em;padding:4px 6px;cursor:pointer;
+      letter-spacing:0.04em;padding:6px 8px;cursor:pointer;
       -webkit-tap-highlight-color:transparent;display:flex;align-items:center;
-      justify-content:center;gap:4px;min-height:22px}
+      justify-content:center;gap:4px;min-height:36px}
     .rb-tv-btn:active{background:rgba(56,189,248,0.16)}
     .rb-tv-pijl{font-size:11px;line-height:1}
     /* V11.17.4 W5: tag-knop verborgen in rijweergave — opslag/overlay/dashboard/export blijven intact */
@@ -545,7 +547,7 @@
 <div id="startscherm">
   <div id="s-icoon">🚦</div>
   <div id="s-titel">Stoplicht<span>IQ</span></div>
-  <div id="s-versie">V11.17.7 — diagnose-instrumentatie ai:filter (afwijsreden + kandidaat-metadata)</div>
+  <div id="s-versie">V11.17.8 — richting-rijen groter, Terug uit toevoeg-check, RADAR-handle rechts</div>
   <div id="s-model-wrap">
     <div id="s-model-rij">
       <div id="s-model-label">🤖 YOLOv8 model laden…</div>
@@ -754,7 +756,7 @@
 
 <script>
 // ═══════════════════════════════════════════════════════════════
-//  StoplichtIQ V11.17.7
+//  StoplichtIQ V11.17.8
 //  V11.10: Zelfkalibratie + vergrendeling + crop smoothing
 //  — S1+S2 bevestiging (kruispunt-level confidence)
 //  — Route-herkenning basis (sequentie-opslag)
@@ -4715,19 +4717,28 @@ function renderRichtingBlok(osm) {
     .sort((a, b) => b.metingen - a.metingen);
 
   const heeftAlg = algMetTot > 0;
-  const zichtbareRichtingen = rijen.slice(0, heeftAlg ? 3 : 4); // max 4 rijen totaal incl. ALG
+  // V11.17.8 W1: max 3 rijen totaal (incl. ALG) i.p.v. 4 — groter tikdoel
+  // vraagt om minder rijen zodat #leer-kaart niet te hoog wordt.
+  const zichtbareRichtingen = rijen.slice(0, heeftAlg ? 2 : 3);
 
   // V11.17.6: welke van {links, rechtdoor, rechts} zijn AL bekend voor deze node?
   // Basis: alle groepen (rijen, niet zichtbareRichtingen) — een richting die
-  // buiten de max-4 valt telt ook als aanwezig. ALG is bewust geen richting.
+  // buiten de max valt telt ook als aanwezig. ALG is bewust geen richting.
   const aanwezig = new Set();
   for (const r of rijen) {
+    // V11.17.8 W2: sla "Terug" over — een 180°-groep mapt via de fallback naar
+    // 'rechtdoor' (r.startsWith(...)-cascade hieronder), waardoor de rechtdoor-
+    // toevoeg-knop ten onrechte zou verdwijnen. Terug is bijna altijd GPS-jitter.
+    if (r.label.tekst === 'Terug') continue;
     const t = r.label.tekst.toLowerCase();
     const richt = t.startsWith('linksaf') ? 'links'
                 : t.startsWith('rechtsaf') ? 'rechts'
                 : 'rechtdoor';
     aanwezig.add(richt);
   }
+  // V11.17.8 W2: whitelist bevat bewust GEEN 'terug' — een 180°-keuze zou bijna
+  // altijd GPS-jitter zijn, niet een echte rijrichting. Toevoegen aan deze
+  // lijst zou een Terug-knopje introduceren dat we niet willen.
   const ontbrekend = ['links', 'rechtdoor', 'rechts'].filter(r => !aanwezig.has(r));
   const tvIcoon = { links: '←', rechtdoor: '↑', rechts: '→' };
   const tvLabel = { links: 'Linksaf', rechtdoor: 'Rechtdoor', rechts: 'Rechtsaf' };
@@ -8241,7 +8252,11 @@ function koppelBboxAanNode(bbox) {
 </div>
 
 <!-- V11.4.2: Radar bottom sheet handle -->
-<div id="radar-handle" style="position:fixed;bottom:50px;left:50%;transform:translateX(-50%);width:120px;height:30px;z-index:41;display:none;flex-direction:column;align-items:center;justify-content:center;cursor:pointer;touch-action:none;padding-bottom:4px;">
+<!-- V11.17.8 W3: verplaatst van midden-onder naar rechts onder #focus-knop.
+     top:174px = focus-knop top(120) + hoogte(44) + marge(10). right:16px matcht
+     focus-knop. Alle overige styling (width, height, z-index 41, achtergrond
+     en tekst in kinderen) is exact behouden. RADAR-functionaliteit intact. -->
+<div id="radar-handle" style="position:fixed;top:174px;right:16px;left:auto;transform:none;width:120px;height:30px;z-index:41;display:none;flex-direction:column;align-items:center;justify-content:center;cursor:pointer;touch-action:none;padding-bottom:4px;">
   <div style="width:48px;height:4px;border-radius:2px;background:rgba(255,255,255,0.4);margin-bottom:4px;box-shadow:0 0 8px rgba(0,0,0,0.6)"></div>
   <div style="font-family:'JetBrains Mono',monospace;font-size:9px;letter-spacing:0.2em;color:rgba(255,255,255,0.55);text-transform:uppercase">↑ RADAR</div>
 </div>
