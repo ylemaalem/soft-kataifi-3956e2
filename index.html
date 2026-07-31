@@ -549,7 +549,7 @@
 <div id="startscherm">
   <div id="s-icoon">🚦</div>
   <div id="s-titel">Stoplicht<span>IQ</span></div>
-  <div id="s-versie">V11.17.14 — opslagoverzicht-export + debug-knop verwijderd</div>
+  <div id="s-versie">V11.17.15 — S2 stopt met nul-schrijven + sanering leergeheugen</div>
   <div id="s-model-wrap">
     <div id="s-model-rij">
       <div id="s-model-label">🤖 YOLOv8 model laden…</div>
@@ -759,7 +759,7 @@
 
 <script>
 // ═══════════════════════════════════════════════════════════════
-//  StoplichtIQ V11.17.14
+//  StoplichtIQ V11.17.15
 //  V11.10: Zelfkalibratie + vergrendeling + crop smoothing
 //  — S1+S2 bevestiging (kruispunt-level confidence)
 //  — Route-herkenning basis (sequentie-opslag)
@@ -1360,6 +1360,40 @@ function migratieSlPos() {
       } catch(e) {}
     }
   }
+}
+
+// V11.17.15 richting C: eenmalige sanering. Verwijdert alle bron:'s2'
+// (duur:0 aanwezigheidsmarkeringen) uit elke sl_v4_-array. Die records
+// waren functioneel dood (geen enkele lezer) en verdrongen echte metingen
+// via de MAX_METINGEN-eviction. De vlag sl_s2_sanering_v1 voorkomt dat de
+// pass bij elke app-start opnieuw draait — hij hoeft maar één keer.
+function saneerS2Nullen() {
+  try {
+    if (localStorage.getItem('sl_s2_sanering_v1') === 'done') return;
+    let nodesAangepast = 0, recordsVerwijderd = 0, charsVoor = 0, charsNa = 0;
+    for (const key of Object.keys(localStorage)) {
+      if (!key.startsWith('sl_v4_')) continue;
+      const raw = localStorage.getItem(key);
+      let arr;
+      try { arr = JSON.parse(raw); } catch(e) { continue; }
+      if (!Array.isArray(arr)) continue;
+      const schoon = arr.filter(m => m && m.bron !== 's2');
+      if (schoon.length === arr.length) continue; // geen s2 in deze array
+      nodesAangepast++;
+      recordsVerwijderd += (arr.length - schoon.length);
+      charsVoor += raw.length;
+      if (schoon.length === 0) {
+        localStorage.removeItem(key); // array bestond 100% uit nullen
+      } else {
+        const nw = JSON.stringify(schoon);
+        charsNa += nw.length;
+        try { localStorage.setItem(key, nw); } catch(e) {}
+      }
+    }
+    localStorage.setItem('sl_s2_sanering_v1', 'done');
+    const kb = ((charsVoor - charsNa) * 2 / 1024).toFixed(1);
+    console.log(`[S2-SANERING] ${recordsVerwijderd} nulrecords uit ${nodesAangepast} nodes verwijderd, ~${kb}KB vrijgemaakt`);
+  } catch(e) {}
 }
 
 function laadAlleGeleerdePosities() {
@@ -2972,6 +3006,8 @@ async function laadONNXModel() {
 }
 laadONNXModel();
 
+saneerS2Nullen(); // V11.17.15 richting C: eenmalige opschoning vóór KP-telling
+
 const aantalKP = telKP();
 const sGehInfo = document.getElementById('s-geh-info');
 if (aantalKP > 0) {
@@ -3984,8 +4020,11 @@ function verwerkS2(overigeBboxen) {
     s2ActieveBboxen++;
     if (s2BboxTeller.get(match.nodeId) < 2) continue;
     const kleur = KLASSE_MAP[bbox.klasse];
-    // Leergeheugen: alleen bij voldoende zekerheid (0.50+) — lagere confidence vervuilt cyclustijden
-    if (kleur && bbox.score >= 0.50) slaLeergeheugenOpS2(match.nodeId, kleur);
+    // V11.17.15 richting C: S2 schrijft GEEN duur:0 aanwezigheidsmarkeringen
+    // meer naar sl_v4_. Die records waren functioneel dood (geen lezer) en
+    // verdrongen echte metingen via de MAX_METINGEN-eviction. Het bruikbare
+    // S2-signaal blijft de in-memory s2BboxTeller (r3983) — ongewijzigd.
+    // (voorheen: if (kleur && bbox.score >= 0.50) slaLeergeheugenOpS2(match.nodeId, kleur);)
     // Trainframes: ook bij lagere confidence (0.35+) — model moet juist van twijfelgevallen leren
     if (trainframesAan) slaTrainframeOp('s2', bbox.klasse, bbox.cx/YOLO_SIZE, bbox.cy/YOLO_SIZE, bbox.w/YOLO_SIZE, bbox.h/YOLO_SIZE, bbox.score < 0.55);
     s2SessieTeller++;
@@ -6947,6 +6986,10 @@ function vindOsmMatchOpRichting(absoluteRichting, maxHoekGraden, maxAfstandMeter
   return bestMatch;
 }
 
+// V11.17.15 richting C: NIET MEER AANGEROEPEN. Behouden zodat de S2-schrijf-
+// intentie leesbaar blijft in de historie; de enige call-site (r3988) is
+// geneutraliseerd. Voeg hier geen nieuwe aanroep aan toe — duur:0 records
+// vervuilen sl_v4_ en verdringen echte metingen.
 function slaLeergeheugenOpS2(nodeId, kleur) {
   if (!nodeId) return;
   const dd=huidigDDActief();
