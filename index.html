@@ -782,6 +782,7 @@ const LS_PREFIX        = 'sl_v4_';
 const LS_PREFIX_V5     = 'sl_v5_';
 const LS_PREFIX_V10    = 'sl_v10_';
 const MAX_METINGEN     = 50;
+const MAX_S2_METINGEN  = 20;  // V11.17.15: eigen cap voor sl_s2_ aanwezigheidsdata (los van sl_v4_)
 const HALFWAARDETIJD_CYCLUS    = 180;  // cyclustijden — traag decay
 const HALFWAARDETIJD_PATROON   = 60;   // fase-percentages — middel decay
 const HALFWAARDETIJD_SPREIDING = 90;   // min/max bereiken — middel-traag decay
@@ -1362,37 +1363,46 @@ function migratieSlPos() {
   }
 }
 
-// V11.17.15 richting C: eenmalige sanering. Verwijdert alle bron:'s2'
-// (duur:0 aanwezigheidsmarkeringen) uit elke sl_v4_-array. Die records
-// waren functioneel dood (geen enkele lezer) en verdrongen echte metingen
-// via de MAX_METINGEN-eviction. De vlag sl_s2_sanering_v1 voorkomt dat de
-// pass bij elke app-start opnieuw draait — hij hoeft maar één keer.
+// V11.17.15 (correctie): eenmalige VERPLAATSING i.p.v. verwijdering. Haalt
+// alle bron:'s2' (duur:0 aanwezigheidsmarkeringen) uit elke sl_v4_-array en
+// verplaatst ze naar de eigen sleutel sl_s2_{nodeId} (met dagdeel-veld uit
+// de bronsleutel). Pas daarna wordt sl_v4_ zonder s2 teruggeschreven, zodat
+// echte metingen weer ruimte krijgen zonder dat de aanwezigheidsdata verloren
+// gaat. Eigen vlag sl_s2mig_v1 — losstaand van de vorige (delete-)
+// vlag, zodat deze pass ook draait als een eerdere build al iets deed.
 function saneerS2Nullen() {
   try {
-    if (localStorage.getItem('sl_s2_sanering_v1') === 'done') return;
-    let nodesAangepast = 0, recordsVerwijderd = 0, charsVoor = 0, charsNa = 0;
+    if (localStorage.getItem('sl_s2mig_v1') === 'done') return;
+    let nodesAangepast = 0, recordsVerplaatst = 0;
     for (const key of Object.keys(localStorage)) {
       if (!key.startsWith('sl_v4_')) continue;
-      const raw = localStorage.getItem(key);
       let arr;
-      try { arr = JSON.parse(raw); } catch(e) { continue; }
+      try { arr = JSON.parse(localStorage.getItem(key)); } catch(e) { continue; }
       if (!Array.isArray(arr)) continue;
+      const s2 = arr.filter(m => m && m.bron === 's2');
+      if (!s2.length) continue; // niets te verplaatsen
       const schoon = arr.filter(m => m && m.bron !== 's2');
-      if (schoon.length === arr.length) continue; // geen s2 in deze array
+      // nodeId + dagdeel uit sl_v4_{nodeId}_{dd}
+      const rest = key.slice('sl_v4_'.length);
+      const idx = rest.lastIndexOf('_');
+      const nodeId = idx > 0 ? rest.slice(0, idx) : rest;
+      const dd = idx > 0 ? rest.slice(idx + 1) : null;
+      // append naar sl_s2_{nodeId}
+      const s2Sleutel = `sl_s2_${nodeId}`;
+      let doel;
+      try { doel = JSON.parse(localStorage.getItem(s2Sleutel)) || []; } catch(e) { doel = []; }
+      if (!Array.isArray(doel)) doel = [];
+      for (const r of s2) { if (r.dd == null && dd) r.dd = dd; doel.push(r); }
+      if (doel.length > MAX_S2_METINGEN) { doel.sort((a,b)=>gew(b.tijd)-gew(a.tijd)); doel = doel.slice(0, MAX_S2_METINGEN); }
+      try { localStorage.setItem(s2Sleutel, JSON.stringify(doel)); } catch(e) {}
+      // sl_v4_ zonder s2 terugschrijven (of verwijderen als leeg)
+      if (schoon.length === 0) localStorage.removeItem(key);
+      else { try { localStorage.setItem(key, JSON.stringify(schoon)); } catch(e) {} }
       nodesAangepast++;
-      recordsVerwijderd += (arr.length - schoon.length);
-      charsVoor += raw.length;
-      if (schoon.length === 0) {
-        localStorage.removeItem(key); // array bestond 100% uit nullen
-      } else {
-        const nw = JSON.stringify(schoon);
-        charsNa += nw.length;
-        try { localStorage.setItem(key, nw); } catch(e) {}
-      }
+      recordsVerplaatst += s2.length;
     }
-    localStorage.setItem('sl_s2_sanering_v1', 'done');
-    const kb = ((charsVoor - charsNa) * 2 / 1024).toFixed(1);
-    console.log(`[S2-SANERING] ${recordsVerwijderd} nulrecords uit ${nodesAangepast} nodes verwijderd, ~${kb}KB vrijgemaakt`);
+    localStorage.setItem('sl_s2mig_v1', 'done');
+    console.log(`[S2-VERPLAATSING] ${recordsVerplaatst} aanwezigheidsrecords uit ${nodesAangepast} sl_v4_-arrays verplaatst naar sl_s2_`);
   } catch(e) {}
 }
 
@@ -2116,13 +2126,14 @@ function exporteerMeetdata() {
   };
   setTimeout(() => {
     try {
-      const uit = { versie:'V11.17.14', geexporteerd:new Date().toISOString(),
-                    passief:{}, bevestig:{}, namen:{}, leer:{} };
+      const uit = { versie:'V11.17.15', geexporteerd:new Date().toISOString(),
+                    passief:{}, bevestig:{}, namen:{}, leer:{}, s2:{} };
       for (const key of Object.keys(localStorage)) {
         let doel = null;
         if (key.startsWith('sl_passief_'))       doel = uit.passief;
         else if (key.startsWith('sl_bevestig_')) doel = uit.bevestig;
         else if (key.startsWith('sl_naam_'))     doel = uit.namen;
+        else if (key.startsWith('sl_s2_'))       doel = uit.s2;   // V11.17.15: eigen bucket
         else if (key.startsWith('sl_v4_'))       doel = uit.leer;
         if (!doel) continue;
         try { doel[key] = JSON.parse(localStorage.getItem(key)); }
@@ -2142,7 +2153,7 @@ function exporteerMeetdata() {
       }
       opslagSleutels.sort((a,b) => b.kb - a.kb);
       const opslagUit = {
-        versie:'V11.17.14', geexporteerd:new Date().toISOString(),
+        versie:'V11.17.15', geexporteerd:new Date().toISOString(),
         totaalKb: Math.round(opslagSleutels.reduce((s,x) => s+x.kb, 0) * 10) / 10,
         sleutels: opslagSleutels
       };
@@ -4020,11 +4031,11 @@ function verwerkS2(overigeBboxen) {
     s2ActieveBboxen++;
     if (s2BboxTeller.get(match.nodeId) < 2) continue;
     const kleur = KLASSE_MAP[bbox.klasse];
-    // V11.17.15 richting C: S2 schrijft GEEN duur:0 aanwezigheidsmarkeringen
-    // meer naar sl_v4_. Die records waren functioneel dood (geen lezer) en
-    // verdrongen echte metingen via de MAX_METINGEN-eviction. Het bruikbare
-    // S2-signaal blijft de in-memory s2BboxTeller (r3983) — ongewijzigd.
-    // (voorheen: if (kleur && bbox.score >= 0.50) slaLeergeheugenOpS2(match.nodeId, kleur);)
+    // V11.17.15 (correctie): S2-aanwezigheid gaat naar de EIGEN sleutel
+    // sl_s2_{nodeId} — niet naar sl_v4_, zodat échte cyclusmetingen niet
+    // verdrongen worden via de MAX_METINGEN-eviction. In-memory s2BboxTeller
+    // (r3983) blijft de confidence-bron voor node-selectie.
+    if (kleur && bbox.score >= 0.50) slaS2Aanwezigheid(match.nodeId, kleur);
     // Trainframes: ook bij lagere confidence (0.35+) — model moet juist van twijfelgevallen leren
     if (trainframesAan) slaTrainframeOp('s2', bbox.klasse, bbox.cx/YOLO_SIZE, bbox.cy/YOLO_SIZE, bbox.w/YOLO_SIZE, bbox.h/YOLO_SIZE, bbox.score < 0.55);
     s2SessieTeller++;
@@ -5266,7 +5277,14 @@ function toggleDagdeelDetail(nodeId, dd) {
   html += `<div class="sl-dd-detail-rij"><span>Gemiddelde</span><span>${gem ? Math.round(gem) + 's' : '—'}</span></div>`;
   html += `<div class="sl-dd-detail-rij"><span>Metingen</span><span>${m.length}</span></div>`;
   const bronS1 = m.filter(x => !x.bron || x.bron === 's1').length;
-  const bronS2 = m.filter(x => x.s2 === true || x.bron === 's2').length;
+  // V11.17.15 (correctie): S2-aanwezigheid staat nu in sl_s2_{nodeId} (per node,
+  // dagdeel als veld). Legacy in-array-s2 kan nog voorkomen tot de verplaatsing
+  // draaide; tel beide zodat de weergave klopt in elke overgangstoestand.
+  let bronS2 = m.filter(x => x.s2 === true || x.bron === 's2').length;
+  try {
+    const s2arr = JSON.parse(localStorage.getItem(`sl_s2_${nodeId}`)) || [];
+    if (Array.isArray(s2arr)) bronS2 += s2arr.filter(r => (r.dd || null) === dd).length;
+  } catch(e) {}
   const bronProxy = m.filter(x => x.bron === 'proxy').length;
   if (bronS1 + bronS2 + bronProxy > 0) {
     const delen = [];
@@ -5520,7 +5538,7 @@ function exporteerData() {
     try {
       const exportData = { versie:'11.4.4', exportDatum:new Date().toISOString(), app:'StoplichtIQ', data:{}, scores:{} };
       for (const key of Object.keys(localStorage)) {
-        if (key.startsWith('sl_v10_')||key.startsWith('sl_v5_')||key.startsWith('sl_v4_')||key.startsWith('sl_v3_')||key.startsWith('sl_tag_')||key.startsWith('sl_naam_')||key.startsWith('sl_richting_')||key.startsWith('sl_route_')||key.startsWith('sl_bevestig_')||key.startsWith('sl_pos_')||key.startsWith('sl_neutraal_')||key==='sl_cam_stats'||key==='sl_stad_cache') {
+        if (key.startsWith('sl_v10_')||key.startsWith('sl_v5_')||key.startsWith('sl_v4_')||key.startsWith('sl_v3_')||key.startsWith('sl_s2_')||key.startsWith('sl_tag_')||key.startsWith('sl_naam_')||key.startsWith('sl_richting_')||key.startsWith('sl_route_')||key.startsWith('sl_bevestig_')||key.startsWith('sl_pos_')||key.startsWith('sl_neutraal_')||key==='sl_cam_stats'||key==='sl_stad_cache') {
           try { exportData.data[key] = JSON.parse(localStorage.getItem(key)); }
           catch(e) { exportData.data[key] = localStorage.getItem(key); }
         }
@@ -5569,7 +5587,7 @@ function importeerData(bestand) {
         // V11.15.4 Fix 4: whitelist gesynchroniseerd met exporteerData —
         // sl_bevestig_, sl_pos_ en sl_cam_stats zaten wél in de export
         // maar werden bij import stil overgeslagen.
-        if (!key.startsWith('sl_v10_')&&!key.startsWith('sl_v5_')&&!key.startsWith('sl_v4_')&&!key.startsWith('sl_v3_')&&!key.startsWith('sl_tag_')&&!key.startsWith('sl_naam_')&&!key.startsWith('sl_richting_')&&!key.startsWith('sl_route_')&&!key.startsWith('sl_bevestig_')&&!key.startsWith('sl_pos_')&&!key.startsWith('sl_neutraal_')&&key!=='sl_cam_stats'&&key!=='sl_stad_cache') { overgeslagen++; continue; }
+        if (!key.startsWith('sl_v10_')&&!key.startsWith('sl_v5_')&&!key.startsWith('sl_v4_')&&!key.startsWith('sl_v3_')&&!key.startsWith('sl_s2_')&&!key.startsWith('sl_tag_')&&!key.startsWith('sl_naam_')&&!key.startsWith('sl_richting_')&&!key.startsWith('sl_route_')&&!key.startsWith('sl_bevestig_')&&!key.startsWith('sl_pos_')&&!key.startsWith('sl_neutraal_')&&key!=='sl_cam_stats'&&key!=='sl_stad_cache') { overgeslagen++; continue; }
         if (localStorage.getItem(key) !== null) { overgeslagen++; continue; }
         try { localStorage.setItem(key, JSON.stringify(waarde)); toegevoegd++; } catch(e) { overgeslagen++; }
       }
@@ -5848,17 +5866,20 @@ function checkLocalStorageRuimte() {
       for (const key of Object.keys(localStorage)) {
         if (key.startsWith('sl_v3_')) localStorage.removeItem(key);
       }
-      // S2 entries opruimen
-      const s2Entries = Object.keys(localStorage)
-        .filter(k=>k.startsWith('sl_v4_'))
-        .map(k=>{ try{return{key:k,data:JSON.parse(localStorage.getItem(k)||'[]')};}catch(e){return null;} })
-        .filter(item=>item&&Array.isArray(item.data)&&item.data.some(m=>m.s2===true||m.bron==='s2'))
-        .sort((a,b)=>Math.min(...a.data.map(m=>m.tijd||0))-Math.min(...b.data.map(m=>m.tijd||0)));
-      s2Entries.slice(0,10).forEach(item=>{
-        const cleaned=item.data.filter(m=>m.s2!==true&&m.bron!=='s2');
-        if (!cleaned.length) localStorage.removeItem(item.key);
-        else localStorage.setItem(item.key, JSON.stringify(cleaned));
-      });
+      // V11.17.15 (correctie): S2-aanwezigheid staat in eigen sl_s2_-sleutels
+      // (presence-only, lage prioriteit). Bij vol geheugen tot de nieuwste 5
+      // per node terugbrengen. (Voorheen: s2 uit sl_v4_ strippen — die data
+      // leeft daar niet meer, dus die pass verviel.)
+      for (const key of Object.keys(localStorage)) {
+        if (!key.startsWith('sl_s2_')) continue;
+        try {
+          const arr = JSON.parse(localStorage.getItem(key) || '[]');
+          if (Array.isArray(arr) && arr.length > 5) {
+            arr.sort((a,b)=>gew(b.tijd)-gew(a.tijd));
+            localStorage.setItem(key, JSON.stringify(arr.slice(0,5)));
+          }
+        } catch(e) { localStorage.removeItem(key); }
+      }
     }
   } catch(e) {}
 }
@@ -6986,18 +7007,21 @@ function vindOsmMatchOpRichting(absoluteRichting, maxHoekGraden, maxAfstandMeter
   return bestMatch;
 }
 
-// V11.17.15 richting C: NIET MEER AANGEROEPEN. Behouden zodat de S2-schrijf-
-// intentie leesbaar blijft in de historie; de enige call-site (r3988) is
-// geneutraliseerd. Voeg hier geen nieuwe aanroep aan toe — duur:0 records
-// vervuilen sl_v4_ en verdringen echte metingen.
-function slaLeergeheugenOpS2(nodeId, kleur) {
+// V11.17.15 (correctie): S2-aanwezigheidsdata gaat naar een EIGEN sleutel
+// sl_s2_{nodeId} — één sleutel per node, los van sl_v4_ en met een eigen
+// ruimere cap (MAX_S2_METINGEN). Zo blijft de perifere aanwezigheids-
+// observatie behouden zonder échte cyclusmetingen te verdringen via de
+// MAX_METINGEN-eviction. Dagdeel staat als veld in het record (de sleutel
+// is niet dd-gesplitst).
+function slaS2Aanwezigheid(nodeId, kleur) {
   if (!nodeId) return;
-  const dd=huidigDDActief();
-  let m=laadM(nodeId,dd);
-  m.push({ duur:0, tijd:Date.now(), richting:Math.round(huidigeRichting||0), bron:'s2', gewicht:OBS_S2, kleur });
-  if (m.length>MAX_METINGEN) { m.sort((a,b)=>gew(b.tijd)-gew(a.tijd)); m=m.slice(0,MAX_METINGEN); }
-  try { localStorage.setItem(`${LS_PREFIX}${nodeId}_${dd}`, JSON.stringify(m)); } catch(e) {}
-  checkLocalStorageRuimte();
+  const sleutel = `sl_s2_${nodeId}`;
+  let m;
+  try { m = JSON.parse(localStorage.getItem(sleutel)) || []; } catch(e) { m = []; }
+  if (!Array.isArray(m)) m = [];
+  m.push({ duur:0, tijd:Date.now(), dd:huidigDDActief(), richting:Math.round(huidigeRichting||0), bron:'s2', gewicht:OBS_S2, kleur });
+  if (m.length > MAX_S2_METINGEN) { m.sort((a,b)=>gew(b.tijd)-gew(a.tijd)); m=m.slice(0,MAX_S2_METINGEN); }
+  try { localStorage.setItem(sleutel, JSON.stringify(m)); } catch(e) {}
 }
 
 // ── TAGGING ───────────────────────────────────────────────────
