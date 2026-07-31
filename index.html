@@ -549,7 +549,7 @@
 <div id="startscherm">
   <div id="s-icoon">🚦</div>
   <div id="s-titel">Stoplicht<span>IQ</span></div>
-  <div id="s-versie">V11.17.11 — fase-volgorde-machine (Laag 1-3)</div>
+  <div id="s-versie">V11.17.13 — passieve meting + meetdata-export</div>
   <div id="s-model-wrap">
     <div id="s-model-rij">
       <div id="s-model-label">🤖 YOLOv8 model laden…</div>
@@ -694,6 +694,7 @@
   <div style="display:flex;gap:10px;padding:12px 16px;background:rgba(255,255,255,0.05);border-radius:10px;margin:0 18px 12px;align-items:center;flex-wrap:wrap;">
     <button onclick="openKaartOverlay()" style="flex:1;padding:10px 14px;background:rgba(10,132,255,0.2);color:#0A84FF;border:1px solid rgba(10,132,255,0.4);border-radius:8px;font-size:13px;cursor:pointer;min-width:100px;">🗺 Toon kaart</button>
     <button id="export-backup-btn" onclick="exporteerData()" style="flex:1;padding:10px 14px;background:rgba(99,199,99,0.2);color:#63c763;border:1px solid rgba(99,199,99,0.4);border-radius:8px;font-size:13px;cursor:pointer;min-width:120px;">📤 Exporteer backup</button>
+    <button id="export-meetdata-btn" onclick="exporteerMeetdata()" style="flex:1;padding:10px 14px;background:rgba(56,189,248,0.15);color:#38bdf8;border:1px solid rgba(56,189,248,0.4);border-radius:8px;font-size:13px;cursor:pointer;min-width:120px;">📈 Exporteer meetdata (0)</button>
     <label style="flex:1;min-width:120px;">
       <input type="file" accept=".json" style="display:none;" onchange="importeerData(this.files[0]);this.value=''">
       <span style="display:block;padding:10px 14px;background:rgba(99,99,199,0.2);color:#6363c7;border:1px solid rgba(99,99,199,0.4);border-radius:8px;font-size:13px;cursor:pointer;text-align:center;">📥 Importeer backup</span>
@@ -758,7 +759,7 @@
 
 <script>
 // ═══════════════════════════════════════════════════════════════
-//  StoplichtIQ V11.17.11
+//  StoplichtIQ V11.17.13
 //  V11.10: Zelfkalibratie + vergrendeling + crop smoothing
 //  — S1+S2 bevestiging (kruispunt-level confidence)
 //  — Route-herkenning basis (sequentie-opslag)
@@ -1959,6 +1960,165 @@ function updateSchaduwCountdownNul(basisCyclusSec) {
   };
 }
 
+// ── V11.17.13: PASSIEVE METING ────────────────────────────────
+// Zuiver meelezend systeem. Legt bij elke rood→groen overgang waarbij een
+// countdown liep vast wat de werkelijke roodduur was en wat de vier schaduw-
+// methodes op countdown-START voorspelden. Schrijft UITSLUITEND naar
+// sl_passief_*; raakt de countdown, de fase-logica en het leergeheugen niet aan.
+
+// W6: throttled diagnose-log, max 1/sec.
+function passiefLog(reden, extras) {
+  const nu = Date.now();
+  if (nu - passiefLogLaatste < 1000) return;
+  passiefLogLaatste = nu;
+  const kern = extras
+    ? Object.entries(extras).map(([k, v]) => `${k}=${v}`).join(' ')
+    : '';
+  console.log(`[PASSIEF] ${reden} ${kern}`);
+}
+
+// W1: bevries de voorspellingen op countdown-start. Geen echte countdown
+// (lerend/geen data) → snapshot blijft null. Leest alleen bestaande state.
+function maakPassiefSnapshot() {
+  if (!dichtstbijOSM || cdStart === null || !(activeCdDoel > 0)) { passiefSnapshot = null; return; }
+  const aanrij = v9AanrijHeading != null
+    ? gpsHeadingNaarWindrichting(v9AanrijSnelheidHeading ?? v9AanrijHeading) : null;
+  passiefSnapshot = {
+    nodeId: String(dichtstbijOSM.id),
+    dd: huidigDDActief(),
+    m1: schaduwWaarden.m1, m2: schaduwWaarden.m2,
+    m3: schaduwWaarden.m3, m4: schaduwWaarden.m4,
+    bron: activeCdModus,          // 'zeker'|'geschat'|'vaag' (0.4c-beslispunt)
+    richt: aanrij,
+    zagOvergang: zagRoodOvergang  // 0.5-beslispunt: eigen vlag
+  };
+}
+
+// W3: nieuwe helper (geen V11.17.12-helper beschikbaar). Roept op node-wissel,
+// GPS-voorbij, auto-correctie, handmatige tap en resetNeutraal.
+function invalideerPassiefSnapshot() { passiefSnapshot = null; }
+
+// W2: schrijf één record bij rood→groen als de snapshot geldig is en bij
+// dezelfde node hoort. Grenzen 4..180s identiek aan V11.17.10 schrijfpaden.
+function slaPassiefMeting(werkDur) {
+  if (passiefSnapshot === null) { passiefLog('afgewezen', { reden: 'geen-snapshot' }); return; }
+  const nodeId = dichtstbijOSM ? String(dichtstbijOSM.id) : null;
+  if (!nodeId || nodeId !== passiefSnapshot.nodeId) {
+    passiefLog('afgewezen', { reden: 'node-mismatch', snap: passiefSnapshot.nodeId, nu: nodeId });
+    passiefSnapshot = null;
+    return;
+  }
+  const werk = Math.round(werkDur);
+  if (werk < 4 || werk > 180) {
+    passiefLog('afgewezen', { reden: 'buiten-grenzen', werk });
+    passiefSnapshot = null;
+    return;
+  }
+  const now = new Date();
+  const record = {
+    t: Date.now(),
+    dd: passiefSnapshot.dd,
+    werk,
+    m1: passiefSnapshot.m1 != null ? Math.round(passiefSnapshot.m1) : null,
+    m2: passiefSnapshot.m2 != null ? Math.round(passiefSnapshot.m2) : null,
+    m3: passiefSnapshot.m3 != null ? Math.round(passiefSnapshot.m3) : null,
+    m4: passiefSnapshot.m4 != null ? Math.round(passiefSnapshot.m4) : null,
+    bron: passiefSnapshot.bron,
+    richt: passiefSnapshot.richt,
+    zagOvergang: passiefSnapshot.zagOvergang,
+    dow: now.getDay(),
+    uur: now.getHours()
+  };
+  const sleutel = 'sl_passief_' + nodeId;
+  let arr;
+  try { arr = JSON.parse(localStorage.getItem(sleutel)) || []; } catch(e) { arr = []; }
+  if (!Array.isArray(arr)) arr = [];
+  arr.push(record);
+  if (arr.length > 100) arr = arr.slice(-100);  // oudste eruit
+  try { localStorage.setItem(sleutel, JSON.stringify(arr)); } catch(e) {}
+  // W6: welke methode zat het dichtst?
+  let besteM = null, besteDiff = Infinity;
+  for (const k of ['m1', 'm2', 'm3', 'm4']) {
+    if (record[k] != null) {
+      const d = Math.abs(record[k] - werk);
+      if (d < besteDiff) { besteDiff = d; besteM = k; }
+    }
+  }
+  passiefLog('record', {
+    node: nodeId, werk, m1: record.m1, m2: record.m2, m3: record.m3, m4: record.m4,
+    best: besteM, zag: record.zagOvergang
+  });
+  passiefSnapshot = null;  // verbruikt
+}
+
+// W5: totaal aantal passieve metingen over alle nodes.
+function telPassiefMetingen() {
+  let n = 0;
+  for (const key of Object.keys(localStorage)) {
+    if (!key.startsWith('sl_passief_')) continue;
+    try { const arr = JSON.parse(localStorage.getItem(key)); if (Array.isArray(arr)) n += arr.length; } catch(e) {}
+  }
+  return n;
+}
+
+function updatePassiefTeller() {
+  const btn = document.getElementById('export-meetdata-btn');
+  if (btn) btn.textContent = `📈 Exporteer meetdata (${telPassiefMetingen()})`;
+}
+
+// W4: exporteer meetdata. Zelfde share+blob-uitvoermechanisme als exporteerData.
+function exporteerMeetdata() {
+  const btn = document.getElementById('export-meetdata-btn');
+  const origTekst = btn ? btn.textContent : null;
+  if (btn) { btn.textContent = '⏳ Bezig...'; btn.disabled = true; }
+  const herstelBtn = () => { if (btn) { btn.textContent = origTekst; btn.disabled = false; } };
+  const downloadFallback = (jsonString, bestandsnaam) => {
+    const blob = new Blob([jsonString], { type:'application/json' });
+    const url  = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href=url; link.download=bestandsnaam;
+    document.body.appendChild(link); link.click(); document.body.removeChild(link);
+    setTimeout(()=>URL.revokeObjectURL(url), 1000);
+  };
+  setTimeout(() => {
+    try {
+      const uit = { versie:'V11.17.13', geexporteerd:new Date().toISOString(),
+                    passief:{}, bevestig:{}, namen:{}, leer:{} };
+      for (const key of Object.keys(localStorage)) {
+        let doel = null;
+        if (key.startsWith('sl_passief_'))       doel = uit.passief;
+        else if (key.startsWith('sl_bevestig_')) doel = uit.bevestig;
+        else if (key.startsWith('sl_naam_'))     doel = uit.namen;
+        else if (key.startsWith('sl_v4_'))       doel = uit.leer;
+        if (!doel) continue;
+        try { doel[key] = JSON.parse(localStorage.getItem(key)); }
+        catch(e) { doel[key] = localStorage.getItem(key); }
+      }
+      const jsonString = JSON.stringify(uit);
+      const d = new Date();
+      const datum = `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
+      const bestandsnaam = `stoplichtiq_meetdata_${datum}.json`;
+      if (navigator.share && navigator.canShare) {
+        const bestand = new File([jsonString], bestandsnaam, { type:'application/json' });
+        if (navigator.canShare({ files:[bestand] })) {
+          navigator.share({ files:[bestand], title:'StoplichtIQ Meetdata' })
+            .then(() => { alert('✅ Meetdata gedeeld'); herstelBtn(); })
+            .catch(e => {
+              if (e && e.name === 'AbortError') { herstelBtn(); return; }
+              alert('⚠️ Delen mislukt, download start...');
+              downloadFallback(jsonString, bestandsnaam);
+              herstelBtn();
+            });
+          return;
+        }
+      }
+      downloadFallback(jsonString, bestandsnaam);
+      alert('✅ Meetdata gedownload');
+      herstelBtn();
+    } catch(e) { alert('Export mislukt: '+e.message); herstelBtn(); }
+  }, 0);
+}
+
 // ── V9.0: DELAYED WRITE ───────────────────────────────────────
 function voerV9DelayedWriteUit(huidigeHeading) {
   leerLog('V9START duur:' + v9KandidaatDuur + ' node:' + v9KandidaatNode);
@@ -2149,6 +2309,15 @@ let huidigCdBron=null, huidigCdWaarde=null;
 // bij nul-bereik in tickCd. Puur voor bevestig-log; geen invloed op UI.
 let schaduwWaarden = { m1: null, m2: null, m3: null, m4: null };
 let schaduwCountdownNul = { m1: null, m2: null, m3: null, m4: null };
+// V11.17.13: passieve meting. passiefSnapshot bevriest de voorspellingen bij
+// countdown-start (W1). zagRoodOvergang legt vast of de app de groen/oranje→rood
+// overgang op DEZE node zelf zag (0.5-beslispunt: eigen vlag, niet
+// vorigeFaseVoorRood). faseNodeId koppelt de huidige fase aan een node om de
+// node-wissel-lek te dichten. Zuiver meelezend — raakt countdown/fase/leergeheugen niet.
+let passiefSnapshot = null;
+let zagRoodOvergang = false;
+let faseNodeId = null;
+let passiefLogLaatste = 0;
 let laatsteFase=null, laatsteFaseStart=null;
 // V11.13.4: bewaart welke fase ONMIDDELLIJK voorafging aan de huidige
 // rode fase — alleen gezet bij een ECHTE fase-wissel naar rood, niet
@@ -4157,6 +4326,8 @@ function resetNeutraal() {
   huidigeGlosa=null; osmVoorspellingActief=false;
   cdPill.classList.remove('actief');
   bevestigActief = false; bevestigWrap.classList.remove('actief');
+  invalideerPassiefSnapshot(); // V11.17.13 W3
+  zagRoodOvergang = false; faseNodeId = null; // V11.17.13
   stopCd();
 }
 
@@ -4273,6 +4444,12 @@ function verwerkFase(nieuw, horizontaal, conf=null) {
       }
     }
   }
+  // V11.17.13 W2: passieve meting bij rood→groen. Zuiver meelezend — schrijft
+  // uitsluitend naar sl_passief_*. Zelfde faseStart als het leergeheugen-pad
+  // hierboven, dus consistente roodduur.
+  if (fase === 'rood' && nieuw === 'groen' && faseStart) {
+    slaPassiefMeting((nu - faseStart) / 1000);
+  }
   // V10.0.5: Bij rood detectie → flush collapse buffer
   if (nieuw === 'rood') {
     if (oranjeCollapseBuffer.length > 0 && trainframesAan) {
@@ -4286,7 +4463,14 @@ function verwerkFase(nieuw, horizontaal, conf=null) {
     oranjeCollapseBuffer = [];
     oranjeCollapseTrigger = false;
   }
+  // V11.17.13 0.5: zag de app de overgang naar rood zelf? Alleen waar als de
+  // vorige waargenomen fase op DEZELFDE node groen/oranje was. De faseNodeId-
+  // match dicht de node-wissel-lek die vorigeFaseVoorRood (en kale `fase`) heeft.
+  if (nieuw === 'rood') {
+    zagRoodOvergang = ((fase === 'groen' || fase === 'oranje') && faseNodeId === nodeId);
+  }
   fase = nieuw; faseStart = nu; geenTeller = 0; aiTeller = 0; aiKleur = nieuw;
+  faseNodeId = nodeId;                         // V11.17.13: node van de huidige fase
   hogeFScoreRuns = 0;                          // V11.17.11: fScore-streak begint opnieuw
   faseBevestigd = nieuw;                       // V11.5.4: Nieuwe fase direct bevestigen
   // V11.5.2: Fase-continuïteit bij dropout
@@ -4406,6 +4590,9 @@ function startCd() {
       }
     }
   }
+  // V11.17.13 W1: bevries voorspellingen zodra de countdown daadwerkelijk
+  // gestart is. Alleen lezen — geen effect op de countdown-keten.
+  maakPassiefSnapshot();
 }
 
 function stopCd() {
@@ -4978,6 +5165,7 @@ function openDashboard() {
     laadDashboard();
     updateTrainframesTeller();
     updateCamStatsTeller();
+    updatePassiefTeller(); // V11.17.13 W5
   }, 0);
 }
 
@@ -6716,6 +6904,7 @@ function selecteerNodeHandmatig(nodeId) {
   // kloppen als de gebruiker tapt terwijl auto-lock al liep.
   stilstandAutoLock = false;
   resetVolgordeKennis('handmatig-tap'); // V11.17.11 Laag 3b: mens heeft het woord
+  invalideerPassiefSnapshot(); // V11.17.13 W3
   // V10.0.3: Richtingkeuze lock resetten bij handmatige node-wissel
   if (richtingLockNodeId && richtingLockNodeId !== String(nodeId)) {
     richtingLockNodeId = null;
@@ -7351,6 +7540,7 @@ function updateDichtbij(lat, lon) {
     // kruispunt niet meer relevant voor het nieuwe.
     vorigeFaseVoorRood = null;
     resetVolgordeKennis('node-wissel'); // V11.17.11 Laag 3c
+    invalideerPassiefSnapshot(); // V11.17.13 W3
     v9PijlDetectieRichting = null; v9PijlDetectieConf = 0; v9PijlDetectieTijd = 0;
     if (!sessionHersteld) { bboxAnchorCx = null; bboxAnchorCy = null; bboxAnchorTijd = 0; }
     // W3: reset bevestig state bij node-wissel
@@ -7486,6 +7676,7 @@ function corrigeerNodeAutomatisch(nieuweNode, reden) {
   correctieMultiframe = null; wachtGroenIntentie = null;
   vorigeFaseVoorRood = null;
   resetVolgordeKennis('auto-correctie'); // V11.17.11 Laag 3c: nieuwe node = amnesia
+  invalideerPassiefSnapshot(); // V11.17.13 W3
 
   // node-switch
   vorigOsmId = nieuw.id;
@@ -7598,6 +7789,7 @@ async function onGPS(pos) {
       (Date.now()-zoomVergrendelTijdstip) > 3000) {
     zoomVergrendeld=false; huidigActiefStoplichtPositie=null;
     resetVolgordeKennis('gps-voorbij'); // V11.17.11 Laag 3c
+    invalideerPassiefSnapshot(); // V11.17.13 W3
     vergrendeldNodeId = null;
     // V11.15.2: reset ook bbox-state bij GPS-voorbij zodat de app niet
     // 15-25s aan het oude stoplicht blijft kleven. Volgorde: eerst state
