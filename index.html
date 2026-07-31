@@ -549,7 +549,7 @@
 <div id="startscherm">
   <div id="s-icoon">🚦</div>
   <div id="s-titel">Stoplicht<span>IQ</span></div>
-  <div id="s-versie">V11.17.13 — passieve meting + meetdata-export</div>
+  <div id="s-versie">V11.17.14 — opslagoverzicht-export + debug-knop verwijderd</div>
   <div id="s-model-wrap">
     <div id="s-model-rij">
       <div id="s-model-label">🤖 YOLOv8 model laden…</div>
@@ -700,9 +700,6 @@
       <span style="display:block;padding:10px 14px;background:rgba(99,99,199,0.2);color:#6363c7;border:1px solid rgba(99,99,199,0.4);border-radius:8px;font-size:13px;cursor:pointer;text-align:center;">📥 Importeer backup</span>
     </label>
   </div>
-  <button onclick="debugOpslag()" style="width:calc(100% - 36px);margin:0 18px 12px;padding:10px;background:rgba(255,100,0,0.2);color:#ff6400;border:1px solid rgba(255,100,0,0.4);border-radius:8px;font-size:13px;cursor:pointer;">
-    🔍 Debug opslag (tijdelijk)
-  </button>
   <div style="display:flex;flex-direction:column;gap:8px;padding:12px 16px;background:rgba(191,90,242,0.08);border:1px solid rgba(191,90,242,0.2);border-radius:10px;margin:0 18px 12px">
     <div style="display:flex;align-items:center;justify-content:space-between">
       <div style="font-size:12px;font-weight:600;color:#BF5AF2;letter-spacing:0.08em;text-transform:uppercase">Trainingsdata</div>
@@ -762,7 +759,7 @@
 
 <script>
 // ═══════════════════════════════════════════════════════════════
-//  StoplichtIQ V11.17.13
+//  StoplichtIQ V11.17.14
 //  V11.10: Zelfkalibratie + vergrendeling + crop smoothing
 //  — S1+S2 bevestiging (kruispunt-level confidence)
 //  — Route-herkenning basis (sequentie-opslag)
@@ -2085,7 +2082,7 @@ function exporteerMeetdata() {
   };
   setTimeout(() => {
     try {
-      const uit = { versie:'V11.17.13', geexporteerd:new Date().toISOString(),
+      const uit = { versie:'V11.17.14', geexporteerd:new Date().toISOString(),
                     passief:{}, bevestig:{}, namen:{}, leer:{} };
       for (const key of Object.keys(localStorage)) {
         let doel = null;
@@ -2101,22 +2098,42 @@ function exporteerMeetdata() {
       const d = new Date();
       const datum = `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
       const bestandsnaam = `stoplichtiq_meetdata_${datum}.json`;
+
+      // V11.17.14: tweede export — alleen sleutelnaam + grootte in KB, geen inhoud.
+      const opslagSleutels = [];
+      for (let i = 0; i < localStorage.length; i++) {
+        const k = localStorage.key(i);
+        const kb = Math.round(new Blob([localStorage.getItem(k)]).size / 1024 * 10) / 10;
+        opslagSleutels.push({ sleutel: k, kb });
+      }
+      opslagSleutels.sort((a,b) => b.kb - a.kb);
+      const opslagUit = {
+        versie:'V11.17.14', geexporteerd:new Date().toISOString(),
+        totaalKb: Math.round(opslagSleutels.reduce((s,x) => s+x.kb, 0) * 10) / 10,
+        sleutels: opslagSleutels
+      };
+      const opslagJson = JSON.stringify(opslagUit);
+      const opslagBestandsnaam = `stoplichtiq_opslag_${datum}.json`;
+
       if (navigator.share && navigator.canShare) {
         const bestand = new File([jsonString], bestandsnaam, { type:'application/json' });
-        if (navigator.canShare({ files:[bestand] })) {
-          navigator.share({ files:[bestand], title:'StoplichtIQ Meetdata' })
-            .then(() => { alert('✅ Meetdata gedeeld'); herstelBtn(); })
+        const opslagBestand = new File([opslagJson], opslagBestandsnaam, { type:'application/json' });
+        if (navigator.canShare({ files:[bestand, opslagBestand] })) {
+          navigator.share({ files:[bestand, opslagBestand], title:'StoplichtIQ Meetdata' })
+            .then(() => { alert('✅ Meetdata + opslagoverzicht gedeeld'); herstelBtn(); })
             .catch(e => {
               if (e && e.name === 'AbortError') { herstelBtn(); return; }
               alert('⚠️ Delen mislukt, download start...');
               downloadFallback(jsonString, bestandsnaam);
+              downloadFallback(opslagJson, opslagBestandsnaam);
               herstelBtn();
             });
           return;
         }
       }
       downloadFallback(jsonString, bestandsnaam);
-      alert('✅ Meetdata gedownload');
+      downloadFallback(opslagJson, opslagBestandsnaam);
+      alert('✅ Meetdata + opslagoverzicht gedownload');
       herstelBtn();
     } catch(e) { alert('Export mislukt: '+e.message); herstelBtn(); }
   }, 0);
@@ -5739,22 +5756,6 @@ function kiesBesteWeg(wegen, gpsHeading) {
     if (eff<kleinste) { kleinste=eff; besteWeg=weg; }
   }
   return besteWeg||wegen.find(w=>w.tags&&w.tags.name)||null;
-}
-
-// Tijdelijke debug-tool: toont per localStorage-sleutel de grootte in KB,
-// gesorteerd groot naar klein, via alert (zichtbaar op telefoon zonder
-// devtools). Geen opslag-effect.
-function debugOpslag() {
-  const items = [];
-  for (let i = 0; i < localStorage.length; i++) {
-    const k = localStorage.key(i);
-    const bytes = new Blob([localStorage.getItem(k)]).size;
-    items.push({ sleutel: k, kb: (bytes/1024).toFixed(1) });
-  }
-  items.sort((a,b) => b.kb - a.kb);
-  const totaal = items.reduce((s,x) => s + parseFloat(x.kb), 0);
-  const regels = items.slice(0,15).map(x => x.kb + 'KB — ' + x.sleutel).join('\n');
-  alert('Totaal: ' + totaal.toFixed(1) + 'KB\n\n' + regels);
 }
 
 function checkLocalStorageRuimte() {
