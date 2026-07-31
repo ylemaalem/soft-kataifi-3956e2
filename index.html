@@ -700,6 +700,9 @@
       <span style="display:block;padding:10px 14px;background:rgba(99,99,199,0.2);color:#6363c7;border:1px solid rgba(99,99,199,0.4);border-radius:8px;font-size:13px;cursor:pointer;text-align:center;">📥 Importeer backup</span>
     </label>
   </div>
+  <button onclick="debugOpslag()" style="width:calc(100% - 36px);margin:0 18px 12px;padding:10px;background:rgba(255,100,0,0.2);color:#ff6400;border:1px solid rgba(255,100,0,0.4);border-radius:8px;font-size:13px;cursor:pointer;">
+    🔍 Debug opslag (tijdelijk)
+  </button>
   <div style="display:flex;flex-direction:column;gap:8px;padding:12px 16px;background:rgba(191,90,242,0.08);border:1px solid rgba(191,90,242,0.2);border-radius:10px;margin:0 18px 12px">
     <div style="display:flex;align-items:center;justify-content:space-between">
       <div style="font-size:12px;font-weight:600;color:#BF5AF2;letter-spacing:0.08em;text-transform:uppercase">Trainingsdata</div>
@@ -5736,6 +5739,22 @@ function kiesBesteWeg(wegen, gpsHeading) {
     if (eff<kleinste) { kleinste=eff; besteWeg=weg; }
   }
   return besteWeg||wegen.find(w=>w.tags&&w.tags.name)||null;
+}
+
+// Tijdelijke debug-tool: toont per localStorage-sleutel de grootte in KB,
+// gesorteerd groot naar klein, via alert (zichtbaar op telefoon zonder
+// devtools). Geen opslag-effect.
+function debugOpslag() {
+  const items = [];
+  for (let i = 0; i < localStorage.length; i++) {
+    const k = localStorage.key(i);
+    const bytes = new Blob([localStorage.getItem(k)]).size;
+    items.push({ sleutel: k, kb: (bytes/1024).toFixed(1) });
+  }
+  items.sort((a,b) => b.kb - a.kb);
+  const totaal = items.reduce((s,x) => s + parseFloat(x.kb), 0);
+  const regels = items.slice(0,15).map(x => x.kb + 'KB — ' + x.sleutel).join('\n');
+  alert('Totaal: ' + totaal.toFixed(1) + 'KB\n\n' + regels);
 }
 
 function checkLocalStorageRuimte() {
