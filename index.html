@@ -549,7 +549,7 @@
 <div id="startscherm">
   <div id="s-icoon">🚦</div>
   <div id="s-titel">Stoplicht<span>IQ</span></div>
-  <div id="s-versie">V11.17.15 — S2 stopt met nul-schrijven + sanering leergeheugen</div>
+  <div id="s-versie">V11.17.16 — fase-continuïteit begrensd op venster + node (Release B)</div>
   <div id="s-model-wrap">
     <div id="s-model-rij">
       <div id="s-model-label">🤖 YOLOv8 model laden…</div>
@@ -759,7 +759,7 @@
 
 <script>
 // ═══════════════════════════════════════════════════════════════
-//  StoplichtIQ V11.17.15
+//  StoplichtIQ V11.17.16
 //  V11.10: Zelfkalibratie + vergrendeling + crop smoothing
 //  — S1+S2 bevestiging (kruispunt-level confidence)
 //  — Route-herkenning basis (sequentie-opslag)
@@ -788,6 +788,11 @@ const HALFWAARDETIJD_PATROON   = 60;   // fase-percentages — middel decay
 const HALFWAARDETIJD_SPREIDING = 90;   // min/max bereiken — middel-traag decay
 const CYCLUS_RESET_REEKS = 5;
 const GEEN_RESET       = 8;
+// V11.17.16 (Release B): venster waarbinnen een onderbroken fase hersteld mag
+// worden ná een dropout. Verlaagd van de vroegere losse 120s naar 30s, én
+// alleen op DEZELFDE node (zie verwerkFase-restore). Voorkomt dat een meting
+// van kruispunt A doorloopt bij kruispunt B.
+const FASE_CONTINUITEIT_MS = 30000;
 const YOLO_SIZE        = 640;
 
 // Detectiedrempels — verlaagd voor betere nachtdetectie
@@ -2384,6 +2389,7 @@ let zagRoodOvergang = false;
 let faseNodeId = null;
 let passiefLogLaatste = 0;
 let laatsteFase=null, laatsteFaseStart=null;
+let laatsteFaseNodeId=null; // V11.17.16: node van de bewaarde fase, voor node-gebonden restore
 // V11.13.4: bewaart welke fase ONMIDDELLIJK voorafging aan de huidige
 // rode fase — alleen gezet bij een ECHTE fase-wissel naar rood, niet
 // bij continuïteit-herstel na een dropout. Nodig om te onderscheiden
@@ -2400,6 +2406,7 @@ let aiTeller=0, aiKleur=null, geenTeller=0;
 let hogeFScoreRuns = 0;          // Laag 3a: opeenvolgende runs met fScore ≥ FSCORE_OVERRIDE_DREMPEL
 let volgordeLogLaatste = 0;      // [VOLGORDE] throttle
 let volgordeKennisResetTijd = 0; // Laag 3b/c: timestamp van laatste amnesia-trigger
+let continuiteitLogLaatste = 0;  // V11.17.16: [CONTINUITEIT] throttle
 let audioCtx=null, wakeLock=null, frameT=0;
 let cameraTrack=null;
 
@@ -3860,6 +3867,27 @@ function volgordeLog(reden, van, naar, extras) {
   console.log(`[VOLGORDE] ${reden} van=${van || '-'} naar=${naar || '-'} ${kern}`);
 }
 
+// V11.17.16 (Release B): throttled diagnose voor de fase-continuïteit-restore,
+// zelfde stijl als volgordeLog. Max 1 regel/sec.
+function continuiteitLog(reden, extras) {
+  const nu = Date.now();
+  if (nu - continuiteitLogLaatste < VOLGORDE_LOG_INTERVAL_MS) return;
+  continuiteitLogLaatste = nu;
+  const kern = extras
+    ? Object.entries(extras).map(([k, v]) => `${k}=${v}`).join(' ')
+    : '';
+  console.log(`[CONTINUITEIT] ${reden} ${kern}`);
+}
+
+// V11.17.16 (Release B): wis de bewaarde fase-continuïteit-state. Aangeroepen
+// bij elke contextwissel (node-wissel, GPS-voorbij, auto-correctie) zodat een
+// onderbroken meting nooit over een kruispuntgrens heen hersteld wordt.
+function invalideerFaseContinuiteit(reden) {
+  laatsteFase = null;
+  laatsteFaseStart = null;
+  laatsteFaseNodeId = null;
+}
+
 function resetVolgordeKennis(reden) {
   // Laag 3b+c: mens/context grijpt in — volgende omslag krijgt geen
   // verwachting mee. Grijpt NIET in op de lopende meting (fase/faseStart);
@@ -4318,6 +4346,7 @@ function verwerkDetecties() {
     // V11.5.2: Bewaar fase-state voor dropout herstel
     laatsteFase = fase;
     laatsteFaseStart = faseStart;
+    laatsteFaseNodeId = dichtstbijOSM ? String(dichtstbijOSM.id) : null; // V11.17.16
     huidigBevestigdOsmNodeId = null;
     verbergTagUI();
     resetNeutraal();                                        // wist fase, faseBevestigd
@@ -4543,15 +4572,34 @@ function verwerkFase(nieuw, horizontaal, conf=null) {
   faseNodeId = nodeId;                         // V11.17.13: node van de huidige fase
   hogeFScoreRuns = 0;                          // V11.17.11: fScore-streak begint opnieuw
   faseBevestigd = nieuw;                       // V11.5.4: Nieuwe fase direct bevestigen
-  // V11.5.2: Fase-continuïteit bij dropout
+  // V11.5.2: Fase-continuïteit bij dropout — V11.17.16 (Release B): begrensd op
+  // FASE_CONTINUITEIT_MS én op DEZELFDE node. Zonder de node-check liep een
+  // meting van kruispunt A door bij kruispunt B (cyclustijden van 200-300s).
   if (nieuw === laatsteFase && laatsteFaseStart) {
-    const tussentijd = (nu - laatsteFaseStart) / 1000;
-    if (tussentijd < 120) {
+    const tussentijd = nu - laatsteFaseStart; // ms
+    if (tussentijd < FASE_CONTINUITEIT_MS
+        && laatsteFaseNodeId !== null
+        && dichtstbijOSM !== null
+        && String(dichtstbijOSM.id) === laatsteFaseNodeId) {
+      const oudeFaseStart = faseStart;
       faseStart = laatsteFaseStart;
       if (nieuw === 'groen' && !groenStart) {
         groenStart = laatsteFaseStart;
       }
-      leerLog('CONTINUITEIT: ' + nieuw + ' hersteld, start=' + Math.round(tussentijd) + 's geleden');
+      leerLog('CONTINUITEIT: ' + nieuw + ' hersteld, start=' + Math.round(tussentijd / 1000) + 's geleden');
+      continuiteitLog('toegepast', {
+        oud: Math.round(oudeFaseStart), nieuw: Math.round(faseStart),
+        node: laatsteFaseNodeId, dt_s: Math.round(tussentijd / 1000)
+      });
+    } else {
+      const reden = (tussentijd >= FASE_CONTINUITEIT_MS) ? 'venster'
+        : (laatsteFaseNodeId === null || dichtstbijOSM === null) ? 'geen-node'
+        : 'node-verschil';
+      continuiteitLog('geweigerd', {
+        reden, last: laatsteFaseNodeId,
+        nu: dichtstbijOSM ? String(dichtstbijOSM.id) : null,
+        dt_s: Math.round(tussentijd / 1000)
+      });
     }
   }
   if (nieuw !== laatsteFase) {
@@ -4565,6 +4613,7 @@ function verwerkFase(nieuw, horizontaal, conf=null) {
     }
     laatsteFase = nieuw;
     laatsteFaseStart = faseStart;
+    laatsteFaseNodeId = dichtstbijOSM ? String(dichtstbijOSM.id) : null; // V11.17.16
   }
   updateUI(nieuw, horizontaal);
   if (nieuw === 'groen') speelGroen();
@@ -7628,6 +7677,7 @@ function updateDichtbij(lat, lon) {
     vorigeFaseVoorRood = null;
     resetVolgordeKennis('node-wissel'); // V11.17.11 Laag 3c
     invalideerPassiefSnapshot(); // V11.17.13 W3
+    invalideerFaseContinuiteit('node-wissel'); // V11.17.16 W4
     v9PijlDetectieRichting = null; v9PijlDetectieConf = 0; v9PijlDetectieTijd = 0;
     if (!sessionHersteld) { bboxAnchorCx = null; bboxAnchorCy = null; bboxAnchorTijd = 0; }
     // W3: reset bevestig state bij node-wissel
@@ -7764,6 +7814,7 @@ function corrigeerNodeAutomatisch(nieuweNode, reden) {
   vorigeFaseVoorRood = null;
   resetVolgordeKennis('auto-correctie'); // V11.17.11 Laag 3c: nieuwe node = amnesia
   invalideerPassiefSnapshot(); // V11.17.13 W3
+  invalideerFaseContinuiteit('auto-correctie'); // V11.17.16 W4
 
   // node-switch
   vorigOsmId = nieuw.id;
@@ -7877,6 +7928,7 @@ async function onGPS(pos) {
     zoomVergrendeld=false; huidigActiefStoplichtPositie=null;
     resetVolgordeKennis('gps-voorbij'); // V11.17.11 Laag 3c
     invalideerPassiefSnapshot(); // V11.17.13 W3
+    invalideerFaseContinuiteit('gps-voorbij'); // V11.17.16 W4
     vergrendeldNodeId = null;
     // V11.15.2: reset ook bbox-state bij GPS-voorbij zodat de app niet
     // 15-25s aan het oude stoplicht blijft kleven. Volgorde: eerst state
