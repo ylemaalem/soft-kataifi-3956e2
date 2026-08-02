@@ -549,7 +549,7 @@
 <div id="startscherm">
   <div id="s-icoon">🚦</div>
   <div id="s-titel">Stoplicht<span>IQ</span></div>
-  <div id="s-versie">V11.17.18 — conflog volledig + smoothing overleeft korte dropout</div>
+  <div id="s-versie">V11.17.19 — enkel-richting markering (Algemeen telt als richting)</div>
   <div id="s-model-wrap">
     <div id="s-model-rij">
       <div id="s-model-label">🤖 YOLOv8 model laden…</div>
@@ -759,7 +759,7 @@
 
 <script>
 // ═══════════════════════════════════════════════════════════════
-//  StoplichtIQ V11.17.18
+//  StoplichtIQ V11.17.19
 //  V11.10: Zelfkalibratie + vergrendeling + crop smoothing
 //  — S1+S2 bevestiging (kruispunt-level confidence)
 //  — Route-herkenning basis (sequentie-opslag)
@@ -1945,7 +1945,19 @@ function kiesCountdownBron(nodeId, dd, aanrijRichting, preSelectieAfrij) {
         // m4/gem4 uit scope (r1610-1611); geen herberekening.
         const md4multi = bepaalCdModus(gem4, m4);
         const modusCapped = (md4multi.modus === CD_ZEKER) ? CD_GESCHAT : md4multi.modus;
-        resultaat = { gem: gem4, bron: 'v4_multi', metingen: m4.length, v5: false, modus: modusCapped, cdMin: md4multi.cdMin ?? null, cdMax: md4multi.cdMax ?? null };
+        // V11.17.19: enkel-richting markering. Klopt de handmatig gemarkeerde
+        // richting met de actieve rijrichting, dan geldt V4 als richting-
+        // specifiek → geen cap. Alleen de zekerheidsklasse verandert; gem4
+        // (de seconden) blijft exact hetzelfde getal.
+        const enkelRicht = laadEnkelRicht(nodeId);
+        let modusFinaal = modusCapped;
+        let bronLabel4 = 'v4_multi';
+        if (enkelRicht && enkelRicht === richtingLockKeuze) {
+          modusFinaal = md4multi.modus; // ongecapt
+          bronLabel4 = 'v4_enkelricht';
+          enkelRichtLog(nodeId, enkelRicht, richtingLockKeuze, modusCapped, modusFinaal);
+        }
+        resultaat = { gem: gem4, bron: bronLabel4, metingen: m4.length, v5: false, modus: modusFinaal, cdMin: md4multi.cdMin ?? null, cdMax: md4multi.cdMax ?? null };
       }
     } else if (!isEenRichtingNode(nodeId)) {
       // V11.14.0: multi-richting node zonder V4-data — UI-signaal 'lerend'
@@ -2406,6 +2418,7 @@ let passiefSnapshot = null;
 let zagRoodOvergang = false;
 let faseNodeId = null;
 let passiefLogLaatste = 0;
+let enkelRichtLogLaatste = 0; // V11.17.19: [ENKELRICHT] throttle
 let laatsteFase=null, laatsteFaseStart=null;
 let laatsteFaseNodeId=null; // V11.17.16: node van de bewaarde fase, voor node-gebonden restore
 // V11.13.4: bewaart welke fase ONMIDDELLIJK voorafging aan de huidige
@@ -5204,9 +5217,20 @@ function renderRichtingBlok(osm) {
   let html = '';
   if (heeftAlg) {
     const kleur = ni_kleur(algPct);
+    // V11.17.19 W2: enkel-richting chip, inline in de ALG-rij zodat de
+    // blokhoogte ongewijzigd blijft. stopPropagation zodat de ALG-rij-tik
+    // (tikRichting) niet meevuurt.
+    const erMark = laadEnkelRicht(nodeId);
+    let erChip = '';
+    if (erMark) {
+      const p = richtingSymbool(erMark).trim() || '•';
+      erChip = ` <span onclick="event.stopPropagation();verwijderEnkelRicht('${nodeId}')" title="Algemeen geldt als ${erMark} — tik om te verwijderen" style="font-size:9px;color:var(--dim);cursor:pointer">= ${p} ✕</span>`;
+    } else if (richtingLockKeuze === 'links' || richtingLockKeuze === 'rechtdoor' || richtingLockKeuze === 'rechts') {
+      erChip = ` <span onclick="event.stopPropagation();koppelEnkelRicht('${nodeId}')" title="Koppel Algemeen aan ${richtingLockKeuze}" style="font-size:9px;color:var(--blauw);cursor:pointer">⧉ koppel</span>`;
+    }
     html += `<div class="rb-rij" onclick="tikRichting('rechtdoor')" data-key="ALG">`
          + `<div class="rb-pijl">⬤</div>`
-         + `<div class="rb-label">Algemeen</div>`
+         + `<div class="rb-label">Algemeen${erChip}</div>`
          + `<div class="rb-pct" style="color:${kleur}">${algPct}%</div>`
          + `<div class="rb-cyc">${cycTxt(algCyc)}</div></div>`;
   }
@@ -5625,7 +5649,7 @@ function exporteerData() {
     try {
       const exportData = { versie:'11.4.4', exportDatum:new Date().toISOString(), app:'StoplichtIQ', data:{}, scores:{} };
       for (const key of Object.keys(localStorage)) {
-        if (key.startsWith('sl_v10_')||key.startsWith('sl_v5_')||key.startsWith('sl_v4_')||key.startsWith('sl_v3_')||key.startsWith('sl_s2_')||key.startsWith('sl_tag_')||key.startsWith('sl_naam_')||key.startsWith('sl_richting_')||key.startsWith('sl_route_')||key.startsWith('sl_bevestig_')||key.startsWith('sl_pos_')||key.startsWith('sl_neutraal_')||key==='sl_cam_stats'||key==='sl_stad_cache') {
+        if (key.startsWith('sl_v10_')||key.startsWith('sl_v5_')||key.startsWith('sl_v4_')||key.startsWith('sl_v3_')||key.startsWith('sl_s2_')||key.startsWith('sl_tag_')||key.startsWith('sl_naam_')||key.startsWith('sl_richting_')||key.startsWith('sl_route_')||key.startsWith('sl_bevestig_')||key.startsWith('sl_pos_')||key.startsWith('sl_neutraal_')||key.startsWith('sl_enkelricht_')||key==='sl_cam_stats'||key==='sl_stad_cache') {
           try { exportData.data[key] = JSON.parse(localStorage.getItem(key)); }
           catch(e) { exportData.data[key] = localStorage.getItem(key); }
         }
@@ -5674,7 +5698,7 @@ function importeerData(bestand) {
         // V11.15.4 Fix 4: whitelist gesynchroniseerd met exporteerData —
         // sl_bevestig_, sl_pos_ en sl_cam_stats zaten wél in de export
         // maar werden bij import stil overgeslagen.
-        if (!key.startsWith('sl_v10_')&&!key.startsWith('sl_v5_')&&!key.startsWith('sl_v4_')&&!key.startsWith('sl_v3_')&&!key.startsWith('sl_s2_')&&!key.startsWith('sl_tag_')&&!key.startsWith('sl_naam_')&&!key.startsWith('sl_richting_')&&!key.startsWith('sl_route_')&&!key.startsWith('sl_bevestig_')&&!key.startsWith('sl_pos_')&&!key.startsWith('sl_neutraal_')&&key!=='sl_cam_stats'&&key!=='sl_stad_cache') { overgeslagen++; continue; }
+        if (!key.startsWith('sl_v10_')&&!key.startsWith('sl_v5_')&&!key.startsWith('sl_v4_')&&!key.startsWith('sl_v3_')&&!key.startsWith('sl_s2_')&&!key.startsWith('sl_tag_')&&!key.startsWith('sl_naam_')&&!key.startsWith('sl_richting_')&&!key.startsWith('sl_route_')&&!key.startsWith('sl_bevestig_')&&!key.startsWith('sl_pos_')&&!key.startsWith('sl_neutraal_')&&!key.startsWith('sl_enkelricht_')&&key!=='sl_cam_stats'&&key!=='sl_stad_cache') { overgeslagen++; continue; }
         if (localStorage.getItem(key) !== null) { overgeslagen++; continue; }
         try { localStorage.setItem(key, JSON.stringify(waarde)); toegevoegd++; } catch(e) { overgeslagen++; }
       }
@@ -6784,6 +6808,47 @@ function toonToast(tekst, actie) {
 function isNodeNeutraal(nodeId) {
   if (!nodeId) return false;
   return localStorage.getItem('sl_neutraal_' + nodeId) === '1';
+}
+
+// V11.17.19: enkel-richting markering. Zelfde stijl als sl_neutraal_: losse
+// per-node vlag in localStorage, waarde = de rijrichting waarvoor Algemeen
+// (V4) voortaan als richting-specifiek telt ('links'|'rechtdoor'|'rechts').
+// Verplaatst/kopieert/wist GEEN enkele meting.
+function laadEnkelRicht(nodeId) {
+  if (!nodeId) return null;
+  const v = localStorage.getItem('sl_enkelricht_' + nodeId);
+  return (v === 'links' || v === 'rechtdoor' || v === 'rechts') ? v : null;
+}
+function zetEnkelRicht(nodeId, richting) {
+  if (!nodeId || !(richting === 'links' || richting === 'rechtdoor' || richting === 'rechts')) return;
+  try { localStorage.setItem('sl_enkelricht_' + nodeId, richting); } catch(e) {}
+}
+function wisEnkelRicht(nodeId) {
+  if (!nodeId) return;
+  localStorage.removeItem('sl_enkelricht_' + nodeId);
+}
+// V11.17.19 W4: diagnose wanneer de markering de bronkeuze beïnvloedt. 1/sec.
+function enkelRichtLog(nodeId, gemarkeerd, actief, modusVoor, modusNa) {
+  const nu = Date.now();
+  if (nu - enkelRichtLogLaatste < 1000) return;
+  enkelRichtLogLaatste = nu;
+  console.log(`[ENKELRICHT] node=${nodeId} gemarkeerd=${gemarkeerd} actief=${actief} modus=${modusVoor}->${modusNa}`);
+}
+// V11.17.19 W2: chip-handlers. Koppel de huidige actieve rijrichting aan
+// Algemeen, of verwijder de markering. Beide re-renderen het richting-blok.
+function koppelEnkelRicht(nodeId) {
+  if (!nodeId) return;
+  const r = richtingLockKeuze;
+  if (!(r === 'links' || r === 'rechtdoor' || r === 'rechts')) return;
+  zetEnkelRicht(nodeId, r);
+  toonToast('Algemeen geldt nu als ' + r);
+  if (dichtstbijOSM) renderRichtingBlok(dichtstbijOSM);
+}
+function verwijderEnkelRicht(nodeId) {
+  if (!nodeId) return;
+  wisEnkelRicht(nodeId);
+  toonToast('Enkel-richting markering verwijderd');
+  if (dichtstbijOSM) renderRichtingBlok(dichtstbijOSM);
 }
 
 // ── V11.16.1: NODE-INFO PANEL ─────────────────────────────────
