@@ -549,7 +549,7 @@
 <div id="startscherm">
   <div id="s-icoon">🚦</div>
   <div id="s-titel">Stoplicht<span>IQ</span></div>
-  <div id="s-versie">V11.17.17 — richting onthouden + dashboard-keuze + minder "Terug"</div>
+  <div id="s-versie">V11.17.18 — conflog volledig + smoothing overleeft korte dropout</div>
   <div id="s-model-wrap">
     <div id="s-model-rij">
       <div id="s-model-label">🤖 YOLOv8 model laden…</div>
@@ -759,7 +759,7 @@
 
 <script>
 // ═══════════════════════════════════════════════════════════════
-//  StoplichtIQ V11.17.17
+//  StoplichtIQ V11.17.18
 //  V11.10: Zelfkalibratie + vergrendeling + crop smoothing
 //  — S1+S2 bevestiging (kruispunt-level confidence)
 //  — Route-herkenning basis (sequentie-opslag)
@@ -2814,6 +2814,11 @@ let yoloWorker=null, workerKlaar=false, workerFoutTeller=0;
 const WORKER_MAX_FOUTEN=3;
 const confidenceBuffer=new Map();
 const SMOOTH_WINDOW=5, SMOOTH_GEWICHT=1.5, SMOOTH_MIN_RUNS=3;
+// V11.17.18 W2: aaneengesloten ai:weg-runs. Smoothing-buffers blijven behouden
+// tot en met 2 opeenvolgende lege runs; pas de 3e wist ze. Reset op elke echte
+// detectie. Losstaand van TOLERANTIE_RUNS/aiMissRuns (ander pad).
+let aiWegRunsAaneen = 0;
+const AIWEG_BUFFER_BEHOUD = 3;
 // V11.15.10 DEBUG: tijdelijke klasse-verdeling logger — TIJDELIJK, VERWIJDEREN NA DIAGNOSE.
 // Doel: bewijzen/ontkrachten confidence-verdunning-hypothese (NC=10 model verdeelt
 // waarschijnlijkheid over 4 rood-klassen bij pijl-onzekerheid, argmax r2673-2677
@@ -2827,6 +2832,10 @@ let laatstConfLog = 0;
 let debugLaatsteAlle = null;
 let debugLaatsteTopKlasse = -1;
 let debugLaatsteTopScore = 0;
+// V11.17.18 W1: aantal boxen dat postprocess (famScore>=CONF_DREMPEL, h>=MIN_H_PX,
+// NMS) overleefde — dus de post-postprocess survivors die _verwerkWorkerResultaat
+// binnenkrijgt, NIET de ruwe modeloutput. 0 = ai:weg, >=1 = filter/ok.
+let debugLaatsteRuweBoxen = 0;
 // V11.17.7 W1/W2: diagnose-globals — afwijsreden en kandidaat-metadata worden
 // in _verwerkWorkerResultaat gezet en door logKlasseVerdelingIndienBeschikbaar
 // naar de conf-log-entry geschreven.
@@ -2837,12 +2846,16 @@ let debugLaatsteKandKlasse = null;  // topklasse-index van kandidaat
 // V11.15.10 DEBUG: helper — leest debug-globals + debugWaarden.ai, throttlet 1/s.
 // Aangeroepen NA elke debugWaarden.ai-update in _verwerkWorkerResultaat.
 function logKlasseVerdelingIndienBeschikbaar() {
-  if (debugLaatsteAlle === null) return;
-  if (debugLaatsteTopScore <= 0.05) return;
+  // V11.17.18 W1 (optie B): gate op topScore<=0.05 verwijderd én de lege-run-gate
+  // (debugLaatsteAlle===null) afgevangen met een nul-vector, zodat ook volledig
+  // lege ai:weg-runs gelogd worden. ruweBoxen maakt weg vs filter hard.
   const nu = Date.now();
   if (nu - laatstConfLog < 1000) return;
   laatstConfLog = nu;
-  const alle = debugLaatsteAlle;
+  const leeg = (debugLaatsteAlle === null);
+  const alle = leeg ? new Array(NC).fill(0) : debugLaatsteAlle;
+  const topScoreVal  = leeg ? 0  : debugLaatsteTopScore;
+  const topKlasseVal = leeg ? -1 : debugLaatsteTopKlasse;
   const somRood   = (alle[0]||0) + (alle[4]||0) + (alle[5]||0) + (alle[8]||0);
   const somGroen  = (alle[1]||0) + (alle[6]||0) + (alle[7]||0) + (alle[9]||0);
   const somOranje = alle[3] || 0;
@@ -2852,18 +2865,16 @@ function logKlasseVerdelingIndienBeschikbaar() {
   else if (ai === 'ai:filter') debugCode = 'filter';
   else if (ai === 'ai:uit') debugCode = 'uit';
   // V11.16.7: familiescore = som van de familie waartoe de topklasse hoort.
-  // Dezelfde waarde die postprocessYOLO r2851 nu tegen CONF_DREMPEL vergelijkt.
-  // Bewijs-veld voor rijtest-analyse: hoeveel detecties zouden zonder de fix
-  // gefaald hebben (topScore<CONF_DREMPEL, familiescore>=CONF_DREMPEL)?
-  const topFam = KLASSE_MAP[debugLaatsteTopKlasse];
+  const topFam = KLASSE_MAP[topKlasseVal];
   let familiescore = 0;
   if (topFam === 'rood')        familiescore = somRood;
   else if (topFam === 'groen')  familiescore = somGroen;
   else if (topFam === 'oranje') familiescore = somOranje;
   const entry = {
     t: nu,
-    top: debugLaatsteTopKlasse,
-    topScore: Math.round(debugLaatsteTopScore * 1000) / 1000,
+    top: topKlasseVal,
+    topScore: Math.round(topScoreVal * 1000) / 1000,
+    ruweBoxen: debugLaatsteRuweBoxen, // V11.17.18 W1: post-postprocess survivors (0=weg)
     familiescore: Math.round(familiescore * 1000) / 1000,
     somRood:   Math.round(somRood   * 1000) / 1000,
     somGroen:  Math.round(somGroen  * 1000) / 1000,
@@ -3918,8 +3929,17 @@ function resetVolgordeKennis(reden) {
 // ── WORKER RESULTAAT VERWERKING ───────────────────────────────
 function _verwerkWorkerResultaat(detecties) {
   laatsteDetecties = detecties;
+  debugLaatsteRuweBoxen = detecties.length; // V11.17.18 W1: post-postprocess survivors
   const zichtbareKlassen = new Set(detecties.map(d=>d.klasse));
-  resetConfidenceBuffer(zichtbareKlassen);
+  // V11.17.18 W2: bij een echte detectie normaal opschonen + teller resetten;
+  // bij een lege run de buffers pas na de 3e opeenvolgende ai:weg-run wissen.
+  if (detecties.length) {
+    aiWegRunsAaneen = 0;
+    resetConfidenceBuffer(zichtbareKlassen);
+  } else {
+    aiWegRunsAaneen++;
+    if (aiWegRunsAaneen >= AIWEG_BUFFER_BEHOUD) resetConfidenceBuffer(zichtbareKlassen);
+  }
   if (!detecties.length) {
     debugWaarden.ai = 'ai:weg';
     // V11.17.7 W2: diagnose-globals bij geen detectie — alle vier null.
