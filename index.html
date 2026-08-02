@@ -549,7 +549,7 @@
 <div id="startscherm">
   <div id="s-icoon">🚦</div>
   <div id="s-titel">Stoplicht<span>IQ</span></div>
-  <div id="s-versie">V11.17.16 — fase-continuïteit begrensd op venster + node (Release B)</div>
+  <div id="s-versie">V11.17.17 — richting onthouden + dashboard-keuze + minder "Terug"</div>
   <div id="s-model-wrap">
     <div id="s-model-rij">
       <div id="s-model-label">🤖 YOLOv8 model laden…</div>
@@ -759,7 +759,7 @@
 
 <script>
 // ═══════════════════════════════════════════════════════════════
-//  StoplichtIQ V11.17.16
+//  StoplichtIQ V11.17.17
 //  V11.10: Zelfkalibratie + vergrendeling + crop smoothing
 //  — S1+S2 bevestiging (kruispunt-level confidence)
 //  — Route-herkenning basis (sequentie-opslag)
@@ -1783,6 +1783,20 @@ function isEenRichtingNode(nodeId) {
   return aanrijRichtingen.size <= 1;
 }
 
+// V11.17.17 W1: exact aantal onderscheiden aanrij-buckets voor een node.
+// Nodig omdat isEenRichtingNode ook `true` geeft bij 0 richtingen (nieuwe node);
+// de knop-suppressor mag alleen vuren bij EXACT 1 bekende richting.
+function aantalAanrijRichtingen(nodeId) {
+  const set = new Set();
+  for (let i = 0; i < localStorage.length; i++) {
+    const k = localStorage.key(i);
+    if (!k || !k.startsWith(`${LS_PREFIX_V5}${nodeId}_`)) continue;
+    const delen = k.replace(`${LS_PREFIX_V5}${nodeId}_`, '').split('_');
+    if (delen.length >= 3) set.add(delen[0]);
+  }
+  return set.size;
+}
+
 // V11.8.0: Modus-bepaling op basis van spreiding
 function bepaalCdModus(gem, metingen) {
   const spr = gewSpreiding(metingen);
@@ -2293,8 +2307,12 @@ function updateAfrijRichtingUI(tikrichting) {
   const labels = { links:'voor linksaf', rechtdoor:'voor rechtdoor', rechts:'voor rechtsaf' };
   const pijl = pijlen[tikrichting] || '↑';
   const label = labels[tikrichting] || 'voor rechtdoor';
-  el.innerHTML = `<span style="font-size:16px">${pijl}</span><span style="font-size:9px;color:var(--dim);letter-spacing:0.06em">${label}</span>`;
+  el.innerHTML = `<span style="font-size:16px">${pijl}</span><span style="font-size:9px;color:var(--dim);letter-spacing:0.06em">${label} ✎</span>`;
   el.style.display = 'flex';
+  // V11.17.17 W1: badge tikbaar voor bewuste correctie. stopPropagation zodat
+  // de node-correctielijst (#kruispunt-blok onclick) niet meekomt.
+  el.style.cursor = 'pointer';
+  el.onclick = (e) => { e.stopPropagation(); heropenRichtingKeuze(); };
 }
 
 function haalAlleOsmIds() {
@@ -2517,7 +2535,7 @@ let stilstandAutoLock = false;
 let afrijHeadingBuffer = [];
 let afrijBufferActief = false;
 const AFRIJ_BUFFER_DUUR_MS = 5000;
-const AFRIJ_MIN_SNELHEID_KMU = 8;
+const AFRIJ_MIN_SNELHEID_KMU = 12;  // V11.17.17 W3: was 8 — afrij pas boven 12 km/u vaststellen dempt "Terug" bij kruipsnelheid
 
 // V10.0.3: Richtingkeuze lock — houdt tikrichting vast bij stilstand/GPS-drift
 let richtingLockNodeId = null;
@@ -5124,7 +5142,7 @@ function renderRichtingBlok(osm) {
       cyc: g.cycCount > 0 ? Math.round(g.cycSum / g.cycCount) : null,
       label: rijdersPijlLabel(g.aanrij, g.afrij)
     }))
-    .filter(r => !(r.label.tekst === 'Terug' && r.metingen < 3))
+    .filter(r => !(r.label.tekst === 'Terug' && r.metingen < 5)) // V11.17.17 W3: was <3
     .sort((a, b) => b.metingen - a.metingen);
 
   const heeftAlg = algMetTot > 0;
@@ -6080,7 +6098,7 @@ let richtingKnoppenTimer = null;
 let richtingGroenDelayTimer = null;
 
 // V8.8.1: Toon bij rood fase of eerste rood detectie, geen bevestigingslimiet
-function toonRichtingKnoppen(nodeId) {
+function toonRichtingKnoppen(nodeId, forceerTonen = false) {
   // V11.12.3: bevestigknoppen hebben altijd voorrang — richting-knoppen
   // mogen NOOIT getoond worden terwijl bevestig-knoppen actief zijn,
   // anders intercepteert richting-knoppen (z:46) alle taps op bevestig-wrap (z:10 via #ui)
@@ -6091,6 +6109,19 @@ function toonRichtingKnoppen(nodeId) {
   if (richtingGedruktVoorNode === nodeId) return;
   // V10.0.3: Richtingkeuze lock — niet opnieuw tonen als keuze al gemaakt voor deze node
   if (richtingLockNodeId === nodeId && richtingLockKeuze) return;
+  // V11.17.17 W1: persistente keuze onderdrukt de knoppen (tenzij bewuste
+  // correctie via de badge). De eerder getikte richting wordt direct
+  // geactiveerd i.p.v. de gebruiker opnieuw te laten kiezen.
+  if (!forceerTonen) {
+    const rd = laadRichtingData(nodeId);
+    if (rd && rd.tikrichting && (rd.tik_bevestigingen || 0) >= 1) {
+      activeerPersistenteRichting(nodeId, rd.tikrichting);
+      return;
+    }
+    // Eén logische richting (EXACT 1 bekende aanrij) → keuze is zinloos.
+    // size===0 (nieuwe node) valt hier bewust NIET onder: die krijgt de knoppen.
+    if (aantalAanrijRichtingen(nodeId) === 1) return;
+  }
   richtingKnoppenNodeId = nodeId;
   document.querySelectorAll('.richting-btn').forEach(b => b.classList.remove('gekozen'));
   // V10.0.2: Pre-highlight opgeslagen tikrichting zodat gebruiker ziet wat actief is
@@ -6118,6 +6149,31 @@ function verbergRichtingKnoppen() {
   richtingKnoppenNodeId = null;
   if (richtingKnoppenTimer) { clearTimeout(richtingKnoppenTimer); richtingKnoppenTimer = null; }
   if (richtingGroenDelayTimer) { clearTimeout(richtingGroenDelayTimer); richtingGroenDelayTimer = null; }
+}
+
+// V11.17.17 W1: activeer een eerder getikte richting ZONDER de knoppen te tonen.
+// Repliceert de selectie-neveneffecten van tikRichting (lock + pre-selectie +
+// badge) maar schrijft NIETS — de keuze stond al in sl_richting_.
+function activeerPersistenteRichting(nodeId, tikrichting) {
+  richtingLockNodeId = nodeId;
+  richtingLockKeuze = tikrichting;
+  richtingGedruktVoorNode = nodeId;
+  const h = v9AanrijSnelheidHeading ?? v9AanrijHeading;
+  v9PreSelectieAfrij = (h != null) ? berekenAfrijRichtingViaTik(h, tikrichting) : tikrichting;
+  updateAfrijRichtingUI(tikrichting);
+}
+
+// V11.17.17 W1: bewuste correctie via de badge — hef de suppressors op en toon
+// de knoppen alsnog (forceerTonen), zodat een verkeerde persistente keuze
+// gecorrigeerd kan worden.
+function heropenRichtingKeuze() {
+  const nodeId = richtingLockNodeId || richtingKnoppenNodeId || huidigBevestigdOsmNodeId
+    || (dichtstbijOSM ? String(dichtstbijOSM.id) : null);
+  if (!nodeId) return;
+  richtingGedruktVoorNode = null;
+  richtingLockNodeId = null;
+  richtingLockKeuze = null;
+  toonRichtingKnoppen(nodeId, true);
 }
 
 function tikRichting(richting) {
@@ -6196,6 +6252,7 @@ function renderV9RichtingenVoorNode(nodeId, dd, lsIndex = null) {
   const richtingPijlen = { N:'↑N', NO:'↗NO', O:'→O', ZO:'↘ZO', Z:'↓Z', ZW:'↙ZW', W:'←W', NW:'↖NW' };
   const richtingItems = [];
   const gezieneSleutels = new Set();
+  const aanwezigeManoeuvres = new Set(); // V11.17.17 W2: welke rijders-manoeuvres hebben V5-data
   // V11.14.1: gebruik pre-index als beschikbaar (O(1) i.p.v. O(localStorage.length))
   const v5Keys = lsIndex
     ? (lsIndex.get(String(nodeId))?.v5Keys ?? [])
@@ -6216,6 +6273,7 @@ function renderV9RichtingenVoorNode(nodeId, dd, lsIndex = null) {
     gezieneSleutels.add(kombi);
     const m = laadMV5(nodeId, aanrij, afrij, dd);
     if (!m.length) continue;
+    aanwezigeManoeuvres.add(rijdersPijlLabel(aanrij, afrij).tekst.toLowerCase()); // V11.17.17 W2
     const gem = gewGem(m);
     const pijl = richtingPijlen[afrij] || afrij;
     const kleur = m.length >= 10 ? 'var(--groen)' : m.length >= 5 ? 'var(--blauw)' : 'var(--oranje)';
@@ -6224,6 +6282,21 @@ function renderV9RichtingenVoorNode(nodeId, dd, lsIndex = null) {
       <span style="color:rgba(255,255,255,0.5)">${m.length}x</span>
       ${gem ? `<span style="font-family:'Share Tech Mono',monospace;color:#fff">${Math.round(gem)}s</span>` : ''}
     </div>`);
+  }
+  // V11.17.17 W2: handmatige tik-keuze zonder V5-metingen alsnog tonen, zodat een
+  // gekozen richting niet onzichtbaar blijft tot de delayed write ooit vult.
+  const tikData = laadRichtingData(nodeId);
+  if (tikData && tikData.tikrichting) {
+    const tikMvr = { links:'linksaf', rechtdoor:'rechtdoor', rechts:'rechtsaf' }[tikData.tikrichting];
+    if (tikMvr && !aanwezigeManoeuvres.has(tikMvr)) {
+      const tikPijl = { links:'←', rechtdoor:'↑', rechts:'→' }[tikData.tikrichting] || '↑';
+      const n = tikData.tik_bevestigingen || 0;
+      richtingItems.push(`<div style="display:flex;align-items:center;gap:4px;font-size:9px;padding:2px 5px;background:rgba(245,158,11,0.06);border:1px dashed rgba(245,158,11,0.4);border-radius:5px">
+        <span style="color:var(--oranje)">${tikPijl}</span>
+        <span style="color:rgba(255,255,255,0.5)">✎ ${n}x</span>
+        <span style="font-size:8px;color:var(--dim)">handmatig, geen meting</span>
+      </div>`);
+    }
   }
   if (!richtingItems.length) return '';
   return `<div style="display:flex;flex-wrap:wrap;gap:3px;margin-top:4px;padding-top:4px;border-top:1px solid rgba(255,255,255,0.06)">
