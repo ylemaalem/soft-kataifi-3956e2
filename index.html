@@ -549,7 +549,7 @@
 <div id="startscherm">
   <div id="s-icoon">🚦</div>
   <div id="s-titel">Stoplicht<span>IQ</span></div>
-  <div id="s-versie">V11.17.19 — enkel-richting markering (Algemeen telt als richting)</div>
+  <div id="s-versie">V11.17.20 — klokmomenten verzamelen + ritme-analyse (stap 1/3)</div>
   <div id="s-model-wrap">
     <div id="s-model-rij">
       <div id="s-model-label">🤖 YOLOv8 model laden…</div>
@@ -716,6 +716,7 @@
       <button onclick="verwijderTrainframes()" style="padding:8px 12px;background:rgba(255,48,48,0.15);color:#FF3030;border:1px solid rgba(255,48,48,0.3);border-radius:8px;font-size:12px;cursor:pointer">🗑 Wis</button>
       <!-- V11.15.10 DEBUG: conf-log export voor diagnose confidence-verdunning — TIJDELIJK -->
       <button id="export-conflog-btn" onclick="exporteerConfLog()" style="flex:1;padding:8px 12px;background:rgba(245,158,11,0.15);color:#f59e0b;border:1px solid rgba(245,158,11,0.35);border-radius:8px;font-size:12px;cursor:pointer;min-width:100px">📊 Exp. conf-log</button>
+      <button id="klok-analyse-btn" onclick="toonKlokAnalyse()" style="flex:1;padding:8px 12px;background:rgba(34,197,94,0.15);color:#22c55e;border:1px solid rgba(34,197,94,0.35);border-radius:8px;font-size:12px;cursor:pointer;min-width:100px">🕐 Analyseer klokritmes</button>
     </div>
     <div style="font-size:9px;color:rgba(255,255,255,0.3);line-height:1.4">Verzamelt 640x640 frames met YOLO labels tijdens detectie.</div>
     <div style="margin-top:6px;display:flex;align-items:center;justify-content:space-between">
@@ -759,7 +760,7 @@
 
 <script>
 // ═══════════════════════════════════════════════════════════════
-//  StoplichtIQ V11.17.19
+//  StoplichtIQ V11.17.20
 //  V11.10: Zelfkalibratie + vergrendeling + crop smoothing
 //  — S1+S2 bevestiging (kruispunt-level confidence)
 //  — Route-herkenning basis (sequentie-opslag)
@@ -783,6 +784,7 @@ const LS_PREFIX_V5     = 'sl_v5_';
 const LS_PREFIX_V10    = 'sl_v10_';
 const MAX_METINGEN     = 50;
 const MAX_S2_METINGEN  = 20;  // V11.17.15: eigen cap voor sl_s2_ aanwezigheidsdata (los van sl_v4_)
+const MAX_KLOK_MOMENTEN = 60; // V11.17.20: cap voor sl_klok_ groen/rood-momenten per node
 const HALFWAARDETIJD_CYCLUS    = 180;  // cyclustijden — traag decay
 const HALFWAARDETIJD_PATROON   = 60;   // fase-percentages — middel decay
 const HALFWAARDETIJD_SPREIDING = 90;   // min/max bereiken — middel-traag decay
@@ -2157,14 +2159,15 @@ function exporteerMeetdata() {
   };
   setTimeout(() => {
     try {
-      const uit = { versie:'V11.17.15', geexporteerd:new Date().toISOString(),
-                    passief:{}, bevestig:{}, namen:{}, leer:{}, s2:{} };
+      const uit = { versie:'V11.17.20', geexporteerd:new Date().toISOString(),
+                    passief:{}, bevestig:{}, namen:{}, leer:{}, s2:{}, klok:{} };
       for (const key of Object.keys(localStorage)) {
         let doel = null;
         if (key.startsWith('sl_passief_'))       doel = uit.passief;
         else if (key.startsWith('sl_bevestig_')) doel = uit.bevestig;
         else if (key.startsWith('sl_naam_'))     doel = uit.namen;
         else if (key.startsWith('sl_s2_'))       doel = uit.s2;   // V11.17.15: eigen bucket
+        else if (key.startsWith('sl_klok_'))     doel = uit.klok; // V11.17.20: eigen bucket
         else if (key.startsWith('sl_v4_'))       doel = uit.leer;
         if (!doel) continue;
         try { doel[key] = JSON.parse(localStorage.getItem(key)); }
@@ -2419,6 +2422,7 @@ let zagRoodOvergang = false;
 let faseNodeId = null;
 let passiefLogLaatste = 0;
 let enkelRichtLogLaatste = 0; // V11.17.19: [ENKELRICHT] throttle
+let klokLogLaatste = 0;       // V11.17.20: [KLOK] throttle
 let laatsteFase=null, laatsteFaseStart=null;
 let laatsteFaseNodeId=null; // V11.17.16: node van de bewaarde fase, voor node-gebonden restore
 // V11.13.4: bewaart welke fase ONMIDDELLIJK voorafging aan de huidige
@@ -4600,6 +4604,12 @@ function verwerkFase(nieuw, horizontaal, conf=null) {
   if (fase === 'rood' && nieuw === 'groen' && faseStart) {
     slaPassiefMeting((nu - faseStart) / 1000);
   }
+  // V11.17.20 W1: klokmoment op een SCHONE fase-transitie (fase = expliciete
+  // vorige waarde). Continuïteit-herstelde her-detecties (nieuw===laatsteFase,
+  // fase was null) hebben een teruggezet moment en raken deze takken NIET.
+  // Onafhankelijk van passiefSnapshot/countdown/leergeheugen.
+  if (fase === 'rood' && nieuw === 'groen') slaKlokMoment(nodeId, 'groen');
+  else if (nieuw === 'rood' && (fase === 'groen' || fase === 'oranje')) slaKlokMoment(nodeId, 'rood');
   // V10.0.5: Bij rood detectie → flush collapse buffer
   if (nieuw === 'rood') {
     if (oranjeCollapseBuffer.length > 0 && trainframesAan) {
@@ -5649,7 +5659,7 @@ function exporteerData() {
     try {
       const exportData = { versie:'11.4.4', exportDatum:new Date().toISOString(), app:'StoplichtIQ', data:{}, scores:{} };
       for (const key of Object.keys(localStorage)) {
-        if (key.startsWith('sl_v10_')||key.startsWith('sl_v5_')||key.startsWith('sl_v4_')||key.startsWith('sl_v3_')||key.startsWith('sl_s2_')||key.startsWith('sl_tag_')||key.startsWith('sl_naam_')||key.startsWith('sl_richting_')||key.startsWith('sl_route_')||key.startsWith('sl_bevestig_')||key.startsWith('sl_pos_')||key.startsWith('sl_neutraal_')||key.startsWith('sl_enkelricht_')||key==='sl_cam_stats'||key==='sl_stad_cache') {
+        if (key.startsWith('sl_v10_')||key.startsWith('sl_v5_')||key.startsWith('sl_v4_')||key.startsWith('sl_v3_')||key.startsWith('sl_s2_')||key.startsWith('sl_klok_')||key.startsWith('sl_tag_')||key.startsWith('sl_naam_')||key.startsWith('sl_richting_')||key.startsWith('sl_route_')||key.startsWith('sl_bevestig_')||key.startsWith('sl_pos_')||key.startsWith('sl_neutraal_')||key.startsWith('sl_enkelricht_')||key==='sl_cam_stats'||key==='sl_stad_cache') {
           try { exportData.data[key] = JSON.parse(localStorage.getItem(key)); }
           catch(e) { exportData.data[key] = localStorage.getItem(key); }
         }
@@ -5698,7 +5708,7 @@ function importeerData(bestand) {
         // V11.15.4 Fix 4: whitelist gesynchroniseerd met exporteerData —
         // sl_bevestig_, sl_pos_ en sl_cam_stats zaten wél in de export
         // maar werden bij import stil overgeslagen.
-        if (!key.startsWith('sl_v10_')&&!key.startsWith('sl_v5_')&&!key.startsWith('sl_v4_')&&!key.startsWith('sl_v3_')&&!key.startsWith('sl_s2_')&&!key.startsWith('sl_tag_')&&!key.startsWith('sl_naam_')&&!key.startsWith('sl_richting_')&&!key.startsWith('sl_route_')&&!key.startsWith('sl_bevestig_')&&!key.startsWith('sl_pos_')&&!key.startsWith('sl_neutraal_')&&!key.startsWith('sl_enkelricht_')&&key!=='sl_cam_stats'&&key!=='sl_stad_cache') { overgeslagen++; continue; }
+        if (!key.startsWith('sl_v10_')&&!key.startsWith('sl_v5_')&&!key.startsWith('sl_v4_')&&!key.startsWith('sl_v3_')&&!key.startsWith('sl_s2_')&&!key.startsWith('sl_klok_')&&!key.startsWith('sl_tag_')&&!key.startsWith('sl_naam_')&&!key.startsWith('sl_richting_')&&!key.startsWith('sl_route_')&&!key.startsWith('sl_bevestig_')&&!key.startsWith('sl_pos_')&&!key.startsWith('sl_neutraal_')&&!key.startsWith('sl_enkelricht_')&&key!=='sl_cam_stats'&&key!=='sl_stad_cache') { overgeslagen++; continue; }
         if (localStorage.getItem(key) !== null) { overgeslagen++; continue; }
         try { localStorage.setItem(key, JSON.stringify(waarde)); toegevoegd++; } catch(e) { overgeslagen++; }
       }
@@ -7229,6 +7239,125 @@ function slaS2Aanwezigheid(nodeId, kleur) {
   m.push({ duur:0, tijd:Date.now(), dd:huidigDDActief(), richting:Math.round(huidigeRichting||0), bron:'s2', gewicht:OBS_S2, kleur });
   if (m.length > MAX_S2_METINGEN) { m.sort((a,b)=>gew(b.tijd)-gew(a.tijd)); m=m.slice(0,MAX_S2_METINGEN); }
   try { localStorage.setItem(sleutel, JSON.stringify(m)); } catch(e) {}
+}
+
+// ── V11.17.20: KLOKMOMENTEN ───────────────────────────────────
+// Stap 1 van 3: momenten onvoorwaardelijk verzamelen + offline analyse.
+// Raakt de countdown niet aan; losstaande store sl_klok_{nodeId}.
+
+// W5: throttled diagnose.
+function klokLog(reden, extras) {
+  const nu = Date.now();
+  if (nu - klokLogLaatste < 1000) return;
+  klokLogLaatste = nu;
+  const kern = extras ? Object.entries(extras).map(([k, v]) => `${k}=${v}`).join(' ') : '';
+  console.log(`[KLOK] ${reden} ${kern}`);
+}
+
+// W1: leg een groen- of rood-moment vast. ONAFHANKELIJK van passiefSnapshot,
+// countdown of leergeheugen — alleen node aanwezig, <80m, geen node-twijfel.
+function slaKlokMoment(nodeId, type) {
+  if (!nodeId || !dichtstbijOSM) return;
+  const afst = dichtstbijOSM.afstand;
+  if (typeof afst === 'number' && !isNaN(afst) && afst > V9_MAX_LEER_AFSTAND) {
+    klokLog('afgewezen', { node: nodeId, reden: 'te_ver', afst: Math.round(afst) });
+    return;
+  }
+  if (dichtstbijOSMTwijfel) {
+    klokLog('afgewezen', { node: nodeId, reden: 'node-twijfel' });
+    return;
+  }
+  const sleutel = 'sl_klok_' + nodeId;
+  let arr;
+  try { arr = JSON.parse(localStorage.getItem(sleutel)) || []; } catch(e) { arr = []; }
+  if (!Array.isArray(arr)) arr = [];
+  const dd = huidigDDActief();
+  arr.push({ t: Date.now(), type, dd, dow: new Date().getDay(), richt: (richtingLockKeuze || null) });
+  if (arr.length > MAX_KLOK_MOMENTEN) arr = arr.slice(-MAX_KLOK_MOMENTEN);
+  try { localStorage.setItem(sleutel, JSON.stringify(arr)); } catch(e) {}
+  klokLog('moment', { node: nodeId, type, dd, n: arr.length });
+}
+
+// W2: circulaire afstand op [0,C) — fase wrapt bij C.
+function klokCircDist(a, b, C) {
+  const d = Math.abs(a - b) % C;
+  return Math.min(d, C - d);
+}
+// W2: robuuste spreiding = mediaan absolute afwijking (MAD) rond de circulaire
+// mediaan. Een enkele uitschieter (voetgangersfase) verschuift de mediaan niet
+// en domineert de MAD niet — vandaar deze maat i.p.v. een variantie.
+function klokCircMAD(residuen, C) {
+  if (!residuen.length) return { mad: 0, mediaan: null };
+  let besteM = residuen[0], besteSom = Infinity;
+  for (const c of residuen) {
+    let som = 0;
+    for (const r of residuen) som += klokCircDist(r, c, C);
+    if (som < besteSom) { besteSom = som; besteM = c; }
+  }
+  const afw = residuen.map(r => klokCircDist(r, besteM, C)).sort((x, y) => x - y);
+  const mad = afw[Math.floor(afw.length / 2)];
+  return { mad, mediaan: besteM };
+}
+// W2: rasterzoek C in [25,120] stap 0,5s. Groen- én rood-momenten delen dezelfde
+// C maar hebben elk hun eigen fase; de gecombineerde spreiding is het per-reeks
+// aantal-gewogen gemiddelde van de MADs. betrouwbaar=false als spreiding > 5s
+// (C.6: geen vast ritme → vermoedelijk voertuiggestuurd).
+function analyseerKlokRitme(momenten) {
+  const n = Array.isArray(momenten) ? momenten.length : 0;
+  const groen = (momenten || []).filter(m => m && m.type === 'groen').map(m => m.t / 1000);
+  const rood  = (momenten || []).filter(m => m && m.type === 'rood').map(m => m.t / 1000);
+  if (groen.length + rood.length < 2) return { C: null, P_groen: null, P_rood: null, spreiding: null, n, betrouwbaar: false };
+  let besteC = null, besteSpreiding = Infinity, besteMg = null, besteMr = null;
+  for (let C = 25; C <= 120; C += 0.5) {
+    const rg = groen.map(t => ((t % C) + C) % C);
+    const rr = rood.map(t => ((t % C) + C) % C);
+    const sg = rg.length ? klokCircMAD(rg, C) : { mad: 0, mediaan: null };
+    const sr = rr.length ? klokCircMAD(rr, C) : { mad: 0, mediaan: null };
+    const totaal = rg.length + rr.length;
+    const spreiding = (sg.mad * rg.length + sr.mad * rr.length) / totaal;
+    if (spreiding < besteSpreiding) {
+      besteSpreiding = spreiding; besteC = C;
+      besteMg = sg.mediaan; besteMr = sr.mediaan;
+    }
+  }
+  return {
+    C: besteC,
+    P_groen: besteMg != null ? Math.round(besteMg * 10) / 10 : null,
+    P_rood: besteMr != null ? Math.round(besteMr * 10) / 10 : null,
+    spreiding: Math.round(besteSpreiding * 100) / 100,
+    n,
+    betrouwbaar: besteSpreiding <= 5
+  };
+}
+
+// W3: overzicht over alle sl_klok_-nodes — beantwoordt "welk aandeel heeft ritme".
+function toonKlokAnalyse() {
+  let totaalNodes = 0, betrouwbaar = 0;
+  const verdeling = { '1': 0, '2': 0, '3': 0, '4-5': 0, '6+': 0 };
+  const ritmes = [];
+  for (const key of Object.keys(localStorage)) {
+    if (!key.startsWith('sl_klok_')) continue;
+    let arr;
+    try { arr = JSON.parse(localStorage.getItem(key)); } catch(e) { continue; }
+    if (!Array.isArray(arr) || !arr.length) continue;
+    totaalNodes++;
+    const nn = arr.length;
+    const bucket = nn === 1 ? '1' : nn === 2 ? '2' : nn === 3 ? '3' : nn <= 5 ? '4-5' : '6+';
+    verdeling[bucket]++;
+    const r = analyseerKlokRitme(arr);
+    if (r.betrouwbaar) {
+      betrouwbaar++;
+      ritmes.push(`${key.replace('sl_klok_', '')}: C=${r.C}s σ=${r.spreiding}s n=${r.n}`);
+    }
+  }
+  const regels = [
+    `Nodes met momenten: ${totaalNodes}`,
+    `Verdeling: 1=${verdeling['1']} 2=${verdeling['2']} 3=${verdeling['3']} 4-5=${verdeling['4-5']} 6+=${verdeling['6+']}`,
+    `Betrouwbaar ritme: ${betrouwbaar}`,
+    '',
+    ...ritmes.slice(0, 30)
+  ];
+  alert('🕐 KLOKRITME-ANALYSE\n\n' + regels.join('\n'));
 }
 
 // ── TAGGING ───────────────────────────────────────────────────
