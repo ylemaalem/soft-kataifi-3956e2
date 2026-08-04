@@ -549,7 +549,7 @@
 <div id="startscherm">
   <div id="s-icoon">🚦</div>
   <div id="s-titel">Stoplicht<span>IQ</span></div>
-  <div id="s-versie">V11.17.20 — klokmomenten verzamelen + ritme-analyse (stap 1/3)</div>
+  <div id="s-versie">V11.17.21 — sticky-overname op korte afstand + sterke detectie</div>
   <div id="s-model-wrap">
     <div id="s-model-rij">
       <div id="s-model-label">🤖 YOLOv8 model laden…</div>
@@ -760,7 +760,7 @@
 
 <script>
 // ═══════════════════════════════════════════════════════════════
-//  StoplichtIQ V11.17.20
+//  StoplichtIQ V11.17.21
 //  V11.10: Zelfkalibratie + vergrendeling + crop smoothing
 //  — S1+S2 bevestiging (kruispunt-level confidence)
 //  — Route-herkenning basis (sequentie-opslag)
@@ -2596,7 +2596,18 @@ const STICKY_MISS_MAX = 5;
 const STICKY_HOOGTE_TOLERANTIE = 0.40;   // ±40% bbox-hoogte tolerantie
 const STICKY_KLASSE_PENALTY_PX = 30;     // virtuele afstand-straf per mismatch
 const STICKY_HERSTEL_PX        = 100;    // V11.16.11: 60→100 — 60 was te streng, viel te snel door naar closest-fallback bij rijden. Harde familie-check (V11.16.8) blijft in herstel-tak (r3085-3088) portaal-hop tegenhouden.
+// V11.17.21: sticky-miss overname-routes. (c) close-range: onder STICKY_DICHTBIJ_M
+// vervalt de anti-hop-blokkade (nog maar één stoplicht relevant). (b) sterke-
+// detectie-overname: buiten die zone maar binnen STICKY_STERK_M adopteert een
+// detectie met familiescore >= STICKY_STERK_FAM de sticky. Miss-drempels
+// voorkomen dat één ruis-run al overneemt.
+const STICKY_DICHTBIJ_M        = 15;     // (c) GPS-afstand tot node waaronder blokkade vervalt
+const STICKY_DICHTBIJ_MISS_MIN = 1;      // (c) vanaf dit aantal opeenvolgende misses
+const STICKY_STERK_M           = 40;     // (b) max node-afstand voor sterke-detectie-overname
+const STICKY_STERK_FAM         = 0.35;   // (b) min familiescore (gelijk aan S2/postprocess-grens)
+const STICKY_STERK_MISS_MIN    = 2;      // (b) vanaf dit aantal opeenvolgende misses
 let stickyBLogLaatst = 0;               // throttle voor [STICKY-B] leerLog (1×/s)
+let stickyOvernameLogLaatst = 0;        // V11.17.21: throttle voor [STICKY] overname-log (1×/s)
 
 // V11.16.4 Fix A+C: tap-seed detectie identity. Handler-`dichtstbij`
 // wordt in selecteerBesteDetectie als voorrang-selectie gebruikt boven
@@ -2856,7 +2867,7 @@ let debugLaatsteRuweBoxen = 0;
 // V11.17.7 W1/W2: diagnose-globals — afwijsreden en kandidaat-metadata worden
 // in _verwerkWorkerResultaat gezet en door logKlasseVerdelingIndienBeschikbaar
 // naar de conf-log-entry geschreven.
-let debugLaatsteAfwijsReden = null; // 'ok'|'weg'|'lock_afst'|'sticky_miss'|'radius_cap'|'te_klein'|'onder_horizon'|'te_breed'|'buiten_rand'|'geen_klasse'|null
+let debugLaatsteAfwijsReden = null; // 'ok'|'weg'|'lock_afst'|'sticky_miss'|'sticky_overname_dichtbij'|'sticky_overname_sterk'|'radius_cap'|'te_klein'|'onder_horizon'|'te_breed'|'buiten_rand'|'geen_klasse'|null
 let debugLaatsteKandH = null;       // bbox-hoogte in YOLO-pixels van hoogst-scorende bruikbare kandidaat
 let debugLaatsteKandCy = null;      // cy als fractie 0..1 van beeldhoogte
 let debugLaatsteKandKlasse = null;  // topklasse-index van kandidaat
@@ -3598,7 +3609,57 @@ function selecteerBesteDetectie(detecties) {
         }
         // Geen kandidaat binnen radius
         stickyMissTeller++;
+        // V11.17.21: overname-routes vóór de sticky_miss-blokkade. Op korte
+        // afstand (c) of bij een sterke detectie (b) adopteert de beste kandidaat
+        // de sticky-positie i.p.v. geblokkeerd te worden. Kies de detectie die
+        // het dichtst bij de (oude) sticky ligt zodat de identiteit behouden blijft.
+        const afstNodeSticky = (dichtstbijOSM && typeof dichtstbijOSM.afstand === 'number' && !isNaN(dichtstbijOSM.afstand))
+          ? dichtstbijOSM.afstand : 999;
+        let overname = null, overnameReden = null;
+        if (afstNodeSticky < STICKY_DICHTBIJ_M && stickyMissTeller >= STICKY_DICHTBIJ_MISS_MIN) {
+          // (c) close-range: dichtstbijzijnde detectie adopteert de sticky.
+          let dichtstDet = null, dichtstAfst = Infinity;
+          for (const det of bruikbaar) {
+            const dx = det.cx - stickyDetectie.cx, dy = det.cy - stickyDetectie.cy;
+            const a = Math.sqrt(dx*dx + dy*dy);
+            if (a < dichtstAfst) { dichtstAfst = a; dichtstDet = det; }
+          }
+          if (dichtstDet) { overname = dichtstDet; overnameReden = 'sticky_overname_dichtbij'; }
+        } else if (afstNodeSticky < STICKY_STERK_M && stickyMissTeller >= STICKY_STERK_MISS_MIN) {
+          // (b) sterke-detectie-overname: dichtst-bij-sticky kandidaat met
+          // familiescore >= STICKY_STERK_FAM.
+          let sterkDet = null, sterkAfst = Infinity;
+          for (const det of bruikbaar) {
+            if (familieScore(det) < STICKY_STERK_FAM) continue;
+            const dx = det.cx - stickyDetectie.cx, dy = det.cy - stickyDetectie.cy;
+            const a = Math.sqrt(dx*dx + dy*dy);
+            if (a < sterkAfst) { sterkAfst = a; sterkDet = det; }
+          }
+          if (sterkDet) { overname = sterkDet; overnameReden = 'sticky_overname_sterk'; }
+        }
+        if (overname) {
+          const verschuiving = Math.round(Math.sqrt(
+            Math.pow(overname.cx - stickyDetectie.cx, 2) + Math.pow(overname.cy - stickyDetectie.cy, 2)));
+          if (Date.now() - stickyOvernameLogLaatst > 1000) {
+            console.log(`[STICKY] ${overnameReden} afst=${Math.round(afstNodeSticky)}m score=${familieScore(overname).toFixed(2)} h=${Math.round(overname.h)} verschuiving=${verschuiving} overgenomen=ja`);
+            stickyOvernameLogLaatst = Date.now();
+          }
+          stickyDetectie.cx = overname.cx;
+          stickyDetectie.cy = overname.cy;
+          stickyDetectie.hoogte = overname.h;
+          stickyDetectie.klasse = overname.klasse;
+          const ovFam = KLASSE_MAP[overname.klasse];
+          if (ovFam) stickyDetectie.familie = ovFam;
+          stickyDetectie.tijd = Date.now();
+          stickyMissTeller = 0;
+          if (overname.klasse >= 4) verwerkPijlDetectie(overname.klasse, overname.score ?? overname.conf ?? 0);
+          return { s1: overname, s2Rest: bruikbaar.filter(d => d !== overname), afwijsReden: overnameReden };
+        }
         if (stickyMissTeller < STICKY_MISS_MAX) {
+          if (Date.now() - stickyOvernameLogLaatst > 1000) {
+            console.log(`[STICKY] sticky_miss afst=${Math.round(afstNodeSticky)}m miss=${stickyMissTeller} overgenomen=nee`);
+            stickyOvernameLogLaatst = Date.now();
+          }
           return { s1: null, s2Rest: bruikbaar, afwijsReden:'sticky_miss' };
         }
         // Miss-quotum overschreden: sticky loslaten. V11.16.5 W2: bewaar
