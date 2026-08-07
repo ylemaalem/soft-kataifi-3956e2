@@ -549,7 +549,7 @@
 <div id="startscherm">
   <div id="s-icoon">🚦</div>
   <div id="s-titel">Stoplicht<span>IQ</span></div>
-  <div id="s-versie">V11.17.21 — sticky-overname op korte afstand + sterke detectie</div>
+  <div id="s-versie">V11.17.22 — fase8-model (4 klassen) + app-aanpassing 10->4</div>
   <div id="s-model-wrap">
     <div id="s-model-rij">
       <div id="s-model-label">🤖 YOLOv8 model laden…</div>
@@ -760,7 +760,7 @@
 
 <script>
 // ═══════════════════════════════════════════════════════════════
-//  StoplichtIQ V11.17.21
+//  StoplichtIQ V11.17.22
 //  V11.10: Zelfkalibratie + vergrendeling + crop smoothing
 //  — S1+S2 bevestiging (kruispunt-level confidence)
 //  — Route-herkenning basis (sequentie-opslag)
@@ -883,25 +883,13 @@ const VRI_BETROUWBAARHEID_GLOSA = 70; // percentage
 const VRI_BETROUWBAARHEID_SUGGESTIE = 85; // percentage
 
 const KLASSE_MAP = {
-  0:'rood', 1:'groen', 3:'oranje',
-  4:'rood', 5:'rood', 8:'rood',
-  6:'groen', 7:'groen', 9:'groen'
-};
-const PIJL_RICHTING = {
-  4: 'links',     // rood_pijl_links
-  5: 'rechts',    // rood_pijl_rechts
-  6: 'links',     // groen_pijl_links
-  7: 'rechts',    // groen_pijl_rechts
-  8: 'rechtdoor', // rood_pijl_rechtdoor
-  9: 'rechtdoor'  // groen_pijl_rechtdoor
-};
+  0:'rood', 1:'groen', 3:'oranje'
+};  // V11.17.22: 4-klasse-model — index 2 ('uit') bewust weggelaten -> gefilterd
+// V11.17.22: PIJL_RICHTING verwijderd — 4-klasse-model kent geen pijlklassen.
 // V11.15.5: leesbare klasse-namen voor UI-label + trainframes-export.
 // Klasse 2 ('uit') ontbreekt bewust — al gefilterd door KLASSE_MAP.
 const KLASSE_NAMEN = {
-  0: 'ROOD_ROND', 1: 'GROEN_ROND', 3: 'ORANJE_ROND',
-  4: 'ROOD_PIJL_LINKS', 5: 'ROOD_PIJL_RECHTS',
-  6: 'GROEN_PIJL_LINKS', 7: 'GROEN_PIJL_RECHTS',
-  8: 'ROOD_PIJL_RECHTDOOR', 9: 'GROEN_PIJL_RECHTDOOR'
+  0: 'ROOD', 1: 'GROEN', 3: 'ORANJE'
 };
 
 // V11.8.0: Countdown modus constanten
@@ -943,7 +931,7 @@ const CROP_SMOOTHING = 0.85;
 const ZOOM_UNLOCK_AFSTAND_M = 30;
 
 // V11.11.0: Fase 3 model — 10 klassen (rood, groen, uit, oranje, pijl-rood, pijl-groen, pijl-uit, pijl-oranje, voetganger-rood, voetganger-groen)
-const NC = 10;
+const NC = 4;
 
 // V11.11.0: Nacht beeldversterking
 const NACHT_VERSTERK_ACTIEF = true;
@@ -1644,23 +1632,7 @@ function richtingSymbool(richting) {
   return '';
 }
 
-function verwerkPijlDetectie(klasse, conf) {
-  if (typeof PIJL_RICHTING[klasse] === 'undefined') return;
-  if (conf < PIJL_AUTO_DREMPEL) return;
-  const richting = PIJL_RICHTING[klasse];
-  const nu = Date.now();
-  const verlopen = (nu - v9PijlDetectieTijd) > PIJL_AUTO_GELDIG_MS;
-  if (verlopen || conf > v9PijlDetectieConf) {
-    v9PijlDetectieRichting = richting;
-    v9PijlDetectieConf = conf;
-    v9PijlDetectieTijd = nu;
-    if (v9AanrijHeading != null || v9AanrijSnelheidHeading != null) {
-      const h = v9AanrijSnelheidHeading ?? v9AanrijHeading;
-      v9PreSelectieAfrij = berekenAfrijRichtingViaTik(h, richting);
-      leerLog('V11.12 pijl-auto:' + richting + ' conf:' + conf.toFixed(2) + ' kl:' + klasse);
-    }
-  }
-}
+// V11.17.22: verwerkPijlDetectie verwijderd — 4-klasse-model levert geen pijlinfo.
 
 // Heading verschil, gecorrigeerd voor wraparound
 function headingVerschil(a, b) {
@@ -2949,11 +2921,6 @@ let v9DelayedWriteActief    = false;  // wachten op afrijrichting
 let v9LaatstLageSnelheid    = 0;      // timestamp van lage-snelheid start (parkeer-check)
 let v9LaatstPassageNode     = null;   // cooldown: node-id van laatste passage
 let v9LaatstPassageTijd     = 0;      // cooldown: tijdstip van laatste passage
-let v9PijlDetectieRichting  = null;
-let v9PijlDetectieConf      = 0;
-let v9PijlDetectieTijd      = 0;
-const PIJL_AUTO_DREMPEL     = 0.50;
-const PIJL_AUTO_GELDIG_MS   = 10000;
 let laatsteNodeWisselTijd   = 0;
 const NODE_WISSEL_MIN_INTERVAL_MS = 10000;
 
@@ -3503,9 +3470,9 @@ function familieScore(detectie) {
   const fam = KLASSE_MAP[detectie.klasse];
   if (!fam) return detectie.score || 0;
   const vec = detectie.alleScores;
-  if (!vec || vec.length !== 10) return detectie.score || 0;
-  if (fam === 'rood')   return (vec[0]||0)+(vec[4]||0)+(vec[5]||0)+(vec[8]||0);
-  if (fam === 'groen')  return (vec[1]||0)+(vec[6]||0)+(vec[7]||0)+(vec[9]||0);
+  if (!vec || vec.length !== NC) return detectie.score || 0;
+  if (fam === 'rood')   return vec[0]||0;
+  if (fam === 'groen')  return vec[1]||0;
   if (fam === 'oranje') return vec[3]||0;
   return detectie.score || 0;
 }
@@ -3530,7 +3497,6 @@ function selecteerBesteDetectie(detecties) {
       if (afst < minLockAfst) { minLockAfst = afst; besteLock = det; }
     }
     if (besteLock && minLockAfst < 120) {
-      if (besteLock.klasse >= 4) verwerkPijlDetectie(besteLock.klasse, besteLock.score ?? besteLock.conf ?? 0);
       return { s1: besteLock, s2Rest: bruikbaar.filter(d => d !== besteLock), afwijsReden:'ok' };
     }
     return { s1: null, s2Rest: bruikbaar, afwijsReden:'lock_afst' };
@@ -3604,7 +3570,6 @@ function selecteerBesteDetectie(detecties) {
           if (nieuweFamilie) stickyDetectie.familie = nieuweFamilie;
           stickyDetectie.tijd = Date.now();
           stickyMissTeller = 0;
-          if (match.klasse >= 4) verwerkPijlDetectie(match.klasse, match.score ?? match.conf ?? 0);
           return { s1: match, s2Rest: bruikbaar.filter(d => d !== match), afwijsReden:'ok' };
         }
         // Geen kandidaat binnen radius
@@ -3652,7 +3617,6 @@ function selecteerBesteDetectie(detecties) {
           if (ovFam) stickyDetectie.familie = ovFam;
           stickyDetectie.tijd = Date.now();
           stickyMissTeller = 0;
-          if (overname.klasse >= 4) verwerkPijlDetectie(overname.klasse, overname.score ?? overname.conf ?? 0);
           return { s1: overname, s2Rest: bruikbaar.filter(d => d !== overname), afwijsReden: overnameReden };
         }
         if (stickyMissTeller < STICKY_MISS_MAX) {
@@ -3718,7 +3682,6 @@ function selecteerBesteDetectie(detecties) {
             tijd: Date.now()
           };
           stickyMissTeller = 0;
-          if (match.klasse >= 4) verwerkPijlDetectie(match.klasse, match.score ?? match.conf ?? 0);
           return { s1: match, s2Rest: bruikbaar.filter(d => d !== match), afwijsReden:'ok' };
         }
         // Geen herstel-match: valt door naar tap-seed voorrang + closest-op-bboxOverride
@@ -3757,7 +3720,6 @@ function selecteerBesteDetectie(detecties) {
           };
           stickyMissTeller = 0;
           tapSeedDetectie = null; // seed verbruikt
-          if (match.klasse >= 4) verwerkPijlDetectie(match.klasse, match.score ?? match.conf ?? 0);
           return { s1: match, s2Rest: bruikbaar.filter(d => d !== match), afwijsReden:'ok' };
         }
       }
@@ -3790,7 +3752,6 @@ function selecteerBesteDetectie(detecties) {
         };
         stickyMissTeller = 0;
         bboxOverrideMatchTeller++;
-        if (besteOv.klasse >= 4) verwerkPijlDetectie(besteOv.klasse, besteOv.score ?? besteOv.conf ?? 0);
         return { s1: besteOv, s2Rest: bruikbaar.filter(d => d !== besteOv), afwijsReden:'ok' };
       }
     }
@@ -3899,7 +3860,6 @@ function selecteerBesteDetectie(detecties) {
 
   // Fallback: als geen enkel centraal stoplicht gevonden
   if (!beste) beste = besteBuitenMidden;
-  if (beste && beste.klasse >= 4) verwerkPijlDetectie(beste.klasse, beste.score ?? beste.conf ?? 0);
 
   if (beste) {
     const nu = Date.now();
@@ -6173,12 +6133,7 @@ function checkVRISuggestie(nodeId) {
 }
 
 // V8.8: Rijrichtingdata opslaan (passief bij bevestigde detectie)
-// RONDE 3 TODO: bestaande frames her-labelen met pijlklassen
-// Claude Code filtert frames: confidence>0.60 EN bbox h/w ratio>1.8
-// Nieuwe klassen: rood_rond, rood_pijl_links, rood_pijl_rechts,
-//                 groen_rond, groen_pijl_links, groen_pijl_rechts, oranje_rond
-// Rechtdoor = ronde bal = geen pijlklasse nodig
-// Pijlherkenning maakt rijrichtingdetectie triviaal zonder GPS of tikken
+// V11.17.22: 4-klasse-model (rood/groen/uit/oranje) — geen pijlklassen meer.
 
 function slaRichtingOp(nodeId, cx, heading) {
   if (!nodeId) return;
@@ -6301,8 +6256,6 @@ function tikRichting(richting) {
     data = { cx_zones: [{ zone:'links', count:0 }, { zone:'midden', count:0 }, { zone:'rechts', count:0 }],
              headings: [], laatste_update: Date.now(), bevestigingen: 0 };
   }
-  v9PijlDetectieRichting = null;
-  v9PijlDetectieConf = 0;
   data.tikrichting = richting;
   data.tik_bevestigingen = (data.tik_bevestigingen || 0) + 1;
   const zoneMap = { links:'links', rechtdoor:'midden', rechts:'rechts' };
@@ -6688,7 +6641,7 @@ const MULTIFRAME_AANTAL = 3;
 const MULTIFRAME_MIN_MS = 300;   // min tijd tussen verse frames
 const MULTIFRAME_MATCH_PX = 120; // zelfde-stoplicht drempel (== sticky)
 // Rood-klasse → corresponderende groen-klasse (uit KLASSE_NAMEN-structuur)
-const ROOD_NAAR_GROEN = { 0:1, 4:6, 5:7, 8:9 };
+const ROOD_NAAR_GROEN = { 0:1 };  // V11.17.22: alleen rood->groen (pijlklassen vervallen)
 
 function genereerKlasseCorrectieTegels() {
   const grid = document.getElementById('klasse-correctie-grid');
@@ -7748,9 +7701,8 @@ async function exporteerTrainframes() {
         aantalFrames:frames.length,
         frames:frames.map(f => {
           const klasseNr = parseInt((f.label || '').split(' ')[0]);
-          // V11.15.5: hergebruik KLASSE_NAMEN — pijl-klassen (4-9) krijgen
-          // nu ook een leesbare naam ipv 'onbekend'. lowercase voor
-          // consistente Python-trainingsdata-conventie.
+          // V11.17.22: KLASSE_NAMEN is 4-klasse; oude trainframes met index
+          // 4-9 vallen terug op 'onbekend'. lowercase voor Python-conventie.
           const klasseNaam = KLASSE_NAMEN[klasseNr] ? KLASSE_NAMEN[klasseNr].toLowerCase() : 'onbekend';
           return { naam:`train_${f.tijd}.jpg`, jpeg:f.jpeg, label:f.label, bron:f.bron, tijd:f.tijd, klasse:klasseNaam };
         })
@@ -8026,7 +7978,6 @@ function updateDichtbij(lat, lon) {
     resetVolgordeKennis('node-wissel'); // V11.17.11 Laag 3c
     invalideerPassiefSnapshot(); // V11.17.13 W3
     invalideerFaseContinuiteit('node-wissel'); // V11.17.16 W4
-    v9PijlDetectieRichting = null; v9PijlDetectieConf = 0; v9PijlDetectieTijd = 0;
     if (!sessionHersteld) { bboxAnchorCx = null; bboxAnchorCy = null; bboxAnchorTijd = 0; }
     // W3: reset bevestig state bij node-wissel
     bevestigActief = false; cdBereikteNul = false;
@@ -8186,7 +8137,6 @@ function corrigeerNodeAutomatisch(nieuweNode, reden) {
   bboxAnchorCx = null; bboxAnchorCy = null; bboxAnchorTijd = 0;
   stickyDetectie = null; stickyMissTeller = 0;
   tapSeedDetectie = null;
-  v9PijlDetectieRichting = null; v9PijlDetectieConf = 0; v9PijlDetectieTijd = 0;
 
   // richting-lock hoort bij oude node
   richtingLockNodeId = null; richtingLockKeuze = null;
