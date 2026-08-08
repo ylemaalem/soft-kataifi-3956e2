@@ -549,7 +549,7 @@
 <div id="startscherm">
   <div id="s-icoon">🚦</div>
   <div id="s-titel">Stoplicht<span>IQ</span></div>
-  <div id="s-versie">V11.17.22 — fase8-model (4 klassen) + app-aanpassing 10->4</div>
+  <div id="s-versie">V11.17.23 — stille opslagweigeringen zichtbaar</div>
   <div id="s-model-wrap">
     <div id="s-model-rij">
       <div id="s-model-label">🤖 YOLOv8 model laden…</div>
@@ -760,7 +760,7 @@
 
 <script>
 // ═══════════════════════════════════════════════════════════════
-//  StoplichtIQ V11.17.22
+//  StoplichtIQ V11.17.23
 //  V11.10: Zelfkalibratie + vergrendeling + crop smoothing
 //  — S1+S2 bevestiging (kruispunt-level confidence)
 //  — Route-herkenning basis (sequentie-opslag)
@@ -1224,13 +1224,66 @@ function toggleLeerLog() {
   el.style.display = el.style.display === 'none' ? 'block' : 'none';
 }
 
+// ── V11.17.23: OPSLAG-DIAGNOSTIEK ────────────────────────────
+// Maakt elke stille weigering in de opslagketen zichtbaar. Wijzigt GEEN
+// enkele conditie of drempel — puur observeren. Elk record heeft dezelfde
+// vorm (ontbrekende waarden expliciet null) zodat analyse simpel blijft.
+const MAX_OPSLAGLOG = 500;
+let opslagLogCooldownNode = null;   // guard tegen herhaald cooldown-loggen
+function logOpslagMis(reden, extra) {
+  try {
+    const e = extra || {};
+    const nodeId = (e.node != null) ? String(e.node)
+      : (dichtstbijOSM ? String(dichtstbijOSM.id) : null);
+    const afstRuw = (e.afst != null) ? e.afst
+      : (dichtstbijOSM ? dichtstbijOSM.afstand : null);
+    let naam = null;
+    try { naam = osmCache?.find(n => String(n.id) === String(nodeId))?.naam || null; } catch(_) {}
+    const num = (v) => (typeof v === 'number' && !isNaN(v)) ? Math.round(v) : null;
+    const rec = {
+      t: Date.now(),
+      reden,
+      node: nodeId,
+      naam,
+      afst: num(afstRuw),
+      dur: num(e.dur),
+      kmh: num(typeof snelheidKmh === 'number' ? snelheidKmh : null),
+      dd: (typeof huidigDDActief === 'function') ? huidigDDActief() : null,
+      twijfel: !!dichtstbijOSMTwijfel,
+      hand: !!handmatigLockActief,
+      dw: !!v9DelayedWriteActief,
+      tik: richtingLockKeuze || null,
+      pre: v9PreSelectieAfrij || null,
+      aanrij: e.aanrij || null,
+      afrij: e.afrij || null
+    };
+    let arr;
+    try { arr = JSON.parse(localStorage.getItem('sl_opslaglog')) || []; } catch(_) { arr = []; }
+    if (!Array.isArray(arr)) arr = [];
+    arr.push(rec);
+    if (arr.length > MAX_OPSLAGLOG) arr = arr.slice(-MAX_OPSLAGLOG);
+    try { localStorage.setItem('sl_opslaglog', JSON.stringify(arr)); } catch(_) {}
+    // W5: live console-diagnostiek
+    console.log(`[${reden === 'ok' ? 'OPSLAG-OK' : 'OPSLAG-MIS'}] ${reden}`
+      + ` node=${rec.node} naam=${rec.naam} afst=${rec.afst} dur=${rec.dur}`
+      + ` kmh=${rec.kmh} dw=${rec.dw?1:0} twijfel=${rec.twijfel?1:0}`
+      + ` tik=${rec.tik} pre=${rec.pre} aanrij=${rec.aanrij} afrij=${rec.afrij}`);
+  } catch(_) { /* logging mag nooit de app breken */ }
+}
+
 function slaOp(osmId, richting, duur, conf=null, bypassAfstand=false, gewichtOverride=null, minDuurOverride=null) {
   leerLog('SLAOP node:' + osmId + ' duur:' + duur + ' conf:' + (conf ? conf.toFixed(2) : '?'));
   const minDuur = (minDuurOverride != null) ? minDuurOverride : 4;
-  if (!osmId || duur < minDuur || duur > 180) return false;  // V11.17.10 Laag 2a: cap 300→180s
+  if (!osmId || duur < minDuur || duur > 180) {
+    logOpslagMis(!osmId ? 'geen_node' : (duur < minDuur ? 'te_kort' : 'te_lang'), { node: osmId, dur: duur });
+    return false;  // V11.17.10 Laag 2a: cap 300→180s
+  }
   const obsNu = faseStart ? Math.round((performance.now() - faseStart) / 1000) : null;
   const totaalMCheck = Object.keys(DD).reduce((s, d) => s + laadM(osmId, d).length, 0);
-  if (totaalMCheck === 0 && (obsNu == null || obsNu < OBS_MINIMUM) && conf != null && conf < 0.20) return false;
+  if (totaalMCheck === 0 && (obsNu == null || obsNu < OBS_MINIMUM) && conf != null && conf < 0.20) {
+    logOpslagMis('nieuw_lage_conf', { node: osmId, dur: duur });
+    return false;
+  }
   if (!bypassAfstand) {
     const afstandM = dichtstbijOSM?.afstand;
     const maxAfstand = (typeof handmatigLockActief !== 'undefined' && handmatigLockActief) ? 120 : V9_MAX_LEER_AFSTAND;
@@ -1242,6 +1295,7 @@ function slaOp(osmId, richting, duur, conf=null, bypassAfstand=false, gewichtOve
           localStorage.setItem('sl_cam_stats', JSON.stringify(stats));
         }
       } catch(e) {}
+      logOpslagMis('te_ver', { node: osmId, dur: duur, afst: afstandM });
       return false;
     }
   }
@@ -1427,7 +1481,7 @@ function berekenObsGewicht(obs, bron, heeftHandmatigeTap) {
 function slaOpIntern(osmId, richting, duur, gewichtOverride, dd, bron='s1', conf=null) {
   let m = laadM(osmId, dd);
   const gewijzigd = checkCyclusReset(duur, gewGem(m), m, osmId);
-  if (gewijzigd) m = [];
+  if (gewijzigd) { logOpslagMis('cyclus_reset', { node: osmId, dur: duur }); m = []; }
   const obs = faseStart ? Math.round((performance.now() - faseStart) / 1000) : null;
   const heeftTap = (typeof bboxOverride !== 'undefined' && bboxOverride !== null);
   const gewicht = gewichtOverride != null
@@ -1443,6 +1497,8 @@ function slaOpIntern(osmId, richting, duur, gewichtOverride, dd, bron='s1', conf
     const _naam = osmCache?.find(n => String(n.id) === String(osmId))?.naam || '';
     const _pct = berekenLeerPct(osmId);
     if (_pct > 0) toonLeerToast(_naam, _pct);
+    // W3: elke GESLAAGDE V4-write loggen ('ok'), of 'pct_nul' als de balk uitblijft.
+    logOpslagMis(_pct > 0 ? 'ok' : 'pct_nul', { node: osmId, dur: duur });
   } catch(e) {}
   return gewijzigd;
 }
@@ -1682,7 +1738,10 @@ function laadMV5Geclusterd(nodeId, aanrij, afrij, dd) {
 }
 
 function slaOpV5(nodeId, aanrij, afrij, dd, duur, gewicht) {
-  if (!nodeId || !aanrij || !afrij || !dd || !duur || duur < 4 || duur > 180) return;  // V11.17.10 Laag 2a: cap 300→180s
+  if (!nodeId || !aanrij || !afrij || !dd || !duur || duur < 4 || duur > 180) {
+    logOpslagMis('v5_guard', { node: nodeId, dur: duur, aanrij, afrij });
+    return;  // V11.17.10 Laag 2a: cap 300→180s
+  }
   const sleutel = v5Sleutel(nodeId, aanrij, afrij, dd);
   let m = laadMV5(nodeId, aanrij, afrij, dd);
   m.push({ duur: Math.round(duur), tijd: Date.now(), gewicht: gewicht ?? 1.0 });
@@ -2131,8 +2190,8 @@ function exporteerMeetdata() {
   };
   setTimeout(() => {
     try {
-      const uit = { versie:'V11.17.20', geexporteerd:new Date().toISOString(),
-                    passief:{}, bevestig:{}, namen:{}, leer:{}, s2:{}, klok:{} };
+      const uit = { versie:'V11.17.23', geexporteerd:new Date().toISOString(),
+                    passief:{}, bevestig:{}, namen:{}, leer:{}, s2:{}, klok:{}, opslag:{} };
       for (const key of Object.keys(localStorage)) {
         let doel = null;
         if (key.startsWith('sl_passief_'))       doel = uit.passief;
@@ -2140,6 +2199,7 @@ function exporteerMeetdata() {
         else if (key.startsWith('sl_naam_'))     doel = uit.namen;
         else if (key.startsWith('sl_s2_'))       doel = uit.s2;   // V11.17.15: eigen bucket
         else if (key.startsWith('sl_klok_'))     doel = uit.klok; // V11.17.20: eigen bucket
+        else if (key === 'sl_opslaglog')         doel = uit.opslag; // V11.17.23: opslag-diagnostiek
         else if (key.startsWith('sl_v4_'))       doel = uit.leer;
         if (!doel) continue;
         try { doel[key] = JSON.parse(localStorage.getItem(key)); }
@@ -2194,6 +2254,7 @@ function exporteerMeetdata() {
 function voerV9DelayedWriteUit(huidigeHeading) {
   leerLog('V9START duur:' + v9KandidaatDuur + ' node:' + v9KandidaatNode);
   if (!v9DelayedWriteActief || !v9KandidaatNode || !v9KandidaatDuur) {
+    logOpslagMis('dw_incompleet', { node: v9KandidaatNode, dur: v9KandidaatDuur });
     resetV9Staat();
     return;
   }
@@ -2201,7 +2262,7 @@ function voerV9DelayedWriteUit(huidigeHeading) {
   const aanrijRichting = v9AanrijSnelheidHeading != null
     ? gpsHeadingNaarWindrichting(v9AanrijSnelheidHeading)
     : (v9AanrijHeading != null ? gpsHeadingNaarWindrichting(v9AanrijHeading) : null);
-  if (!aanrijRichting) { resetV9Staat(); return; }
+  if (!aanrijRichting) { logOpslagMis('geen_aanrij', { node: v9KandidaatNode, dur: v9KandidaatDuur }); resetV9Staat(); return; }
 
   // V11.3.0: Circulair gemiddelde afrij-heading over buffer
   const gemAfrij = berekenGemAfrijHeading(afrijHeadingBuffer);
@@ -2212,11 +2273,12 @@ function voerV9DelayedWriteUit(huidigeHeading) {
   const afrijRichting = (v9PreSelectieAfrij && WINDRICHTINGEN.includes(v9PreSelectieAfrij))
     ? v9PreSelectieAfrij
     : gpsAfrijRichting;
-  if (!afrijRichting) { resetV9Staat(); return; }
+  if (!afrijRichting) { logOpslagMis('geen_afrij', { node: v9KandidaatNode, dur: v9KandidaatDuur, aanrij: aanrijRichting }); resetV9Staat(); return; }
 
   // Edge case: u-bocht (alleen als GPS heading bekend is)
   const aanrijNum = v9AanrijSnelheidHeading ?? v9AanrijHeading;
   if (afrijHeading != null && aanrijNum != null && headingVerschil(aanrijNum, afrijHeading) > V9_U_BOCHT_GRADEN) {
+    logOpslagMis('u_bocht', { node: v9KandidaatNode, dur: v9KandidaatDuur, aanrij: aanrijRichting, afrij: afrijRichting });
     resetV9Staat();
     return;
   }
@@ -2230,7 +2292,7 @@ function voerV9DelayedWriteUit(huidigeHeading) {
     const kandidaatSl = osmCache.find(s => String(s.id) === v9KandidaatNode);
     if (kandidaatSl) {
       const afstandNu = afstand(huidigePos.lat, huidigePos.lon, kandidaatSl.lat, kandidaatSl.lon);
-      if (afstandNu > V9_MAX_LEER_AFSTAND) { resetV9Staat(); return; }
+      if (afstandNu > V9_MAX_LEER_AFSTAND) { logOpslagMis('te_ver_dw', { node: v9KandidaatNode, dur: v9KandidaatDuur, afst: afstandNu, aanrij: aanrijRichting, afrij: afrijRichting }); resetV9Staat(); return; }
       if (afstandNu > V9_DICHTBIJ_AFSTAND) gewicht = V9_GEWICHT_VER;
     }
   }
@@ -4610,13 +4672,20 @@ function verwerkFase(nieuw, horizontaal, conf=null) {
           }
           laatsteGroenDuur = 0;
           laatsteGroenNode = null;
+        } else {
+          logOpslagMis(!nodeId ? 'geen_node' : 'delayed_actief', { node: nodeId, dur });
         }
         if (v9KandidaatNode === nodeId) {
           v9KandidaatDuur = dur;
           v9KandidaatDagdeel = huidigDDActief();
         }
         bijwerkLeerkaart(dichtstbijOSM); bijwerkDashboardKnop();
+      } else {
+        logOpslagMis('te_ver', { node: nodeId, dur, afst: afstandM });
       }
+    } else if (fase === 'rood') {
+      logOpslagMis(!dichtstbijOSM ? 'geen_node' : (dur <= effectieveMinDur ? 'te_kort' : 'te_lang'),
+        { node: nodeId, dur });
     }
   }
   // V11.17.13 W2: passieve meting bij rood→groen. Zuiver meelezend — schrijft
@@ -5680,7 +5749,7 @@ function exporteerData() {
     try {
       const exportData = { versie:'11.4.4', exportDatum:new Date().toISOString(), app:'StoplichtIQ', data:{}, scores:{} };
       for (const key of Object.keys(localStorage)) {
-        if (key.startsWith('sl_v10_')||key.startsWith('sl_v5_')||key.startsWith('sl_v4_')||key.startsWith('sl_v3_')||key.startsWith('sl_s2_')||key.startsWith('sl_klok_')||key.startsWith('sl_tag_')||key.startsWith('sl_naam_')||key.startsWith('sl_richting_')||key.startsWith('sl_route_')||key.startsWith('sl_bevestig_')||key.startsWith('sl_pos_')||key.startsWith('sl_neutraal_')||key.startsWith('sl_enkelricht_')||key==='sl_cam_stats'||key==='sl_stad_cache') {
+        if (key.startsWith('sl_v10_')||key.startsWith('sl_v5_')||key.startsWith('sl_v4_')||key.startsWith('sl_v3_')||key.startsWith('sl_s2_')||key.startsWith('sl_klok_')||key==='sl_opslaglog'||key.startsWith('sl_tag_')||key.startsWith('sl_naam_')||key.startsWith('sl_richting_')||key.startsWith('sl_route_')||key.startsWith('sl_bevestig_')||key.startsWith('sl_pos_')||key.startsWith('sl_neutraal_')||key.startsWith('sl_enkelricht_')||key==='sl_cam_stats'||key==='sl_stad_cache') {
           try { exportData.data[key] = JSON.parse(localStorage.getItem(key)); }
           catch(e) { exportData.data[key] = localStorage.getItem(key); }
         }
@@ -5729,7 +5798,7 @@ function importeerData(bestand) {
         // V11.15.4 Fix 4: whitelist gesynchroniseerd met exporteerData —
         // sl_bevestig_, sl_pos_ en sl_cam_stats zaten wél in de export
         // maar werden bij import stil overgeslagen.
-        if (!key.startsWith('sl_v10_')&&!key.startsWith('sl_v5_')&&!key.startsWith('sl_v4_')&&!key.startsWith('sl_v3_')&&!key.startsWith('sl_s2_')&&!key.startsWith('sl_klok_')&&!key.startsWith('sl_tag_')&&!key.startsWith('sl_naam_')&&!key.startsWith('sl_richting_')&&!key.startsWith('sl_route_')&&!key.startsWith('sl_bevestig_')&&!key.startsWith('sl_pos_')&&!key.startsWith('sl_neutraal_')&&!key.startsWith('sl_enkelricht_')&&key!=='sl_cam_stats'&&key!=='sl_stad_cache') { overgeslagen++; continue; }
+        if (!key.startsWith('sl_v10_')&&!key.startsWith('sl_v5_')&&!key.startsWith('sl_v4_')&&!key.startsWith('sl_v3_')&&!key.startsWith('sl_s2_')&&!key.startsWith('sl_klok_')&&key!=='sl_opslaglog'&&!key.startsWith('sl_tag_')&&!key.startsWith('sl_naam_')&&!key.startsWith('sl_richting_')&&!key.startsWith('sl_route_')&&!key.startsWith('sl_bevestig_')&&!key.startsWith('sl_pos_')&&!key.startsWith('sl_neutraal_')&&!key.startsWith('sl_enkelricht_')&&key!=='sl_cam_stats'&&key!=='sl_stad_cache') { overgeslagen++; continue; }
         if (localStorage.getItem(key) !== null) { overgeslagen++; continue; }
         try { localStorage.setItem(key, JSON.stringify(waarde)); toegevoegd++; } catch(e) { overgeslagen++; }
       }
@@ -8292,6 +8361,10 @@ async function onGPS(pos) {
     // 1. Nadering detectie: <60m, niet al bezig, cooldown OK
     if (afst <= V9_NADERING_AFSTAND && v9KandidaatNode !== nodeId && !v9DelayedWriteActief) {
       const cooldownOK = !(v9LaatstPassageNode === nodeId && Date.now() - v9LaatstPassageTijd < V9_PASSAGE_COOLDOWN);
+      if (!cooldownOK && opslagLogCooldownNode !== nodeId) {
+        opslagLogCooldownNode = nodeId;   // 1x per node — anders elke GPS-tick binnen 60m
+        logOpslagMis('cooldown', { node: nodeId });
+      }
       if (cooldownOK) {
         v9KandidaatNode = nodeId;
         v9AanrijHeading = smoothedH;
@@ -8310,6 +8383,7 @@ async function onGPS(pos) {
         v9PassageStartTijd = Date.now();
         v9DelayedWriteActief = true;
       } else {
+        logOpslagMis('kandidaat_verlaten', { node: v9KandidaatNode });
         resetV9Staat();
       }
     }
@@ -8338,6 +8412,7 @@ async function onGPS(pos) {
       const geparkeerd = v9LaatstLageSnelheid > 0 && (Date.now() - v9LaatstLageSnelheid) > V9_PARKEER_DREMPEL_MS;
 
       if (geparkeerd) {
+        logOpslagMis('geparkeerd', { node: v9KandidaatNode, dur: v9KandidaatDuur });
         resetV9Staat();
       } else if (voorbij || verGenoeg || tijdVerstreken || headingVeranderd) {
         voerV9DelayedWriteUit(smoothedH);
