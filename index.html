@@ -549,7 +549,7 @@
 <div id="startscherm">
   <div id="s-icoon">🚦</div>
   <div id="s-titel">Stoplicht<span>IQ</span></div>
-  <div id="s-versie">V11.17.23 — stille opslagweigeringen zichtbaar</div>
+  <div id="s-versie">V11.17.24 — afrij-conventie gefixt + richting-diagnostiek</div>
   <div id="s-model-wrap">
     <div id="s-model-rij">
       <div id="s-model-label">🤖 YOLOv8 model laden…</div>
@@ -717,6 +717,7 @@
       <!-- V11.15.10 DEBUG: conf-log export voor diagnose confidence-verdunning — TIJDELIJK -->
       <button id="export-conflog-btn" onclick="exporteerConfLog()" style="flex:1;padding:8px 12px;background:rgba(245,158,11,0.15);color:#f59e0b;border:1px solid rgba(245,158,11,0.35);border-radius:8px;font-size:12px;cursor:pointer;min-width:100px">📊 Exp. conf-log</button>
       <button id="klok-analyse-btn" onclick="toonKlokAnalyse()" style="flex:1;padding:8px 12px;background:rgba(34,197,94,0.15);color:#22c55e;border:1px solid rgba(34,197,94,0.35);border-radius:8px;font-size:12px;cursor:pointer;min-width:100px">🕐 Analyseer klokritmes</button>
+      <button id="terug-analyse-btn" onclick="toonTerugAnalyse()" style="flex:1;padding:8px 12px;background:rgba(167,139,250,0.15);color:#a78bfa;border:1px solid rgba(167,139,250,0.35);border-radius:8px;font-size:12px;cursor:pointer;min-width:100px">↶ Tel Terug-records</button>
     </div>
     <div style="font-size:9px;color:rgba(255,255,255,0.3);line-height:1.4">Verzamelt 640x640 frames met YOLO labels tijdens detectie.</div>
     <div style="margin-top:6px;display:flex;align-items:center;justify-content:space-between">
@@ -760,7 +761,7 @@
 
 <script>
 // ═══════════════════════════════════════════════════════════════
-//  StoplichtIQ V11.17.23
+//  StoplichtIQ V11.17.24
 //  V11.10: Zelfkalibratie + vergrendeling + crop smoothing
 //  — S1+S2 bevestiging (kruispunt-level confidence)
 //  — Route-herkenning basis (sequentie-opslag)
@@ -2268,12 +2269,28 @@ function voerV9DelayedWriteUit(huidigeHeading) {
   const gemAfrij = berekenGemAfrijHeading(afrijHeadingBuffer);
   const afrijBetrouwbaar = afrijHeadingBuffer.length >= 3;
   const afrijHeading = gemAfrij ?? huidigeHeading ?? getSmoothedHeading();
-  const gpsAfrijRichting = afrijHeading != null ? gpsHeadingNaarWindrichting(afrijHeading) : null;
+  // V11.17.24 (A): +180 zodat de GPS-afgeleide afrij DEZELFDE conventie volgt als
+  // berekenAfrijRichtingViaTik (r1675-1678) en rijdersPijlLabel (r6963-6966).
+  // Zonder deze correctie werd elke niet-getikte rechtdoor als 'Terug' gelabeld en
+  // werden links/rechts verwisseld; ook de gps_tik_score (r2323) vergeleek twee
+  // tegengestelde conventies en kon daardoor nooit matchen.
+  const gpsAfrijRichting = afrijHeading != null ? gpsHeadingNaarWindrichting((afrijHeading + 180) % 360) : null;
   const WINDRICHTINGEN = ['N','NO','O','ZO','Z','ZW','W','NW'];
   const afrijRichting = (v9PreSelectieAfrij && WINDRICHTINGEN.includes(v9PreSelectieAfrij))
     ? v9PreSelectieAfrij
     : gpsAfrijRichting;
   if (!afrijRichting) { logOpslagMis('geen_afrij', { node: v9KandidaatNode, dur: v9KandidaatDuur, aanrij: aanrijRichting }); resetV9Staat(); return; }
+  // V11.17.24 (C): observeer elke afrijbepaling — maakt meetbaar hoe vaak de
+  // buffer gevuld raakt en hoe stabiel hij is (input voor release B).
+  richtingLog({
+    samples: afrijHeadingBuffer.length,
+    spreiding: berekenAfrijSpreiding(afrijHeadingBuffer),
+    gemeten: gpsAfrijRichting,
+    tik: (v9PreSelectieAfrij || null),
+    gekozen: afrijRichting,
+    aanrij: aanrijRichting,
+    betrouwbaar: afrijBetrouwbaar
+  });
 
   // Edge case: u-bocht (alleen als GPS heading bekend is)
   const aanrijNum = v9AanrijSnelheidHeading ?? v9AanrijHeading;
@@ -5994,6 +6011,33 @@ function berekenGemAfrijHeading(buffer) {
   return (Math.atan2(sinGem, cosGem) * 180 / Math.PI + 360) % 360;
 }
 
+// V11.17.24 (C): spreiding van de afrij-samples in graden — maximale circulaire
+// afwijking t.o.v. het circulaire gemiddelde. Puur observerend: levert het bewijs
+// waarop een latere stabiliteitsdrempel (release B) gebaseerd kan worden.
+function berekenAfrijSpreiding(buffer) {
+  if (!buffer || buffer.length < 2) return null;
+  const cutoff = Date.now() - AFRIJ_BUFFER_DUUR_MS;
+  const recent = buffer.filter(h => h.tijd > cutoff && h.heading != null);
+  if (recent.length < 2) return null;
+  const sinGem = recent.reduce((sm, h) => sm + Math.sin(h.heading * Math.PI / 180), 0) / recent.length;
+  const cosGem = recent.reduce((sm, h) => sm + Math.cos(h.heading * Math.PI / 180), 0) / recent.length;
+  const gem = (Math.atan2(sinGem, cosGem) * 180 / Math.PI + 360) % 360;
+  let max = 0;
+  for (const h of recent) { const d = headingVerschil(h.heading, gem); if (d > max) max = d; }
+  return Math.round(max);
+}
+
+let richtingLogLaatst = 0;   // V11.17.24 (C): [RICHTING] throttle 1/sec
+function richtingLog(e) {
+  const nu = Date.now();
+  if (nu - richtingLogLaatst < 1000) return;
+  richtingLogLaatst = nu;
+  const x = e || {};
+  console.log(`[RICHTING] samples=${x.samples} spreiding=${x.spreiding}`
+    + ` gemeten=${x.gemeten} tik=${x.tik} gekozen=${x.gekozen}`
+    + ` aanrij=${x.aanrij} betrouwbaar=${x.betrouwbaar ? 1 : 0}`);
+}
+
 function berekenDoelZoom(afst) {
   if (bboxDichtbij) return 1.0;
   if (afst==null||isNaN(afst)||afst<0) return 1.0;
@@ -7441,6 +7485,51 @@ function toonKlokAnalyse() {
     ...ritmes.slice(0, 30)
   ];
   alert('🕐 KLOKRITME-ANALYSE\n\n' + regels.join('\n'));
+}
+
+// ── V11.17.24 (D): TERUG-RECORDS TELLEN ───────────────────────
+// Telt bestaande V5-records die als 'Terug' gelabeld worden. Verwijdert NIETS —
+// alleen tonen. aanrij===afrij is de signatuur van de conventie-bug die in
+// V11.17.24 (A) is gefixt: dat waren in werkelijkheid rechtdoor-metingen.
+function telTerugRecords() {
+  const perNode = new Map();
+  let keysTotaal = 0, terugKeys = 0, terugMetingen = 0, gelijkKeys = 0;
+  for (const key of Object.keys(localStorage)) {
+    if (!key.startsWith(LS_PREFIX_V5)) continue;
+    const delen = key.slice(LS_PREFIX_V5.length).split('_');
+    if (delen.length < 4) continue;
+    const nodeId = delen[0], aanrij = delen[1], afrij = delen[2];
+    keysTotaal++;
+    let arr;
+    try { arr = JSON.parse(localStorage.getItem(key)) || []; } catch(_) { arr = []; }
+    const n = Array.isArray(arr) ? arr.length : 0;
+    if (rijdersPijlLabel(aanrij, afrij).tekst !== 'Terug') continue;
+    terugKeys++; terugMetingen += n;
+    if (aanrij === afrij) gelijkKeys++;
+    const naam = localStorage.getItem('sl_naam_' + nodeId) || ('node ' + nodeId);
+    const cur = perNode.get(naam) || { keys: 0, met: 0 };
+    cur.keys++; cur.met += n; perNode.set(naam, cur);
+  }
+  return { keysTotaal, terugKeys, terugMetingen, gelijkKeys, perNode };
+}
+
+function toonTerugAnalyse() {
+  const r = telTerugRecords();
+  const NL = String.fromCharCode(10);
+  const pct = r.keysTotaal > 0 ? Math.round(r.terugKeys / r.keysTotaal * 100) : 0;
+  const lijst = [...r.perNode.entries()]
+    .sort((a, b) => b[1].met - a[1].met)
+    .slice(0, 25)
+    .map(([naam, v]) => naam + ": " + v.keys + " richting(en), " + v.met + " metingen");
+  const regels = [
+    "↶ TERUG-RECORDS",
+    "",
+    "V5-sleutels totaal: " + r.keysTotaal,
+    "Als Terug gelabeld: " + r.terugKeys + " (" + pct + "%) - " + r.terugMetingen + " metingen",
+    "Waarvan aanrij===afrij: " + r.gelijkKeys + "  (signatuur conventie-bug, gefixt in V11.17.24)",
+    ""
+  ].concat(lijst.length ? lijst : ["(geen)"]);
+  alert(regels.join(NL));
 }
 
 // ── TAGGING ───────────────────────────────────────────────────
