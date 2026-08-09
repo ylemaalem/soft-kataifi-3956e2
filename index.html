@@ -549,7 +549,7 @@
 <div id="startscherm">
   <div id="s-icoon">🚦</div>
   <div id="s-titel">Stoplicht<span>IQ</span></div>
-  <div id="s-versie">V11.17.25 — NaN-drempelbypass gefixt (familie-indices NC-bewust)</div>
+  <div id="s-versie">V11.17.26 — duur-label (zo) meegeschreven in V4/V5</div>
   <div id="s-model-wrap">
     <div id="s-model-rij">
       <div id="s-model-label">🤖 YOLOv8 model laden…</div>
@@ -718,6 +718,7 @@
       <button id="export-conflog-btn" onclick="exporteerConfLog()" style="flex:1;padding:8px 12px;background:rgba(245,158,11,0.15);color:#f59e0b;border:1px solid rgba(245,158,11,0.35);border-radius:8px;font-size:12px;cursor:pointer;min-width:100px">📊 Exp. conf-log</button>
       <button id="klok-analyse-btn" onclick="toonKlokAnalyse()" style="flex:1;padding:8px 12px;background:rgba(34,197,94,0.15);color:#22c55e;border:1px solid rgba(34,197,94,0.35);border-radius:8px;font-size:12px;cursor:pointer;min-width:100px">🕐 Analyseer klokritmes</button>
       <button id="terug-analyse-btn" onclick="toonTerugAnalyse()" style="flex:1;padding:8px 12px;background:rgba(167,139,250,0.15);color:#a78bfa;border:1px solid rgba(167,139,250,0.35);border-radius:8px;font-size:12px;cursor:pointer;min-width:100px">↶ Tel Terug-records</button>
+      <button id="duurlabel-btn" onclick="toonDuurLabelAnalyse()" style="flex:1;padding:8px 12px;background:rgba(56,189,248,0.15);color:#38bdf8;border:1px solid rgba(56,189,248,0.35);border-radius:8px;font-size:12px;cursor:pointer;min-width:100px">⏱ Tel duur-labels</button>
     </div>
     <div style="font-size:9px;color:rgba(255,255,255,0.3);line-height:1.4">Verzamelt 640x640 frames met YOLO labels tijdens detectie.</div>
     <div style="margin-top:6px;display:flex;align-items:center;justify-content:space-between">
@@ -761,7 +762,7 @@
 
 <script>
 // ═══════════════════════════════════════════════════════════════
-//  StoplichtIQ V11.17.25
+//  StoplichtIQ V11.17.26
 //  V11.10: Zelfkalibratie + vergrendeling + crop smoothing
 //  — S1+S2 bevestiging (kruispunt-level confidence)
 //  — Route-herkenning basis (sequentie-opslag)
@@ -1300,7 +1301,7 @@ function logOpslagMis(reden, extra) {
   } catch(_) { /* logging mag nooit de app breken */ }
 }
 
-function slaOp(osmId, richting, duur, conf=null, bypassAfstand=false, gewichtOverride=null, minDuurOverride=null) {
+function slaOp(osmId, richting, duur, conf=null, bypassAfstand=false, gewichtOverride=null, minDuurOverride=null, zagOvergang=null) {
   leerLog('SLAOP node:' + osmId + ' duur:' + duur + ' conf:' + (conf ? conf.toFixed(2) : '?'));
   const minDuur = (minDuurOverride != null) ? minDuurOverride : 4;
   if (!osmId || duur < minDuur || duur > 180) {
@@ -1334,13 +1335,13 @@ function slaOp(osmId, richting, duur, conf=null, bypassAfstand=false, gewichtOve
     const ddStart = huidigDDActief(faseStartTs);
     const ddEinde = huidigDDActief();
     if (ddStart !== ddEinde) {
-      slaOpIntern(osmId, richting, duur, gewichtOverride != null ? gewichtOverride : 0.5, ddStart, 's1', conf);
-      result = slaOpIntern(osmId, richting, duur, gewichtOverride != null ? gewichtOverride : 0.5, ddEinde, 's1', conf);
+      slaOpIntern(osmId, richting, duur, gewichtOverride != null ? gewichtOverride : 0.5, ddStart, 's1', conf, zagOvergang);
+      result = slaOpIntern(osmId, richting, duur, gewichtOverride != null ? gewichtOverride : 0.5, ddEinde, 's1', conf, zagOvergang);
     } else {
-      result = slaOpIntern(osmId, richting, duur, gewichtOverride, ddStart, 's1', conf);
+      result = slaOpIntern(osmId, richting, duur, gewichtOverride, ddStart, 's1', conf, zagOvergang);
     }
   } else {
-    result = slaOpIntern(osmId, richting, duur, gewichtOverride, huidigDDActief(), 's1', conf);
+    result = slaOpIntern(osmId, richting, duur, gewichtOverride, huidigDDActief(), 's1', conf, zagOvergang);
   }
   voegToeAanRouteBuffer(osmId, duur);
   // W5: sl_pos_ opslaan
@@ -1507,7 +1508,7 @@ function berekenObsGewicht(obs, bron, heeftHandmatigeTap) {
   return gewicht;
 }
 
-function slaOpIntern(osmId, richting, duur, gewichtOverride, dd, bron='s1', conf=null) {
+function slaOpIntern(osmId, richting, duur, gewichtOverride, dd, bron='s1', conf=null, zagOvergang=null) {
   let m = laadM(osmId, dd);
   const gewijzigd = checkCyclusReset(duur, gewGem(m), m, osmId);
   if (gewijzigd) { logOpslagMis('cyclus_reset', { node: osmId, dur: duur }); m = []; }
@@ -1518,6 +1519,11 @@ function slaOpIntern(osmId, richting, duur, gewichtOverride, dd, bron='s1', conf
     : berekenObsGewicht(obs, bron, heeftTap);
   const entry = { duur:Math.round(duur), tijd:Date.now(), richting:Math.round(richting||0), obs, gewicht:Math.round(gewicht*100)/100, bron };
   if (conf != null) entry.conf = Math.round(conf * 100) / 100;
+  // V11.17.26 W1: duur-semantiek. zo=1 volledige rode fase (overgang gezien),
+  // zo=0 resttijd-vanaf-aankomst. Veld AFWEZIG = onbekend (historische data en
+  // synthetische bevestig-correcties). Nooit gokken naar 1.
+  if (zagOvergang === true) entry.zo = 1;
+  else if (zagOvergang === false) entry.zo = 0;
   m.push(entry);
   if (m.length > MAX_METINGEN) { m.sort((a,b)=>gew(b.tijd)-gew(a.tijd)); m=m.slice(0,MAX_METINGEN); }
   try { localStorage.setItem(`${LS_PREFIX}${osmId}_${dd}`, JSON.stringify(m)); } catch(e) {}
@@ -1766,14 +1772,18 @@ function laadMV5Geclusterd(nodeId, aanrij, afrij, dd) {
   return alle;
 }
 
-function slaOpV5(nodeId, aanrij, afrij, dd, duur, gewicht) {
+function slaOpV5(nodeId, aanrij, afrij, dd, duur, gewicht, zagOvergang=null) {
   if (!nodeId || !aanrij || !afrij || !dd || !duur || duur < 4 || duur > 180) {
     logOpslagMis('v5_guard', { node: nodeId, dur: duur, aanrij, afrij });
     return;  // V11.17.10 Laag 2a: cap 300→180s
   }
   const sleutel = v5Sleutel(nodeId, aanrij, afrij, dd);
   let m = laadMV5(nodeId, aanrij, afrij, dd);
-  m.push({ duur: Math.round(duur), tijd: Date.now(), gewicht: gewicht ?? 1.0 });
+  const v5entry = { duur: Math.round(duur), tijd: Date.now(), gewicht: gewicht ?? 1.0 };
+  // V11.17.26 W2: zelfde label als het gepaarde V4-record (r2350).
+  if (zagOvergang === true) v5entry.zo = 1;
+  else if (zagOvergang === false) v5entry.zo = 0;
+  m.push(v5entry);
   if (m.length > MAX_METINGEN) { m.sort((a,b) => gew(b.tijd)-gew(a.tijd)); m = m.slice(0, MAX_METINGEN); }
   try { localStorage.setItem(sleutel, JSON.stringify(m)); } catch(e) {}
 }
@@ -2344,10 +2354,10 @@ function voerV9DelayedWriteUit(huidigeHeading) {
 
   // Schrijf V5
   leerLog('V9SCHRIJF node:' + v9KandidaatNode + ' duur:' + duur);
-  slaOpV5(v9KandidaatNode, aanrijRichting, afrijRichting, dd, duur, gewicht);
+  slaOpV5(v9KandidaatNode, aanrijRichting, afrijRichting, dd, duur, gewicht, v9KandidaatZagOvergang);
 
   // Schrijf ook V4 parallel (backward compatibility)
-  slaOp(v9KandidaatNode, huidigeRichting, duur, null, true);
+  slaOp(v9KandidaatNode, huidigeRichting, duur, null, true, null, null, v9KandidaatZagOvergang);
 
   // V11.2.0: Auto-richting GPS opslaan als geen handmatige tik
   const sleutelR = `sl_richting_${v9KandidaatNode}`;
@@ -2385,6 +2395,7 @@ function resetV9Staat() {
   v9AanrijSnelheidHeading = null;
   v9KandidaatDuur         = null;
   v9KandidaatDagdeel      = null;
+  v9KandidaatZagOvergang  = null;   // V11.17.26: null = onbekend, nooit false
   v9PassageStartTijd      = null;
   v9PreSelectieAfrij      = null;
   v9DelayedWriteActief    = false;
@@ -3022,6 +3033,10 @@ let v9AanrijHeading         = null;   // GPS heading bij nadering < V9_NADERING_
 let v9AanrijSnelheidHeading = null;   // heading op moment snelheid > V9_MIN_SNELHEID_HEADING
 let v9KandidaatDuur         = null;   // gemeten rode duur (wordt gevuld door verwerkFase)
 let v9KandidaatDagdeel      = null;   // dagdeel op moment van meting
+// V11.17.26 S0.3: zagRoodOvergang is een globale die bij de VOLGENDE transitie
+// wordt overschreven; de delayed write vuurt pas seconden later. De waarde moet
+// dus met de meting meereizen. null = onbekend (nooit false gokken).
+let v9KandidaatZagOvergang  = null;
 let v9PassageStartTijd      = null;   // timestamp bij passeren
 let v9PreSelectieAfrij      = null;   // afrij via richtingknop pre-selectie
 let v9DelayedWriteActief    = false;  // wachten op afrijrichting
@@ -4705,7 +4720,8 @@ function verwerkFase(nieuw, horizontaal, conf=null) {
           const isVolledigeCyclus = (laatsteGroenDuur > 3 && laatsteGroenNode === nodeId);
           slaOp(nodeId, huidigeRichting, dur, conf, false,
             isVolledigeCyclus ? VOLLEDIG_CYCLUS_GEWICHT : null,
-            isGeverifieerdRood ? 1 : null);
+            isGeverifieerdRood ? 1 : null,
+            zagRoodOvergang);   // V11.17.26: hier nog niet overschreven (zie r4760)
           if (isVolledigeCyclus) {
             leerLog('VOLLEDIG cyclus: rood=' + Math.round(dur) +
               's groen=' + Math.round(laatsteGroenDuur) + 's gewicht=1.5');
@@ -4718,6 +4734,7 @@ function verwerkFase(nieuw, horizontaal, conf=null) {
         if (v9KandidaatNode === nodeId) {
           v9KandidaatDuur = dur;
           v9KandidaatDagdeel = huidigDDActief();
+          v9KandidaatZagOvergang = zagRoodOvergang;   // V11.17.26: reist mee met de meting
         }
         bijwerkLeerkaart(dichtstbijOSM); bijwerkDashboardKnop();
       } else {
@@ -7553,6 +7570,68 @@ function toonTerugAnalyse() {
     ""
   ].concat(lijst.length ? lijst : ["(geen)"]);
   alert(regels.join(NL));
+}
+
+// ── V11.17.26 W3: DUUR-LABEL TELLER ───────────────────────────
+// Telt hoeveel metingen gelabeld zijn als volledige duur (zo=1), resttijd
+// (zo=0) of onbekend (veld afwezig). Bepaalt wanneer deel 2 (gescheiden
+// aggregeren) zinvol wordt. Wijzigt en verwijdert NIETS.
+function telDuurLabels() {
+  const leeg = () => ({ vol: 0, rest: 0, onb: 0 });
+  const res = { v4: leeg(), v5: leeg(), v4dd: {}, v5dd: {} };
+  const tel = (arr, bak, ddBak, dd) => {
+    if (!Array.isArray(arr)) return;
+    if (!ddBak[dd]) ddBak[dd] = leeg();
+    for (const m of arr) {
+      if (!m) continue;
+      const k = (m.zo === 1) ? "vol" : (m.zo === 0) ? "rest" : "onb";
+      bak[k]++; ddBak[dd][k]++;
+    }
+  };
+  for (const key of Object.keys(localStorage)) {
+    let arr;
+    if (key.startsWith(LS_PREFIX) && !key.endsWith("_groen")) {
+      // sl_v4_{nodeId}_{dd}
+      const d = key.slice(LS_PREFIX.length).split("_");
+      if (d.length < 2) continue;
+      try { arr = JSON.parse(localStorage.getItem(key)); } catch(e) { continue; }
+      tel(arr, res.v4, res.v4dd, d[d.length - 1]);
+    } else if (key.startsWith(LS_PREFIX_V5)) {
+      // sl_v5_{nodeId}_{aanrij}_{afrij}_{dd}
+      const d = key.slice(LS_PREFIX_V5.length).split("_");
+      if (d.length < 4) continue;
+      try { arr = JSON.parse(localStorage.getItem(key)); } catch(e) { continue; }
+      tel(arr, res.v5, res.v5dd, d[d.length - 1]);
+    }
+  }
+  return res;
+}
+
+function toonDuurLabelAnalyse() {
+  const r = telDuurLabels();
+  const NLc = String.fromCharCode(10);
+  const tot = (b) => b.vol + b.rest + b.onb;
+  const pct = (n, t) => t > 0 ? Math.round(n / t * 100) + "%" : "0%";
+  const blok = (naam, b) => {
+    const t = tot(b);
+    return naam + ": " + t + " metingen  |  volledige duur " + b.vol + " (" + pct(b.vol, t) + ")"
+      + ", resttijd " + b.rest + " (" + pct(b.rest, t) + ")"
+      + ", onbekend " + b.onb + " (" + pct(b.onb, t) + ")";
+  };
+  const ddRegels = (naam, ddBak) => {
+    const uit = [];
+    for (const dd of Object.keys(ddBak).sort()) {
+      const b = ddBak[dd];
+      uit.push("   " + naam + " " + dd + ": vol " + b.vol + " / rest " + b.rest + " / onb " + b.onb);
+    }
+    return uit;
+  };
+  const regels = ["DUUR-LABELS (zo)", ""]
+    .concat([blok("V4", r.v4)]).concat(ddRegels("V4", r.v4dd))
+    .concat([""]).concat([blok("V5", r.v5)]).concat(ddRegels("V5", r.v5dd))
+    .concat(["", "Onbekend = historische data van voor V11.17.26 (niet aangeraakt).",
+             "Deel 2 (gescheiden aggregatie) is zinvol zodra vol+rest per kruispunt volstaat."]);
+  alert(regels.join(NLc));
 }
 
 // ── TAGGING ───────────────────────────────────────────────────
