@@ -549,7 +549,7 @@
 <div id="startscherm">
   <div id="s-icoon">🚦</div>
   <div id="s-titel">Stoplicht<span>IQ</span></div>
-  <div id="s-versie">V11.17.24 — afrij-conventie gefixt + richting-diagnostiek</div>
+  <div id="s-versie">V11.17.25 — NaN-drempelbypass gefixt (familie-indices NC-bewust)</div>
   <div id="s-model-wrap">
     <div id="s-model-rij">
       <div id="s-model-label">🤖 YOLOv8 model laden…</div>
@@ -761,7 +761,7 @@
 
 <script>
 // ═══════════════════════════════════════════════════════════════
-//  StoplichtIQ V11.17.24
+//  StoplichtIQ V11.17.25
 //  V11.10: Zelfkalibratie + vergrendeling + crop smoothing
 //  — S1+S2 bevestiging (kruispunt-level confidence)
 //  — Route-herkenning basis (sequentie-opslag)
@@ -933,6 +933,34 @@ const ZOOM_UNLOCK_AFSTAND_M = 30;
 
 // V11.11.0: Fase 3 model — 10 klassen (rood, groen, uit, oranje, pijl-rood, pijl-groen, pijl-uit, pijl-oranje, voetganger-rood, voetganger-groen)
 const NC = 4;
+// V11.17.25: EEN bron van waarheid voor de familie-indeling. De inline
+// familie-som in postprocessYOLO, familieScore() en de conflog-som lazen
+// hun indices alle drie apart en hardcoded; bij de fase8-omzetting (NC 10->4)
+// is er een vergeten, waardoor alleScores[4..9] undefined werd, de som NaN,
+// en 'NaN < CONF_DREMPEL' false — de confidence-poort voor rood/groen stond
+// daardoor volledig uit. Indices horen data te zijn die aan NC hangt.
+const FAMILIE_INDICES = (NC === 10)
+  ? { rood:[0,4,5,8], groen:[1,6,7,9], oranje:[3] }   // fase7-mapping (geverifieerd tegen ff67de7)
+  : (NC === 4)
+    ? { rood:[0], groen:[1], oranje:[3] }             // fase8-mapping
+    : null;                                            // onbekende NC -> fallback
+let famIndicesGewaarschuwd = false;
+// Somt de scores van een familie. Bij onbekende NC of onbekende familie:
+// terugval op de meegegeven fallback (nooit NaN, nooit undefined, nooit stil).
+function famSom(vec, fam, fallback) {
+  if (!FAMILIE_INDICES) {
+    if (!famIndicesGewaarschuwd) {
+      famIndicesGewaarschuwd = true;
+      console.warn('[FAMILIE] onbekende NC=' + NC + ' — geen familie-indeling bekend; terugval op argmax-score.');
+    }
+    return fallback;
+  }
+  const idx = FAMILIE_INDICES[fam];
+  if (!idx) return fallback;
+  let som = 0;
+  for (const i of idx) som += (vec[i] || 0);
+  return som;
+}
 
 // V11.11.0: Nacht beeldversterking
 const NACHT_VERSTERK_ACTIEF = true;
@@ -2935,9 +2963,9 @@ function logKlasseVerdelingIndienBeschikbaar() {
   const alle = leeg ? new Array(NC).fill(0) : debugLaatsteAlle;
   const topScoreVal  = leeg ? 0  : debugLaatsteTopScore;
   const topKlasseVal = leeg ? -1 : debugLaatsteTopKlasse;
-  const somRood   = (alle[0]||0) + (alle[4]||0) + (alle[5]||0) + (alle[8]||0);
-  const somGroen  = (alle[1]||0) + (alle[6]||0) + (alle[7]||0) + (alle[9]||0);
-  const somOranje = alle[3] || 0;
+  const somRood   = famSom(alle, 'rood', 0);      // V11.17.25: NC-bewust
+  const somGroen  = famSom(alle, 'groen', 0);
+  const somOranje = famSom(alle, 'oranje', 0);
   const ai = debugWaarden.ai || '';
   let debugCode = 'ok';
   if (ai === 'ai:weg') debugCode = 'weg';
@@ -3462,9 +3490,7 @@ function postprocessYOLO(outputData, dims) {
     // klasse zelf te veranderen (topklasse blijft basis voor pijl/rondbepaling).
     let famScore = maxScore;
     const fam = KLASSE_MAP[maxKlasse];
-    if (fam === 'rood')        famScore = alleScores[0] + alleScores[4] + alleScores[5] + alleScores[8];
-    else if (fam === 'groen')  famScore = alleScores[1] + alleScores[6] + alleScores[7] + alleScores[9];
-    else if (fam === 'oranje') famScore = alleScores[3];
+    if (fam) famScore = famSom(alleScores, fam, maxScore);   // V11.17.25: NC-bewust
     if (famScore < CONF_DREMPEL) continue;
     if (cy/YOLO_SIZE > dynamischMaxY) continue;
     if (h < MIN_H_PX) continue;
@@ -3550,10 +3576,7 @@ function familieScore(detectie) {
   if (!fam) return detectie.score || 0;
   const vec = detectie.alleScores;
   if (!vec || vec.length !== NC) return detectie.score || 0;
-  if (fam === 'rood')   return vec[0]||0;
-  if (fam === 'groen')  return vec[1]||0;
-  if (fam === 'oranje') return vec[3]||0;
-  return detectie.score || 0;
+  return famSom(vec, fam, detectie.score || 0);   // V11.17.25: NC-bewust
 }
 
 function selecteerBesteDetectie(detecties) {
