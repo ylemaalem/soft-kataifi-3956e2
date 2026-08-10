@@ -556,7 +556,7 @@
 <div id="startscherm">
   <div id="s-icoon">🚦</div>
   <div id="s-titel">Stoplicht<span>IQ</span></div>
-  <div id="s-versie">V11.17.28 — UI-opschoning, leesbare richtingen, richting-log</div>
+  <div id="s-versie">V11.17.29 — klokritme-analyse gerepareerd (eerlijke teller)</div>
   <div id="s-model-wrap">
     <div id="s-model-rij">
       <div id="s-model-label">🤖 YOLOv8 model laden…</div>
@@ -770,7 +770,7 @@
 
 <script>
 // ═══════════════════════════════════════════════════════════════
-//  StoplichtIQ V11.17.28
+//  StoplichtIQ V11.17.29
 //  V11.10: Zelfkalibratie + vergrendeling + crop smoothing
 //  — S1+S2 bevestiging (kruispunt-level confidence)
 //  — Route-herkenning basis (sequentie-opslag)
@@ -795,6 +795,41 @@ const LS_PREFIX_V10    = 'sl_v10_';
 const MAX_METINGEN     = 50;
 const MAX_S2_METINGEN  = 20;  // V11.17.15: eigen cap voor sl_s2_ aanwezigheidsdata (los van sl_v4_)
 const MAX_KLOK_MOMENTEN = 60; // V11.17.20: cap voor sl_klok_ groen/rood-momenten per node
+
+// ── V11.17.29: DREMPELS KLOKRITME ─────────────────────────────
+// De oude toets (absolute MAD <= 5s) had GEEN onderscheidend vermogen: op
+// volstrekt willekeurige momenten kwam er tot n=20 in 100% van de gevallen
+// "betrouwbaar" uit. Twee oorzaken, beide hier geadresseerd:
+//   1. de MAD schaalt mee met C, dus een absolute drempel bevoordeelt de
+//      kleinste cyclus — de zoektocht landde in 98% van de gevallen op een
+//      subharmonische (30s) i.p.v. de grondfrequentie. Opgelost door de score
+//      te delen door C (dimensieloos: welk aandeel van de cyclus is spreiding).
+//   2. één vaste drempel negeert dat een rasterzoek over 191 kandidaat-cycli
+//      met weinig punten bijna altijd wel iets past. Opgelost door de drempel
+//      per n uit een nulmodel te halen.
+//
+// KLOK_DREMPELS = de 1e percentiel van de score-verdeling op WILLEKEURIGE
+// momenten bij dat aantal. Per constructie dus 1% vals-positief. Gemeten met
+// 200-400 simulaties per punt; de verdeling bleek onafhankelijk van de
+// tijdspanne (p01 varieert 0,029-0,037 tussen 2 uur en 30 dagen bij n=16).
+// LET OP: deze tabel hoort bij het raster C in [25,120] stap 0,5 (191
+// kandidaten). Wijzigt dat raster, dan moet de tabel opnieuw gesimuleerd.
+const KLOK_DREMPELS = [[16, 0.036], [20, 0.041], [24, 0.055], [30, 0.076]];
+// Onder dit aantal is een echt ritme niet van ruis te scheiden: bij n=12 en
+// realistische detectiejitter (2-3s) wordt een bestaand ritme in 13-43% van de
+// gevallen herkend, bij n=16 in 73-97%.
+const KLOK_MIN_MOMENTEN = 16;
+// Vanaf hier wél doorrekenen, puur voor diagnose — nooit betrouwbaar genoemd.
+// Onder deze grens slaan we de O(191*n^2) rasterzoek volledig over.
+const KLOK_DIAG_MOMENTEN = 6;
+// Een regelaar die 10 ppm afloopt verliest over 30 dagen alle fasecoherentie
+// (detectie zakt van 48% naar 1%). 14 dagen is het compromis tussen coherentie
+// en aantal waarnemingen.
+const KLOK_VENSTER_DAGEN = 14;
+// Losse bruikbaarheidseis, onafhankelijk van de statistische toets: bij n=30
+// hoort drempel 0,076, wat op een cyclus van 120s een MAD van 9s toelaat.
+// Statistisch overtuigend, voor een countdown waardeloos.
+const KLOK_MAX_MAD_S = 3;
 const HALFWAARDETIJD_CYCLUS    = 180;  // cyclustijden — traag decay
 const HALFWAARDETIJD_PATROON   = 60;   // fase-percentages — middel decay
 const HALFWAARDETIJD_SPREIDING = 90;   // min/max bereiken — middel-traag decay
@@ -2249,7 +2284,7 @@ function exporteerMeetdata() {
   };
   setTimeout(() => {
     try {
-      const uit = { versie:'V11.17.28', geexporteerd:new Date().toISOString(),
+      const uit = { versie:'V11.17.29', geexporteerd:new Date().toISOString(),
                     passief:{}, bevestig:{}, namen:{}, leer:{}, s2:{}, klok:{}, opslag:{}, richting:{} };
       for (const key of Object.keys(localStorage)) {
         let doel = null;
@@ -7548,43 +7583,104 @@ function klokCircMAD(residuen, C) {
   const mad = afw[Math.floor(afw.length / 2)];
   return { mad, mediaan: besteM };
 }
-// W2: rasterzoek C in [25,120] stap 0,5s. Groen- én rood-momenten delen dezelfde
-// C maar hebben elk hun eigen fase; de gecombineerde spreiding is het per-reeks
-// aantal-gewogen gemiddelde van de MADs. betrouwbaar=false als spreiding > 5s
-// (C.6: geen vast ritme → vermoedelijk voertuiggestuurd).
+// V11.17.29 W2: drempel bij n, lineair interpolerend tussen de gesimuleerde
+// punten. Boven de hoogste tabelwaarde vastgehouden (conservatief: de echte
+// drempel blijft stijgen met n, dus vasthouden is strenger dan nodig).
+// null = te weinig momenten om überhaupt een uitspraak te doen.
+function klokDrempelVoorN(n) {
+  if (!(n >= KLOK_MIN_MOMENTEN)) return null;
+  const T = KLOK_DREMPELS;
+  if (n >= T[T.length - 1][0]) return T[T.length - 1][1];
+  for (let i = 0; i < T.length - 1; i++) {
+    const [n0, d0] = T[i], [n1, d1] = T[i + 1];
+    if (n >= n0 && n <= n1) return d0 + (d1 - d0) * (n - n0) / (n1 - n0);
+  }
+  return T[0][1];
+}
+
+// V11.17.29 W1: rasterzoek C in [25,120] stap 0,5s. Groen- én rood-momenten
+// delen dezelfde C maar hebben elk hun eigen fase; de gecombineerde MAD is het
+// per-reeks aantal-gewogen gemiddelde.
+//
+// De score is mad/C en NIET mad. Dat is de kern van deze release: de MAD
+// schaalt lineair mee met C, dus minimaliseren op absolute MAD kiest altijd de
+// kleinste cyclus. Bij een echt ritme van 60s is de absolute MAD op C=30 en
+// C=60 gelijk (beide de jitter), maar mad/60 is de helft van mad/30 — zo wint
+// de grondfrequentie vanzelf, zonder tie-break-regel. Op C=120 valt een 60s-
+// ritme in twee clusters uiteen en explodeert de score.
+//
+// Twee losse oordelen, bewust niet in één getal:
+//   betrouwbaar = bestaat dit ritme echt?      (score <= drempel(n))
+//   bruikbaar   = is het nauwkeurig genoeg?    (+ absolute MAD <= 3s)
+//
+// Filtert zelf op het venster; de aanroeper doet de dagdeel-splitsing.
 function analyseerKlokRitme(momenten) {
-  const n = Array.isArray(momenten) ? momenten.length : 0;
-  const groen = (momenten || []).filter(m => m && m.type === 'groen').map(m => m.t / 1000);
-  const rood  = (momenten || []).filter(m => m && m.type === 'rood').map(m => m.t / 1000);
-  if (groen.length + rood.length < 2) return { C: null, P_groen: null, P_rood: null, spreiding: null, n, betrouwbaar: false };
-  let besteC = null, besteSpreiding = Infinity, besteMg = null, besteMr = null;
+  const alle = Array.isArray(momenten) ? momenten.filter(m => m && typeof m.t === 'number') : [];
+  const nTotaal = alle.length;
+  const grens = Date.now() - KLOK_VENSTER_DAGEN * 86400000;
+  const mom = alle.filter(m => m.t >= grens);
+  const n = mom.length;
+  const uit = {
+    C: null, P_groen: null, P_rood: null, mad: null, score: null,
+    n, nTotaal, spanDagen: null, ouderdomDagen: null,
+    drempel: null, betrouwbaar: false, bruikbaar: false, reden: 'te_weinig'
+  };
+  if (n < KLOK_DIAG_MOMENTEN) return uit;
+
+  let tMin = Infinity, tMax = -Infinity;
+  for (const m of mom) { if (m.t < tMin) tMin = m.t; if (m.t > tMax) tMax = m.t; }
+  uit.spanDagen     = Math.round((tMax - tMin) / 86400000 * 10) / 10;
+  uit.ouderdomDagen = Math.round((Date.now() - tMax) / 86400000 * 10) / 10;
+
+  const groen = mom.filter(m => m.type === 'groen').map(m => m.t / 1000);
+  const rood  = mom.filter(m => m.type === 'rood').map(m => m.t / 1000);
+  if (groen.length + rood.length < 2) { uit.reden = 'geen_type'; return uit; }
+
+  let besteC = null, besteScore = Infinity, besteMad = null, besteMg = null, besteMr = null;
   for (let C = 25; C <= 120; C += 0.5) {
     const rg = groen.map(t => ((t % C) + C) % C);
     const rr = rood.map(t => ((t % C) + C) % C);
     const sg = rg.length ? klokCircMAD(rg, C) : { mad: 0, mediaan: null };
     const sr = rr.length ? klokCircMAD(rr, C) : { mad: 0, mediaan: null };
-    const totaal = rg.length + rr.length;
-    const spreiding = (sg.mad * rg.length + sr.mad * rr.length) / totaal;
-    if (spreiding < besteSpreiding) {
-      besteSpreiding = spreiding; besteC = C;
+    const mad = (sg.mad * rg.length + sr.mad * rr.length) / (rg.length + rr.length);
+    const score = mad / C;
+    if (score < besteScore) {
+      besteScore = score; besteC = C; besteMad = mad;
       besteMg = sg.mediaan; besteMr = sr.mediaan;
     }
   }
-  return {
-    C: besteC,
-    P_groen: besteMg != null ? Math.round(besteMg * 10) / 10 : null,
-    P_rood: besteMr != null ? Math.round(besteMr * 10) / 10 : null,
-    spreiding: Math.round(besteSpreiding * 100) / 100,
-    n,
-    betrouwbaar: besteSpreiding <= 5
-  };
+
+  uit.C       = besteC;
+  uit.P_groen = besteMg != null ? Math.round(besteMg * 10) / 10 : null;
+  uit.P_rood  = besteMr != null ? Math.round(besteMr * 10) / 10 : null;
+  uit.mad     = Math.round(besteMad * 100) / 100;
+  uit.score   = Math.round(besteScore * 10000) / 10000;
+  uit.drempel = klokDrempelVoorN(n);
+  if (uit.drempel === null)              { uit.reden = 'te_weinig';    return uit; }
+  if (!(besteScore <= uit.drempel))      { uit.reden = 'score';        return uit; }
+  uit.betrouwbaar = true;
+  if (!(besteMad <= KLOK_MAX_MAD_S))     { uit.reden = 'onnauwkeurig'; return uit; }
+  uit.bruikbaar = true;
+  uit.reden = null;
+  return uit;
 }
 
-// W3: overzicht over alle sl_klok_-nodes — beantwoordt "welk aandeel heeft ritme".
+// V11.17.29 W3+W5: overzicht per (node, dagdeel) i.p.v. per node. Een ritme dat
+// overdag klopt is 's nachts onzin — veel regelaars draaien dan een ander
+// programma. De dd stond al in elk record; alleen de analyse gebruikte hem niet.
+//
+// Toont naast de treffers ook hoe ver de beste groepen van de drempel af zitten,
+// zodat zichtbaar is of doorrijden zin heeft. Verwijdert of wijzigt niets.
 function toonKlokAnalyse() {
-  let totaalNodes = 0, betrouwbaar = 0;
+  const NLc = String.fromCharCode(10);
+  const DDS = Object.keys(DD);
+  let totaalNodes = 0, groepen = 0, groepenGenoeg = 0;
+  let bruikbaar = 0, teGrof = 0, gezakt = 0;
+  // Zichtbaar maken wat het venster kost: zonder dit getal is een uitkomst van 0
+  // niet te duiden — te weinig gereden, of te streng gefilterd?
+  let momIn = 0, momUit = 0;
   const verdeling = { '1': 0, '2': 0, '3': 0, '4-5': 0, '6+': 0 };
-  const ritmes = [];
+  const treffers = [], kandidaten = [];
   for (const key of Object.keys(localStorage)) {
     if (!key.startsWith('sl_klok_')) continue;
     let arr;
@@ -7594,20 +7690,60 @@ function toonKlokAnalyse() {
     const nn = arr.length;
     const bucket = nn === 1 ? '1' : nn === 2 ? '2' : nn === 3 ? '3' : nn <= 5 ? '4-5' : '6+';
     verdeling[bucket]++;
-    const r = analyseerKlokRitme(arr);
-    if (r.betrouwbaar) {
-      betrouwbaar++;
-      ritmes.push(`${key.replace('sl_klok_', '')}: C=${r.C}s σ=${r.spreiding}s n=${r.n}`);
+    const node = key.replace('sl_klok_', '');
+    for (const d of DDS) {
+      const groep = arr.filter(m => m && m.dd === d);
+      if (!groep.length) continue;
+      groepen++;
+      const r = analyseerKlokRitme(groep);
+      momIn += r.n; momUit += (r.nTotaal - r.n);
+      if (r.n >= KLOK_MIN_MOMENTEN) groepenGenoeg++;
+      if (r.bruikbaar) {
+        bruikbaar++;
+        treffers.push(`  ${node} ${d}: C=${r.C}s MAD=${r.mad}s n=${r.n} score=${r.score}`);
+      } else if (r.betrouwbaar) {
+        teGrof++;
+        treffers.push(`  ${node} ${d}: C=${r.C}s MAD=${r.mad}s n=${r.n} TE GROF`);
+      } else {
+        if (r.reden === 'score') gezakt++;
+        kandidaten.push({ node, d, r });
+      }
     }
   }
+  // Hoogste n eerst: dat zijn de kruispunten waar doorrijden het snelst loont.
+  kandidaten.sort((a, b) => b.r.n - a.r.n);
+  const maxN = kandidaten.length ? kandidaten[0].r.n : 0;
   const regels = [
     `Nodes met momenten: ${totaalNodes}`,
-    `Verdeling: 1=${verdeling['1']} 2=${verdeling['2']} 3=${verdeling['3']} 4-5=${verdeling['4-5']} 6+=${verdeling['6+']}`,
-    `Betrouwbaar ritme: ${betrouwbaar}`,
+    `Verdeling per node: 1=${verdeling['1']} 2=${verdeling['2']} 3=${verdeling['3']} 4-5=${verdeling['4-5']} 6+=${verdeling['6+']}`,
     '',
-    ...ritmes.slice(0, 30)
+    `EISEN (V11.17.29)`,
+    `  n >= ${KLOK_MIN_MOMENTEN} per node+dagdeel, venster ${KLOK_VENSTER_DAGEN} dagen`,
+    `  score (MAD/C) <= drempel(n), 1% vals-positief`,
+    `  absolute MAD <= ${KLOK_MAX_MAD_S}s om bruikbaar te heten`,
+    '',
+    `Momenten binnen venster: ${momIn}`,
+    `Momenten te oud (>${KLOK_VENSTER_DAGEN}d): ${momUit}`,
+    `Groepen (node x dagdeel): ${groepen}`,
+    `  met genoeg momenten: ${groepenGenoeg}`,
+    `  gezakt op score: ${gezakt}`,
+    `BRUIKBAAR ritme: ${bruikbaar}`,
+    `Betrouwbaar maar te grof: ${teGrof}`,
+    ''
   ];
-  alert('🕐 KLOKRITME-ANALYSE\n\n' + regels.join('\n'));
+  if (treffers.length) regels.push('TREFFERS:', ...treffers.slice(0, 20), '');
+  regels.push(`Hoogste n in een groep: ${maxN} (nodig: ${KLOK_MIN_MOMENTEN})`);
+  if (kandidaten.length) {
+    regels.push('Dichtst bij de drempel:');
+    for (const k of kandidaten.slice(0, 12)) {
+      const extra = k.r.score != null
+        ? ` C=${k.r.C}s MAD=${k.r.mad}s score=${k.r.score}`
+        : ' (te weinig om door te rekenen)';
+      const buiten = k.r.nTotaal > k.r.n ? ` [${k.r.nTotaal - k.r.n} te oud]` : '';
+      regels.push(`  ${k.node} ${k.d} n=${k.r.n}${buiten}${extra}`);
+    }
+  }
+  alert('KLOKRITME-ANALYSE' + NLc + NLc + regels.join(NLc));
 }
 
 // ── V11.17.24 (D): TERUG-RECORDS TELLEN ───────────────────────
