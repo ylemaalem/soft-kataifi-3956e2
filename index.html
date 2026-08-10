@@ -549,7 +549,7 @@
 <div id="startscherm">
   <div id="s-icoon">🚦</div>
   <div id="s-titel">Stoplicht<span>IQ</span></div>
-  <div id="s-versie">V11.17.26 — duur-label (zo) meegeschreven in V4/V5</div>
+  <div id="s-versie">V11.17.27 — read-only trainframe-teller (fase8-venster)</div>
   <div id="s-model-wrap">
     <div id="s-model-rij">
       <div id="s-model-label">🤖 YOLOv8 model laden…</div>
@@ -719,6 +719,7 @@
       <button id="klok-analyse-btn" onclick="toonKlokAnalyse()" style="flex:1;padding:8px 12px;background:rgba(34,197,94,0.15);color:#22c55e;border:1px solid rgba(34,197,94,0.35);border-radius:8px;font-size:12px;cursor:pointer;min-width:100px">🕐 Analyseer klokritmes</button>
       <button id="terug-analyse-btn" onclick="toonTerugAnalyse()" style="flex:1;padding:8px 12px;background:rgba(167,139,250,0.15);color:#a78bfa;border:1px solid rgba(167,139,250,0.35);border-radius:8px;font-size:12px;cursor:pointer;min-width:100px">↶ Tel Terug-records</button>
       <button id="duurlabel-btn" onclick="toonDuurLabelAnalyse()" style="flex:1;padding:8px 12px;background:rgba(56,189,248,0.15);color:#38bdf8;border:1px solid rgba(56,189,248,0.35);border-radius:8px;font-size:12px;cursor:pointer;min-width:100px">⏱ Tel duur-labels</button>
+      <button id="trainframe-teller-btn" onclick="toonTrainframeAnalyse()" style="flex:1;padding:8px 12px;background:rgba(239,68,68,0.15);color:#ef4444;border:1px solid rgba(239,68,68,0.35);border-radius:8px;font-size:12px;cursor:pointer;min-width:100px">🎞 Tel trainframes</button>
     </div>
     <div style="font-size:9px;color:rgba(255,255,255,0.3);line-height:1.4">Verzamelt 640x640 frames met YOLO labels tijdens detectie.</div>
     <div style="margin-top:6px;display:flex;align-items:center;justify-content:space-between">
@@ -762,7 +763,7 @@
 
 <script>
 // ═══════════════════════════════════════════════════════════════
-//  StoplichtIQ V11.17.26
+//  StoplichtIQ V11.17.27
 //  V11.10: Zelfkalibratie + vergrendeling + crop smoothing
 //  — S1+S2 bevestiging (kruispunt-level confidence)
 //  — Route-herkenning basis (sequentie-opslag)
@@ -7631,6 +7632,83 @@ function toonDuurLabelAnalyse() {
     .concat([""]).concat([blok("V5", r.v5)]).concat(ddRegels("V5", r.v5dd))
     .concat(["", "Onbekend = historische data van voor V11.17.26 (niet aangeraakt).",
              "Deel 2 (gescheiden aggregatie) is zinvol zodra vol+rest per kruispunt volstaat."]);
+  alert(regels.join(NLc));
+}
+
+// ── V11.17.27: TRAINFRAME-TELLER (READ-ONLY) ──────────────────
+// Telt hoeveel trainframes zijn opgeslagen sinds de fase8-deploy. In dat
+// venster stond de confidence-poort voor rood/groen uit (NaN-drempelbypass,
+// gefixt in V11.17.25), waardoor het s1-twijfelpad (r4448, score < 0.60)
+// spookdetecties als trainingsvoorbeeld kon wegschrijven.
+// VERWIJDERT NIETS — puur tellen, readonly-transactie.
+// Cursor i.p.v. getAll(): elk record bevat een jpeg, dus getAll() zou tot
+// tientallen MB tegelijk in het geheugen laden op de telefoon.
+const FASE8_DEPLOY_MS = 1786096627000;   // commit 3c01151, 2026-08-07 11:57:07 +0200
+async function telTrainframesSindsFase8() {
+  if (!trainframesDB) await openTrainframesDB();
+  return new Promise((resolve, reject) => {
+    const res = {
+      totaal: 0, sinds: 0, voor: 0, zonderTijd: 0,
+      bronTotaal: {}, bronSinds: {},
+      oudste: null, nieuwste: null
+    };
+    let tx;
+    try { tx = trainframesDB.transaction("frames", "readonly"); }
+    catch (e) { reject(e); return; }
+    const req = tx.objectStore("frames").openCursor();
+    req.onerror = () => reject(req.error);
+    req.onsuccess = (e) => {
+      const cur = e.target.result;
+      if (!cur) { resolve(res); return; }
+      const r = cur.value || {};
+      const bron = r.bron || "onbekend";
+      res.totaal++;
+      res.bronTotaal[bron] = (res.bronTotaal[bron] || 0) + 1;
+      if (typeof r.tijd === "number" && !isNaN(r.tijd)) {
+        if (res.oudste === null || r.tijd < res.oudste) res.oudste = r.tijd;
+        if (res.nieuwste === null || r.tijd > res.nieuwste) res.nieuwste = r.tijd;
+        if (r.tijd > FASE8_DEPLOY_MS) {
+          res.sinds++;
+          res.bronSinds[bron] = (res.bronSinds[bron] || 0) + 1;
+        } else {
+          res.voor++;
+        }
+      } else {
+        res.zonderTijd++;   // geen bruikbaar tijdstempel -> niet toewijsbaar
+      }
+      cur.continue();
+    };
+  });
+}
+
+async function toonTrainframeAnalyse() {
+  const NLc = String.fromCharCode(10);
+  let r;
+  try { r = await telTrainframesSindsFase8(); }
+  catch (e) { alert("Trainframe-teller mislukt: " + (e && e.message ? e.message : e)); return; }
+  const dt = (ms) => ms ? new Date(ms).toLocaleString("nl") : "-";
+  const bronRegels = [];
+  for (const b of Object.keys(r.bronTotaal).sort()) {
+    bronRegels.push("   " + b + ": " + r.bronTotaal[b] + " totaal, waarvan " + (r.bronSinds[b] || 0) + " sinds fase8");
+  }
+  const regels = [
+    "TRAINFRAMES (read-only, niets gewist)",
+    "",
+    "Totaal opgeslagen: " + r.totaal,
+    "Sinds fase8-deploy: " + r.sinds + "   <- venster met de drempelbypass",
+    "Van voor fase8:    " + r.voor,
+    (r.zonderTijd ? "Zonder tijdstempel: " + r.zonderTijd : null),
+    "",
+    "Per bron:"
+  ].filter(Boolean).concat(bronRegels).concat([
+    "",
+    "Oudste frame:   " + dt(r.oudste),
+    "Nieuwste frame: " + dt(r.nieuwste),
+    "Cutoff:         " + dt(FASE8_DEPLOY_MS),
+    "",
+    "Let op: s1_twijfel slaat juist frames met lage score op; in het",
+    "fase8-venster kon dat spookdetecties bevatten. Niets verwijderd."
+  ]);
   alert(regels.join(NLc));
 }
 
