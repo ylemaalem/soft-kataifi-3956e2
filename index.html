@@ -80,7 +80,10 @@
     #fase-lamp.groen {background:var(--groen);box-shadow:0 0 12px var(--groen);
       animation:gpuls 1.8s ease-in-out infinite}
     @keyframes gpuls{0%,100%{box-shadow:0 0 12px var(--groen)}50%{box-shadow:0 0 24px var(--groen)}}
-    #fase-woord{font-size:22px;font-weight:700;letter-spacing:0.12em;text-transform:uppercase;line-height:1}
+    /* V11.17.28 W1a: ROOD/GROEN-woord verborgen — kleurfeedback loopt via
+       #fase-lamp, #fase-balk-rand en #rand-glow. Element blijft bestaan zodat
+       de vier .textContent-schrijvers (r4564/4572/4579/4842) ongewijzigd blijven. */
+    #fase-woord{font-size:22px;font-weight:700;letter-spacing:0.12em;text-transform:uppercase;line-height:1;display:none}
     #fase-sub{font-size:10px;color:var(--dim);letter-spacing:0.06em;text-transform:uppercase;margin-top:1px}
     #fase-bron{font-size:9px;color:rgba(255,255,255,0.22);letter-spacing:0.06em;text-transform:uppercase;margin-top:1px}
     #kruispunt-blok{text-align:right;min-width:0;flex-shrink:1}
@@ -96,6 +99,10 @@
       background:rgba(0,0,0,0.75);backdrop-filter:blur(8px);-webkit-backdrop-filter:blur(8px);
       border-radius:12px;padding:8px 16px;margin:6px 0;width:fit-content}
     #cd-pill.actief{display:flex}
+    /* V11.17.28 W1c: groen-actief-melding verbergen ZONDER de .actief-klasse te
+       raken — die wordt gelezen op r5001 (bevestigknoppen-conditie). Alleen
+       visueel; de pill blijft in de DOM en behoudt zijn state. */
+    #cd-pill.cd-verborgen{display:none}
     #cd-pill-getal{font-family:'Share Tech Mono',monospace;font-size:26px;
       font-weight:800;color:#fff;transition:color .3s}
     #cd-pill-label{font-size:10px;text-transform:uppercase;letter-spacing:0.08em;
@@ -549,7 +556,7 @@
 <div id="startscherm">
   <div id="s-icoon">🚦</div>
   <div id="s-titel">Stoplicht<span>IQ</span></div>
-  <div id="s-versie">V11.17.27 — read-only trainframe-teller (fase8-venster)</div>
+  <div id="s-versie">V11.17.28 — UI-opschoning, leesbare richtingen, richting-log</div>
   <div id="s-model-wrap">
     <div id="s-model-rij">
       <div id="s-model-label">🤖 YOLOv8 model laden…</div>
@@ -763,7 +770,7 @@
 
 <script>
 // ═══════════════════════════════════════════════════════════════
-//  StoplichtIQ V11.17.27
+//  StoplichtIQ V11.17.28
 //  V11.10: Zelfkalibratie + vergrendeling + crop smoothing
 //  — S1+S2 bevestiging (kruispunt-level confidence)
 //  — Route-herkenning basis (sequentie-opslag)
@@ -2209,9 +2216,21 @@ function telPassiefMetingen() {
   return n;
 }
 
+// V11.17.28 W3: read-only teller voor sl_richtinglog. Leest alleen; faalt stil.
+function telRichtingLog() {
+  try {
+    const arr = JSON.parse(localStorage.getItem('sl_richtinglog'));
+    return Array.isArray(arr) ? arr.length : 0;
+  } catch(_) { return 0; }
+}
+
 function updatePassiefTeller() {
   const btn = document.getElementById('export-meetdata-btn');
-  if (btn) btn.textContent = `📈 Exporteer meetdata (${telPassiefMetingen()})`;
+  if (!btn) return;
+  // V11.17.28 W3: richtinglog-teller erachter, alleen als er records zijn —
+  // bij een leeg log is het label identiek aan voorheen.
+  const r = telRichtingLog();
+  btn.textContent = `📈 Exporteer meetdata (${telPassiefMetingen()})${r ? ` · ${r} richt` : ''}`;
 }
 
 // W4: exporteer meetdata. Zelfde share+blob-uitvoermechanisme als exporteerData.
@@ -2230,8 +2249,8 @@ function exporteerMeetdata() {
   };
   setTimeout(() => {
     try {
-      const uit = { versie:'V11.17.23', geexporteerd:new Date().toISOString(),
-                    passief:{}, bevestig:{}, namen:{}, leer:{}, s2:{}, klok:{}, opslag:{} };
+      const uit = { versie:'V11.17.28', geexporteerd:new Date().toISOString(),
+                    passief:{}, bevestig:{}, namen:{}, leer:{}, s2:{}, klok:{}, opslag:{}, richting:{} };
       for (const key of Object.keys(localStorage)) {
         let doel = null;
         if (key.startsWith('sl_passief_'))       doel = uit.passief;
@@ -2240,6 +2259,7 @@ function exporteerMeetdata() {
         else if (key.startsWith('sl_s2_'))       doel = uit.s2;   // V11.17.15: eigen bucket
         else if (key.startsWith('sl_klok_'))     doel = uit.klok; // V11.17.20: eigen bucket
         else if (key === 'sl_opslaglog')         doel = uit.opslag; // V11.17.23: opslag-diagnostiek
+        else if (key === 'sl_richtinglog')       doel = uit.richting; // V11.17.28: afrij-diagnostiek
         else if (key.startsWith('sl_v4_'))       doel = uit.leer;
         if (!doel) continue;
         try { doel[key] = JSON.parse(localStorage.getItem(key)); }
@@ -4560,9 +4580,12 @@ function updateUIKleur(kleur, horizontaal) {
   faseLamp.className = kleur||'';
   randGlow.className = kleur||'';
   const woorden = { rood:'ROOD', groen:'GROEN', oranje:'ORANJE' };
-  const subs    = { rood:'Stop — wachten op groen', groen:'Rijden!', oranje:'Afremmen' };
+  // V11.17.28 W1b: 'Rijden!' verwijderd — lege string i.p.v. sleutel weglaten,
+  // zodat groen NIET terugvalt op 'Richt camera op stoplicht'. Daarom
+  // `in`-check i.p.v. ||-fallback.
+  const subs    = { rood:'Stop — wachten op groen', groen:'', oranje:'Afremmen' };
   faseWoord.textContent = woorden[kleur]||'—';
-  faseSub.textContent   = subs[kleur]||'Richt camera op stoplicht';
+  faseSub.textContent   = (kleur in subs) ? subs[kleur] : 'Richt camera op stoplicht';
   faseBron.textContent  = `YOLOv8${horizontaal?' ↔':' ↕'} ·`;
 }
 
@@ -4571,6 +4594,7 @@ function resetUIKleur() {
   faseBalk.className=''; faseLamp.className=''; randGlow.className='';
   faseWoord.textContent='—'; faseSub.textContent='Richt camera op stoplicht';
   faseBron.textContent='';
+  cdPill.classList.remove('cd-verborgen'); // V11.17.28 W1c: geen restklasse
 }
 
 function resetNeutraal() {
@@ -4578,6 +4602,7 @@ function resetNeutraal() {
   faseBalk.className=''; faseLamp.className='';
   faseWoord.textContent='—'; faseSub.textContent='Richt camera op stoplicht';
   faseBron.textContent=''; randGlow.className=''; vorigeDetectie=null;
+  cdPill.classList.remove('cd-verborgen'); // V11.17.28 W1c: geen restklasse
   // V11.4.5: bbox override vrijgeven bij volledige reset
   bboxOverride = null; bboxOverrideTijd = 0;
   bboxOverrideCamX = null; bboxOverrideCamY = null;
@@ -4838,22 +4863,28 @@ function verwerkFase(nieuw, horizontaal, conf=null) {
 function updateUI(f, horizontaal) {
   faseBalk.className=f||''; faseLamp.className=f||''; randGlow.className=f||'';
   const woorden = { rood:'ROOD', groen:'GROEN', oranje:'ORANJE' };
-  const subs    = { rood:'Stop — wachten op groen', groen:'Rijden!', oranje:'Afremmen' };
+  // V11.17.28 W1b: zie updateUIKleur — 'Rijden!' weg, groen krijgt lege sub.
+  const subs    = { rood:'Stop — wachten op groen', groen:'', oranje:'Afremmen' };
   faseWoord.textContent = woorden[f]||'—';
-  faseSub.textContent   = subs[f]||'Richt camera op stoplicht';
+  faseSub.textContent   = (f in subs) ? subs[f] : 'Richt camera op stoplicht';
   faseBron.textContent  = f ? `YOLOv8${horizontaal?' ↔':' ↕'}` : '';
   if (f==='groen') {
+    // V11.17.28 W1c: .actief blijft staan (r5001 leest hem voor de
+    // bevestigknoppen); alleen de zichtbaarheid gaat uit.
     cdPill.classList.add('actief');
+    cdPill.classList.add('cd-verborgen');
     cdPillGetal.textContent = '✓';
     cdPillGetal.style.color = 'var(--groen)';
     cdPillLabel.textContent = 'groen actief';
   } else if (f==='rood') {
+    cdPill.classList.remove('cd-verborgen');
     if (!activeCdDoel) {
       cdPillGetal.textContent = '—'; cdPillGetal.style.color = '#fff';
       cdPillLabel.textContent = 'groen over';
     }
   } else {
     cdPill.classList.remove('actief');
+    cdPill.classList.remove('cd-verborgen');
     cdPillGetal.textContent = '—'; cdPillGetal.style.color = '#fff';
     cdPillLabel.textContent = 'groen over';
     // V11.15.1: wildcard-reset verwijderd — bij oranje-hik
@@ -5080,6 +5111,7 @@ function bevestigCountdown(categorie) {
   }
   cdPillGetal.textContent = '✓';
   cdPillLabel.textContent = 'opgeslagen';
+  cdPill.classList.remove('cd-verborgen'); // V11.17.28 W1c: bevestiging blijft zichtbaar
   setTimeout(() => {
     if (fase !== 'groen' && fase !== 'rood') cdPill.classList.remove('actief');
   }, 1000);
@@ -5726,7 +5758,9 @@ function laadDashboard() {
     const routeHTML = routeData ? `<div style="font-size:9px;color:var(--blauw);margin-top:4px">📍 Deel van bekende route — gem. totaal ${routeData.gemTotaal}s</div>` : '';
     // V11.1: V5 richtings-% per rijrichting
     const v5Richt = verzamelV5Richtingen(d.id, lsIndex);
-    const v5HTML = v5Richt.length > 0 ? `<div style="font-size:9px;color:rgba(255,255,255,0.4);margin-top:4px;display:flex;flex-direction:column;gap:2px"><div style="color:rgba(255,255,255,0.5);font-weight:600">Per rijrichting:</div>${v5Richt.map(r => `<div>${r.aanrij} → ${r.afrij} (${DD[r.dd]?.ic||''} ${r.dd}): <span style="color:${r.pct>=60?'var(--groen)':r.pct>=30?'var(--oranje)':'var(--rood)'}">${r.pct}%</span> (${r.metingen}x)</div>`).join('')}</div>` : '';
+    // V11.17.28 W2: rijdersperspectief i.p.v. rauwe kompaspaar. rijdersPijlLabel
+    // valt zelf terug op '· aanrij → afrij' als een van beide geen windrichting is.
+    const v5HTML = v5Richt.length > 0 ? `<div style="font-size:9px;color:rgba(255,255,255,0.4);margin-top:4px;display:flex;flex-direction:column;gap:2px"><div style="color:rgba(255,255,255,0.5);font-weight:600">Per rijrichting:</div>${v5Richt.map(r => { const lbl = rijdersPijlLabel(r.aanrij, r.afrij); return `<div>${lbl.pijl} ${lbl.tekst} (${DD[r.dd]?.ic||''} ${r.dd}): <span style="color:${r.pct>=60?'var(--groen)':r.pct>=30?'var(--oranje)':'var(--rood)'}">${r.pct}%</span> (${r.metingen}x)</div>`; }).join('')}</div>` : '';
     return `<div class="sl-kaart">
       <div class="sl-kaart-header">
         <div class="sl-kaart-naam">${d.naam}${tagLabel}${vriLabel}${richtingBadge}</div>
@@ -5807,7 +5841,7 @@ function exporteerData() {
     try {
       const exportData = { versie:'11.4.4', exportDatum:new Date().toISOString(), app:'StoplichtIQ', data:{}, scores:{} };
       for (const key of Object.keys(localStorage)) {
-        if (key.startsWith('sl_v10_')||key.startsWith('sl_v5_')||key.startsWith('sl_v4_')||key.startsWith('sl_v3_')||key.startsWith('sl_s2_')||key.startsWith('sl_klok_')||key==='sl_opslaglog'||key.startsWith('sl_tag_')||key.startsWith('sl_naam_')||key.startsWith('sl_richting_')||key.startsWith('sl_route_')||key.startsWith('sl_bevestig_')||key.startsWith('sl_pos_')||key.startsWith('sl_neutraal_')||key.startsWith('sl_enkelricht_')||key==='sl_cam_stats'||key==='sl_stad_cache') {
+        if (key.startsWith('sl_v10_')||key.startsWith('sl_v5_')||key.startsWith('sl_v4_')||key.startsWith('sl_v3_')||key.startsWith('sl_s2_')||key.startsWith('sl_klok_')||key==='sl_opslaglog'||key==='sl_richtinglog'||key.startsWith('sl_tag_')||key.startsWith('sl_naam_')||key.startsWith('sl_richting_')||key.startsWith('sl_route_')||key.startsWith('sl_bevestig_')||key.startsWith('sl_pos_')||key.startsWith('sl_neutraal_')||key.startsWith('sl_enkelricht_')||key==='sl_cam_stats'||key==='sl_stad_cache') {
           try { exportData.data[key] = JSON.parse(localStorage.getItem(key)); }
           catch(e) { exportData.data[key] = localStorage.getItem(key); }
         }
@@ -5856,7 +5890,7 @@ function importeerData(bestand) {
         // V11.15.4 Fix 4: whitelist gesynchroniseerd met exporteerData —
         // sl_bevestig_, sl_pos_ en sl_cam_stats zaten wél in de export
         // maar werden bij import stil overgeslagen.
-        if (!key.startsWith('sl_v10_')&&!key.startsWith('sl_v5_')&&!key.startsWith('sl_v4_')&&!key.startsWith('sl_v3_')&&!key.startsWith('sl_s2_')&&!key.startsWith('sl_klok_')&&key!=='sl_opslaglog'&&!key.startsWith('sl_tag_')&&!key.startsWith('sl_naam_')&&!key.startsWith('sl_richting_')&&!key.startsWith('sl_route_')&&!key.startsWith('sl_bevestig_')&&!key.startsWith('sl_pos_')&&!key.startsWith('sl_neutraal_')&&!key.startsWith('sl_enkelricht_')&&key!=='sl_cam_stats'&&key!=='sl_stad_cache') { overgeslagen++; continue; }
+        if (!key.startsWith('sl_v10_')&&!key.startsWith('sl_v5_')&&!key.startsWith('sl_v4_')&&!key.startsWith('sl_v3_')&&!key.startsWith('sl_s2_')&&!key.startsWith('sl_klok_')&&key!=='sl_opslaglog'&&key!=='sl_richtinglog'&&!key.startsWith('sl_tag_')&&!key.startsWith('sl_naam_')&&!key.startsWith('sl_richting_')&&!key.startsWith('sl_route_')&&!key.startsWith('sl_bevestig_')&&!key.startsWith('sl_pos_')&&!key.startsWith('sl_neutraal_')&&!key.startsWith('sl_enkelricht_')&&key!=='sl_cam_stats'&&key!=='sl_stad_cache') { overgeslagen++; continue; }
         if (localStorage.getItem(key) !== null) { overgeslagen++; continue; }
         try { localStorage.setItem(key, JSON.stringify(waarde)); toegevoegd++; } catch(e) { overgeslagen++; }
       }
@@ -6069,11 +6103,57 @@ function berekenAfrijSpreiding(buffer) {
 }
 
 let richtingLogLaatst = 0;   // V11.17.24 (C): [RICHTING] throttle 1/sec
+// ── V11.17.28 W3: RICHTING-log persistent ────────────────────────
+// De [RICHTING]-regels waren console-only en dus weg zodra de telefoon de
+// pagina verving. Ze worden nu ook weggeschreven naar sl_richtinglog zodat
+// de afrij-bepaling achteraf analyseerbaar is.
+// Harde grenzen: max 200 records, FIFO-rotatie (oudste eruit).
+// Quota-guard: één QuotaExceededError zet richtingLogStop en dan schrijft dit
+// log NOOIT meer deze sessie — een diagnoselog mag geen meting kosten.
+// De schrijfactie staat VÓÓR de console-throttle: elke afrijbepaling wordt
+// opgeslagen, ook als er binnen 1s twee zijn. De console-output is ongewijzigd.
+const MAX_RICHTINGLOG = 200;
+let richtingLogStop = false;   // true na quota-fout: schrijven definitief gestaakt
 function richtingLog(e) {
+  const x = e || {};
+  // 1. Persistent record (mag nooit de app breken, mag nooit opslag opsouperen)
+  if (!richtingLogStop) {
+    try {
+      const num = (v) => (typeof v === 'number' && !isNaN(v)) ? Math.round(v) : null;
+      const rec = {
+        t: Date.now(),
+        node: (typeof v9KandidaatNode !== 'undefined' && v9KandidaatNode != null)
+          ? String(v9KandidaatNode)
+          : (dichtstbijOSM ? String(dichtstbijOSM.id) : null),
+        kmh: num(typeof snelheidKmh === 'number' ? snelheidKmh : null),
+        samples: num(x.samples),
+        spreiding: num(x.spreiding),
+        gemeten: x.gemeten || null,
+        tik: x.tik || null,
+        gekozen: x.gekozen || null,
+        aanrij: x.aanrij || null,
+        betr: x.betrouwbaar ? 1 : 0
+      };
+      let arr;
+      try { arr = JSON.parse(localStorage.getItem('sl_richtinglog')) || []; } catch(_) { arr = []; }
+      if (!Array.isArray(arr)) arr = [];
+      arr.push(rec);
+      if (arr.length > MAX_RICHTINGLOG) arr = arr.slice(-MAX_RICHTINGLOG);
+      try {
+        localStorage.setItem('sl_richtinglog', JSON.stringify(arr));
+      } catch(_) {
+        // Opslag vol of geweigerd: definitief stoppen én de eigen sleutel
+        // opruimen, zodat dit log geen ruimte houdt die een meting nodig heeft.
+        richtingLogStop = true;
+        try { localStorage.removeItem('sl_richtinglog'); } catch(_) {}
+        console.warn('[RICHTING] opslag geweigerd — richtinglog gestaakt en gewist');
+      }
+    } catch(_) { /* logging mag nooit de app breken */ }
+  }
+  // 2. Console-output — ongewijzigd, inclusief throttle van 1/sec
   const nu = Date.now();
   if (nu - richtingLogLaatst < 1000) return;
   richtingLogLaatst = nu;
-  const x = e || {};
   console.log(`[RICHTING] samples=${x.samples} spreiding=${x.spreiding}`
     + ` gemeten=${x.gemeten} tik=${x.tik} gekozen=${x.gekozen}`
     + ` aanrij=${x.aanrij} betrouwbaar=${x.betrouwbaar ? 1 : 0}`);
@@ -6471,7 +6551,8 @@ function renderRichtingBadge(nodeId) {
 
 // V9.0: Per-richting data renderen in dashboard
 function renderV9RichtingenVoorNode(nodeId, dd, lsIndex = null) {
-  const richtingPijlen = { N:'↑N', NO:'↗NO', O:'→O', ZO:'↘ZO', Z:'↓Z', ZW:'↙ZW', W:'←W', NW:'↖NW' };
+  // V11.17.28 W2: lokale kompas-map verwijderd — de strip toont nu hetzelfde
+  // rijdersperspectief-label als de rest van de app (rijdersPijlLabel, r7041).
   const richtingItems = [];
   const gezieneSleutels = new Set();
   const aanwezigeManoeuvres = new Set(); // V11.17.17 W2: welke rijders-manoeuvres hebben V5-data
@@ -6495,9 +6576,10 @@ function renderV9RichtingenVoorNode(nodeId, dd, lsIndex = null) {
     gezieneSleutels.add(kombi);
     const m = laadMV5(nodeId, aanrij, afrij, dd);
     if (!m.length) continue;
-    aanwezigeManoeuvres.add(rijdersPijlLabel(aanrij, afrij).tekst.toLowerCase()); // V11.17.17 W2
+    const lbl = rijdersPijlLabel(aanrij, afrij); // V11.17.28 W2: één bron voor label
+    aanwezigeManoeuvres.add(lbl.tekst.toLowerCase()); // V11.17.17 W2
     const gem = gewGem(m);
-    const pijl = richtingPijlen[afrij] || afrij;
+    const pijl = `${lbl.pijl} ${lbl.tekst}`;
     const kleur = m.length >= 10 ? 'var(--groen)' : m.length >= 5 ? 'var(--blauw)' : 'var(--oranje)';
     richtingItems.push(`<div style="display:flex;align-items:center;gap:4px;font-size:9px;padding:2px 5px;background:rgba(255,255,255,0.04);border:1px solid var(--border);border-radius:5px">
       <span style="color:${kleur}">${pijl}</span>
@@ -8290,6 +8372,7 @@ function updateDichtbij(lat, lon) {
           }
           bboxAnchorCx = null; bboxAnchorCy = null; bboxAnchorTijd = 0;
           cdPill.classList.add('actief');
+          cdPill.classList.remove('cd-verborgen'); // V11.17.28 W1c: herstelde countdown moet zichtbaar zijn
           sessionHersteld = true;
         } else {
           delete nodeSessionData[terugkeerId];
