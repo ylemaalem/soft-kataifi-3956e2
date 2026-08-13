@@ -556,7 +556,7 @@
 <div id="startscherm">
   <div id="s-icoon">🚦</div>
   <div id="s-titel">Stoplicht<span>IQ</span></div>
-  <div id="s-versie">V11.17.29 — klokritme-analyse gerepareerd (eerlijke teller)</div>
+  <div id="s-versie">V11.17.30 — schaduwmeting R-schatter (countdown ongewijzigd)</div>
   <div id="s-model-wrap">
     <div id="s-model-rij">
       <div id="s-model-label">🤖 YOLOv8 model laden…</div>
@@ -770,7 +770,7 @@
 
 <script>
 // ═══════════════════════════════════════════════════════════════
-//  StoplichtIQ V11.17.29
+//  StoplichtIQ V11.17.30
 //  V11.10: Zelfkalibratie + vergrendeling + crop smoothing
 //  — S1+S2 bevestiging (kruispunt-level confidence)
 //  — Route-herkenning basis (sequentie-opslag)
@@ -903,6 +903,10 @@ const OBS_PROXY = 0.1;
 const OBS_TAP_BONUS = 0.2;
 const VOLLEDIG_CYCLUS_GEWICHT = 1.5;
 const OBS_DOEL_CYCLI = 2.5;
+// V11.17.30 W3: ondergrens voor de schaduw-R-schatting uit uitsluitend
+// overgang-geziene metingen. Gelijk aan V9_MIN_METINGEN (5) — onder die grens
+// is de gewogen mediaan van een subset te gevoelig voor één uitschieter.
+const OVERGANG_MIN_METINGEN = 5;
 // Legacy referentie:
 // TIER1_GEWICHT=1.0 → obs>=45s, TIER2=0.6 → obs~27s, TIER3=0.3 → obs~13s, TIER4=0.1 → S2/proxy
 
@@ -1126,6 +1130,41 @@ function gewGem(m, hwt = HALFWAARDETIJD_CYCLUS) {
     if (cum >= helft) return p.d;
   }
   return paren[paren.length - 1].d;
+}
+
+// ── V11.17.30 W3: R-SCHATTING UIT OVERGANG-GEZIENE METINGEN ──────
+// SCHADUW — deze schatting wordt NERGENS in de countdown gebruikt. Ze wordt
+// alleen naast de bestaande gewGem gelogd, zodat over enkele weken met echte
+// uitkomsten te beslissen is of ze beter is.
+//
+// Achtergrond: een meting waarbij de app de groen/oranje→rood-overgang zelf
+// zag, is de VOLLEDIGE roodfase. Een meting bij aankomst bij bestaand rood is
+// een resttijd. gewGem mengt beide. De vraag is of alleen-volledige-duren een
+// betere R geeft. De p90-route uit het oorspronkelijke ontwerp is verworpen:
+// op de backup van 11 augustus was p90 een 2,3x slechtere R-schatter dan de
+// bestaande mediaan (leave-one-out over 88 volledige-cyclus-metingen:
+// 31,8s vs 13,7s gemiddelde fout).
+function isOvergangMeting(x) {
+  if (!x || !(x.duur > 0)) return false;
+  if (x.zo === 0) return false;                    // expliciet resttijd
+  if (x.zo === 1) return true;                     // expliciet volledig (V11.17.26)
+  // Historisch equivalent: gewicht 1.5 wordt UITSLUITEND gezet door
+  // isVolledigeCyclus (r4787) — groen gezien op DEZELFDE node, daarna rood.
+  // Alle andere gewichten zijn <= 1.0 (berekenObsGewicht capt op 1.0;
+  // OBS_S2/OBS_PROXY 0.1; bevestig-overrides 0.2/0.3/0.4).
+  return x.gewicht === VOLLEDIG_CYCLUS_GEWICHT;
+}
+
+// Zelfde metingenlijst, zelfde gewichten, zelfde gewogen-mediaan-methode als
+// gewGem — alleen de selectie verschilt. null onder de ondergrens.
+function gewGemOvergang(m) {
+  if (!Array.isArray(m)) return null;
+  const sub = m.filter(isOvergangMeting);
+  if (sub.length < OVERGANG_MIN_METINGEN) return null;
+  return gewGem(sub);
+}
+function telOvergangMetingen(m) {
+  return Array.isArray(m) ? m.filter(isOvergangMeting).length : 0;
 }
 
 function gewSpreiding(m) {
@@ -2186,7 +2225,10 @@ function maakPassiefSnapshot() {
 
 // W3: nieuwe helper (geen V11.17.12-helper beschikbaar). Roept op node-wissel,
 // GPS-voorbij, auto-correctie, handmatige tap en resetNeutraal.
-function invalideerPassiefSnapshot() { passiefSnapshot = null; }
+// V11.17.30 W3: het schaduw-snapshot volgt exact dezelfde levensduur als het
+// passieve snapshot (node-wissel, GPS-voorbij, auto-correctie, handmatige tap,
+// resetNeutraal). Hier meeliften i.p.v. vijf losse aanroepen toevoegen.
+function invalideerPassiefSnapshot() { passiefSnapshot = null; schaduwSnapshot = null; }
 
 // W2: schrijf één record bij rood→groen als de snapshot geldig is en bij
 // dezelfde node hoort. Grenzen 4..180s identiek aan V11.17.10 schrijfpaden.
@@ -2241,6 +2283,101 @@ function slaPassiefMeting(werkDur) {
   passiefSnapshot = null;  // verbruikt
 }
 
+// ── V11.17.30 W3: SCHADUWLOG R-SCHATTING ─────────────────────────
+// Zelfde vorm als het passief-snapshot hierboven: bevriezen bij countdown-
+// start, wegschrijven bij rood→groen met de ECHTE roodduur erbij. Puur
+// meelezend — raakt countdown, fase en leergeheugen niet.
+//
+// Per record staan drie grootheden naast elkaar:
+//   geb = wat de app daadwerkelijk toonde (ongewijzigd gedrag)
+//   b4  = gewGem over de V4-lijst — de gepaarde basislijn
+//   s   = gewGemOvergang over DEZELFDE lijst — de kandidaat
+// en werk = de gemeten roodduur. Daarmee is b4 vs s tegen werk te scoren
+// zonder aannames over de verdeling.
+//
+// Harde grenzen: max 200 records, FIFO. Quota-guard: één QuotaExceededError
+// zet schaduwLogStop en wist de eigen sleutel — een diagnoselog mag nooit een
+// meting kosten. Patroon van sl_richtinglog (V11.17.28).
+const MAX_SCHADUWLOG = 200;
+let schaduwLogStop = false;   // true na quota-fout: schrijven definitief gestaakt
+let schaduwSnapshot = null;
+
+function maakSchaduwSnapshot() {
+  try {
+    if (!dichtstbijOSM || cdStart === null || !(activeCdDoel > 0) || fase !== 'rood') {
+      schaduwSnapshot = null; return;
+    }
+    const nodeId = String(dichtstbijOSM.id);
+    const dd = huidigDDActief();
+    const m = laadM(nodeId, dd);
+    schaduwSnapshot = {
+      nodeId, dd,
+      geb: activeCdDoel,              // wat de app toont — modus B, ongewijzigd
+      bron: huidigCdBron,
+      b4: gewGem(m),                  // gepaarde basislijn over de V4-lijst
+      s: gewGemOvergang(m),           // kandidaat — null onder de ondergrens
+      n: m.length,
+      ns: telOvergangMetingen(m),
+      zag: zagRoodOvergang            // zag de app DEZE overgang zelf?
+    };
+  } catch(_) { schaduwSnapshot = null; }
+}
+
+function schaduwLogSluit(werkDur) {
+  if (schaduwLogStop) { schaduwSnapshot = null; return; }
+  const snap = schaduwSnapshot;
+  schaduwSnapshot = null;                       // altijd verbruiken
+  if (!snap) return;
+  try {
+    const nodeId = dichtstbijOSM ? String(dichtstbijOSM.id) : null;
+    if (!nodeId || nodeId !== snap.nodeId) return;   // node gewisseld: niet scoorbaar
+    const werk = Math.round(werkDur);
+    if (werk < 4 || werk > 180) return;              // zelfde grenzen als slaPassiefMeting
+    const num = (v) => (typeof v === 'number' && !isNaN(v)) ? Math.round(v) : null;
+    const now = new Date();
+    const rec = {
+      t: Date.now(),
+      node: nodeId,
+      dd: snap.dd,
+      werk,
+      geb: num(snap.geb),
+      bron: snap.bron || null,
+      b4: num(snap.b4),
+      s: num(snap.s),
+      n: snap.n,
+      ns: snap.ns,
+      zag: snap.zag ? 1 : 0,
+      dow: now.getDay(),
+      uur: now.getHours()
+    };
+    let arr;
+    try { arr = JSON.parse(localStorage.getItem('sl_schaduwlog')) || []; } catch(_) { arr = []; }
+    if (!Array.isArray(arr)) arr = [];
+    arr.push(rec);
+    if (arr.length > MAX_SCHADUWLOG) arr = arr.slice(-MAX_SCHADUWLOG);
+    try {
+      localStorage.setItem('sl_schaduwlog', JSON.stringify(arr));
+    } catch(_) {
+      schaduwLogStop = true;
+      try { localStorage.removeItem('sl_schaduwlog'); } catch(_) {}
+      console.warn('[SCHADUW] opslag geweigerd — schaduwlog gestaakt en gewist');
+      return;
+    }
+    console.log(`[SCHADUW] node=${rec.node} dd=${rec.dd} werk=${rec.werk}s`
+      + ` geb=${rec.geb} b4=${rec.b4} s=${rec.s}`
+      + ` n=${rec.n} ns=${rec.ns} zag=${rec.zag}`
+      + (rec.s != null ? ` | fout b4=${Math.abs(rec.b4 - rec.werk)} s=${Math.abs(rec.s - rec.werk)}` : ' | s=geen (onder ondergrens)'));
+  } catch(_) { /* logging mag nooit de app breken */ }
+}
+
+// Read-only teller voor de exportknop. Leest alleen; faalt stil.
+function telSchaduwLog() {
+  try {
+    const arr = JSON.parse(localStorage.getItem('sl_schaduwlog'));
+    return Array.isArray(arr) ? arr.length : 0;
+  } catch(_) { return 0; }
+}
+
 // W5: totaal aantal passieve metingen over alle nodes.
 function telPassiefMetingen() {
   let n = 0;
@@ -2265,7 +2402,10 @@ function updatePassiefTeller() {
   // V11.17.28 W3: richtinglog-teller erachter, alleen als er records zijn —
   // bij een leeg log is het label identiek aan voorheen.
   const r = telRichtingLog();
-  btn.textContent = `📈 Exporteer meetdata (${telPassiefMetingen()})${r ? ` · ${r} richt` : ''}`;
+  // V11.17.30 W3: schaduwteller erachter, zelfde conventie — alleen tonen als
+  // er records zijn, zodat een leeg log het label ongewijzigd laat.
+  const s = telSchaduwLog();
+  btn.textContent = `📈 Exporteer meetdata (${telPassiefMetingen()})${r ? ` · ${r} richt` : ''}${s ? ` · ${s} schad` : ''}`;
 }
 
 // W4: exporteer meetdata. Zelfde share+blob-uitvoermechanisme als exporteerData.
@@ -2284,8 +2424,8 @@ function exporteerMeetdata() {
   };
   setTimeout(() => {
     try {
-      const uit = { versie:'V11.17.29', geexporteerd:new Date().toISOString(),
-                    passief:{}, bevestig:{}, namen:{}, leer:{}, s2:{}, klok:{}, opslag:{}, richting:{} };
+      const uit = { versie:'V11.17.30', geexporteerd:new Date().toISOString(),
+                    passief:{}, bevestig:{}, namen:{}, leer:{}, s2:{}, klok:{}, opslag:{}, richting:{}, schaduw:{} };
       for (const key of Object.keys(localStorage)) {
         let doel = null;
         if (key.startsWith('sl_passief_'))       doel = uit.passief;
@@ -2295,6 +2435,7 @@ function exporteerMeetdata() {
         else if (key.startsWith('sl_klok_'))     doel = uit.klok; // V11.17.20: eigen bucket
         else if (key === 'sl_opslaglog')         doel = uit.opslag; // V11.17.23: opslag-diagnostiek
         else if (key === 'sl_richtinglog')       doel = uit.richting; // V11.17.28: afrij-diagnostiek
+        else if (key === 'sl_schaduwlog')        doel = uit.schaduw;  // V11.17.30: R-schatter-vergelijking
         else if (key.startsWith('sl_v4_'))       doel = uit.leer;
         if (!doel) continue;
         try { doel[key] = JSON.parse(localStorage.getItem(key)); }
@@ -4811,6 +4952,7 @@ function verwerkFase(nieuw, horizontaal, conf=null) {
   // hierboven, dus consistente roodduur.
   if (fase === 'rood' && nieuw === 'groen' && faseStart) {
     slaPassiefMeting((nu - faseStart) / 1000);
+    schaduwLogSluit((nu - faseStart) / 1000);   // V11.17.30 W3: zelfde roodduur
   }
   // V11.17.20 W1: klokmoment op een SCHONE fase-transitie (fase = expliciete
   // vorige waarde). Continuïteit-herstelde her-detecties (nieuw===laatsteFase,
@@ -4987,6 +5129,7 @@ function startCd() {
   // V11.17.13 W1: bevries voorspellingen zodra de countdown daadwerkelijk
   // gestart is. Alleen lezen — geen effect op de countdown-keten.
   maakPassiefSnapshot();
+  maakSchaduwSnapshot();   // V11.17.30 W3: idem, voor de R-schatter-vergelijking
 }
 
 function stopCd() {
@@ -5876,7 +6019,7 @@ function exporteerData() {
     try {
       const exportData = { versie:'11.4.4', exportDatum:new Date().toISOString(), app:'StoplichtIQ', data:{}, scores:{} };
       for (const key of Object.keys(localStorage)) {
-        if (key.startsWith('sl_v10_')||key.startsWith('sl_v5_')||key.startsWith('sl_v4_')||key.startsWith('sl_v3_')||key.startsWith('sl_s2_')||key.startsWith('sl_klok_')||key==='sl_opslaglog'||key==='sl_richtinglog'||key.startsWith('sl_tag_')||key.startsWith('sl_naam_')||key.startsWith('sl_richting_')||key.startsWith('sl_route_')||key.startsWith('sl_bevestig_')||key.startsWith('sl_pos_')||key.startsWith('sl_neutraal_')||key.startsWith('sl_enkelricht_')||key==='sl_cam_stats'||key==='sl_stad_cache') {
+        if (key.startsWith('sl_v10_')||key.startsWith('sl_v5_')||key.startsWith('sl_v4_')||key.startsWith('sl_v3_')||key.startsWith('sl_s2_')||key.startsWith('sl_klok_')||key==='sl_opslaglog'||key==='sl_richtinglog'||key==='sl_schaduwlog'||key.startsWith('sl_tag_')||key.startsWith('sl_naam_')||key.startsWith('sl_richting_')||key.startsWith('sl_route_')||key.startsWith('sl_bevestig_')||key.startsWith('sl_pos_')||key.startsWith('sl_neutraal_')||key.startsWith('sl_enkelricht_')||key==='sl_cam_stats'||key==='sl_stad_cache') {
           try { exportData.data[key] = JSON.parse(localStorage.getItem(key)); }
           catch(e) { exportData.data[key] = localStorage.getItem(key); }
         }
@@ -5925,7 +6068,7 @@ function importeerData(bestand) {
         // V11.15.4 Fix 4: whitelist gesynchroniseerd met exporteerData —
         // sl_bevestig_, sl_pos_ en sl_cam_stats zaten wél in de export
         // maar werden bij import stil overgeslagen.
-        if (!key.startsWith('sl_v10_')&&!key.startsWith('sl_v5_')&&!key.startsWith('sl_v4_')&&!key.startsWith('sl_v3_')&&!key.startsWith('sl_s2_')&&!key.startsWith('sl_klok_')&&key!=='sl_opslaglog'&&key!=='sl_richtinglog'&&!key.startsWith('sl_tag_')&&!key.startsWith('sl_naam_')&&!key.startsWith('sl_richting_')&&!key.startsWith('sl_route_')&&!key.startsWith('sl_bevestig_')&&!key.startsWith('sl_pos_')&&!key.startsWith('sl_neutraal_')&&!key.startsWith('sl_enkelricht_')&&key!=='sl_cam_stats'&&key!=='sl_stad_cache') { overgeslagen++; continue; }
+        if (!key.startsWith('sl_v10_')&&!key.startsWith('sl_v5_')&&!key.startsWith('sl_v4_')&&!key.startsWith('sl_v3_')&&!key.startsWith('sl_s2_')&&!key.startsWith('sl_klok_')&&key!=='sl_opslaglog'&&key!=='sl_richtinglog'&&key!=='sl_schaduwlog'&&!key.startsWith('sl_tag_')&&!key.startsWith('sl_naam_')&&!key.startsWith('sl_richting_')&&!key.startsWith('sl_route_')&&!key.startsWith('sl_bevestig_')&&!key.startsWith('sl_pos_')&&!key.startsWith('sl_neutraal_')&&!key.startsWith('sl_enkelricht_')&&key!=='sl_cam_stats'&&key!=='sl_stad_cache') { overgeslagen++; continue; }
         if (localStorage.getItem(key) !== null) { overgeslagen++; continue; }
         try { localStorage.setItem(key, JSON.stringify(waarde)); toegevoegd++; } catch(e) { overgeslagen++; }
       }
