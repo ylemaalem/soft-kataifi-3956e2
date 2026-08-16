@@ -556,7 +556,7 @@
 <div id="startscherm">
   <div id="s-icoon">🚦</div>
   <div id="s-titel">Stoplicht<span>IQ</span></div>
-  <div id="s-versie">V11.17.30 — schaduwmeting R-schatter (countdown ongewijzigd)</div>
+  <div id="s-versie">V11.17.31 — richtingbepaling: aanrij bevroren, afrij na de bocht</div>
   <div id="s-model-wrap">
     <div id="s-model-rij">
       <div id="s-model-label">🤖 YOLOv8 model laden…</div>
@@ -770,7 +770,7 @@
 
 <script>
 // ═══════════════════════════════════════════════════════════════
-//  StoplichtIQ V11.17.30
+//  StoplichtIQ V11.17.31
 //  V11.10: Zelfkalibratie + vergrendeling + crop smoothing
 //  — S1+S2 bevestiging (kruispunt-level confidence)
 //  — Route-herkenning basis (sequentie-opslag)
@@ -924,6 +924,12 @@ const V9_MIN_SNELHEID_HEADING  = 15;    // km/u — lager = heading onbetrouwbaa
 const V9_PASSAGE_COOLDOWN      = 30000; // ms — min tussen 2 passages zelfde node
 const V9_PARKEER_DREMPEL_MS    = 120000;// ms — stilstand = parkeren
 const V9_U_BOCHT_GRADEN        = 150;   // graden — u-bocht, niet opslaan
+// V11.17.31 W2: vaste bezinktijd na passagedetectie voordat de afrijheading
+// wordt vastgelegd. De oude triggers vuurden op de EERSTE callback na
+// activering — headingVeranderd detecteert zelfs het BEGIN van de bocht —
+// waardoor de heading altijd nog die van de aanrij was. 4000ms past ruim
+// binnen V9_WRITE_VENSTER (8000ms), dat als harde bovengrens blijft gelden.
+const V9_AFRIJ_SETTLE_MS       = 4000;  // ms — wachten tot de bocht voltooid is
 
 // V8.8: VRI detectie constanten
 const VRI_MIN_METINGEN = 10;
@@ -2424,7 +2430,7 @@ function exporteerMeetdata() {
   };
   setTimeout(() => {
     try {
-      const uit = { versie:'V11.17.30', geexporteerd:new Date().toISOString(),
+      const uit = { versie:'V11.17.31', geexporteerd:new Date().toISOString(),
                     passief:{}, bevestig:{}, namen:{}, leer:{}, s2:{}, klok:{}, opslag:{}, richting:{}, schaduw:{} };
       for (const key of Object.keys(localStorage)) {
         let doel = null;
@@ -2487,7 +2493,10 @@ function exporteerMeetdata() {
 }
 
 // ── V9.0: DELAYED WRITE ───────────────────────────────────────
-function voerV9DelayedWriteUit(huidigeHeading) {
+// V11.17.31 W2: trigger/poort/onzeker komen uit de aanroeper (r9057-9072) en
+// zijn puur diagnostisch — ze sturen geen enkele opslagbeslissing aan, behalve
+// dat `onzeker` in het richtinglog belandt.
+function voerV9DelayedWriteUit(huidigeHeading, trigger = null, poort = null, onzeker = false) {
   leerLog('V9START duur:' + v9KandidaatDuur + ' node:' + v9KandidaatNode);
   if (!v9DelayedWriteActief || !v9KandidaatNode || !v9KandidaatDuur) {
     logOpslagMis('dw_incompleet', { node: v9KandidaatNode, dur: v9KandidaatDuur });
@@ -2495,6 +2504,13 @@ function voerV9DelayedWriteUit(huidigeHeading) {
     return;
   }
 
+  // V11.17.31 W1: v9AanrijSnelheidHeading is nu bevroren bij kandidaat-vastklik
+  // (r8987). Blijft hij leeg — nadering volledig onder 15 km/u — dan valt deze
+  // keten terug op v9AanrijHeading, die onvoorwaardelijk gezet wordt op r9013.
+  // Welke bron het werd gaat mee het richtinglog in, zodat meetbaar is hoe vaak
+  // de terugval optreedt.
+  const aanrijBron = v9AanrijSnelheidHeading != null ? 'snelheid'
+    : (v9AanrijHeading != null ? 'nadering' : null);
   const aanrijRichting = v9AanrijSnelheidHeading != null
     ? gpsHeadingNaarWindrichting(v9AanrijSnelheidHeading)
     : (v9AanrijHeading != null ? gpsHeadingNaarWindrichting(v9AanrijHeading) : null);
@@ -2511,9 +2527,10 @@ function voerV9DelayedWriteUit(huidigeHeading) {
   // tegengestelde conventies en kon daardoor nooit matchen.
   const gpsAfrijRichting = afrijHeading != null ? gpsHeadingNaarWindrichting((afrijHeading + 180) % 360) : null;
   const WINDRICHTINGEN = ['N','NO','O','ZO','Z','ZW','W','NW'];
-  const afrijRichting = (v9PreSelectieAfrij && WINDRICHTINGEN.includes(v9PreSelectieAfrij))
-    ? v9PreSelectieAfrij
-    : gpsAfrijRichting;
+  // V11.17.31 W3: onthoud of de gekozen richting van een TIK komt. Alleen die
+  // mag nog naar V5 (zie r2560).
+  const viaTik = !!(v9PreSelectieAfrij && WINDRICHTINGEN.includes(v9PreSelectieAfrij));
+  const afrijRichting = viaTik ? v9PreSelectieAfrij : gpsAfrijRichting;
   if (!afrijRichting) { logOpslagMis('geen_afrij', { node: v9KandidaatNode, dur: v9KandidaatDuur, aanrij: aanrijRichting }); resetV9Staat(); return; }
   // V11.17.24 (C): observeer elke afrijbepaling — maakt meetbaar hoe vaak de
   // buffer gevuld raakt en hoe stabiel hij is (input voor release B).
@@ -2524,7 +2541,9 @@ function voerV9DelayedWriteUit(huidigeHeading) {
     tik: (v9PreSelectieAfrij || null),
     gekozen: afrijRichting,
     aanrij: aanrijRichting,
-    betrouwbaar: afrijBetrouwbaar
+    betrouwbaar: afrijBetrouwbaar,
+    // V11.17.31: zonder deze vier velden is W1/W2 alleen beredeneerd, niet meetbaar.
+    trigger, poort, onzeker, aanrijBron
   });
 
   // Edge case: u-bocht (alleen als GPS heading bekend is)
@@ -2551,7 +2570,19 @@ function voerV9DelayedWriteUit(huidigeHeading) {
 
   // Schrijf V5
   leerLog('V9SCHRIJF node:' + v9KandidaatNode + ' duur:' + duur);
-  slaOpV5(v9KandidaatNode, aanrijRichting, afrijRichting, dd, duur, gewicht, v9KandidaatZagOvergang);
+  // ── V11.17.31 W3: TIJDELIJK — geen V5-write zonder getikte richting ────
+  // Reden: de GPS-afgeleide afrijrichting was tot V11.17.30 een rekenkundige
+  // identiteit (gemeten === aanrij+180) en zat er bij ALLE 8 gemeten bochten
+  // naast. W1 en W2 moeten dat repareren, maar zolang dat niet met verse
+  // richtinglog-data is aangetoond, mag een GPS-richting de V5-dataset niet in.
+  // V4 schrijft hieronder gewoon door, dus er gaat geen duurmeting verloren.
+  // OPHEFFEN zodra het richtinglog laat zien dat `gemeten` bij bochten klopt.
+  if (viaTik) {
+    slaOpV5(v9KandidaatNode, aanrijRichting, afrijRichting, dd, duur, gewicht, v9KandidaatZagOvergang);
+  } else {
+    logOpslagMis('v5_geen_tik', { node: v9KandidaatNode, dur: duur,
+      aanrij: aanrijRichting, afrij: afrijRichting });
+  }
 
   // Schrijf ook V4 parallel (backward compatibility)
   slaOp(v9KandidaatNode, huidigeRichting, duur, null, true, null, null, v9KandidaatZagOvergang);
@@ -6310,7 +6341,15 @@ function richtingLog(e) {
         tik: x.tik || null,
         gekozen: x.gekozen || null,
         aanrij: x.aanrij || null,
-        betr: x.betrouwbaar ? 1 : 0
+        betr: x.betrouwbaar ? 1 : 0,
+        // V11.17.31: trig = wat de write veroorzaakte ('settle' of 'tijd'),
+        // poort = welke geometrische condities waar waren (v/g/h), onzeker = 1
+        // als de bovengrens verstreek zonder bezinking, abron = herkomst van de
+        // aanrijheading ('snelheid' = bevroren bij vastklik, 'nadering' = terugval).
+        trig: x.trigger || null,
+        poort: x.poort || null,
+        onzeker: x.onzeker ? 1 : 0,
+        abron: x.aanrijBron || null
       };
       let arr;
       try { arr = JSON.parse(localStorage.getItem('sl_richtinglog')) || []; } catch(_) { arr = []; }
@@ -6334,7 +6373,9 @@ function richtingLog(e) {
   richtingLogLaatst = nu;
   console.log(`[RICHTING] samples=${x.samples} spreiding=${x.spreiding}`
     + ` gemeten=${x.gemeten} tik=${x.tik} gekozen=${x.gekozen}`
-    + ` aanrij=${x.aanrij} betrouwbaar=${x.betrouwbaar ? 1 : 0}`);
+    + ` aanrij=${x.aanrij} betrouwbaar=${x.betrouwbaar ? 1 : 0}`
+    // V11.17.31: trigger-herkomst erachter — laat live zien of de bezinktijd haalt.
+    + ` trig=${x.trigger} poort=${x.poort} onzeker=${x.onzeker ? 1 : 0} abron=${x.aanrijBron}`);
 }
 
 function berekenDoelZoom(afst) {
@@ -8978,7 +9019,13 @@ async function onGPS(pos) {
     const nodeId = String(dichtstbijOSM.id);
 
     // Heading bij snelheid > V9_MIN_SNELHEID_HEADING bijhouden
-    if (snelheidKmh >= V9_MIN_SNELHEID_HEADING && smoothedH != null) {
+    // V11.17.31 W1: BEVRIEZEN zodra er een kandidaat is. Zonder deze guard werd
+    // deze variabele tot en met de write-callback overschreven, waardoor
+    // aanrijRichting (r2504) en gpsAfrijRichting (r2518) uit DEZELFDE heading
+    // kwamen en `gemeten === aanrij + 180` een rekenkundige identiteit was —
+    // gemeten in 19 van 20 richtinglog-records, en 0 van 8 bochten correct.
+    // Vrijgave gebeurt via resetV9Staat (r2592), die op elk uitgangspad loopt.
+    if (v9KandidaatNode === null && snelheidKmh >= V9_MIN_SNELHEID_HEADING && smoothedH != null) {
       v9AanrijSnelheidHeading = smoothedH;
     }
 
@@ -9042,11 +9089,26 @@ async function onGPS(pos) {
       // Parkeer-check: >120s stilstand = niet opslaan
       const geparkeerd = v9LaatstLageSnelheid > 0 && (Date.now() - v9LaatstLageSnelheid) > V9_PARKEER_DREMPEL_MS;
 
+      // V11.17.31 W2: de geometrische poorten stellen nog steeds vast DAT de
+      // passage plaatsvond, maar bepalen niet langer WANNEER de afrijheading
+      // wordt vastgelegd. Daar zit nu een vaste bezinktijd tussen, zodat de
+      // heading van ná de bocht wordt gemeten in plaats van van het begin
+      // ervan. V9_WRITE_VENSTER blijft de harde bovengrens: loopt die af, dan
+      // schrijven we alsnog, maar gemarkeerd als onzeker.
+      const passageKlaar = voorbij || verGenoeg || headingVeranderd;
+      const bezonken = v9PassageStartTijd
+        && (Date.now() - v9PassageStartTijd) >= V9_AFRIJ_SETTLE_MS;
+      const poort = [voorbij ? 'v' : null, verGenoeg ? 'g' : null,
+                     headingVeranderd ? 'h' : null].filter(Boolean).join(',') || '-';
+
       if (geparkeerd) {
         logOpslagMis('geparkeerd', { node: v9KandidaatNode, dur: v9KandidaatDuur });
         resetV9Staat();
-      } else if (voorbij || verGenoeg || tijdVerstreken || headingVeranderd) {
-        voerV9DelayedWriteUit(smoothedH);
+      } else if (tijdVerstreken) {
+        // Bovengrens bereikt zonder bezinking — beste beschikbare waarde.
+        voerV9DelayedWriteUit(smoothedH, 'tijd', poort, true);
+      } else if (passageKlaar && bezonken) {
+        voerV9DelayedWriteUit(smoothedH, 'settle', poort, false);
       }
     }
 
