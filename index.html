@@ -556,7 +556,7 @@
 <div id="startscherm">
   <div id="s-icoon">🚦</div>
   <div id="s-titel">Stoplicht<span>IQ</span></div>
-  <div id="s-versie">V11.17.31 — richtingbepaling: aanrij bevroren, afrij na de bocht</div>
+  <div id="s-versie">V11.17.32 — countdown herziet tijdens het wachten</div>
   <div id="s-model-wrap">
     <div id="s-model-rij">
       <div id="s-model-label">🤖 YOLOv8 model laden…</div>
@@ -770,7 +770,7 @@
 
 <script>
 // ═══════════════════════════════════════════════════════════════
-//  StoplichtIQ V11.17.31
+//  StoplichtIQ V11.17.32
 //  V11.10: Zelfkalibratie + vergrendeling + crop smoothing
 //  — S1+S2 bevestiging (kruispunt-level confidence)
 //  — Route-herkenning basis (sequentie-opslag)
@@ -952,6 +952,24 @@ const CD_ZEKER   = 'zeker';
 const CD_GESCHAT = 'geschat';
 const CD_VAAG    = 'vaag';
 const CD_NU      = 'nu';
+
+// ── V11.17.32: WACHTTIJDHERZIENING ───────────────────────────────
+// De countdown berekende bij aanvang een doel en telde af; er bestond geen
+// herzieningspad. Zodra `over` op nul klemde (r5180) bleef de pill "elk
+// moment" tonen — in 31% van alle pill-seconden, mediaan 6s, p90 28s.
+//
+// Wachttijdparadox: dat het licht NOG rood is, is zelf informatie. De
+// verwachte resttijd wordt dan E[D - w | D > w] over dezelfde metingenlijst
+// die het doel opleverde.
+//
+// Drempels uit z4_drempel.js, leave-one-out over 29 sleutels en 14.657
+// pill-seconden. Herzien vanaf een FRACTIE van het doel verslaat elke vaste
+// drempel in seconden (2,24s tegen 2,09s); tussen 0,4 en 0,7 is de curve vlak.
+// Onder de 3 metingen boven w is de schatting te dun — dan terugval op het
+// bestaande gedrag.
+const CD_COND_FRACTIE   = 0.5;   // herzien vanaf 0,5 x het oorspronkelijke doel
+const CD_COND_MIN_BOVEN = 3;     // min. metingen langer dan w, anders terugval
+const CD_COND_MAX_W     = 180;   // tabelgrens, gelijk aan de schrijf-cap (r4767)
 
 // V11.14.3: max dropout-duur (in seconden bovenop activeCdDoel) waarna
 // countdown doorloopt i.p.v. herstart. Bij korte YOLO-dropout: cdStart
@@ -2214,6 +2232,65 @@ function passiefLog(reden, extras) {
 
 // W1: bevries de voorspellingen op countdown-start. Geen echte countdown
 // (lerend/geen data) → snapshot blijft null. Leest alleen bestaande state.
+// ── V11.17.32 W1: WACHTTIJDHERZIENING ────────────────────────────
+// De bron-cascade hieronder is een bewuste kopie van die in
+// berekenSchaduwWaarden (r2173). Die functie hergebruiken zou haar moeten
+// wijzigen, en ze hoort byte-identiek te blijven — ze zit in de
+// schaduwmeetketen van V11.17.0. De cascade levert exact dezelfde
+// metingenlijst als waaruit het doel is berekend; dat is essentieel, want
+// een conditionele verwachting over een ANDERE lijst dan het doel zou twee
+// onverenigbare verdelingen mengen.
+function haalMetingenVoorBron(nodeId, dd, aanrijRichting, preSelectieAfrij, bron) {
+  if (!nodeId || !dd || !bron) return null;
+  if (bron === 'V5 alle') return haalAlleV5MetingenVoorNode(nodeId, dd);
+  if (bron === 'V5 ↑') {
+    const h = v9AanrijSnelheidHeading ?? v9AanrijHeading;
+    if (h != null && aanrijRichting) {
+      const afrijRechtdoor = gpsHeadingNaarWindrichting((((h % 360) + 360) % 360 + 180) % 360);
+      return laadMV5Geclusterd(nodeId, aanrijRichting, afrijRechtdoor, dd);
+    }
+    return null;
+  }
+  if (bron.startsWith('V5 ') && aanrijRichting && preSelectieAfrij) {
+    return laadMV5Geclusterd(nodeId, aanrijRichting, preSelectieAfrij, dd);
+  }
+  if (bron === 'V4' || bron === 'v4_s2bevestigd' || bron === 'v4_multi'
+      || bron === 'v4_enkelricht' || bron === 'V4_fallback'
+      || bron === 'V4_fallback_na_richting' || bron === 'osm_voorspelling') {
+    return laadM(nodeId, dd);
+  }
+  return null;
+}
+
+// Tabel van E[D - w | D > w] voor w = 0..CD_COND_MAX_W, met dezelfde
+// tijdweging als gewGem. -1 betekent: te weinig steun, terugvallen.
+// Kosten: 0,067 ms over 50 metingen, EENMALIG per rode fase — niet per frame.
+function bouwCondTabel(metingen) {
+  const paren = [];
+  for (const x of metingen) {
+    if (!x || !(x.duur > 0)) continue;
+    const w = gew(x.tijd);
+    if (!(w > 0)) continue;
+    paren.push({ d: x.duur, w });
+  }
+  const tab = new Float64Array(CD_COND_MAX_W + 1);
+  for (let w = 0; w <= CD_COND_MAX_W; w++) {
+    let som = 0, gewSom = 0, n = 0;
+    for (const p of paren) {
+      if (p.d > w) { som += (p.d - w) * p.w; gewSom += p.w; n++; }
+    }
+    tab[w] = (n >= CD_COND_MIN_BOVEN && gewSom > 0) ? som / gewSom : -1;
+  }
+  return tab;
+}
+
+// Levensduur van de tabel: gebonden aan (node, countdown-start, bron). Wisselt
+// een van drie, dan is het een andere rode fase of een andere brondataset en
+// wordt opnieuw gebouwd. cdCondGetoond draagt de klem: het getoonde getal mag
+// nooit stijgen — bij een opwaartse bijstelling bevriest de weergave.
+let cdCondSleutel = null, cdCondTab = null, cdCondGetoond = null;
+let cdHerzieningSnapshot = null;
+
 function maakPassiefSnapshot() {
   if (!dichtstbijOSM || cdStart === null || !(activeCdDoel > 0)) { passiefSnapshot = null; return; }
   const aanrij = v9AanrijHeading != null
@@ -2234,7 +2311,14 @@ function maakPassiefSnapshot() {
 // V11.17.30 W3: het schaduw-snapshot volgt exact dezelfde levensduur als het
 // passieve snapshot (node-wissel, GPS-voorbij, auto-correctie, handmatige tap,
 // resetNeutraal). Hier meeliften i.p.v. vijf losse aanroepen toevoegen.
-function invalideerPassiefSnapshot() { passiefSnapshot = null; schaduwSnapshot = null; }
+// V11.17.32: de conditionele tabel en de klem horen bij één rode fase op één
+// node; bij node-wissel of reset moeten ze weg. cdCondSleutel op null forceert
+// een herbouw bij de volgende herziening.
+function invalideerPassiefSnapshot() {
+  passiefSnapshot = null; schaduwSnapshot = null;
+  cdCondSleutel = null; cdCondTab = null; cdCondGetoond = null;
+  cdHerzieningSnapshot = null;
+}
 
 // W2: schrijf één record bij rood→groen als de snapshot geldig is en bij
 // dezelfde node hoort. Grenzen 4..180s identiek aan V11.17.10 schrijfpaden.
@@ -2377,6 +2461,94 @@ function schaduwLogSluit(werkDur) {
 }
 
 // Read-only teller voor de exportknop. Leest alleen; faalt stil.
+// ── V11.17.32 W2: SCHADUWLOG WACHTTIJDHERZIENING ─────────────────
+// Legt per rode fase de EERSTE herziening vast, plus achteraf de werkelijk
+// gemeten roodduur. Daarmee is na een paar weken te controleren of de gekozen
+// drempel (0,5 x doel) in de praktijk klopt — dat is de kwetsbare
+// ontwerpkeuze van deze release, en zonder dit log alleen beredeneerd.
+// Zelfde harde grenzen als sl_schaduwlog: cap 200 FIFO, quota-guard met
+// stop-vlag die de eigen sleutel wist. Een diagnoselog mag geen meting kosten.
+const MAX_HERZIENINGLOG = 200;
+let herzieningLogStop = false;
+
+// Aangeroepen vanuit tickCd bij elke herziene frame; bewaart alleen de EERSTE
+// van een rode fase (herkend aan cdCondSleutel). Schrijft niets naar opslag.
+function registreerHerziening(ver, ruw, getoond) {
+  try {
+    if (cdHerzieningSnapshot && cdHerzieningSnapshot.sleutel === cdCondSleutel) return;
+    if (!dichtstbijOSM) return;
+    let boven = 0;
+    const dd = huidigDDActief();
+    const aanrij = v9AanrijHeading != null
+      ? gpsHeadingNaarWindrichting(v9AanrijSnelheidHeading ?? v9AanrijHeading) : null;
+    const m = haalMetingenVoorBron(dichtstbijOSM.id, dd, aanrij, v9PreSelectieAfrij, huidigCdBron);
+    if (m) for (const x of m) if (x && x.duur > ver) boven++;
+    cdHerzieningSnapshot = {
+      sleutel: cdCondSleutel,
+      nodeId: String(dichtstbijOSM.id),
+      dd,
+      wBijHerziening: ver,
+      doelOud: activeCdDoel,
+      doelHerzien: ruw,
+      getoond,
+      nBoven: boven,
+      nTotaal: m ? m.length : 0,
+      bron: huidigCdBron
+    };
+  } catch(_) { /* mag de countdown nooit breken */ }
+}
+
+function herzieningLogSluit(werkDur) {
+  const snap = cdHerzieningSnapshot;
+  cdHerzieningSnapshot = null;
+  if (herzieningLogStop || !snap) return;
+  try {
+    const nodeId = dichtstbijOSM ? String(dichtstbijOSM.id) : null;
+    if (!nodeId || nodeId !== snap.nodeId) return;
+    const werk = Math.round(werkDur);
+    if (werk < 4 || werk > 180) return;
+    const num = v => (typeof v === 'number' && !isNaN(v)) ? Math.round(v) : null;
+    const rec = {
+      t: Date.now(), node: nodeId, dd: snap.dd, werk,
+      w: num(snap.wBijHerziening),
+      oud: num(snap.doelOud),
+      herzien: num(snap.doelHerzien),
+      getoond: num(snap.getoond),
+      nBoven: snap.nBoven, n: snap.nTotaal,
+      bron: snap.bron || null
+    };
+    let arr;
+    try { arr = JSON.parse(localStorage.getItem('sl_herzieninglog')) || []; } catch(_) { arr = []; }
+    if (!Array.isArray(arr)) arr = [];
+    arr.push(rec);
+    if (arr.length > MAX_HERZIENINGLOG) arr = arr.slice(-MAX_HERZIENINGLOG);
+    try {
+      localStorage.setItem('sl_herzieninglog', JSON.stringify(arr));
+    } catch(_) {
+      herzieningLogStop = true;
+      try { localStorage.removeItem('sl_herzieninglog'); } catch(_) {}
+      console.warn('[HERZIENING] opslag geweigerd — log gestaakt en gewist');
+      return;
+    }
+    // fout van de oorspronkelijke voorspelling op het herzieningsmoment,
+    // tegenover die van de herziene waarde. Positief = herziening was beter.
+    const echtRest = werk - rec.w;
+    const foutOud = Math.abs(Math.max(0, rec.oud - rec.w) - echtRest);
+    const foutNieuw = Math.abs(rec.getoond - echtRest);
+    console.log(`[HERZIENING] node=${rec.node} dd=${rec.dd} w=${rec.w}s werk=${rec.werk}s`
+      + ` oud=${rec.oud} herzien=${rec.herzien} getoond=${rec.getoond}`
+      + ` nBoven=${rec.nBoven}/${rec.n} | fout oud=${foutOud} nieuw=${foutNieuw}`
+      + ` winst=${(foutOud - foutNieuw).toFixed(0)}s`);
+  } catch(_) { /* logging mag nooit de app breken */ }
+}
+
+function telHerzieningLog() {
+  try {
+    const arr = JSON.parse(localStorage.getItem('sl_herzieninglog'));
+    return Array.isArray(arr) ? arr.length : 0;
+  } catch(_) { return 0; }
+}
+
 function telSchaduwLog() {
   try {
     const arr = JSON.parse(localStorage.getItem('sl_schaduwlog'));
@@ -2411,7 +2583,9 @@ function updatePassiefTeller() {
   // V11.17.30 W3: schaduwteller erachter, zelfde conventie — alleen tonen als
   // er records zijn, zodat een leeg log het label ongewijzigd laat.
   const s = telSchaduwLog();
-  btn.textContent = `📈 Exporteer meetdata (${telPassiefMetingen()})${r ? ` · ${r} richt` : ''}${s ? ` · ${s} schad` : ''}`;
+  // V11.17.32: herzieningsteller erachter, zelfde conventie.
+  const hz = telHerzieningLog();
+  btn.textContent = `📈 Exporteer meetdata (${telPassiefMetingen()})${r ? ` · ${r} richt` : ''}${s ? ` · ${s} schad` : ''}${hz ? ` · ${hz} herz` : ''}`;
 }
 
 // W4: exporteer meetdata. Zelfde share+blob-uitvoermechanisme als exporteerData.
@@ -2430,8 +2604,8 @@ function exporteerMeetdata() {
   };
   setTimeout(() => {
     try {
-      const uit = { versie:'V11.17.31', geexporteerd:new Date().toISOString(),
-                    passief:{}, bevestig:{}, namen:{}, leer:{}, s2:{}, klok:{}, opslag:{}, richting:{}, schaduw:{} };
+      const uit = { versie:'V11.17.32', geexporteerd:new Date().toISOString(),
+                    passief:{}, bevestig:{}, namen:{}, leer:{}, s2:{}, klok:{}, opslag:{}, richting:{}, schaduw:{}, herziening:{} };
       for (const key of Object.keys(localStorage)) {
         let doel = null;
         if (key.startsWith('sl_passief_'))       doel = uit.passief;
@@ -2442,6 +2616,7 @@ function exporteerMeetdata() {
         else if (key === 'sl_opslaglog')         doel = uit.opslag; // V11.17.23: opslag-diagnostiek
         else if (key === 'sl_richtinglog')       doel = uit.richting; // V11.17.28: afrij-diagnostiek
         else if (key === 'sl_schaduwlog')        doel = uit.schaduw;  // V11.17.30: R-schatter-vergelijking
+        else if (key === 'sl_herzieninglog')     doel = uit.herziening; // V11.17.32: wachttijdherziening
         else if (key.startsWith('sl_v4_'))       doel = uit.leer;
         if (!doel) continue;
         try { doel[key] = JSON.parse(localStorage.getItem(key)); }
@@ -4984,6 +5159,7 @@ function verwerkFase(nieuw, horizontaal, conf=null) {
   if (fase === 'rood' && nieuw === 'groen' && faseStart) {
     slaPassiefMeting((nu - faseStart) / 1000);
     schaduwLogSluit((nu - faseStart) / 1000);   // V11.17.30 W3: zelfde roodduur
+    herzieningLogSluit((nu - faseStart) / 1000); // V11.17.32 W2: idem
   }
   // V11.17.20 W1: klokmoment op een SCHONE fase-transitie (fase = expliciete
   // vorige waarde). Continuïteit-herstelde her-detecties (nieuw===laatsteFase,
@@ -5181,10 +5357,62 @@ function tickCd() {
 
   cdPill.classList.add('actief');
 
+  // ── V11.17.32 W1: wachttijdherziening ──────────────────────────
+  // `over` blijft ONGEWIJZIGD zijn rol vervullen voor cdBereikteNul, de
+  // bevestigknoppen en de schaduw-nultijd verderop — die meten tegen de
+  // OORSPRONKELIJKE voorspelling en dat hoort zo. Alleen de weergave volgt
+  // hieronder de herziene waarde.
+  let herzienOver = null;
+  if (fase === 'rood' && activeCdDoel > 0 && dichtstbijOSM
+      && ver >= CD_COND_FRACTIE * activeCdDoel) {
+    const sleutel = String(dichtstbijOSM.id) + '_' + String(cdWallStart) + '_' + String(huidigCdBron);
+    if (sleutel !== cdCondSleutel) {
+      cdCondSleutel = sleutel;
+      cdCondGetoond = null;
+      cdCondTab = null;
+      try {
+        const dd = huidigDDActief();
+        const aanrij = v9AanrijHeading != null
+          ? gpsHeadingNaarWindrichting(v9AanrijSnelheidHeading ?? v9AanrijHeading) : null;
+        const m = haalMetingenVoorBron(dichtstbijOSM.id, dd, aanrij, v9PreSelectieAfrij, huidigCdBron);
+        if (m && m.length) cdCondTab = bouwCondTabel(m);
+      } catch(_) { cdCondTab = null; }
+    }
+    if (cdCondTab) {
+      const c = cdCondTab[Math.min(CD_COND_MAX_W, Math.max(0, Math.floor(ver)))];
+      if (c >= 0) {
+        // KLEM: nooit omhoog. Bij een opwaartse bijstelling bevriest de
+        // weergave op de vorige waarde i.p.v. terug te springen.
+        // De EERSTE herziening wordt geënt op `over` — de waarde die de pill
+        // op dat moment toont. Zonder die enting kan de sprong van de laatste
+        // statische seconde naar de eerste herziene seconde omhoog gaan, en
+        // dat is precies de sprong die de klem moet voorkomen.
+        // over === 0 bij de EERSTE herziening betekent dat de statische
+        // countdown al was afgelopen voordat tickCd hier aankwam — na een
+        // dropout of achtergrondpauze. Dan staat de pill op "elk moment" en is
+        // er geen lopend getal om monotoon mee te blijven; klemmen op nul zou
+        // de herziening permanent doodleggen. In doorlopend bedrijf kan dit
+        // niet optreden: bij w = 0,5 x doel is `over` per definitie nog 0,5 x doel.
+        const basis = (cdCondGetoond != null) ? cdCondGetoond
+                    : (over > 0 ? over : Infinity);
+        herzienOver = Math.min(c, basis);
+        cdCondGetoond = herzienOver;
+        registreerHerziening(ver, c, herzienOver);
+      }
+    }
+  }
+
   // W2: Modus-afhankelijke weergave
   // V11.17.3: prefix rijdersperspectief-symbool bij bekende tikrichting.
   const rs = richtingSymbool(richtingLockKeuze);
-  if (activeCdModus === CD_NU || over === 0) {
+  if (herzienOver != null) {
+    // Herziene weergave vervangt de modus-cascade. "nu" kan hier niet meer
+    // verschijnen: die blijft voorbehouden aan het geval waarin de tabel
+    // geen steun heeft (c < 0) en we hieronder alsnog in de cascade vallen.
+    cdPillGetal.textContent = rs + (herzienOver < 1 ? '<1' : Math.ceil(herzienOver)) + 's';
+    cdPillLabel.textContent = 'bijgesteld';
+    cdPillGetal.style.color = herzienOver <= 6 ? 'var(--groen)' : '#fff';
+  } else if (activeCdModus === CD_NU || over === 0) {
     cdPillGetal.textContent = rs + 'nu';
     cdPillLabel.textContent = 'elk moment';
   } else if (activeCdModus === CD_VAAG && activeCdMin != null) {
@@ -5204,7 +5432,9 @@ function tickCd() {
     cdPillGetal.textContent = rs + (over < 1 ? '<1' : Math.ceil(over)) + 's';
     cdPillLabel.textContent = 'groen over';
   }
-  cdPillGetal.style.color = over <= 6 ? 'var(--groen)' : '#fff';
+  // V11.17.32: de herziene tak zet zijn eigen kleur (r5303); die niet
+  // overschrijven met de kleur van de oorspronkelijke `over`.
+  if (herzienOver == null) cdPillGetal.style.color = over <= 6 ? 'var(--groen)' : '#fff';
 
   // V11.16.0 B2: markeer de countdown "voorlopig" zolang de rijrichting
   // onbekend is bij een multi-richting node. huidigCdBron 'v4_multi' of
@@ -6050,7 +6280,7 @@ function exporteerData() {
     try {
       const exportData = { versie:'11.4.4', exportDatum:new Date().toISOString(), app:'StoplichtIQ', data:{}, scores:{} };
       for (const key of Object.keys(localStorage)) {
-        if (key.startsWith('sl_v10_')||key.startsWith('sl_v5_')||key.startsWith('sl_v4_')||key.startsWith('sl_v3_')||key.startsWith('sl_s2_')||key.startsWith('sl_klok_')||key==='sl_opslaglog'||key==='sl_richtinglog'||key==='sl_schaduwlog'||key.startsWith('sl_tag_')||key.startsWith('sl_naam_')||key.startsWith('sl_richting_')||key.startsWith('sl_route_')||key.startsWith('sl_bevestig_')||key.startsWith('sl_pos_')||key.startsWith('sl_neutraal_')||key.startsWith('sl_enkelricht_')||key==='sl_cam_stats'||key==='sl_stad_cache') {
+        if (key.startsWith('sl_v10_')||key.startsWith('sl_v5_')||key.startsWith('sl_v4_')||key.startsWith('sl_v3_')||key.startsWith('sl_s2_')||key.startsWith('sl_klok_')||key==='sl_opslaglog'||key==='sl_richtinglog'||key==='sl_schaduwlog'||key==='sl_herzieninglog'||key.startsWith('sl_tag_')||key.startsWith('sl_naam_')||key.startsWith('sl_richting_')||key.startsWith('sl_route_')||key.startsWith('sl_bevestig_')||key.startsWith('sl_pos_')||key.startsWith('sl_neutraal_')||key.startsWith('sl_enkelricht_')||key==='sl_cam_stats'||key==='sl_stad_cache') {
           try { exportData.data[key] = JSON.parse(localStorage.getItem(key)); }
           catch(e) { exportData.data[key] = localStorage.getItem(key); }
         }
@@ -6099,7 +6329,7 @@ function importeerData(bestand) {
         // V11.15.4 Fix 4: whitelist gesynchroniseerd met exporteerData —
         // sl_bevestig_, sl_pos_ en sl_cam_stats zaten wél in de export
         // maar werden bij import stil overgeslagen.
-        if (!key.startsWith('sl_v10_')&&!key.startsWith('sl_v5_')&&!key.startsWith('sl_v4_')&&!key.startsWith('sl_v3_')&&!key.startsWith('sl_s2_')&&!key.startsWith('sl_klok_')&&key!=='sl_opslaglog'&&key!=='sl_richtinglog'&&key!=='sl_schaduwlog'&&!key.startsWith('sl_tag_')&&!key.startsWith('sl_naam_')&&!key.startsWith('sl_richting_')&&!key.startsWith('sl_route_')&&!key.startsWith('sl_bevestig_')&&!key.startsWith('sl_pos_')&&!key.startsWith('sl_neutraal_')&&!key.startsWith('sl_enkelricht_')&&key!=='sl_cam_stats'&&key!=='sl_stad_cache') { overgeslagen++; continue; }
+        if (!key.startsWith('sl_v10_')&&!key.startsWith('sl_v5_')&&!key.startsWith('sl_v4_')&&!key.startsWith('sl_v3_')&&!key.startsWith('sl_s2_')&&!key.startsWith('sl_klok_')&&key!=='sl_opslaglog'&&key!=='sl_richtinglog'&&key!=='sl_schaduwlog'&&key!=='sl_herzieninglog'&&!key.startsWith('sl_tag_')&&!key.startsWith('sl_naam_')&&!key.startsWith('sl_richting_')&&!key.startsWith('sl_route_')&&!key.startsWith('sl_bevestig_')&&!key.startsWith('sl_pos_')&&!key.startsWith('sl_neutraal_')&&!key.startsWith('sl_enkelricht_')&&key!=='sl_cam_stats'&&key!=='sl_stad_cache') { overgeslagen++; continue; }
         if (localStorage.getItem(key) !== null) { overgeslagen++; continue; }
         try { localStorage.setItem(key, JSON.stringify(waarde)); toegevoegd++; } catch(e) { overgeslagen++; }
       }
