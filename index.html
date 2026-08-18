@@ -556,7 +556,7 @@
 <div id="startscherm">
   <div id="s-icoon">🚦</div>
   <div id="s-titel">Stoplicht<span>IQ</span></div>
-  <div id="s-versie">V11.17.33 — snelheidsguard, V5-export, één dagdeel</div>
+  <div id="s-versie">V11.17.34 — zichtbaarheidslog (meetinstrument)</div>
   <div id="s-model-wrap">
     <div id="s-model-rij">
       <div id="s-model-label">🤖 YOLOv8 model laden…</div>
@@ -723,6 +723,8 @@
       <button onclick="verwijderTrainframes()" style="padding:8px 12px;background:rgba(255,48,48,0.15);color:#FF3030;border:1px solid rgba(255,48,48,0.3);border-radius:8px;font-size:12px;cursor:pointer">🗑 Wis</button>
       <!-- V11.15.10 DEBUG: conf-log export voor diagnose confidence-verdunning — TIJDELIJK -->
       <button id="export-conflog-btn" onclick="exporteerConfLog()" style="flex:1;padding:8px 12px;background:rgba(245,158,11,0.15);color:#f59e0b;border:1px solid rgba(245,158,11,0.35);border-radius:8px;font-size:12px;cursor:pointer;min-width:100px">📊 Exp. conf-log</button>
+      <!-- V11.17.34 W1: zicht-log export voor diagnose flikkerend rijscherm — TIJDELIJK -->
+      <button id="export-zichtlog-btn" onclick="exporteerZichtLog()" style="flex:1;padding:8px 12px;background:rgba(56,189,248,0.15);color:#38bdf8;border:1px solid rgba(56,189,248,0.35);border-radius:8px;font-size:12px;cursor:pointer;min-width:100px">👁 Exp. zicht-log</button>
       <button id="klok-analyse-btn" onclick="toonKlokAnalyse()" style="flex:1;padding:8px 12px;background:rgba(34,197,94,0.15);color:#22c55e;border:1px solid rgba(34,197,94,0.35);border-radius:8px;font-size:12px;cursor:pointer;min-width:100px">🕐 Analyseer klokritmes</button>
       <button id="terug-analyse-btn" onclick="toonTerugAnalyse()" style="flex:1;padding:8px 12px;background:rgba(167,139,250,0.15);color:#a78bfa;border:1px solid rgba(167,139,250,0.35);border-radius:8px;font-size:12px;cursor:pointer;min-width:100px">↶ Tel Terug-records</button>
       <button id="duurlabel-btn" onclick="toonDuurLabelAnalyse()" style="flex:1;padding:8px 12px;background:rgba(56,189,248,0.15);color:#38bdf8;border:1px solid rgba(56,189,248,0.35);border-radius:8px;font-size:12px;cursor:pointer;min-width:100px">⏱ Tel duur-labels</button>
@@ -2631,7 +2633,7 @@ function exporteerMeetdata() {
                     // verdween stilzwijgend op `if (!doel) continue`. Elke analyse
                     // op dit bestand miste daardoor de richtingdataset. sl_pos_
                     // blijft er bewust uit: 942 KB positiecache tegen 8 KB V5.
-                    v5:{}, richtingdata:{}, route:{}, tag:{}, v10:{}, neutraal:{}, enkelricht:{}, conflog:{} };
+                    v5:{}, richtingdata:{}, route:{}, tag:{}, v10:{}, neutraal:{}, enkelricht:{}, conflog:{}, zicht:{} };
       for (const key of Object.keys(localStorage)) {
         let doel = null;
         if (key.startsWith('sl_passief_'))       doel = uit.passief;
@@ -2644,6 +2646,7 @@ function exporteerMeetdata() {
         else if (key === 'sl_schaduwlog')        doel = uit.schaduw;  // V11.17.30: R-schatter-vergelijking
         else if (key === 'sl_herzieninglog')     doel = uit.herziening; // V11.17.32: wachttijdherziening
         else if (key === 'sl_conflog')           doel = uit.conflog;    // V11.17.33
+        else if (key === 'sl_zichtlog')          doel = uit.zicht;      // V11.17.34: zichtbaarheidsdiagnostiek
         // V11.17.33 W2: let op de volgorde — 'sl_richtinglog' begint NIET met
         // 'sl_richting_' (na 'sl_richting' volgt 'l', geen '_'), dus deze twee
         // takken kunnen elkaar niet vangen. Toch staat de exacte match eerst.
@@ -6323,7 +6326,7 @@ function exporteerData() {
     try {
       const exportData = { versie:'11.4.4', exportDatum:new Date().toISOString(), app:'StoplichtIQ', data:{}, scores:{} };
       for (const key of Object.keys(localStorage)) {
-        if (key.startsWith('sl_v10_')||key.startsWith('sl_v5_')||key.startsWith('sl_v4_')||key.startsWith('sl_v3_')||key.startsWith('sl_s2_')||key.startsWith('sl_klok_')||key==='sl_opslaglog'||key==='sl_richtinglog'||key==='sl_schaduwlog'||key==='sl_herzieninglog'||key.startsWith('sl_passief_')||key==='sl_conflog'||key.startsWith('sl_tag_')||key.startsWith('sl_naam_')||key.startsWith('sl_richting_')||key.startsWith('sl_route_')||key.startsWith('sl_bevestig_')||key.startsWith('sl_pos_')||key.startsWith('sl_neutraal_')||key.startsWith('sl_enkelricht_')||key==='sl_cam_stats'||key==='sl_stad_cache') {
+        if (key.startsWith('sl_v10_')||key.startsWith('sl_v5_')||key.startsWith('sl_v4_')||key.startsWith('sl_v3_')||key.startsWith('sl_s2_')||key.startsWith('sl_klok_')||key==='sl_opslaglog'||key==='sl_richtinglog'||key==='sl_schaduwlog'||key==='sl_herzieninglog'||key.startsWith('sl_passief_')||key==='sl_conflog'||key==='sl_zichtlog'||key.startsWith('sl_tag_')||key.startsWith('sl_naam_')||key.startsWith('sl_richting_')||key.startsWith('sl_route_')||key.startsWith('sl_bevestig_')||key.startsWith('sl_pos_')||key.startsWith('sl_neutraal_')||key.startsWith('sl_enkelricht_')||key==='sl_cam_stats'||key==='sl_stad_cache') {
           try { exportData.data[key] = JSON.parse(localStorage.getItem(key)); }
           catch(e) { exportData.data[key] = localStorage.getItem(key); }
         }
@@ -6372,7 +6375,7 @@ function importeerData(bestand) {
         // V11.15.4 Fix 4: whitelist gesynchroniseerd met exporteerData —
         // sl_bevestig_, sl_pos_ en sl_cam_stats zaten wél in de export
         // maar werden bij import stil overgeslagen.
-        if (!key.startsWith('sl_v10_')&&!key.startsWith('sl_v5_')&&!key.startsWith('sl_v4_')&&!key.startsWith('sl_v3_')&&!key.startsWith('sl_s2_')&&!key.startsWith('sl_klok_')&&key!=='sl_opslaglog'&&key!=='sl_richtinglog'&&key!=='sl_schaduwlog'&&key!=='sl_herzieninglog'&&!key.startsWith('sl_passief_')&&key!=='sl_conflog'&&!key.startsWith('sl_tag_')&&!key.startsWith('sl_naam_')&&!key.startsWith('sl_richting_')&&!key.startsWith('sl_route_')&&!key.startsWith('sl_bevestig_')&&!key.startsWith('sl_pos_')&&!key.startsWith('sl_neutraal_')&&!key.startsWith('sl_enkelricht_')&&key!=='sl_cam_stats'&&key!=='sl_stad_cache') { overgeslagen++; continue; }
+        if (!key.startsWith('sl_v10_')&&!key.startsWith('sl_v5_')&&!key.startsWith('sl_v4_')&&!key.startsWith('sl_v3_')&&!key.startsWith('sl_s2_')&&!key.startsWith('sl_klok_')&&key!=='sl_opslaglog'&&key!=='sl_richtinglog'&&key!=='sl_schaduwlog'&&key!=='sl_herzieninglog'&&!key.startsWith('sl_passief_')&&key!=='sl_conflog'&&key!=='sl_zichtlog'&&!key.startsWith('sl_tag_')&&!key.startsWith('sl_naam_')&&!key.startsWith('sl_richting_')&&!key.startsWith('sl_route_')&&!key.startsWith('sl_bevestig_')&&!key.startsWith('sl_pos_')&&!key.startsWith('sl_neutraal_')&&!key.startsWith('sl_enkelricht_')&&key!=='sl_cam_stats'&&key!=='sl_stad_cache') { overgeslagen++; continue; }
         if (localStorage.getItem(key) !== null) { overgeslagen++; continue; }
         try { localStorage.setItem(key, JSON.stringify(waarde)); toegevoegd++; } catch(e) { overgeslagen++; }
       }
@@ -6649,6 +6652,121 @@ function richtingLog(e) {
     + ` aanrij=${x.aanrij} betrouwbaar=${x.betrouwbaar ? 1 : 0}`
     // V11.17.31: trigger-herkomst erachter — laat live zien of de bezinktijd haalt.
     + ` trig=${x.trigger} poort=${x.poort} onzeker=${x.onzeker ? 1 : 0} abron=${x.aanrijBron}`);
+}
+
+// ── V11.17.34 W1: ZICHTBAARHEIDSLOG (meetinstrument — geen fix) ────────
+// Meet waarom het rijscherm wisselt tussen de countdown en 'Richt camera
+// op stoplicht'. Schrijft UITSLUITEND bij een verandering van zichtbaar-
+// heidstoestand — niet elke frame en niet elke tick.
+//
+// Dit log verandert GEEN ENKELE beslissing. Het leest bestaande state plus
+// de werkelijke CSS-conditie voor zichtbaarheid (#cd-pill moet .actief
+// hebben EN .cd-verborgen missen, zie r101/r105). Geen enkele bestaande
+// functie is aangeraakt — dat is een harde eis van dit instrument.
+//
+// De oorzaak wordt AFGELEID uit state die er toch al is. Bij een val naar
+// NEUTRAAL (fase === null, dus resetNeutraal heeft gedraaid):
+//   geenTeller >= GEEN_RESET  ->  aanroep r4991  (dropout-route)
+//   geenTeller <  GEEN_RESET  ->  aanroep r9548  (stale-route)
+// Dat onderscheid werkt omdat resetNeutraal geenTeller NIET nult; hij nult
+// wel aiMissRuns (r5065) en staleFaseFrameTeller (r5063). geenTeller blijft
+// dus als vingerafdruk staan. Node-routes zijn te herkennen aan een verse
+// laatsteNodeCorrectieTijd (r9136) of laatsteNodeWisselTijd (r8975/r9135).
+//
+// Er is bewust GEEN eigen YOLO-run-teller: die zou verwerkDetecties moeten
+// aanraken. Runs zijn achteraf te reconstrueren als dt/inf, en geen/mis
+// zijn zelf al run-tellers.
+//
+// Quota-guard identiek aan sl_richtinglog (r6597-6642): een enkele
+// QuotaExceededError staakt dit log definitief voor de sessie en wist de
+// eigen sleutel. Een diagnoselog mag nooit een meting kosten.
+const MAX_ZICHTLOG = 300;
+let zichtLogStop = false;   // true na quota-fout: schrijven definitief gestaakt
+let zichtLogArr  = null;    // in-memory buffer; pas gevuld bij eerste schrijfactie
+let zichtVorigeToestand = null;
+let zichtVorigeNodeId   = null;
+let zichtVorigeTijd     = 0;
+
+function zichtToestandNu() {
+  if (fase === null) return 'NEUTRAAL';
+  const zichtbaar = cdPill.classList.contains('actief')
+                 && !cdPill.classList.contains('cd-verborgen');
+  return zichtbaar ? 'COUNTDOWN' : 'FASE_ZONDER_CD';
+}
+
+// Afgeleide oorzaak volgens de discriminatietabel hierboven. Elke tak is
+// toegewezen; er is bewust geen 'onbekend'.
+function zichtOorzaak(naar, nu) {
+  if (naar === 'NEUTRAAL')  return (geenTeller >= GEEN_RESET) ? 'reset-dropout' : 'reset-stale';
+  if (naar === 'COUNTDOWN') return 'cd-hervat';
+  // FASE_ZONDER_CD: de fase staat nog, maar de pill is weg.
+  // Correctie eerst: corrigeerNodeAutomatisch zet beide tijdstempels.
+  if (laatsteNodeCorrectieTijd > 0 && (nu - laatsteNodeCorrectieTijd) < 2000) return 'node-correctie';
+  if (laatsteNodeWisselTijd    > 0 && (nu - laatsteNodeWisselTijd)    < 2000) return 'node-wissel';
+  return 'cd-gestopt';
+}
+
+function zichtLogSample() {
+  if (zichtLogStop) return;
+  try {
+    const toestand = zichtToestandNu();
+    const nodeId   = dichtstbijOSM ? String(dichtstbijOSM.id) : null;
+    const nu       = Date.now();
+    if (zichtVorigeToestand === null) {
+      // Eerste meting: alleen ijken. Zonder dit belandt de opstartovergang
+      // als eerste 'wissel' in het log.
+      zichtVorigeToestand = toestand;
+      zichtVorigeNodeId   = nodeId;
+      zichtVorigeTijd     = nu;
+      return;
+    }
+    if (toestand === zichtVorigeToestand) return;
+    const num = (v) => (typeof v === 'number' && !isNaN(v)) ? Math.round(v) : null;
+    const rec = {
+      t:     nu,
+      van:   zichtVorigeToestand,
+      naar:  toestand,
+      dt:    nu - zichtVorigeTijd,           // ms sinds vorige wissel = de periode
+      oorz:  zichtOorzaak(toestand, nu),
+      fase:  fase,
+      mis:   num(aiMissRuns),
+      geen:  num(geenTeller),
+      ait:   num(aiTeller),
+      stale: num(staleFaseFrameTeller),
+      inf:   num(gemiddeldeInferentieTijd),  // runs sinds vorige wissel = dt / inf
+      cds:   (cdStart !== null) ? 1 : 0,
+      doel:  num(activeCdDoel),
+      node:  nodeId,
+      vnode: (nodeId !== zichtVorigeNodeId) ? zichtVorigeNodeId : null,
+      ncorr: laatsteNodeCorrectieTijd > 0 ? (nu - laatsteNodeCorrectieTijd) : null,
+      nwis:  laatsteNodeWisselTijd    > 0 ? (nu - laatsteNodeWisselTijd)    : null,
+      kmh:   num(typeof snelheidKmh === 'number' ? snelheidKmh : null),
+      afst:  dichtstbijOSM ? num(dichtstbijOSM.afstand) : null,
+      kl:    (laatsteAI && laatsteAI.kleur) ? laatsteAI.kleur : null,
+      sc:    (laatsteAI && typeof laatsteAI.score === 'number')
+               ? Math.round(laatsteAI.score * 100) / 100 : null
+    };
+    zichtVorigeToestand = toestand;
+    zichtVorigeNodeId   = nodeId;
+    zichtVorigeTijd     = nu;
+    if (zichtLogArr === null) {
+      try { zichtLogArr = JSON.parse(localStorage.getItem('sl_zichtlog')) || []; }
+      catch(_) { zichtLogArr = []; }
+      if (!Array.isArray(zichtLogArr)) zichtLogArr = [];
+    }
+    zichtLogArr.push(rec);
+    if (zichtLogArr.length > MAX_ZICHTLOG) zichtLogArr = zichtLogArr.slice(-MAX_ZICHTLOG);
+    try {
+      localStorage.setItem('sl_zichtlog', JSON.stringify(zichtLogArr));
+    } catch(_) {
+      // Opslag vol of geweigerd: definitief staken en de eigen sleutel
+      // opruimen, zodat dit log geen ruimte houdt die een meting nodig heeft.
+      zichtLogStop = true;
+      zichtLogArr  = null;
+      try { localStorage.removeItem('sl_zichtlog'); } catch(_) {}
+      console.warn('[ZICHT] opslag geweigerd — zichtlog gestaakt en gewist');
+    }
+  } catch(_) { /* logging mag nooit de app breken */ }
 }
 
 function berekenDoelZoom(afst) {
@@ -8814,6 +8932,70 @@ function exporteerConfLog() {
   }, 0);
 }
 
+
+// V11.17.34 W1: export van het zichtbaarheidslog. Zelfde vorm als
+// exporteerConfLog (r8758): delen indien mogelijk, anders downloaden, en de
+// sleutel pas wissen na een geslaagde export (AbortError wist niets).
+function exporteerZichtLog() {
+  const btn = document.getElementById('export-zichtlog-btn');
+  const origTekst = btn ? btn.textContent : null;
+  if (btn) { btn.textContent = '⏳ Bezig...'; btn.disabled = true; }
+  const herstelBtn = () => { if (btn) { btn.textContent = origTekst; btn.disabled = false; } };
+  const naExport = () => {
+    try { localStorage.removeItem('sl_zichtlog'); } catch(e) {}
+    zichtLogArr = [];   // buffer mee wissen, anders schrijft de oude inhoud zich terug
+  };
+  const downloadFallback = (jsonString, bestandsnaam) => {
+    const blob = new Blob([jsonString], { type:'application/json' });
+    const url  = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href=url; link.download=bestandsnaam;
+    document.body.appendChild(link); link.click(); document.body.removeChild(link);
+    setTimeout(()=>URL.revokeObjectURL(url), 1000);
+  };
+  setTimeout(() => {
+    try {
+      let arr = zichtLogArr;
+      if (arr === null) {
+        try { arr = JSON.parse(localStorage.getItem('sl_zichtlog')) || []; }
+        catch(e) { arr = []; }
+      }
+      if (!Array.isArray(arr) || arr.length === 0) {
+        alert('Nog geen zicht-log entries. Sta eerst even voor een rood licht.');
+        herstelBtn(); return;
+      }
+      const exportData = {
+        versie: 'V11.17.34-meetinstrument',
+        exportDatum: new Date().toISOString(),
+        app: 'StoplichtIQ',
+        aantalEntries: arr.length,
+        gestaakt: zichtLogStop ? 1 : 0,
+        entries: arr
+      };
+      const jsonString = JSON.stringify(exportData);
+      const bestandsnaam = `stoplichtiq-zichtlog-${new Date().toISOString().slice(0,10)}.json`;
+      if (navigator.share && navigator.canShare) {
+        const bestand = new File([jsonString], bestandsnaam, { type:'application/json' });
+        if (navigator.canShare({ files:[bestand] })) {
+          navigator.share({ files:[bestand], title:'StoplichtIQ Zicht-log' })
+            .then(() => { naExport(); alert('✅ Zicht-log gedeeld'); herstelBtn(); })
+            .catch(e => {
+              if (e && e.name === 'AbortError') { herstelBtn(); return; }
+              alert('⚠️ Delen mislukt, download start...');
+              downloadFallback(jsonString, bestandsnaam);
+              naExport(); herstelBtn();
+            });
+          return;
+        }
+      }
+      downloadFallback(jsonString, bestandsnaam);
+      naExport();
+      alert('✅ Zicht-log gedownload');
+      herstelBtn();
+    } catch(e) { alert('Export mislukt: '+e.message); herstelBtn(); }
+  }, 0);
+}
+
 // ── STAD ──────────────────────────────────────────────────────
 try { const cache=JSON.parse(localStorage.getItem('sl_stad_cache')||'null'); if(cache)huidigeStad=cache.stad; } catch(e) {}
 
@@ -9553,6 +9735,7 @@ function lus(mijnGeneratie) {
 
   checkOsmVoorspelling();
   tickCd();
+  zichtLogSample();   // V11.17.34 W1: meetinstrument — schrijft alleen bij een wissel
 
   // Dagdeel update — elke 1800 frames (~30s), puur astronomisch
   if (frameT % 1800 === 0) {
