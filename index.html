@@ -66,8 +66,18 @@
     #midden{flex:1;pointer-events:none}
     #hud{background:linear-gradient(to top,rgba(0,0,0,0.90) 0%,rgba(0,0,0,0.65) 70%,transparent 100%);
       padding:0 0 calc(44px + env(safe-area-inset-bottom,0px));pointer-events:auto}
+    /* V11.17.35: de rijhoogte werd NIET door #fase-woord bepaald. Gemeten in de
+       rijtoestand (rood, node bekend, 375x812): linkerkolom 26,0px,
+       #kruispunt-blok 43,6px. Sinds #fase-woord verborgen is (V11.17.28 W1a)
+       kromp links van 48,0 naar 26,0px, maar de rij zakte maar van 64,8 naar
+       60,4 — want de rechterkolom nam het over als hoogste kind. Er is nergens
+       een vaste hoogte, flex-basis of grid-template; de container is
+       inhoudsgestuurd met align-items:center. Controleproef: de linkerkolom nog
+       verder verkorten verandert de rijhoogte met 0,0px.
+       De verticale padding is daarmee de enige ruimte die vrijkomt zonder de
+       node-info of de kleurfeedback te raken: 8px -> 5px geeft 60,4 -> 54,4px. */
     #fase-balk{display:flex;align-items:center;justify-content:space-between;
-      padding:8px 18px;border-top:1px solid rgba(255,255,255,0.06);transition:border-color .3s}
+      padding:5px 18px;border-top:1px solid rgba(255,255,255,0.06);transition:border-color .3s}
     #fase-balk.rood  {border-top-color:rgba(255,48,48,.45)}
     #fase-balk.groen {border-top-color:rgba(52,199,89,.45)}
     #fase-balk.oranje{border-top-color:rgba(255,159,10,.45)}
@@ -556,7 +566,7 @@
 <div id="startscherm">
   <div id="s-icoon">🚦</div>
   <div id="s-titel">Stoplicht<span>IQ</span></div>
-  <div id="s-versie">V11.17.34 — zichtbaarheidslog (meetinstrument)</div>
+  <div id="s-versie">V11.17.35 — HUD-regel compacter</div>
   <div id="s-model-wrap">
     <div id="s-model-rij">
       <div id="s-model-label">🤖 YOLOv8 model laden…</div>
@@ -772,7 +782,7 @@
 
 <script>
 // ═══════════════════════════════════════════════════════════════
-//  StoplichtIQ V11.17.33
+//  StoplichtIQ V11.17.35
 //  V11.10: Zelfkalibratie + vergrendeling + crop smoothing
 //  — S1+S2 bevestiging (kruispunt-level confidence)
 //  — Route-herkenning basis (sequentie-opslag)
@@ -2627,7 +2637,7 @@ function exporteerMeetdata() {
   };
   setTimeout(() => {
     try {
-      const uit = { versie:'V11.17.33', geexporteerd:new Date().toISOString(),
+      const uit = { versie:'V11.17.35', geexporteerd:new Date().toISOString(),
                     passief:{}, bevestig:{}, namen:{}, leer:{}, s2:{}, klok:{}, opslag:{}, richting:{}, schaduw:{}, herziening:{},
                     // V11.17.33 W2: sl_v5_ viel volledig buiten deze export en
                     // verdween stilzwijgend op `if (!doel) continue`. Elke analyse
