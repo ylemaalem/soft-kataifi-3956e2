@@ -566,7 +566,7 @@
 <div id="startscherm">
   <div id="s-icoon">🚦</div>
   <div id="s-titel">Stoplicht<span>IQ</span></div>
-  <div id="s-versie">V11.17.35 — HUD-regel compacter</div>
+  <div id="s-versie">V11.17.36 — GLOSA uitgeschakeld</div>
   <div id="s-model-wrap">
     <div id="s-model-rij">
       <div id="s-model-label">🤖 YOLOv8 model laden…</div>
@@ -580,7 +580,7 @@
     <div class="feat">🔴🟠🟢 3 klassen</div>
     <div class="feat">📊 Leer dashboard</div>
     <div class="feat">📈 Leerpercentage</div>
-    <div class="feat">⚡ GLOSA advies</div>
+    <div class="feat">⚡ GLOSA advies (tijdelijk uit)</div>
     <div class="feat">🌙 Nacht verbeterd</div>
     <div class="feat">🗺 Lokale kaart 5km</div>
     <div class="feat">🔊 Geluid bij groen</div>
@@ -626,7 +626,10 @@
   </div>
   <div id="midden"></div>
   <div id="hud">
-    <!-- GLOSA balk: verborgen tot actief -->
+    <!-- GLOSA balk. V11.17.36: UITGESCHAKELD via GLOSA_ACTIEF (r964).
+         Deze balk wordt alleen getoond door updateGlosa() en die wordt
+         niet meer aangeroepen; hij kan dus nooit verschijnen. Opmaak
+         blijft staan voor herstel. -->
     <div id="glosa-balk" style="display:none;flex-direction:row;align-items:center;justify-content:space-between;padding:6px 18px;background:rgba(52,199,89,0.08);border-top:1px solid rgba(52,199,89,0.2);">
       <div style="display:flex;align-items:center;gap:8px;">
         <span style="font-size:10px;color:rgba(255,255,255,0.45);letter-spacing:0.12em;text-transform:uppercase;">Rij</span>
@@ -782,7 +785,7 @@
 
 <script>
 // ═══════════════════════════════════════════════════════════════
-//  StoplichtIQ V11.17.35
+//  StoplichtIQ V11.17.36
 //  V11.10: Zelfkalibratie + vergrendeling + crop smoothing
 //  — S1+S2 bevestiging (kruispunt-level confidence)
 //  — Route-herkenning basis (sequentie-opslag)
@@ -947,6 +950,18 @@ const V9_AFRIJ_SETTLE_MS       = 4000;  // ms — wachten tot de bocht voltooid 
 const VRI_MIN_METINGEN = 10;
 const VRI_MIN_SPREIDING = 20; // seconden
 const VRI_BETROUWBAARHEID_GLOSA = 70; // percentage
+// V11.17.36: GLOSA uitgeschakeld. De adviessnelheid werd nergens tegen de
+// wettelijke maximumsnelheid gehouden — maxspeed komt wel binnen in de
+// OSM-payload (r6429 `out geom`) maar wordt nooit gelezen (r6449 leest
+// alleen tags.name). De enige bovengrenzen waren een vaste 80 (r5654) en
+// advies <= snelheid+15 (r5655); die tweede maakt het erger, want wie te
+// hard rijdt krijgt een hoger advies. Voorbeeld binnen alle poorten: 250 m,
+// 13 s resterend, 60 km/u → advies 69 in een 50-zone.
+// berekenGlosa (r5631) en updateGlosa (r5659) blijven ongewijzigd staan.
+// Zet deze vlag op true zodra maxspeed daadwerkelijk gelezen wordt.
+// LET OP: VRI_BETROUWBAARHEID_GLOSA hierboven wordt ook door
+// berekenVRIScore (r6934) gebruikt en staat los van deze vlag.
+const GLOSA_ACTIEF = false;
 const VRI_BETROUWBAARHEID_SUGGESTIE = 85; // percentage
 
 const KLASSE_MAP = {
@@ -2637,7 +2652,7 @@ function exporteerMeetdata() {
   };
   setTimeout(() => {
     try {
-      const uit = { versie:'V11.17.35', geexporteerd:new Date().toISOString(),
+      const uit = { versie:'V11.17.36', geexporteerd:new Date().toISOString(),
                     passief:{}, bevestig:{}, namen:{}, leer:{}, s2:{}, klok:{}, opslag:{}, richting:{}, schaduw:{}, herziening:{},
                     // V11.17.33 W2: sl_v5_ viel volledig buiten deze export en
                     // verdween stilzwijgend op `if (!doel) continue`. Elke analyse
@@ -5559,7 +5574,7 @@ function tickCd() {
     }
   }
 
-  updateGlosa();
+  if (GLOSA_ACTIEF) updateGlosa();   // V11.17.36: zie GLOSA_ACTIEF (r964)
 }
 
 // W3: Bevestiging tap handler
