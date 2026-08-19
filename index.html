@@ -566,7 +566,7 @@
 <div id="startscherm">
   <div id="s-icoon">🚦</div>
   <div id="s-titel">Stoplicht<span>IQ</span></div>
-  <div id="s-versie">V11.17.36 — GLOSA uitgeschakeld</div>
+  <div id="s-versie">V11.17.37 — dubbele V4-schrijving gededupliceerd</div>
   <div id="s-model-wrap">
     <div id="s-model-rij">
       <div id="s-model-label">🤖 YOLOv8 model laden…</div>
@@ -785,7 +785,7 @@
 
 <script>
 // ═══════════════════════════════════════════════════════════════
-//  StoplichtIQ V11.17.36
+//  StoplichtIQ V11.17.37
 //  V11.10: Zelfkalibratie + vergrendeling + crop smoothing
 //  — S1+S2 bevestiging (kruispunt-level confidence)
 //  — Route-herkenning basis (sequentie-opslag)
@@ -1476,19 +1476,23 @@ function slaOp(osmId, richting, duur, conf=null, bypassAfstand=false, gewichtOve
       return false;
     }
   }
-  let result;
+  // V11.17.37: de retourwaarde van deze functie is nu een echte succes-boolean.
+  // Tot nu gaf slaOp `gewijzigd` uit slaOpIntern door — dat betekent "de cyclus
+  // is gereset", niet "er is geschreven", en is bij een normale schrijving juist
+  // false. Geen enkele aanroeper gebruikte de oude waarde (r2838 en r5221
+  // gooiden hem weg), dus dit breekt niets. v9KandidaatV4Geschreven leunt erop.
   if (faseStart) {
     const faseStartTs = Date.now() - (performance.now() - faseStart);
     const ddStart = huidigDDActief(faseStartTs);
     const ddEinde = huidigDDActief();
     if (ddStart !== ddEinde) {
       slaOpIntern(osmId, richting, duur, gewichtOverride != null ? gewichtOverride : 0.5, ddStart, 's1', conf, zagOvergang);
-      result = slaOpIntern(osmId, richting, duur, gewichtOverride != null ? gewichtOverride : 0.5, ddEinde, 's1', conf, zagOvergang);
+      slaOpIntern(osmId, richting, duur, gewichtOverride != null ? gewichtOverride : 0.5, ddEinde, 's1', conf, zagOvergang);
     } else {
-      result = slaOpIntern(osmId, richting, duur, gewichtOverride, ddStart, 's1', conf, zagOvergang);
+      slaOpIntern(osmId, richting, duur, gewichtOverride, ddStart, 's1', conf, zagOvergang);
     }
   } else {
-    result = slaOpIntern(osmId, richting, duur, gewichtOverride, huidigDDActief(), 's1', conf, zagOvergang);
+    slaOpIntern(osmId, richting, duur, gewichtOverride, huidigDDActief(), 's1', conf, zagOvergang);
   }
   voegToeAanRouteBuffer(osmId, duur);
   // W5: sl_pos_ opslaan
@@ -1501,7 +1505,7 @@ function slaOp(osmId, richting, duur, conf=null, bypassAfstand=false, gewichtOve
   // V11.9.0: Sessie verwijderen na echte meting
   const bevestigdeId = String(osmId);
   if (bevestigdeId) delete nodeSessionData[bevestigdeId];
-  return result;
+  return true;   // V11.17.37: geschreven
 }
 
 // V11.5.0: Groene fase opslaan voor volledige cyclus dataset
@@ -2652,7 +2656,7 @@ function exporteerMeetdata() {
   };
   setTimeout(() => {
     try {
-      const uit = { versie:'V11.17.36', geexporteerd:new Date().toISOString(),
+      const uit = { versie:'V11.17.37', geexporteerd:new Date().toISOString(),
                     passief:{}, bevestig:{}, namen:{}, leer:{}, s2:{}, klok:{}, opslag:{}, richting:{}, schaduw:{}, herziening:{},
                     // V11.17.33 W2: sl_v5_ viel volledig buiten deze export en
                     // verdween stilzwijgend op `if (!doel) continue`. Elke analyse
@@ -2825,7 +2829,16 @@ function voerV9DelayedWriteUit(huidigeHeading, trigger = null, poort = null, onz
   }
 
   // Schrijf ook V4 parallel (backward compatibility)
-  slaOp(v9KandidaatNode, huidigeRichting, duur, null, true, null, null, v9KandidaatZagOvergang);
+  // V11.17.37: alleen als verwerkFase deze meting NIET al bij groen wegschreef.
+  // De drie gevallen waarin deze schrijving de enige is, blijven werken omdat
+  // de vlag dan false staat: (a) schrijving #1 geblokkeerd door de poort op
+  // r5217 (`delayed_actief`, meting van een andere node), (b) afstand > 80 m —
+  // hier geldt bypassAfstand, (c) duur 4-8 s, die r5205 afwijst en slaOp accepteert.
+  if (!v9KandidaatV4Geschreven) {
+    slaOp(v9KandidaatNode, huidigeRichting, duur, null, true, null, null, v9KandidaatZagOvergang);
+  } else {
+    logOpslagMis('v4_dubbel_voorkomen', { node: v9KandidaatNode, dur: duur });
+  }
 
   // V11.2.0: Auto-richting GPS opslaan als geen handmatige tik
   const sleutelR = `sl_richting_${v9KandidaatNode}`;
@@ -2864,6 +2877,7 @@ function resetV9Staat() {
   v9KandidaatDuur         = null;
   v9KandidaatDagdeel      = null;
   v9KandidaatZagOvergang  = null;   // V11.17.26: null = onbekend, nooit false
+  v9KandidaatV4Geschreven = false;  // V11.17.37
   v9PassageStartTijd      = null;
   v9PreSelectieAfrij      = null;
   v9DelayedWriteActief    = false;
@@ -3505,6 +3519,12 @@ let v9KandidaatDagdeel      = null;   // dagdeel op moment van meting
 // wordt overschreven; de delayed write vuurt pas seconden later. De waarde moet
 // dus met de meting meereizen. null = onbekend (nooit false gokken).
 let v9KandidaatZagOvergang  = null;
+// V11.17.37: dezelfde rode fase werd twee keer naar sl_v4_ geschreven — bij
+// groen (r5221) en nogmaals na passage (r2838), zonder deduplicatie. De
+// tweede kopie is inhoudelijk armer: geen conf, geen cyclusbonus, en een
+// gewicht dat uit de GROENE fase komt (slaOpIntern r1667 leest faseStart),
+// typisch 0,2-0,4. Deze vlag legt vast of de meting bij groen al landde.
+let v9KandidaatV4Geschreven = false;
 let v9PassageStartTijd      = null;   // timestamp bij passeren
 let v9PreSelectieAfrij      = null;   // afrij via richtingknop pre-selectie
 let v9DelayedWriteActief    = false;  // wachten op afrijrichting
@@ -5193,11 +5213,12 @@ function verwerkFase(nieuw, horizontaal, conf=null) {
         (volledigeCyclus ? ' cyclus:' + volledigeCyclus + 's' : ''));
       // V9.0: Leerafstand check — >80m: niet leren
       if (typeof afstandM !== 'number' || isNaN(afstandM) || afstandM <= V9_MAX_LEER_AFSTAND) {
+        let v4GeschrevenNu = false;   // V11.17.37: landde schrijving #1 echt?
         if (nodeId && !v9DelayedWriteActief) {
           if (!sessieFasenGezien[nodeId]) sessieFasenGezien[nodeId] = {};
           sessieFasenGezien[nodeId].roodVolledig = true;
           const isVolledigeCyclus = (laatsteGroenDuur > 3 && laatsteGroenNode === nodeId);
-          slaOp(nodeId, huidigeRichting, dur, conf, false,
+          v4GeschrevenNu = slaOp(nodeId, huidigeRichting, dur, conf, false,
             isVolledigeCyclus ? VOLLEDIG_CYCLUS_GEWICHT : null,
             isGeverifieerdRood ? 1 : null,
             zagRoodOvergang);   // V11.17.26: hier nog niet overschreven (zie r4760)
@@ -5214,6 +5235,7 @@ function verwerkFase(nieuw, horizontaal, conf=null) {
           v9KandidaatDuur = dur;
           v9KandidaatDagdeel = huidigDDActief();
           v9KandidaatZagOvergang = zagRoodOvergang;   // V11.17.26: reist mee met de meting
+          v9KandidaatV4Geschreven = v4GeschrevenNu;   // V11.17.37: idem
         }
         bijwerkLeerkaart(dichtstbijOSM); bijwerkDashboardKnop();
       } else {
@@ -9528,6 +9550,9 @@ async function onGPS(pos) {
         v9AanrijHeading = smoothedH;
         v9KandidaatDuur = null;
         v9KandidaatDagdeel = null;
+        v9KandidaatV4Geschreven = false;  // V11.17.37: vlag hoort bij de
+        // kandidaat; deze tak vervangt de kandidaat zonder resetV9Staat, dus
+        // moet hij hier mee gewist worden — net als v9KandidaatDuur hierboven.
         // V11.17.5 W2: bewaar een expliciete richtingkeuze uit tikRichting.
         // Zonder guard wist elke nadering-frame een vroege keuze; met guard
         // wordt hij alleen gewist als er nog niets is gekozen.
