@@ -566,7 +566,7 @@
 <div id="startscherm">
   <div id="s-icoon">🚦</div>
   <div id="s-titel">Stoplicht<span>IQ</span></div>
-  <div id="s-versie">V11.17.37 — dubbele V4-schrijving gededupliceerd</div>
+  <div id="s-versie">V11.17.38 — getikte richting alsnog omgezet</div>
   <div id="s-model-wrap">
     <div id="s-model-rij">
       <div id="s-model-label">🤖 YOLOv8 model laden…</div>
@@ -785,7 +785,7 @@
 
 <script>
 // ═══════════════════════════════════════════════════════════════
-//  StoplichtIQ V11.17.37
+//  StoplichtIQ V11.17.38
 //  V11.10: Zelfkalibratie + vergrendeling + crop smoothing
 //  — S1+S2 bevestiging (kruispunt-level confidence)
 //  — Route-herkenning basis (sequentie-opslag)
@@ -1849,7 +1849,12 @@ function vindRouteDataVoorNode(nodeId, lsIndex = null) {
 
 // ── V9.0: WINDRICHTING CONVERTER ─────────────────────────────
 function gpsHeadingNaarWindrichting(heading) {
-  if (heading == null || isNaN(heading)) return 'N';
+  // V11.17.38: gaf hier stil 'N' terug — een geldige windrichting als antwoord
+  // op ongeldige invoer. Alle 14 aanroepers zijn nagelopen en geen enkele kan
+  // null of NaN doorgeven, dus deze tak was onbereikbaar; het opruimen
+  // verandert vandaag geen enkel resultaat. Een toekomstige aanroeper die de
+  // guard vergeet krijgt nu null in plaats van een verzonnen 'N'.
+  if (heading == null || isNaN(heading)) return null;
   const h = ((heading % 360) + 360) % 360;
   const richtingen = ['N','NO','O','ZO','Z','ZW','W','NW'];
   return richtingen[Math.round(h / 45) % 8];
@@ -2656,7 +2661,7 @@ function exporteerMeetdata() {
   };
   setTimeout(() => {
     try {
-      const uit = { versie:'V11.17.37', geexporteerd:new Date().toISOString(),
+      const uit = { versie:'V11.17.38', geexporteerd:new Date().toISOString(),
                     passief:{}, bevestig:{}, namen:{}, leer:{}, s2:{}, klok:{}, opslag:{}, richting:{}, schaduw:{}, herziening:{},
                     // V11.17.33 W2: sl_v5_ viel volledig buiten deze export en
                     // verdween stilzwijgend op `if (!doel) continue`. Elke analyse
@@ -2759,6 +2764,10 @@ function voerV9DelayedWriteUit(huidigeHeading, trigger = null, poort = null, onz
     ? gpsHeadingNaarWindrichting(v9AanrijSnelheidHeading)
     : (v9AanrijHeading != null ? gpsHeadingNaarWindrichting(v9AanrijHeading) : null);
   if (!aanrijRichting) { logOpslagMis('geen_aanrij', { node: v9KandidaatNode, dur: v9KandidaatDuur }); resetV9Staat(); return; }
+  // V11.17.38: stond hieronder bij de u-bochtcheck, maar de late conversie
+  // verderop heeft hem nodig. De guard hierboven garandeert dat minstens een
+  // van beide headings gevuld is, dus aanrijNum is hier nooit null.
+  const aanrijNum = v9AanrijSnelheidHeading ?? v9AanrijHeading;
 
   // V11.3.0: Circulair gemiddelde afrij-heading over buffer
   const gemAfrij = berekenGemAfrijHeading(afrijHeadingBuffer);
@@ -2771,10 +2780,32 @@ function voerV9DelayedWriteUit(huidigeHeading, trigger = null, poort = null, onz
   // tegengestelde conventies en kon daardoor nooit matchen.
   const gpsAfrijRichting = afrijHeading != null ? gpsHeadingNaarWindrichting((afrijHeading + 180) % 360) : null;
   const WINDRICHTINGEN = ['N','NO','O','ZO','Z','ZW','W','NW'];
+  // V11.17.38 A3: LATE CONVERSIE van een getikte richting.
+  // tikRichting bewaart de tik als tekstlabel ('links'/'rechtdoor'/'rechts')
+  // wanneer er op het tikmoment nog geen aanrijheading was (r7205). Dat is
+  // geen randgeval: coords.heading is bij stilstand op vrijwel elk toestel
+  // null (r9441), dus na een koude start voor een rood licht is het de regel.
+  // Het commentaar op r7205 beloofde "wordt omgezet bij write" — die omzetting
+  // bestond niet. De poort hieronder TESTTE alleen, en een tekstlabel zakte
+  // stil door naar de GPS-richting, weggelogd als v5_geen_tik.
+  // Hier alsnog omzetten met de heading die op DIT moment gegarandeerd bestaat
+  // (guard r2766) en die door V11.17.31 W1 bevroren is op deze kandidaat
+  // (r9560). Slaagt de omzetting niet, dan blijft het label staan en valt de
+  // poort hieronder terug op de GPS-richting — precies het oude gedrag.
+  const TIKLABELS = ['links', 'rechtdoor', 'rechts'];
+  let preAfrij = v9PreSelectieAfrij;
+  if (preAfrij && TIKLABELS.includes(preAfrij)) {
+    const omgezet = berekenAfrijRichtingViaTik(aanrijNum, preAfrij);
+    if (omgezet) {
+      preAfrij = omgezet;
+      logOpslagMis('tik_laat_omgezet', { node: v9KandidaatNode, dur: v9KandidaatDuur,
+        aanrij: aanrijRichting, afrij: omgezet });
+    }
+  }
   // V11.17.31 W3: onthoud of de gekozen richting van een TIK komt. Alleen die
   // mag nog naar V5 (zie r2560).
-  const viaTik = !!(v9PreSelectieAfrij && WINDRICHTINGEN.includes(v9PreSelectieAfrij));
-  const afrijRichting = viaTik ? v9PreSelectieAfrij : gpsAfrijRichting;
+  const viaTik = !!(preAfrij && WINDRICHTINGEN.includes(preAfrij));
+  const afrijRichting = viaTik ? preAfrij : gpsAfrijRichting;
   if (!afrijRichting) { logOpslagMis('geen_afrij', { node: v9KandidaatNode, dur: v9KandidaatDuur, aanrij: aanrijRichting }); resetV9Staat(); return; }
   // V11.17.24 (C): observeer elke afrijbepaling — maakt meetbaar hoe vaak de
   // buffer gevuld raakt en hoe stabiel hij is (input voor release B).
@@ -2791,7 +2822,6 @@ function voerV9DelayedWriteUit(huidigeHeading, trigger = null, poort = null, onz
   });
 
   // Edge case: u-bocht (alleen als GPS heading bekend is)
-  const aanrijNum = v9AanrijSnelheidHeading ?? v9AanrijHeading;
   if (afrijHeading != null && aanrijNum != null && headingVerschil(aanrijNum, afrijHeading) > V9_U_BOCHT_GRADEN) {
     logOpslagMis('u_bocht', { node: v9KandidaatNode, dur: v9KandidaatDuur, aanrij: aanrijRichting, afrij: afrijRichting });
     resetV9Staat();
@@ -7172,7 +7202,10 @@ function tikRichting(richting) {
     }
   } else if (v9PreSelectieAfrij === null) {
     // Nog geen V9 heading — sla tikrichting op voor later
-    v9PreSelectieAfrij = richting; // tijdelijk als tekstlabel, wordt omgezet bij write
+    // V11.17.38: dit tekstlabel wordt nu daadwerkelijk omgezet, in
+    // voerV9DelayedWriteUit r2795-2804, met de aanrijheading van het
+    // schrijfmoment. Tot dan bleef de belofte hieronder onvervuld.
+    v9PreSelectieAfrij = richting; // tijdelijk als tekstlabel, omgezet bij write (r2795)
   }
 
   // V9: Na passeren — tik koppelen aan delayed write als zelfde node
