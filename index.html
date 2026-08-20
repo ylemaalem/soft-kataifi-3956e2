@@ -566,7 +566,7 @@
 <div id="startscherm">
   <div id="s-icoon">🚦</div>
   <div id="s-titel">Stoplicht<span>IQ</span></div>
-  <div id="s-versie">V11.17.38 — getikte richting alsnog omgezet</div>
+  <div id="s-versie">V11.17.39 — flikkering: stale-venster in tijd</div>
   <div id="s-model-wrap">
     <div id="s-model-rij">
       <div id="s-model-label">🤖 YOLOv8 model laden…</div>
@@ -785,7 +785,7 @@
 
 <script>
 // ═══════════════════════════════════════════════════════════════
-//  StoplichtIQ V11.17.38
+//  StoplichtIQ V11.17.39
 //  V11.10: Zelfkalibratie + vergrendeling + crop smoothing
 //  — S1+S2 bevestiging (kruispunt-level confidence)
 //  — Route-herkenning basis (sequentie-opslag)
@@ -875,11 +875,23 @@ const S1_MIN_SCORE     = 10;
 const AI_DREMPEL       = 2;
 
 // V8.7c: Tolerantie voor korte detectiegaten (camera beweging, regen, tegenlicht)
-// aiMissRuns werkt op YOLO-run niveau (~850ms per run)
-// staleFaseFrameTeller werkt op frame niveau (60fps) — volledig onafhankelijk
-// TOLERANTIE_RUNS=3: bij 850ms inferentie = 2.5s buffer voor reset
-// Veilig: staleFaseFrameTeller reset alsnog na max 5s als YOLO niet herbevestigt
+// aiMissRuns werkt op YOLO-run niveau. De ~850ms per run die hier stond is
+// achterhaald: in de zichtlog van 20 aug varieert gemiddeldeInferentieTijd
+// tussen 626 en 1340ms. TOLERANTIE_RUNS is daarom geen vaste tijdsbuffer maar
+// schaalt mee met de inferentietijd — bij 5 runs is dat 3,1 tot 6,7s.
+// V11.17.39: het stale-vangnet werkt sinds deze versie op wandkloktijd
+// (staleFaseSinds + STALE_FASE_MAX_MS), niet meer op frames.
 const TOLERANTIE_RUNS  = 5;
+
+// V11.17.39 (a): hoe lang de HUD een fasekleur vasthoudt na een dropout-reset.
+// Stond op 120s, maar die waarde is nooit in de praktijk getoetst: de guard die
+// hem gebruikt was door een klokfout onbereikbaar sinds V11.5.4 (a41bbaf). Bij
+// een rij-app is een vastgehouden fasekleur een veiligheidsrisico — 15s dekt een
+// korte dropout en niet meer dan dat.
+const HUD_KLEUR_BEHOUD_S = 15;
+
+// V11.17.39 (b): ondergrens van het stale-venster, in ms. Zie updateStaleMax.
+const STALE_FASE_BODEM_MS = 15000;
 
 // V11.17.11: fase-volgorde-machine — dempt onmogelijke overgangen zonder
 // AI_DREMPEL of TOLERANTIE_RUNS zelf aan te raken. Volgorde-kennis werkt
@@ -892,13 +904,26 @@ const VOLGORDE_KENNIS_RESET_MS    = 5000; // Laag 3b/c: amnesia-venster na reset
 const VOLGORDE_VOLGENDE = Object.freeze({ groen:'oranje', oranje:'rood', rood:'groen' });
 
 // V8.7: Stale fase timer — dynamisch berekend in updateStaleMax()
-// Minimaal 5 seconden, of 4x de gemeten inferentie tijd
-let STALE_FASE_MAX_FRAMES = 300;
+// V11.17.39 (b): was een FRAME-teller met drempel max(300, dynamischInterval*6),
+// waarbij dynamischInterval = ceil(inferentietijd/16) — een vaste aanname van
+// 16ms per frame. Onder YOLO-belasting is de werkelijke frametijd veel hoger, en
+// hoger naarmate de inferentie zwaarder is. Het venster kromp in wandkloktijd dus
+// juist wanneer het langer had moeten worden. Gemeten in de zichtlog van 20 aug:
+// 26 van de 26 vallen naar NEUTRAAL kwamen via deze route, met dt 5-21s.
+// Nu een echte tijdsdrempel, zodat de framerate uit de vergelijking verdwijnt.
+// De bodem van 15s zet deze route bewust ACHTER de dropout-route (GEEN_RESET,
+// 8 x inferentietijd): die bewaart laatsteFase/laatsteFaseStart (r5064-5066) en
+// maakt continuiteitsherstel mogelijk, deze route niet.
+// Doorgerekend: A = 8 x inf, B = max(15000, 6 x inf). A vuurt eerst zolang
+// inf < 1875ms — dus over het hele gemeten bereik (626-1340ms) en met marge.
+// Daarboven wint B weer; dat is bewust geen probleem, want bij zulke trage
+// inferentie is 15s een redelijke bovengrens voor een vastgehouden fase.
+// Wat sowieso voor B overblijft is het geval waarin er WEL detecties
+// binnenkomen maar met een andere kleur dan `fase`: dan blijft geenTeller op
+// 0 (r4942), kan A nooit vuren, en is dit het enige vangnet.
+let STALE_FASE_MAX_MS = STALE_FASE_BODEM_MS;
 function updateStaleMax() {
-  // Bij 1500ms inferentie, dynamischInterval ≈ 94 frames
-  // AI_DREMPEL=2 → minimaal 2*94=188 frames voor bevestiging
-  // We geven 3x AI_DREMPEL ruimte: 3*2*dynamischInterval
-  STALE_FASE_MAX_FRAMES = Math.max(300, dynamischInterval * AI_DREMPEL * 3);
+  STALE_FASE_MAX_MS = Math.max(STALE_FASE_BODEM_MS, gemiddeldeInferentieTijd * AI_DREMPEL * 3);
 }
 
 
@@ -2661,7 +2686,7 @@ function exporteerMeetdata() {
   };
   setTimeout(() => {
     try {
-      const uit = { versie:'V11.17.38', geexporteerd:new Date().toISOString(),
+      const uit = { versie:'V11.17.39', geexporteerd:new Date().toISOString(),
                     passief:{}, bevestig:{}, namen:{}, leer:{}, s2:{}, klok:{}, opslag:{}, richting:{}, schaduw:{}, herziening:{},
                     // V11.17.33 W2: sl_v5_ viel volledig buiten deze export en
                     // verdween stilzwijgend op `if (!doel) continue`. Elke analyse
@@ -3110,8 +3135,8 @@ let lastFrameTimestamp = 0;
 // hoogt lusGeneratie op. Elke lus()-iteratie kent zijn eigen
 // startGeneratie en stopt zichzelf zodra lusGeneratie afwijkt
 // (een nieuwere keten heeft de overhand genomen). Voorkomt dat
-// twee parallel lopende lus()-functies staleFaseFrameTeller
-// 2x sneller verhogen na een tab-suspend/resume cyclus.
+// twee parallel lopende lus()-functies het stale-vangnet
+// dubbel evalueren na een tab-suspend/resume cyclus.
 let lusGeneratie = 0;
 // V11.13.7 diagnostiek: passieve teller die per lus()-aanroep
 // wordt verhoogd. updateDebugOverlay rapporteert hem elke 500ms
@@ -3425,7 +3450,13 @@ let osmVoorspellingLaatstGecontroleerd=0;
 
 // V8.6: Stale fase teller
 // FIX v8.7: reset ook als YOLO überhaupt de juiste kleur detecteert (niet alleen bij volledige bevestiging)
-let staleFaseFrameTeller=0;
+// V11.17.39 (b): was een frameteller, nu het startmoment van het huidige
+// stale-venster (Date.now) of null als er geen fase loopt.
+let staleFaseSinds=null;
+// V11.17.39: resetNeutraal nult aiMissRuns (r5143) en het stale-venster (r5141)
+// voordat de zichtlog-sampler draait, waardoor `mis` en `stale` in de export
+// altijd 0 waren. Deze twee leggen de waarde VOOR de reset vast.
+let zichtResetMis=null, zichtResetStaleMs=null;
 
 // YOLO canvas
 let yoloCanvas=null, yoloCtx=null;
@@ -4943,7 +4974,7 @@ function verwerkDetecties() {
     debugWaarden.info = `${aiR.kleur} ${aiTeller}/${AI_DREMPEL}`;
 
     // Stale teller resetten als YOLO huidige fase bevestigt
-    if (fase !== null && aiR.kleur === fase) staleFaseFrameTeller = 0;
+    if (fase !== null && aiR.kleur === fase) staleFaseSinds = Date.now();
 
     // UI_DREMPEL=1: directe visuele feedback zonder wachten op tweede bevestiging
     // Toont kleur in HUD maar slaat NIETS op en start GEEN countdown
@@ -4981,7 +5012,7 @@ function verwerkDetecties() {
     }
     // AI_DREMPEL=2: officieel — fase, leergeheugen, countdown, zoom vergrendeling
     if (aiTeller >= _effDrempel) {
-      staleFaseFrameTeller = 0;
+      staleFaseSinds = Date.now();
       if (!zoomVergrendeld) {
         zoomVergrendeld = true; vergrendeldZoomNiveau = huidigeZoom;
         zoomVergrendelTijdstip = Date.now();
@@ -5057,9 +5088,12 @@ function verwerkDetecties() {
   debugWaarden.info = `geen(${geenTeller}/${GEEN_RESET}) miss:${aiMissRuns}`;
   if (geenTeller >= GEEN_RESET && fase !== null) {
     // V11.5.4: Bewaar faseBevestigd als dropout korter dan 120s (HUD kleur bewaren)
-    const nu120 = Date.now();
-    const tussentijd120 = faseStart ? (nu120 - faseStart) / 1000 : 999;
-    const savedFaseBevestigd = (tussentijd120 < 120) ? faseBevestigd : null;
+    // V11.17.39 (a): hier stond `Date.now()` tegenover een faseStart uit
+    // performance.now() — epoch-ms tegen ms-sinds-paginastart. Het verschil was
+    // altijd ~1,8e9 seconden, dus de vergelijking nooit waar, savedFaseBevestigd
+    // altijd null en het herstelblok hieronder dode code sinds V11.5.4 (a41bbaf).
+    const tussentijd120 = faseStart ? (performance.now() - faseStart) / 1000 : 999;
+    const savedFaseBevestigd = (tussentijd120 < HUD_KLEUR_BEHOUD_S) ? faseBevestigd : null;
     // V11.5.2: Bewaar fase-state voor dropout herstel
     laatsteFase = fase;
     laatsteFaseStart = faseStart;
@@ -5101,6 +5135,11 @@ function resetUIKleur() {
 }
 
 function resetNeutraal() {
+  // V11.17.39: leg vast wat de tellers waren VOOR de reset — de zichtlog-sampler
+  // draait erna en zag daardoor altijd 0. In de export van 20 aug stond `mis`
+  // 26x op nul, wat niet bewees dat er geen missers waren.
+  zichtResetMis = aiMissRuns;
+  zichtResetStaleMs = (staleFaseSinds !== null) ? Date.now() - staleFaseSinds : null;
   fase = null; faseStart = null; faseBevestigd = null; // V11.5.4
   faseBalk.className=''; faseLamp.className='';
   faseWoord.textContent='—'; faseSub.textContent='Richt camera op stoplicht';
@@ -5137,8 +5176,8 @@ function resetNeutraal() {
   oranjeCollapseBuffer = [];
   oranjeCollapseTrigger = false;
   greenConfHistory = [];
-  // Stale teller resetten
-  staleFaseFrameTeller=0;
+  // Stale venster sluiten
+  staleFaseSinds=null;
   // Tolerantie teller resetten
   aiMissRuns=0;
   // GLOSA verbergen
@@ -6746,7 +6785,7 @@ function richtingLog(e) {
 //   geenTeller >= GEEN_RESET  ->  aanroep r4991  (dropout-route)
 //   geenTeller <  GEEN_RESET  ->  aanroep r9548  (stale-route)
 // Dat onderscheid werkt omdat resetNeutraal geenTeller NIET nult; hij nult
-// wel aiMissRuns (r5065) en staleFaseFrameTeller (r5063). geenTeller blijft
+// wel aiMissRuns en het stale-venster. geenTeller blijft
 // dus als vingerafdruk staan. Node-routes zijn te herkennen aan een verse
 // laatsteNodeCorrectieTijd (r9136) of laatsteNodeWisselTijd (r8975/r9135).
 //
@@ -6809,7 +6848,8 @@ function zichtLogSample() {
       mis:   num(aiMissRuns),
       geen:  num(geenTeller),
       ait:   num(aiTeller),
-      stale: num(staleFaseFrameTeller),
+      misV:  num(zichtResetMis),        // V11.17.39: aiMissRuns VOOR de reset
+      staleMs: num(zichtResetStaleMs),  // V11.17.39: stale-venster in ms, VOOR de reset
       inf:   num(gemiddeldeInferentieTijd),  // runs sinds vorige wissel = dt / inf
       cds:   (cdStart !== null) ? 1 : 0,
       doel:  num(activeCdDoel),
@@ -9804,16 +9844,16 @@ function lus(mijnGeneratie) {
 
   // V8.7 FIX: Stale fase reset — dynamische grens op basis van inferentietijd
   // Voorkomt "GROEN ACTIEF" bij rood doordat YOLO niet snel genoeg bevestigt
-  // Let op: staleFaseFrameTeller wordt al gereset in verwerkDetecties() bij YOLO bevestiging
+  // Let op: staleFaseSinds wordt al herstart in verwerkDetecties() bij YOLO bevestiging
   if (fase !== null) {
-    staleFaseFrameTeller++;
-    if (staleFaseFrameTeller > STALE_FASE_MAX_FRAMES) {
-      staleFaseFrameTeller = 0;
+    if (staleFaseSinds === null) staleFaseSinds = Date.now();
+    else if (Date.now() - staleFaseSinds > STALE_FASE_MAX_MS) {
+      staleFaseSinds = null;
       verbergTagUI();
       resetNeutraal();
     }
   } else {
-    staleFaseFrameTeller = 0;
+    staleFaseSinds = null;
   }
 
   checkOsmVoorspelling();
