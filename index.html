@@ -566,7 +566,7 @@
 <div id="startscherm">
   <div id="s-icoon">🚦</div>
   <div id="s-titel">Stoplicht<span>IQ</span></div>
-  <div id="s-versie">V11.17.40 — sl_pos_ opgeruimd, leerdata voorrang</div>
+  <div id="s-versie">V11.17.41 — handmatige opruimknop</div>
   <div id="s-model-wrap">
     <div id="s-model-rij">
       <div id="s-model-label">🤖 YOLOv8 model laden…</div>
@@ -738,6 +738,7 @@
       <button id="export-conflog-btn" onclick="exporteerConfLog()" style="flex:1;padding:8px 12px;background:rgba(245,158,11,0.15);color:#f59e0b;border:1px solid rgba(245,158,11,0.35);border-radius:8px;font-size:12px;cursor:pointer;min-width:100px">📊 Exp. conf-log</button>
       <!-- V11.17.34 W1: zicht-log export voor diagnose flikkerend rijscherm — TIJDELIJK -->
       <button id="export-zichtlog-btn" onclick="exporteerZichtLog()" style="flex:1;padding:8px 12px;background:rgba(56,189,248,0.15);color:#38bdf8;border:1px solid rgba(56,189,248,0.35);border-radius:8px;font-size:12px;cursor:pointer;min-width:100px">👁 Exp. zicht-log</button>
+      <button id="opruim-nu-btn" onclick="ruimOpslagNuOp()" style="flex:1;padding:8px 12px;background:rgba(239,68,68,0.15);color:#ef4444;border:1px solid rgba(239,68,68,0.35);border-radius:8px;font-size:12px;cursor:pointer;min-width:100px">🧹 Ruim opslag nu op</button>
       <button id="klok-analyse-btn" onclick="toonKlokAnalyse()" style="flex:1;padding:8px 12px;background:rgba(34,197,94,0.15);color:#22c55e;border:1px solid rgba(34,197,94,0.35);border-radius:8px;font-size:12px;cursor:pointer;min-width:100px">🕐 Analyseer klokritmes</button>
       <button id="terug-analyse-btn" onclick="toonTerugAnalyse()" style="flex:1;padding:8px 12px;background:rgba(167,139,250,0.15);color:#a78bfa;border:1px solid rgba(167,139,250,0.35);border-radius:8px;font-size:12px;cursor:pointer;min-width:100px">↶ Tel Terug-records</button>
       <button id="duurlabel-btn" onclick="toonDuurLabelAnalyse()" style="flex:1;padding:8px 12px;background:rgba(56,189,248,0.15);color:#38bdf8;border:1px solid rgba(56,189,248,0.35);border-radius:8px;font-size:12px;cursor:pointer;min-width:100px">⏱ Tel duur-labels</button>
@@ -785,7 +786,7 @@
 
 <script>
 // ═══════════════════════════════════════════════════════════════
-//  StoplichtIQ V11.17.40
+//  StoplichtIQ V11.17.41
 //  V11.10: Zelfkalibratie + vergrendeling + crop smoothing
 //  — S1+S2 bevestiging (kruispunt-level confidence)
 //  — Route-herkenning basis (sequentie-opslag)
@@ -2686,7 +2687,7 @@ function exporteerMeetdata() {
   };
   setTimeout(() => {
     try {
-      const uit = { versie:'V11.17.40', geexporteerd:new Date().toISOString(),
+      const uit = { versie:'V11.17.41', geexporteerd:new Date().toISOString(),
                     passief:{}, bevestig:{}, namen:{}, leer:{}, s2:{}, klok:{}, opslag:{}, richting:{}, schaduw:{}, herziening:{},
                     // V11.17.33 W2: sl_v5_ viel volledig buiten deze export en
                     // verdween stilzwijgend op `if (!doel) continue`. Elke analyse
@@ -6927,11 +6928,14 @@ function kiesBesteWeg(wegen, gpsHeading) {
   return besteWeg||wegen.find(w=>w.tags&&w.tags.name)||null;
 }
 
-function checkLocalStorageRuimte() {
+// V11.17.41: de zes opruimpassen zijn uit checkLocalStorageRuimte gelicht zodat
+// ze ook HANDMATIG uitvoerbaar zijn. De inhoud is byte-identiek overgenomen;
+// alleen de drempelcontrole bleef achter in de aanroeper. Reden: de bewaking
+// had precies een aanroeper (slaOpIntern r1707) en draaide dus uitsluitend bij
+// een geslaagde V4-schrijving. Zit de gebruiker al over de drempel maar rijdt
+// hij niet, dan gebeurde er niets.
+function voerOpruimPassenUit() {
   try {
-    let totaal=0;
-    for (const key of Object.keys(localStorage)) totaal+=(localStorage.getItem(key)||'').length*2;
-    if (totaal/(1024*1024) > 4.0) {
       const nu = Date.now();
       const DAG_MS = 86400000;
       // 1. sl_route_ sleutels ouder dan 30 dagen
@@ -7012,14 +7016,108 @@ function checkLocalStorageRuimte() {
           }
         } catch(e) { localStorage.removeItem(key); }
       }
-    }
+      } catch(e) {}
+}
+
+function checkLocalStorageRuimte() {
+  try {
+    let totaal=0;
+    for (const key of Object.keys(localStorage)) totaal+=(localStorage.getItem(key)||'').length*2;
+    if (totaal/(1024*1024) > 4.0) voerOpruimPassenUit();
   } catch(e) {}
 }
+
 
 function berekenLocalStorageKB() {
   let totaal = 0;
   for (const key of Object.keys(localStorage)) totaal += (localStorage.getItem(key) || '').length * 2;
   return Math.round(totaal / 1024);
+}
+
+// V11.17.41: opslagoverzicht per categorie, in dezelfde indeling als de
+// opruimpassen. Meet met (waarde.length * 2) — UTF-16, identiek aan de eenheid
+// van de bewakingsdrempel (r7024) en aan de dashboardteller (r6332). LET OP:
+// de meetdata-export meet met Blob().size (UTF-8) en komt daardoor op ruwweg
+// de HELFT uit voor ASCII-JSON. Die twee getallen zijn niet vergelijkbaar.
+function opslagOverzicht() {
+  const cat = new Map();
+  const tel = (naam, kb) => {
+    const c = cat.get(naam) || { kb: 0, n: 0 };
+    c.kb += kb; c.n += 1; cat.set(naam, c);
+  };
+  for (const key of Object.keys(localStorage)) {
+    const kb = ((localStorage.getItem(key) || '').length * 2) / 1024;
+    if (key.startsWith('sl_pos_')) {
+      let osm = false;
+      try { const p = JSON.parse(localStorage.getItem(key) || 'null'); osm = !!(p && p.bron === 'osm'); } catch(e) {}
+      tel(osm ? 'sl_pos_ (osm, pas 4)' : 'sl_pos_ (eigen, blijft)', kb);
+    }
+    else if (key.startsWith('sl_route_'))          tel('sl_route_ (pas 1)', kb);
+    else if (key.includes('_rood_partieel'))       tel('v10 partieel (pas 2)', kb);
+    else if (key.includes('_bezoek'))              tel('v10 bezoek (pas 3)', kb);
+    else if (key.startsWith('sl_v4_'))             tel('sl_v4_ leerdata (pas 5)', kb);
+    else if (key.startsWith('sl_v3_'))             tel('sl_v3_ (pas 6)', kb);
+    else if (key.startsWith('sl_s2_'))             tel('sl_s2_ (pas 7)', kb);
+    else if (key.startsWith('sl_v5_'))             tel('sl_v5_ richtingdata', kb);
+    else if (key.startsWith('sl_richting_'))       tel('sl_richting_', kb);
+    else if (key.startsWith('sl_naam_'))           tel('sl_naam_', kb);
+    else if (key.startsWith('sl_bevestig_'))       tel('sl_bevestig_', kb);
+    else if (key.startsWith('sl_passief_'))        tel('sl_passief_', kb);
+    else if (key.startsWith('sl_klok_'))           tel('sl_klok_', kb);
+    else if (/^sl_(opslag|richting|schaduw|herziening|zicht|conf)log$/.test(key)) tel('diagnoselogs', kb);
+    else                                           tel('overig', kb);
+  }
+  return [...cat.entries()]
+    .map(([naam, c]) => ({ naam, kb: Math.round(c.kb * 10) / 10, n: c.n }))
+    .sort((a, b) => b.kb - a.kb);
+}
+
+// V11.17.41: handmatige opruiming. De bewaking (r7021) draait alleen bij een
+// geslaagde V4-schrijving, dus wie al over de drempel zit maar niet rijdt kan
+// er niet bij. Deze knop voert dezelfde zes passen uit, ongeacht de drempel.
+// Toont eerst wat er staat, vraagt bevestiging, en toont daarna het resultaat.
+function ruimOpslagNuOp() {
+  const btn = document.getElementById('opruim-nu-btn');
+  const origTekst = btn ? btn.textContent : null;
+  const herstelBtn = () => { if (btn) { btn.textContent = origTekst; btn.disabled = false; } };
+  try {
+    const voor = berekenLocalStorageKB();
+    const rijen = opslagOverzicht();
+    const regels = rijen.map(r =>
+      `${r.naam.padEnd(26)} ${String(r.kb).padStart(7)} KB  (${r.n}x)`).join('\n');
+    const teVerwachten = rijen
+      .filter(r => /pas [1-4]|pas 6/.test(r.naam))
+      .reduce((s, r) => s + r.kb, 0);
+    const akkoord = confirm(
+      'OPSLAG NU OPRUIMEN\n\n' +
+      `Totaal: ${voor} KB (UTF-16, zelfde maat als de teller op het dashboard)\n\n` +
+      regels + '\n\n' +
+      'De zes passen ruimen op:\n' +
+      '  1. sl_route_ ouder dan 30 dagen\n' +
+      '  2. v10 partieel ouder dan 60 dagen\n' +
+      '  3. v10 bezoek met 0 bezoeken\n' +
+      '  4. sl_pos_ met bron osm (redundante positiecache)\n' +
+      '  5. sl_v4_ ouder dan 180 dagen: oudste helft\n' +
+      '  6. sl_v3_ volledig\n' +
+      '  7. sl_s2_ terug naar 5 per node\n\n' +
+      `Direct vrij te maken zonder leeftijdsgrens: ~${Math.round(teVerwachten)} KB\n` +
+      'Je leerdata (sl_v4_) blijft staan tenzij ouder dan 180 dagen.\n\n' +
+      'Doorgaan?');
+    if (!akkoord) return;
+    if (btn) { btn.textContent = '⏳ Bezig...'; btn.disabled = true; }
+    setTimeout(() => {
+      try {
+        voerOpruimPassenUit();
+        const na = berekenLocalStorageKB();
+        try { laadDashboard(); } catch(e) {}
+        alert('✅ Opruiming klaar\n\n' +
+          `voor : ${voor} KB\n` +
+          `na   : ${na} KB\n` +
+          `vrij : ${voor - na} KB`);
+      } catch(e) { alert('Opruiming mislukt: ' + e.message); }
+      herstelBtn();
+    }, 0);
+  } catch(e) { alert('Opruiming mislukt: ' + e.message); herstelBtn(); }
 }
 
 function formateerCyclustijd(gemiddelde, minTijd, maxTijd) {
