@@ -566,7 +566,7 @@
 <div id="startscherm">
   <div id="s-icoon">🚦</div>
   <div id="s-titel">Stoplicht<span>IQ</span></div>
-  <div id="s-versie">V11.17.39 — flikkering: stale-venster in tijd</div>
+  <div id="s-versie">V11.17.40 — sl_pos_ opgeruimd, leerdata voorrang</div>
   <div id="s-model-wrap">
     <div id="s-model-rij">
       <div id="s-model-label">🤖 YOLOv8 model laden…</div>
@@ -785,7 +785,7 @@
 
 <script>
 // ═══════════════════════════════════════════════════════════════
-//  StoplichtIQ V11.17.39
+//  StoplichtIQ V11.17.40
 //  V11.10: Zelfkalibratie + vergrendeling + crop smoothing
 //  — S1+S2 bevestiging (kruispunt-level confidence)
 //  — Route-herkenning basis (sequentie-opslag)
@@ -2686,7 +2686,7 @@ function exporteerMeetdata() {
   };
   setTimeout(() => {
     try {
-      const uit = { versie:'V11.17.39', geexporteerd:new Date().toISOString(),
+      const uit = { versie:'V11.17.40', geexporteerd:new Date().toISOString(),
                     passief:{}, bevestig:{}, namen:{}, leer:{}, s2:{}, klok:{}, opslag:{}, richting:{}, schaduw:{}, herziening:{},
                     // V11.17.33 W2: sl_v5_ viel volledig buiten deze export en
                     // verdween stilzwijgend op `if (!doel) continue`. Elke analyse
@@ -6609,18 +6609,27 @@ function vindDichtbijScore(lat, lon, heading, sl) {
     const bboxCentrering = 1 - Math.min(1, Math.abs(hoekSigned - bboxOffset) / 77);
     s = normAf*0.50 + normHoek*0.35 + conf*0.15 + bboxCentrering*0.01;
     // W7: laterale offset bonus
-    const posData = localStorage.getItem(`sl_pos_${sl.id}`);
-    if (posData) {
-      try {
+    // V11.17.40 stap 1: valt terug op de nodepositie zelf als er geen sl_pos_
+    // is. Dat is geen benadering. migratieSlPos (r1616) schrijft voor 98% van
+    // de 14.235 sleutels exact {lat: sl.lat, lon: sl.lon}, uit dezelfde
+    // osmCache waar deze functie `sl` uit krijgt — gemeten in de backup van
+    // 11 aug: 13.941 van 14.228 records dragen bron:'osm'. De 287 zonder bron
+    // komen uit slaOp (r1526) en bevatten wel nieuwe informatie: waar de
+    // gebruiker feitelijk stilstond. Die krijgen hieronder nog steeds voorrang.
+    // Door deze terugval mogen de redundante records weg zonder dat de score
+    // verandert — zie de sl_pos_-pas in checkLocalStorageRuimte.
+    let pLat = sl.lat, pLon = sl.lon;
+    try {
+      const posData = localStorage.getItem(`sl_pos_${sl.id}`);
+      if (posData) {
         const p = JSON.parse(posData);
-        if (p && p.lat && p.lon) {
-          const lateraal = berekenLateraleOffset(lat, lon, p.lat, p.lon, heading);
-          if (lateraal != null) {
-            const lateraalBonus = Math.max(0, 0.15 - Math.abs(lateraal) / 100 * 0.15);
-            s += lateraalBonus;
-          }
-        }
-      } catch(e) {}
+        if (p && p.lat && p.lon) { pLat = p.lat; pLon = p.lon; }
+      }
+    } catch(e) { /* corrupte waarde: nodepositie blijft staan */ }
+    const lateraal = berekenLateraleOffset(lat, lon, pLat, pLon, heading);
+    if (lateraal != null) {
+      const lateraalBonus = Math.max(0, 0.15 - Math.abs(lateraal) / 100 * 0.15);
+      s += lateraalBonus;
     }
   }
   return { score: Math.min(1.01, s), afstand: af };
@@ -6951,7 +6960,27 @@ function checkLocalStorageRuimte() {
           if ((b.groen||0) + (b.oranje||0) + (b.rood||0) === 0) localStorage.removeItem(key);
         } catch(e) { localStorage.removeItem(key); }
       }
-      // 4. sl_v4_ metingen ouder dan 180 dagen (oudste helft per kruispunt)
+      // 4. V11.17.40 stap 2: sl_pos_ met bron:'osm'. Dit is 52% van de totale
+      //    opslag (1423 KB over 14.235 sleutels, gemeten 20 aug) en daarvan
+      //    98% een exacte kopie van sl.lat/sl.lon uit osmCache. Sinds stap 1
+      //    valt vindDichtbijScore daarop terug, dus verwijderen verandert de
+      //    node-score niet. migratieSlPos maakt ze bij de volgende
+      //    downloadOSM opnieuw aan, maar dan alleen voor het huidige
+      //    5km-gebied — niet voor het historische totaal.
+      //    Records ZONDER bron komen uit slaOp (r1526) en leggen vast waar de
+      //    gebruiker werkelijk stilstond; die blijven staan. Bij een
+      //    leesfout wordt NIETS verwijderd: dan is niet vast te stellen of het
+      //    om de redundante of de informatieve soort gaat.
+      //    Deze pas staat bewust VOOR de sl_v4_-pas hieronder: overbodige
+      //    cache hoort eerder te wijken dan leerdata.
+      for (const key of Object.keys(localStorage)) {
+        if (!key.startsWith('sl_pos_')) continue;
+        try {
+          const p = JSON.parse(localStorage.getItem(key) || 'null');
+          if (p && p.bron === 'osm') localStorage.removeItem(key);
+        } catch(e) { /* bewust laten staan */ }
+      }
+      // 5. sl_v4_ metingen ouder dan 180 dagen (oudste helft per kruispunt)
       for (const key of Object.keys(localStorage)) {
         if (!key.startsWith('sl_v4_')) continue;
         try {
@@ -6965,7 +6994,7 @@ function checkLocalStorageRuimte() {
           }
         } catch(e) {}
       }
-      // 5. sl_v3_ prefixen altijd verwijderen als vol
+      // 6. sl_v3_ prefixen altijd verwijderen als vol
       for (const key of Object.keys(localStorage)) {
         if (key.startsWith('sl_v3_')) localStorage.removeItem(key);
       }
