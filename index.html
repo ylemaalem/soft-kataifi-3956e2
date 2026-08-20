@@ -566,7 +566,7 @@
 <div id="startscherm">
   <div id="s-icoon">🚦</div>
   <div id="s-titel">Stoplicht<span>IQ</span></div>
-  <div id="s-versie">V11.17.41 — handmatige opruimknop</div>
+  <div id="s-versie">V11.17.42 — twee logvelden erbij</div>
   <div id="s-model-wrap">
     <div id="s-model-rij">
       <div id="s-model-label">🤖 YOLOv8 model laden…</div>
@@ -786,7 +786,7 @@
 
 <script>
 // ═══════════════════════════════════════════════════════════════
-//  StoplichtIQ V11.17.41
+//  StoplichtIQ V11.17.42
 //  V11.10: Zelfkalibratie + vergrendeling + crop smoothing
 //  — S1+S2 bevestiging (kruispunt-level confidence)
 //  — Route-herkenning basis (sequentie-opslag)
@@ -1456,7 +1456,17 @@ function logOpslagMis(reden, extra) {
       hand: !!handmatigLockActief,
       dw: !!v9DelayedWriteActief,
       tik: richtingLockKeuze || null,
+      // V11.17.42: bij welke node hoort die tik? `tik` en `pre` hebben
+      // verschillende wisverzamelingen — pre wordt onvoorwaardelijk gewist in
+      // resetV9Staat (r2938) en resetRijrichtingState (r7641), tik alleen
+      // voorwaardelijk (r9435 eist >60m en >5km/u). De combinatie tik gevuld +
+      // pre null is daardoor een verwachte toestand, en zonder deze node-id is
+      // niet te zien of de tik bij DIT kruispunt hoorde of bij een eerder.
+      lockNode: richtingLockNodeId ? String(richtingLockNodeId) : null,
       pre: v9PreSelectieAfrij || null,
+      // V11.17.42: de node die de kandidaat verving (alleen bij
+      // kandidaat_vervangen). Elders null.
+      nieuw: (e.nieuw != null) ? String(e.nieuw) : null,
       aanrij: e.aanrij || null,
       afrij: e.afrij || null
     };
@@ -1470,7 +1480,9 @@ function logOpslagMis(reden, extra) {
     console.log(`[${reden === 'ok' ? 'OPSLAG-OK' : 'OPSLAG-MIS'}] ${reden}`
       + ` node=${rec.node} naam=${rec.naam} afst=${rec.afst} dur=${rec.dur}`
       + ` kmh=${rec.kmh} dw=${rec.dw?1:0} twijfel=${rec.twijfel?1:0}`
-      + ` tik=${rec.tik} pre=${rec.pre} aanrij=${rec.aanrij} afrij=${rec.afrij}`);
+      + ` tik=${rec.tik} lockNode=${rec.lockNode} pre=${rec.pre}`
+      + ` aanrij=${rec.aanrij} afrij=${rec.afrij}`
+      + (rec.nieuw ? ` nieuw=${rec.nieuw}` : ''));
   } catch(_) { /* logging mag nooit de app breken */ }
 }
 
@@ -2687,7 +2699,7 @@ function exporteerMeetdata() {
   };
   setTimeout(() => {
     try {
-      const uit = { versie:'V11.17.41', geexporteerd:new Date().toISOString(),
+      const uit = { versie:'V11.17.42', geexporteerd:new Date().toISOString(),
                     passief:{}, bevestig:{}, namen:{}, leer:{}, s2:{}, klok:{}, opslag:{}, richting:{}, schaduw:{}, herziening:{},
                     // V11.17.33 W2: sl_v5_ viel volledig buiten deze export en
                     // verdween stilzwijgend op `if (!doel) continue`. Elke analyse
@@ -9746,6 +9758,18 @@ async function onGPS(pos) {
         logOpslagMis('cooldown', { node: nodeId });
       }
       if (cooldownOK) {
+        // V11.17.42: deze tak vervangt een bestaande kandidaat ZONDER
+        // resetV9Staat en zonder enig log — het enige V9-pad dat staat over een
+        // node-grens draagt zonder spoor. Hij draait ook VOOR het node-wissel-
+        // blok hieronder, dus een voltooide meting (v9KandidaatDuur) wordt hier
+        // weggegooid voordat dat blok er een delayed write van kan maken.
+        // Gated op werkelijk verlies: zonder die gate zou dit pad het log van
+        // 500 records domineren en de andere redenen eruit duwen. Meet alleen,
+        // verandert niets — het gedrag hieronder is ongewijzigd.
+        if (v9KandidaatNode && (v9KandidaatDuur || richtingLockKeuze || v9PreSelectieAfrij)) {
+          logOpslagMis('kandidaat_vervangen', {
+            node: v9KandidaatNode, dur: v9KandidaatDuur, nieuw: nodeId });
+        }
         v9KandidaatNode = nodeId;
         v9AanrijHeading = smoothedH;
         v9KandidaatDuur = null;
