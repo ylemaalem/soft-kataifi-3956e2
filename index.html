@@ -566,7 +566,7 @@
 <div id="startscherm">
   <div id="s-icoon">🚦</div>
   <div id="s-titel">Stoplicht<span>IQ</span></div>
-  <div id="s-versie">V11.17.42 — twee logvelden erbij</div>
+  <div id="s-versie">V11.17.43 — fase-staat lekt niet meer over een node-wissel</div>
   <div id="s-model-wrap">
     <div id="s-model-rij">
       <div id="s-model-label">🤖 YOLOv8 model laden…</div>
@@ -786,7 +786,7 @@
 
 <script>
 // ═══════════════════════════════════════════════════════════════
-//  StoplichtIQ V11.17.42
+//  StoplichtIQ V11.17.43
 //  V11.10: Zelfkalibratie + vergrendeling + crop smoothing
 //  — S1+S2 bevestiging (kruispunt-level confidence)
 //  — Route-herkenning basis (sequentie-opslag)
@@ -2699,7 +2699,7 @@ function exporteerMeetdata() {
   };
   setTimeout(() => {
     try {
-      const uit = { versie:'V11.17.42', geexporteerd:new Date().toISOString(),
+      const uit = { versie:'V11.17.43', geexporteerd:new Date().toISOString(),
                     passief:{}, bevestig:{}, namen:{}, leer:{}, s2:{}, klok:{}, opslag:{}, richting:{}, schaduw:{}, herziening:{},
                     // V11.17.33 W2: sl_v5_ viel volledig buiten deze export en
                     // verdween stilzwijgend op `if (!doel) continue`. Elke analyse
@@ -5202,6 +5202,49 @@ function resetNeutraal() {
   invalideerPassiefSnapshot(); // V11.17.13 W3
   zagRoodOvergang = false; faseNodeId = null; // V11.17.13
   stopCd();
+}
+
+// V11.17.43 stap 1: beeindig de lopende fase omdat we bij DIT kruispunt weg
+// zijn. Niet te verwarren met resetNeutraal hierboven — die betekent "detectie
+// kwijt, mogelijk hetzelfde licht" en houdt daarom cdWallStart/cdWallNodeId
+// juist VAST voor dropout-continuiteit (r5507-5510). Deze functie wist ze wel.
+// Roep hem dus nooit aan vanuit resetNeutraal.
+//
+// Zonder deze functie lekte de fase-staat over een node-wissel: fase, faseStart,
+// faseNodeId en zagRoodOvergang bleven van de oude node staan terwijl
+// activeCdDoel werd vervangen. verwerkFase keerde dan vroeg terug op r5251
+// zolang de camera rood bleef zien, en bij groen werd de duur van A weggeschreven
+// onder B (r5346) met het zo=1-label erbij: een corrupte meting op volle sterkte
+// in de categorie die de app het meest vertrouwt. Ook cdStart bleef staan,
+// waardoor de countdown aftelde met de verstreken tijd van A tegen het
+// gemiddelde van B — bij A=100s en B=40s sprong de pill meteen naar "nu".
+//
+// BEWUST NIET GEWIST:
+//   faseBevestigd  — de HUD-kleur die V11.5.4 vasthoudt bij dropout; wissen
+//                    brengt de flikkering terug die V11.17.39 net dempte
+//   activeCdDoel   — dat is stap 2, bewust apart. Op 0 zetten opent de A1-poort
+//                    (r5841) van "1x per sessie" naar "elke fase", en die poort
+//                    hangt aan fase===null (r5824) en dus aan het flikkerpad.
+//                    Wacht tot een verse zichtlog bevestigt dat reset-stale weg is.
+//   laatsteFase*   — het continuiteitsmechanisme (r5416)
+//   activeCdModus  — hoort bij activeCdDoel, gaat mee met stap 2
+function beeindigFase(reden) {
+  // Gated op een lopende fase: zonder die gate vuurt dit bij elke node-wissel
+  // en verdringt het de andere redenen uit de 500-records-ringbuffer.
+  if (fase !== null && faseStart !== null) {
+    logOpslagMis('fase_beeindigd_' + reden, {
+      node: faseNodeId,
+      dur: (performance.now() - faseStart) / 1000,
+      nieuw: dichtstbijOSM ? String(dichtstbijOSM.id) : null
+    });
+  }
+  fase            = null;
+  faseStart       = null;
+  faseNodeId      = null;
+  zagRoodOvergang = false;
+  cdStart         = null;
+  cdWallStart     = null;
+  cdWallNodeId    = null;
 }
 
 function verwerkFase(nieuw, horizontaal, conf=null) {
@@ -8308,6 +8351,10 @@ function selecteerNodeHandmatig(nodeId) {
   // Bug 2: Rijrichting direct resetten
   resetRijrichtingState();
   richtingBlokVerborgen = false;  // V11.17.4 W3: handmatige node-correctie = blok weer zichtbaar
+  // V11.17.43: voor de refresh. Die roept bij fase==='rood' startCd() aan
+  // (r7710-7713) met een faseStart die nog van de OUDE node is; met de fase
+  // beeindigd slaat die tak over. dichtstbijOSM is hier al de nieuwe node.
+  beeindigFase('handmatig');
   // Bug 3: Hoofdscherm volledig vernieuwen
   refreshHoofdschermVoorActieveNode();
   // V8.9.12: Harde lock — blokkeer auto-selectie tot GPS-voorbij
@@ -9416,6 +9463,11 @@ function updateDichtbij(lat, lon) {
     laatsteNodeWisselTijd = Date.now();
     vorigOsmId=nieuw.id; dichtstbijOSM=nieuw;
     if (!sessionHersteld) {
+      // V11.17.43: NA de sessie-opslag hierboven (die legt roodElapsed en
+      // cdElapsed vast voor terugkeer) en alleen als er NIET is hersteld —
+      // het herstelblok zet fase/faseStart/cdStart juist bewust terug.
+      // dichtstbijOSM is hier al de nieuwe node, dus het logveld `nieuw` klopt.
+      beeindigFase('wissel');
       activeCdDoel = gewGem(laadM(nieuw.id, huidigDDActief())) || 0;
     }
     bijwerkLeerkaart(nieuw); bijwerkDashboardKnop();
@@ -9559,8 +9611,11 @@ function corrigeerNodeAutomatisch(nieuweNode, reden) {
 
   // lopende meting en countdown afbreken — begon bij oude node,
   // is niet geldig voor nieuwe (W4: liever weggooien dan verkeerd opslaan)
+  // V11.17.43: de belofte in de regel hierboven werd maar half waargemaakt —
+  // `cdStart = null` brak de countdown af maar liet fase/faseStart/faseNodeId/
+  // zagRoodOvergang staan. beeindigFase doet het nu volledig, en staat verderop
+  // NA de node-switch zodat het logveld `nieuw` de nieuwe node bevat.
   cdPill.classList.remove('actief');
-  cdStart = null;
   activeCdModus = null; activeCdMin = null; activeCdMax = null;
   bevestigActief = false; cdBereikteNul = false;
   bevestigWrap.classList.remove('actief');
@@ -9575,6 +9630,8 @@ function corrigeerNodeAutomatisch(nieuweNode, reden) {
   dichtstbijOSM = nieuw;
   laatsteNodeWisselTijd = Date.now();
   laatsteNodeCorrectieTijd = Date.now();
+
+  beeindigFase('correctie');   // V11.17.43: zie de opmerking bovenaan deze functie
 
   // nieuwe cd-doel op basis van leergeheugen van nieuwe node
   activeCdDoel = gewGem(laadM(nieuw.id, huidigDDActief())) || 0;
