@@ -589,7 +589,7 @@
 <div id="startscherm">
   <div id="s-icoon">🚦</div>
   <div id="s-titel">Stoplicht<span>IQ</span></div>
-  <div id="s-versie">V11.17.45 — sticky raakt de detectie niet meer kwijt</div>
+  <div id="s-versie">V11.17.46 — detectielog: meet de crop-ramp</div>
   <div id="s-model-wrap">
     <div id="s-model-rij">
       <div id="s-model-label">🤖 YOLOv8 model laden…</div>
@@ -761,6 +761,7 @@
       <button id="export-conflog-btn" onclick="exporteerConfLog()" style="flex:1;padding:8px 12px;background:rgba(245,158,11,0.15);color:#f59e0b;border:1px solid rgba(245,158,11,0.35);border-radius:8px;font-size:12px;cursor:pointer;min-width:100px">📊 Exp. conf-log</button>
       <!-- V11.17.34 W1: zicht-log export voor diagnose flikkerend rijscherm — TIJDELIJK -->
       <button id="export-zichtlog-btn" onclick="exporteerZichtLog()" style="flex:1;padding:8px 12px;background:rgba(56,189,248,0.15);color:#38bdf8;border:1px solid rgba(56,189,248,0.35);border-radius:8px;font-size:12px;cursor:pointer;min-width:100px">👁 Exp. zicht-log</button>
+      <button id="export-detlog-btn" onclick="exporteerDetLog()" style="flex:1;padding:8px 12px;background:rgba(167,139,250,0.15);color:#a78bfa;border:1px solid rgba(167,139,250,0.35);border-radius:8px;font-size:12px;cursor:pointer;min-width:100px">🔍 Exp. detectie-log</button>
       <button id="opruim-nu-btn" onclick="ruimOpslagNuOp()" style="flex:1;padding:8px 12px;background:rgba(239,68,68,0.15);color:#ef4444;border:1px solid rgba(239,68,68,0.35);border-radius:8px;font-size:12px;cursor:pointer;min-width:100px">🧹 Ruim opslag nu op</button>
       <button id="klok-analyse-btn" onclick="toonKlokAnalyse()" style="flex:1;padding:8px 12px;background:rgba(34,197,94,0.15);color:#22c55e;border:1px solid rgba(34,197,94,0.35);border-radius:8px;font-size:12px;cursor:pointer;min-width:100px">🕐 Analyseer klokritmes</button>
       <button id="terug-analyse-btn" onclick="toonTerugAnalyse()" style="flex:1;padding:8px 12px;background:rgba(167,139,250,0.15);color:#a78bfa;border:1px solid rgba(167,139,250,0.35);border-radius:8px;font-size:12px;cursor:pointer;min-width:100px">↶ Tel Terug-records</button>
@@ -809,7 +810,7 @@
 
 <script>
 // ═══════════════════════════════════════════════════════════════
-//  StoplichtIQ V11.17.45
+//  StoplichtIQ V11.17.46
 //  V11.10: Zelfkalibratie + vergrendeling + crop smoothing
 //  — S1+S2 bevestiging (kruispunt-level confidence)
 //  — Route-herkenning basis (sequentie-opslag)
@@ -2722,13 +2723,13 @@ function exporteerMeetdata() {
   };
   setTimeout(() => {
     try {
-      const uit = { versie:'V11.17.45', geexporteerd:new Date().toISOString(),
+      const uit = { versie:'V11.17.46', geexporteerd:new Date().toISOString(),
                     passief:{}, bevestig:{}, namen:{}, leer:{}, s2:{}, klok:{}, opslag:{}, richting:{}, schaduw:{}, herziening:{},
                     // V11.17.33 W2: sl_v5_ viel volledig buiten deze export en
                     // verdween stilzwijgend op `if (!doel) continue`. Elke analyse
                     // op dit bestand miste daardoor de richtingdataset. sl_pos_
                     // blijft er bewust uit: 942 KB positiecache tegen 8 KB V5.
-                    v5:{}, richtingdata:{}, route:{}, tag:{}, v10:{}, neutraal:{}, enkelricht:{}, conflog:{}, zicht:{} };
+                    v5:{}, richtingdata:{}, route:{}, tag:{}, v10:{}, neutraal:{}, enkelricht:{}, conflog:{}, zicht:{}, det:{} };
       for (const key of Object.keys(localStorage)) {
         let doel = null;
         if (key.startsWith('sl_passief_'))       doel = uit.passief;
@@ -2742,6 +2743,7 @@ function exporteerMeetdata() {
         else if (key === 'sl_herzieninglog')     doel = uit.herziening; // V11.17.32: wachttijdherziening
         else if (key === 'sl_conflog')           doel = uit.conflog;    // V11.17.33
         else if (key === 'sl_zichtlog')          doel = uit.zicht;      // V11.17.34: zichtbaarheidsdiagnostiek
+        else if (key === 'sl_detlog')            doel = uit.det;        // V11.17.46: detectiediagnostiek
         // V11.17.33 W2: let op de volgorde — 'sl_richtinglog' begint NIET met
         // 'sl_richting_' (na 'sl_richting' volgt 'l', geen '_'), dus deze twee
         // takken kunnen elkaar niet vangen. Toch staat de exacte match eerst.
@@ -3538,6 +3540,12 @@ let debugLaatsteRuweBoxen = 0;
 // naar de conf-log-entry geschreven.
 let debugLaatsteAfwijsReden = null; // 'ok'|'weg'|'lock_afst'|'sticky_miss'|'sticky_overname_dichtbij'|'sticky_overname_sterk'|'radius_cap'|'te_klein'|'onder_horizon'|'te_breed'|'buiten_rand'|'geen_klasse'|null
 let debugLaatsteKandH = null;       // bbox-hoogte in YOLO-pixels van hoogst-scorende bruikbare kandidaat
+// V11.17.46: detectielog. Deze velden ontstaan op vier verschillende plekken in
+// een run — preprocess (skip/ratio/afst), berekenCropRegio (hintBron), de
+// sticky-lus (stickyDx) en de resultaatverwerking (fam) — en komen pas samen in
+// verwerkDetecties. Puur meelezend; geen enkele beslissing hangt ervan af.
+let detLogSkip = null, detLogRatio = null, detLogHintBron = null;
+let detLogAfst = null, detLogStickyDx = null, detLogFam = null;
 let debugLaatsteKandCy = null;      // cy als fractie 0..1 van beeldhoogte
 let debugLaatsteKandKlasse = null;  // topklasse-index van kandidaat
 // V11.15.10 DEBUG: helper — leest debug-globals + debugWaarden.ai, throttlet 1/s.
@@ -3818,20 +3826,24 @@ function berekenCropRegio(vW, vH, afstand) {
     // Prio 1: tap/cropHint
     cropCentrumX = cropHintPositie.x;
     cropCentrumY = cropHintPositie.y;
+    detLogHintBron = 1;   // V11.17.46
   } else if (anchorActief) {
     // Prio 2: anchor — omzet naar video-pixel coords
     cropCentrumX = bboxAnchorCx * vW;
     cropCentrumY = bboxAnchorCy * vH;
+    detLogHintBron = 2;   // V11.17.46
   } else {
     // Prio 3: OSM hint — bearing-gebaseerd crop-centrum
     const osmH = berekenOsmCropHint();
     if (osmH) {
       cropCentrumX = osmH.cx * vW;
       cropCentrumY = osmH.cy * vH;
+      detLogHintBron = 3;   // V11.17.46
     } else {
       // Prio 4: standaard — gecentreerd, 15% van boven
       cropCentrumX = vW / 2;
       cropCentrumY = vH * 0.15 + cropMaat / 2;
+      detLogHintBron = 4;   // V11.17.46: het centrum is een GOK
     }
   }
 
@@ -3862,7 +3874,13 @@ function preprocessVoorYOLO() {
   cropAlternatieTeller++;
   const skipCrop = (cropAlternatieTeller % 5 === 0);
   const afst = dichtstbijOSM ? dichtstbijOSM.afstand : 999;
+  // V11.17.46: per-run reset VOOR berekenCropRegio, die hintBron zet.
+  detLogSkip = skipCrop; detLogAfst = afst;
+  detLogStickyDx = null; detLogFam = null; detLogHintBron = null;
   cropRegio = skipCrop ? null : berekenCropRegio(vW, vH, afst);
+  // huidigeCropRatio wordt binnen berekenCropRegio bijgewerkt; op een
+  // skipCrop-run draait die functie niet, dus dan is er geen ratio.
+  detLogRatio = skipCrop ? null : huidigeCropRatio;
   if (cropRegio) laatsteCropRegio = cropRegio;
 
   if (!skipCrop && cropHintTeller > 0) {
@@ -4276,6 +4294,9 @@ function selecteerBesteDetectie(detecties) {
           const dx = det.cx - stickyDetectie.cx;
           const dy = det.cy - stickyDetectie.cy;
           const afst = Math.sqrt(dx*dx + dy*dy);
+          // V11.17.46: kleinste afstand tot de sticky, VOOR de radiusfilter —
+          // alleen zo is zichtbaar of een miss door afstand of door iets anders kwam.
+          if (detLogStickyDx === null || afst < detLogStickyDx) detLogStickyDx = afst;
           if (afst < STICKY_MATCH_PX) {
             let effAfst = afst;
             let penHoogte = false, penKlasse = false;
@@ -4731,6 +4752,7 @@ function _verwerkWorkerResultaat(detecties) {
     // V11.17.7 W2: diagnose-globals bij geen detectie — alle vier null.
     debugLaatsteAfwijsReden = 'weg';
     debugLaatsteKandH = null; debugLaatsteKandCy = null; debugLaatsteKandKlasse = null;
+    detLogFam = null;   // V11.17.46
     laatsteAI = null; nieuwAIResultaat = true;
     bboxDichtbij = false; // V8.8.2
     s1GebruikteNodesDezeRun.clear();
@@ -4750,6 +4772,7 @@ function _verwerkWorkerResultaat(detecties) {
     // V11.17.7 W2: bij filter — metadata van de hoogst-scorende bruikbare
     // kandidaat (null als bruikbaar-lijst leeg is).
     debugLaatsteKandH = bruikbaarLog ? bruikbaarLog.h : null;
+    detLogFam = bruikbaarLog ? familieScore(bruikbaarLog) : null;   // V11.17.46
     debugLaatsteKandCy = bruikbaarLog ? (bruikbaarLog.cy / YOLO_SIZE) : null;
     debugLaatsteKandKlasse = bruikbaarLog ? bruikbaarLog.klasse : null;
     laatsteAI = null; nieuwAIResultaat = true;
@@ -4763,6 +4786,7 @@ function _verwerkWorkerResultaat(detecties) {
     // V11.17.7 W2: 'uit' is in de praktijk dead code (klasse 2 is al eerder
     // gefilterd), maar voor consistentie: metadata van beste (=uit-detectie).
     debugLaatsteKandH = beste.h; debugLaatsteKandCy = beste.cy / YOLO_SIZE; debugLaatsteKandKlasse = beste.klasse;
+    detLogFam = familieScore(beste);   // V11.17.46
     laatsteAI = null; nieuwAIResultaat = true;
     verwerkS2(s2Rest); s1GebruikteNodesDezeRun.clear();
     try { logKlasseVerdelingIndienBeschikbaar(); } catch(e) {} // V11.15.10 DEBUG
@@ -4770,6 +4794,7 @@ function _verwerkWorkerResultaat(detecties) {
   }
   // V11.17.7 W2: succes-tak — metadata van de gekozen s1.
   debugLaatsteKandH = beste.h; debugLaatsteKandCy = beste.cy / YOLO_SIZE; debugLaatsteKandKlasse = beste.klasse;
+  detLogFam = familieScore(beste);   // V11.17.46
   const gpsDichtbij = dichtstbijOSM && typeof dichtstbijOSM.afstand === 'number' && dichtstbijOSM.afstand <= 40;
   bboxDichtbij = (beste.h > 140) || (beste.h > 96 && gpsDichtbij);
   const gesmoothedScore = pasConfidenceSmoothingToe(beste.klasse, beste.score);
@@ -5035,6 +5060,7 @@ function tekenOverlay(box, score, horizontaal) {
 function verwerkDetecties() {
   if (!nieuwAIResultaat) return;
   nieuwAIResultaat = false;
+  detLogSchrijf();   // V11.17.46: meetinstrument — alleen in het naderingsvenster
   const aiR = laatsteAI;
 
   if (aiR && aiR.kleur) {
@@ -6567,7 +6593,7 @@ function exporteerData() {
     try {
       const exportData = { versie:'11.4.4', exportDatum:new Date().toISOString(), app:'StoplichtIQ', data:{}, scores:{} };
       for (const key of Object.keys(localStorage)) {
-        if (key.startsWith('sl_v10_')||key.startsWith('sl_v5_')||key.startsWith('sl_v4_')||key.startsWith('sl_v3_')||key.startsWith('sl_s2_')||key.startsWith('sl_klok_')||key==='sl_opslaglog'||key==='sl_richtinglog'||key==='sl_schaduwlog'||key==='sl_herzieninglog'||key.startsWith('sl_passief_')||key==='sl_conflog'||key==='sl_zichtlog'||key.startsWith('sl_tag_')||key.startsWith('sl_naam_')||key.startsWith('sl_richting_')||key.startsWith('sl_route_')||key.startsWith('sl_bevestig_')||key.startsWith('sl_pos_')||key.startsWith('sl_neutraal_')||key.startsWith('sl_enkelricht_')||key==='sl_cam_stats'||key==='sl_stad_cache') {
+        if (key.startsWith('sl_v10_')||key.startsWith('sl_v5_')||key.startsWith('sl_v4_')||key.startsWith('sl_v3_')||key.startsWith('sl_s2_')||key.startsWith('sl_klok_')||key==='sl_opslaglog'||key==='sl_richtinglog'||key==='sl_schaduwlog'||key==='sl_herzieninglog'||key.startsWith('sl_passief_')||key==='sl_conflog'||key==='sl_zichtlog'||key==='sl_detlog'||key.startsWith('sl_tag_')||key.startsWith('sl_naam_')||key.startsWith('sl_richting_')||key.startsWith('sl_route_')||key.startsWith('sl_bevestig_')||key.startsWith('sl_pos_')||key.startsWith('sl_neutraal_')||key.startsWith('sl_enkelricht_')||key==='sl_cam_stats'||key==='sl_stad_cache') {
           try { exportData.data[key] = JSON.parse(localStorage.getItem(key)); }
           catch(e) { exportData.data[key] = localStorage.getItem(key); }
         }
@@ -6616,7 +6642,7 @@ function importeerData(bestand) {
         // V11.15.4 Fix 4: whitelist gesynchroniseerd met exporteerData —
         // sl_bevestig_, sl_pos_ en sl_cam_stats zaten wél in de export
         // maar werden bij import stil overgeslagen.
-        if (!key.startsWith('sl_v10_')&&!key.startsWith('sl_v5_')&&!key.startsWith('sl_v4_')&&!key.startsWith('sl_v3_')&&!key.startsWith('sl_s2_')&&!key.startsWith('sl_klok_')&&key!=='sl_opslaglog'&&key!=='sl_richtinglog'&&key!=='sl_schaduwlog'&&key!=='sl_herzieninglog'&&!key.startsWith('sl_passief_')&&key!=='sl_conflog'&&key!=='sl_zichtlog'&&!key.startsWith('sl_tag_')&&!key.startsWith('sl_naam_')&&!key.startsWith('sl_richting_')&&!key.startsWith('sl_route_')&&!key.startsWith('sl_bevestig_')&&!key.startsWith('sl_pos_')&&!key.startsWith('sl_neutraal_')&&!key.startsWith('sl_enkelricht_')&&key!=='sl_cam_stats'&&key!=='sl_stad_cache') { overgeslagen++; continue; }
+        if (!key.startsWith('sl_v10_')&&!key.startsWith('sl_v5_')&&!key.startsWith('sl_v4_')&&!key.startsWith('sl_v3_')&&!key.startsWith('sl_s2_')&&!key.startsWith('sl_klok_')&&key!=='sl_opslaglog'&&key!=='sl_richtinglog'&&key!=='sl_schaduwlog'&&key!=='sl_herzieninglog'&&!key.startsWith('sl_passief_')&&key!=='sl_conflog'&&key!=='sl_zichtlog'&&key!=='sl_detlog'&&!key.startsWith('sl_tag_')&&!key.startsWith('sl_naam_')&&!key.startsWith('sl_richting_')&&!key.startsWith('sl_route_')&&!key.startsWith('sl_bevestig_')&&!key.startsWith('sl_pos_')&&!key.startsWith('sl_neutraal_')&&!key.startsWith('sl_enkelricht_')&&key!=='sl_cam_stats'&&key!=='sl_stad_cache') { overgeslagen++; continue; }
         if (localStorage.getItem(key) !== null) { overgeslagen++; continue; }
         try { localStorage.setItem(key, JSON.stringify(waarde)); toegevoegd++; } catch(e) { overgeslagen++; }
       }
@@ -7188,7 +7214,7 @@ function opslagOverzicht() {
     else if (key.startsWith('sl_bevestig_'))       tel('sl_bevestig_', kb);
     else if (key.startsWith('sl_passief_'))        tel('sl_passief_', kb);
     else if (key.startsWith('sl_klok_'))           tel('sl_klok_', kb);
-    else if (/^sl_(opslag|richting|schaduw|herziening|zicht|conf)log$/.test(key)) tel('diagnoselogs', kb);
+    else if (/^sl_(opslag|richting|schaduw|herziening|zicht|conf|det)log$/.test(key)) tel('diagnoselogs', kb);
     else                                           tel('overig', kb);
   }
   return [...cat.entries()]
@@ -9366,6 +9392,138 @@ function exporteerZichtLog() {
       downloadFallback(jsonString, bestandsnaam);
       naExport();
       alert('✅ Zicht-log gedownload');
+      herstelBtn();
+    } catch(e) { alert('Export mislukt: '+e.message); herstelBtn(); }
+  }, 0);
+}
+
+// ── V11.17.46: DETECTIELOG (meetinstrument, geen fix) ──────────────────
+// Beantwoordt de vraag uit het B-onderzoek: faalt de eerste detectie op afstand
+// door TE WEINIG VERGROTING (crop-ramp te traag → ramp versnellen helpt) of
+// doordat het stoplicht BUITEN DE CROP viel (gok-centrum → ramp versnellen maakt
+// het juist erger)? Dat zijn twee tegengestelde conclusies uit dezelfde klacht.
+// Het veld `hint` scheidt ze: 4 = het cropcentrum was een gok (prio 4, r3846).
+//
+// Schrijft per YOLO-run, maar alleen in het naderingsvenster: er moet een node
+// zijn tussen DETLOG_MIN_M en DETLOG_MAX_M. Daarbuiten valt er niets te
+// diagnosticeren en zou de ringbuffer in minuten vollopen.
+//
+// Aangeroepen vanuit verwerkDetecties — het enige punt dat per YOLO-resultaat
+// precies één keer draait. Alle vier de uitkomsttakken zetten nieuwAIResultaat.
+//
+// Quota-guard identiek aan sl_zichtlog: één QuotaExceededError staakt dit log
+// definitief voor de sessie en wist de eigen sleutel. Een diagnoselog mag nooit
+// een meting kosten.
+const MAX_DETLOG   = 500;
+const DETLOG_MIN_M = 20;
+const DETLOG_MAX_M = 400;
+let detLogStop = false;   // true na quota-fout: schrijven definitief gestaakt
+let detLogArr  = null;    // in-memory buffer; pas gevuld bij de eerste schrijfactie
+
+function detLogSchrijf() {
+  if (detLogStop) return;
+  try {
+    const afst = detLogAfst;
+    if (typeof afst !== 'number' || isNaN(afst)
+        || afst < DETLOG_MIN_M || afst > DETLOG_MAX_M) return;
+    const num = (v, d) => (typeof v === 'number' && !isNaN(v))
+      ? Math.round(v * Math.pow(10, d || 0)) / Math.pow(10, d || 0) : null;
+    // Vergroting t.o.v. het volle beeld: hoeveel groter staat een object in de
+    // 640px-invoer dankzij de crop. 1 = geen winst (skipCrop-run).
+    const vW = video.videoWidth || 0, vH = video.videoHeight || 0;
+    const verg = (detLogRatio && vW > 0 && vH > 0)
+      ? Math.max(vW, vH) / (Math.min(vW, vH) * detLogRatio) : 1;
+    const rec = {
+      t:      Date.now(),
+      skip:   detLogSkip ? 1 : 0,       // 1 = volbeeld-run (elke 5e, r3875)
+      ratio:  num(detLogRatio, 3),      // huidigeCropRatio; null op een skipCrop-run
+      verg:   num(verg, 2),
+      afst:   num(afst),
+      h:      num(debugLaatsteKandH),   // bbox-hoogte in YOLO-px van de beste kandidaat
+      fam:    num(detLogFam, 2),        // familiescore; CONF_DREMPEL is 0,10
+      afwijs: debugLaatsteAfwijsReden || null,
+      sMiss:  num(stickyMissTeller),
+      sDx:    num(detLogStickyDx),      // kleinste afstand tot de sticky, VOOR de radiusfilter
+      hint:   detLogHintBron,           // 1=tap 2=anchor 3=OSM 4=GOK
+      node:   dichtstbijOSM ? String(dichtstbijOSM.id) : null,
+      kmh:    num(typeof snelheidKmh === 'number' ? snelheidKmh : null),
+      inf:    num(gemiddeldeInferentieTijd)
+    };
+    if (detLogArr === null) {
+      try { detLogArr = JSON.parse(localStorage.getItem('sl_detlog')) || []; }
+      catch(_) { detLogArr = []; }
+      if (!Array.isArray(detLogArr)) detLogArr = [];
+    }
+    detLogArr.push(rec);
+    if (detLogArr.length > MAX_DETLOG) detLogArr = detLogArr.slice(-MAX_DETLOG);
+    try {
+      localStorage.setItem('sl_detlog', JSON.stringify(detLogArr));
+    } catch(_) {
+      detLogStop = true;
+      detLogArr  = null;
+      try { localStorage.removeItem('sl_detlog'); } catch(_) {}
+      console.warn('[DETLOG] opslag geweigerd — detectielog gestaakt en gewist');
+    }
+  } catch(_) { /* logging mag nooit de app breken */ }
+}
+
+// V11.17.46: export van het detectielog. Zelfde vorm als exporteerZichtLog.
+function exporteerDetLog() {
+  const btn = document.getElementById('export-detlog-btn');
+  const origTekst = btn ? btn.textContent : null;
+  if (btn) { btn.textContent = '⏳ Bezig...'; btn.disabled = true; }
+  const herstelBtn = () => { if (btn) { btn.textContent = origTekst; btn.disabled = false; } };
+  const naExport = () => {
+    try { localStorage.removeItem('sl_detlog'); } catch(e) {}
+    detLogArr = [];
+  };
+  const downloadFallback = (jsonString, bestandsnaam) => {
+    const blob = new Blob([jsonString], { type:'application/json' });
+    const url  = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href=url; link.download=bestandsnaam;
+    document.body.appendChild(link); link.click(); document.body.removeChild(link);
+    setTimeout(()=>URL.revokeObjectURL(url), 1000);
+  };
+  setTimeout(() => {
+    try {
+      let arr = detLogArr;
+      if (arr === null) {
+        try { arr = JSON.parse(localStorage.getItem('sl_detlog')) || []; }
+        catch(e) { arr = []; }
+      }
+      if (!Array.isArray(arr) || arr.length === 0) {
+        alert('Nog geen detectie-log. Rijd eerst een kruispunt aan (20-400m).');
+        herstelBtn(); return;
+      }
+      const exportData = {
+        versie: 'V11.17.46-meetinstrument',
+        exportDatum: new Date().toISOString(),
+        app: 'StoplichtIQ',
+        aantalEntries: arr.length,
+        gestaakt: detLogStop ? 1 : 0,
+        venster: { minM: DETLOG_MIN_M, maxM: DETLOG_MAX_M },
+        entries: arr
+      };
+      const jsonString = JSON.stringify(exportData);
+      const bestandsnaam = `stoplichtiq-detlog-${new Date().toISOString().slice(0,10)}.json`;
+      if (navigator.share && navigator.canShare) {
+        const bestand = new File([jsonString], bestandsnaam, { type:'application/json' });
+        if (navigator.canShare({ files:[bestand] })) {
+          navigator.share({ files:[bestand], title:'StoplichtIQ Detectie-log' })
+            .then(() => { naExport(); alert('✅ Detectie-log gedeeld'); herstelBtn(); })
+            .catch(e => {
+              if (e && e.name === 'AbortError') { herstelBtn(); return; }
+              alert('⚠️ Delen mislukt, download start...');
+              downloadFallback(jsonString, bestandsnaam);
+              naExport(); herstelBtn();
+            });
+          return;
+        }
+      }
+      downloadFallback(jsonString, bestandsnaam);
+      naExport();
+      alert('✅ Detectie-log gedownload');
       herstelBtn();
     } catch(e) { alert('Export mislukt: '+e.message); herstelBtn(); }
   }, 0);
