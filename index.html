@@ -589,7 +589,7 @@
 <div id="startscherm">
   <div id="s-icoon">🚦</div>
   <div id="s-titel">Stoplicht<span>IQ</span></div>
-  <div id="s-versie">V11.17.44 — node-twijfel duidelijker zichtbaar</div>
+  <div id="s-versie">V11.17.45 — sticky raakt de detectie niet meer kwijt</div>
   <div id="s-model-wrap">
     <div id="s-model-rij">
       <div id="s-model-label">🤖 YOLOv8 model laden…</div>
@@ -809,7 +809,7 @@
 
 <script>
 // ═══════════════════════════════════════════════════════════════
-//  StoplichtIQ V11.17.44
+//  StoplichtIQ V11.17.45
 //  V11.10: Zelfkalibratie + vergrendeling + crop smoothing
 //  — S1+S2 bevestiging (kruispunt-level confidence)
 //  — Route-herkenning basis (sequentie-opslag)
@@ -2722,7 +2722,7 @@ function exporteerMeetdata() {
   };
   setTimeout(() => {
     try {
-      const uit = { versie:'V11.17.44', geexporteerd:new Date().toISOString(),
+      const uit = { versie:'V11.17.45', geexporteerd:new Date().toISOString(),
                     passief:{}, bevestig:{}, namen:{}, leer:{}, s2:{}, klok:{}, opslag:{}, richting:{}, schaduw:{}, herziening:{},
                     // V11.17.33 W2: sl_v5_ viel volledig buiten deze export en
                     // verdween stilzwijgend op `if (!doel) continue`. Elke analyse
@@ -4179,6 +4179,43 @@ function familieScore(detectie) {
   return famSom(vec, fam, detectie.score || 0);   // V11.17.25: NC-bewust
 }
 
+// V11.17.45: de sticky-identiteit bewaarde cx/cy/hoogte RAUW in YOLO-640-
+// coordinaten. Dat stelsel verschuift per run: elke 5e run draait op het VOLLE
+// beeld (skipCrop r3863) met een andere lbScale, andere lbPadX/Y en zonder
+// cropRegio-offset. Doorgerekend voor 1920x1080 en 1280x720 springt hetzelfde
+// stilstaande stoplicht 70 tot 231px tussen die twee stelsels, tegen een
+// matchradius van STICKY_MATCH_PX=80 (r4279-4283). De bbox-hoogte verschilt
+// daarbij een factor 2,96 tot 4,44 — ver buiten STICKY_HOOGTE_TOLERANTIE (40%),
+// dus bovenop de verschuiving nog eens STICKY_KLASSE_PENALTY_PX strafafstand.
+// De sticky verloor zijn identiteit dus STELSELMATIG op elke volbeeld-run, en
+// boven STICKY_STERK_M (40m) bestaat geen overname-route — daar leverde zo'n
+// run helemaal geen detectie op. Dat is het "bbox raakt de detectie tussentijds
+// kwijt en moet opnieuw vastpakken" dat op afstand het sterkst opvalt.
+//
+// De anchor doet dit al goed (r4780): die rekent terug naar camerapixels. De
+// sticky doet dat nu ook. Camerapixels zijn frame-onafhankelijk; vlak voor het
+// vergelijken projecteert stickyProjecteer ze terug naar HET HUIDIGE frame,
+// zodat elke bestaande drempel exact zijn oude betekenis houdt. Dit is een
+// stelselfout, GEEN gevoeligheidswijziging: er wordt niets nieuws gevonden, er
+// gaat alleen niets meer verloren dat al gevonden was.
+//
+// lbScale/lbPadX/lbPadY/cropRegio horen bij het frame dat naar de worker ging:
+// aiBezig (gezet r4832, gewist r3734) sluit een tweede preprocess uit zolang er
+// een resultaat openstaat. De anchor op r4780 leunt op dezelfde aanname.
+function stickyCam(det) {
+  return {
+    camX: (det.cx - lbPadX) / lbScale + (cropRegio ? cropRegio.x : 0),
+    camY: (det.cy - lbPadY) / lbScale + (cropRegio ? cropRegio.y : 0),
+    camH: det.h / lbScale
+  };
+}
+function stickyProjecteer(s) {
+  if (!s || s.camX == null || !(lbScale > 0)) return;   // oude sticky zonder cam-velden: laat staan
+  s.cx     = (s.camX - (cropRegio ? cropRegio.x : 0)) * lbScale + lbPadX;
+  s.cy     = (s.camY - (cropRegio ? cropRegio.y : 0)) * lbScale + lbPadY;
+  s.hoogte = s.camH * lbScale;
+}
+
 function selecteerBesteDetectie(detecties) {
   // V11.17.7 W1: laatsteAfwijsReden houdt bij welke filter/tak het beste-kandidaat
   // laat vallen. Alleen loggen, geen gedragswijziging.
@@ -4230,6 +4267,10 @@ function selecteerBesteDetectie(detecties) {
       // Penalties zijn zacht — bij echte fase-overgang (rood→groen zelfde stoplicht)
       // wint 20px+penalty nog steeds van 60px zonder penalty.
       if (stickyDetectie !== null) {
+        // V11.17.45: eerst terugprojecteren naar het frame van DEZE run. Alles
+        // hieronder — matchradius, hoogtetolerantie, overname-routes, de
+        // herstel-stap — vergelijkt daarna in een consistent stelsel.
+        stickyProjecteer(stickyDetectie);
         const kandidaten = [];
         for (const det of bruikbaar) {
           const dx = det.cx - stickyDetectie.cx;
@@ -4267,6 +4308,7 @@ function selecteerBesteDetectie(detecties) {
           stickyDetectie.cx = match.cx;
           stickyDetectie.cy = match.cy;
           stickyDetectie.hoogte = match.h;
+          Object.assign(stickyDetectie, stickyCam(match));   // V11.17.45
           stickyDetectie.klasse = match.klasse;
           const nieuweFamilie = KLASSE_MAP[match.klasse];
           if (nieuweFamilie) stickyDetectie.familie = nieuweFamilie;
@@ -4314,6 +4356,7 @@ function selecteerBesteDetectie(detecties) {
           stickyDetectie.cx = overname.cx;
           stickyDetectie.cy = overname.cy;
           stickyDetectie.hoogte = overname.h;
+          Object.assign(stickyDetectie, stickyCam(overname));   // V11.17.45
           stickyDetectie.klasse = overname.klasse;
           const ovFam = KLASSE_MAP[overname.klasse];
           if (ovFam) stickyDetectie.familie = ovFam;
@@ -4379,6 +4422,7 @@ function selecteerBesteDetectie(detecties) {
           const match = herKand[0].det;
           stickyDetectie = {
             cx: match.cx, cy: match.cy,
+            ...stickyCam(match),   // V11.17.45: frame-onafhankelijke kopie
             familie: KLASSE_MAP[match.klasse] || null,
             hoogte: match.h, klasse: match.klasse,
             tijd: Date.now()
@@ -4416,6 +4460,7 @@ function selecteerBesteDetectie(detecties) {
           }
           stickyDetectie = {
             cx: match.cx, cy: match.cy,
+            ...stickyCam(match),   // V11.17.45: frame-onafhankelijke kopie
             familie: KLASSE_MAP[match.klasse] || null,
             hoogte: match.h, klasse: match.klasse, // V11.16.5 Fix B
             tijd: Date.now()
@@ -4448,6 +4493,7 @@ function selecteerBesteDetectie(detecties) {
       if (besteOv) {
         stickyDetectie = {
           cx: besteOv.cx, cy: besteOv.cy,
+          ...stickyCam(besteOv),   // V11.17.45: frame-onafhankelijke kopie
           familie: KLASSE_MAP[besteOv.klasse] || null,
           hoogte: besteOv.h, klasse: besteOv.klasse, // V11.16.5 Fix B
           tijd: Date.now()
