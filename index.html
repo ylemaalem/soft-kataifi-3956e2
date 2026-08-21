@@ -481,6 +481,12 @@
       font-size:13px;font-weight:700;padding:6px 18px;border-radius:20px;
       pointer-events:none;opacity:0;transition:opacity 0.3s;z-index:9999;white-space:nowrap}
     #leer-toast.zichtbaar{opacity:1}
+    /* V11.17.47: waarschuwingsvariant. De basis-toast is groen omdat hij
+       oorspronkelijk voor leermeldingen was; groen leest als goed nieuws en
+       is verkeerd voor een waarschuwing. Zelfde oranje als de
+       twijfel-markering op #kruispunt-naam, zodat beide signalen een
+       visuele taal delen. Zwarte tekst blijft: contrast op oranje is hoog. */
+    #leer-toast.waarschuwing{background:rgba(255,159,10,0.94)}
   </style>
 </head>
 <body>
@@ -589,7 +595,7 @@
 <div id="startscherm">
   <div id="s-icoon">🚦</div>
   <div id="s-titel">Stoplicht<span>IQ</span></div>
-  <div id="s-versie">V11.17.46 — detectielog: meet de crop-ramp</div>
+  <div id="s-versie">V11.17.47 — waarschuwing bij stoplichten dicht bij elkaar</div>
   <div id="s-model-wrap">
     <div id="s-model-rij">
       <div id="s-model-label">🤖 YOLOv8 model laden…</div>
@@ -810,7 +816,7 @@
 
 <script>
 // ═══════════════════════════════════════════════════════════════
-//  StoplichtIQ V11.17.46
+//  StoplichtIQ V11.17.47
 //  V11.10: Zelfkalibratie + vergrendeling + crop smoothing
 //  — S1+S2 bevestiging (kruispunt-level confidence)
 //  — Route-herkenning basis (sequentie-opslag)
@@ -1654,6 +1660,50 @@ function migratieSlPos() {
       } catch(e) {}
     }
   }
+}
+
+// V11.17.47: welke nodes staan binnen 5m van een andere node? Raster i.p.v.
+// alle paren vergelijken. Gemeten bij de grootste cache uit de praktijk
+// (2.277 nodes binnen OSM_RADIUS): naief O(n^2) kost 142ms op een laptop, dus
+// 430-710ms op een iPhone — dat blokkeert de rAF-lus midden in het rijden.
+// Het raster doet hetzelfde in 10ms, met een identieke uitkomst.
+// Cel = 0,0001 graad (~11m), dus elke buur binnen 5m zit gegarandeerd in de
+// eigen cel of een van de acht omliggende.
+function berekenClusterNodes() {
+  const uit = new Set();
+  try {
+    if (!osmCache || osmCache.length < 2) { clusterNodes = uit; return; }
+    const grid = new Map();
+    for (const sl of osmCache) {
+      if (!(sl.lat && sl.lon)) continue;
+      const c = Math.round(sl.lat * 10000) + '_' + Math.round(sl.lon * 10000);
+      let b = grid.get(c); if (!b) { b = []; grid.set(c, b); }
+      b.push(sl);
+    }
+    const M = 111320;
+    for (const sl of osmCache) {
+      if (!(sl.lat && sl.lon)) continue;
+      const la = Math.round(sl.lat * 10000), lo = Math.round(sl.lon * 10000);
+      const cosLat = Math.cos(sl.lat * Math.PI / 180);
+      let gevonden = false;
+      for (let i = -1; i <= 1 && !gevonden; i++) {
+        for (let k = -1; k <= 1 && !gevonden; k++) {
+          const b = grid.get((la + i) + '_' + (lo + k));
+          if (!b) continue;
+          for (const q of b) {
+            if (String(q.id) === String(sl.id)) continue;
+            const dLat = (q.lat - sl.lat) * M;
+            const dLon = (q.lon - sl.lon) * M * cosLat;
+            if (Math.sqrt(dLat * dLat + dLon * dLon) <= CLUSTER_AFSTAND_M) {
+              uit.add(String(sl.id)); uit.add(String(q.id));
+              gevonden = true; break;
+            }
+          }
+        }
+      }
+    }
+  } catch(_) { /* een waarschuwing mag de kaart nooit breken */ }
+  clusterNodes = uit;
 }
 
 // V11.17.15 (correctie): eenmalige VERPLAATSING i.p.v. verwijdering. Haalt
@@ -2723,7 +2773,7 @@ function exporteerMeetdata() {
   };
   setTimeout(() => {
     try {
-      const uit = { versie:'V11.17.46', geexporteerd:new Date().toISOString(),
+      const uit = { versie:'V11.17.47', geexporteerd:new Date().toISOString(),
                     passief:{}, bevestig:{}, namen:{}, leer:{}, s2:{}, klok:{}, opslag:{}, richting:{}, schaduw:{}, herziening:{},
                     // V11.17.33 W2: sl_v5_ viel volledig buiten deze export en
                     // verdween stilzwijgend op `if (!doel) continue`. Elke analyse
@@ -3101,6 +3151,16 @@ let geluidAan=true, isNacht=false;
 let huidigePos=null, huidigeRichting=0;
 let dichtstbijOSM=null, vorigOsmId=null;
 let osmCache=[], cacheCentrum=null, cacheGeladen=false, cacheBezig=false;
+// V11.17.47: nodes die binnen CLUSTER_AFSTAND_M van een andere node staan.
+// Eigenschap van de KAART, niet van waar de gebruiker staat — daarom stabiel
+// en eenmalig per downloadOSM te berekenen. Bewust NIET persistent: het is een
+// afgeleide van osmCache die in tientallen milliseconden herbouwd is, en na
+// V11.17.40 (sl_pos_ was 52% van de opslag) herhalen we die fout niet.
+// 5 meter is scherp gekozen: gemeten over 14.228 nodes heeft 10,2% een buur
+// binnen 5m, maar 47,1% binnen 10m — daar verliest de melding zijn waarde.
+const CLUSTER_AFSTAND_M = 5;
+let clusterNodes = new Set();
+let laatstGemeldeClusterNode = null;   // throttle, patroon van opslagLogCooldownNode
 let aiTeller=0, aiKleur=null, geenTeller=0;
 // V11.17.11: fase-volgorde-machine staat
 let hogeFScoreRuns = 0;          // Laag 3a: opeenvolgende runs met fScore ≥ FSCORE_OVERRIDE_DREMPEL
@@ -6695,6 +6755,7 @@ async function downloadOSM(lat, lon) {
     });
     cacheCentrum={lat,lon}; cacheGeladen=true;
     migratieSlPos();
+    berekenClusterNodes();   // V11.17.47: eenmalig per cache, voor updateDichtbij hieronder
     pOSM.className='pill-dot g'; pOSMT.textContent='Kaart'; debugWaarden.osm=`osm:${osmCache.length}`;
     updateDichtbij(lat, lon);
     for (const [key,val] of s2BboxTeller.entries()) if (val===0) s2BboxTeller.delete(key);
@@ -8047,9 +8108,13 @@ function updateKlasseCorrectieBtnState() {
 
 // ── V11.16.1: TOAST (generiek, hergebruikt #leer-toast) ───────
 // V11.16.2: optionele actie-knop {label, fn, duurMs} — voor undo.
-function toonToast(tekst, actie) {
+// V11.17.47: derde parameter `soort`. Bestaande aanroepers geven hem niet mee
+// en krijgen ongewijzigd de groene basisvariant; toggle wist de klasse dus ook
+// weer, zodat een volgende gewone toast niet oranje blijft.
+function toonToast(tekst, actie, soort) {
   const el = document.getElementById('leer-toast');
   if (!el) return;
+  el.classList.toggle('waarschuwing', soort === 'waarschuwing');
   if (actie && actie.label) {
     el.innerHTML = '';
     const sp = document.createElement('span'); sp.textContent = tekst;
@@ -9738,6 +9803,28 @@ function updateDichtbij(lat, lon) {
   }
   dichtstbijOSMTwijfel = twijfelNu;
   kNaam.classList.toggle('twijfel', twijfelNu);
+  // V11.17.47: proactieve clustermelding — "let op, hier is het lastig kiezen",
+  // niet "de app kiest verkeerd". Staat bewust los van de twijfel-markering
+  // hierboven: die eist dat de gekozen node meer dan NODE_CHK_DELTA_M (25m)
+  // verder is dan de dichtstbijzijnde, en bij een cluster van 5m is dat verschil
+  // per definitie kleiner. De twijfel-check is dus blind voor precies dit geval.
+  // Drempel V9_NADERING_AFSTAND, zodat de melding aansluit bij wanneer de app
+  // het kruispunt al als aanstaand beschouwt. Throttle via een enkele node-id,
+  // hetzelfde patroon als opslagLogCooldownNode: tijdens EEN nadering vuurt de
+  // melding precies een keer, ook al draait updateDichtbij bij elke GPS-tick.
+  // Rijd je naar een ander kruispunt en later terug, dan meldt hij opnieuw —
+  // dat is een nieuwe nadering en dus terecht.
+  if (dichtstbijOSM && typeof dichtstbijOSM.afstand === 'number'
+      && dichtstbijOSM.afstand <= V9_NADERING_AFSTAND) {
+    const clusterId = String(dichtstbijOSM.id);
+    if (clusterNodes.has(clusterId) && laatstGemeldeClusterNode !== clusterId) {
+      laatstGemeldeClusterNode = clusterId;
+      toonToast('\u26a0 Meerdere stoplichten dicht bij elkaar', null, 'waarschuwing');
+      // Meetbaar maken: de 1-op-13 uit het N-onderzoek is een schatting uit
+      // historische routedata. Dit maakt de werkelijke frequentie zichtbaar.
+      logOpslagMis('cluster_gemeld', { node: clusterId });
+    }
+  }
   if (cacheCentrum && afstand(lat,lon,cacheCentrum.lat,cacheCentrum.lon)>OSM_REFRESH && !cacheBezig) {
     downloadOSM(lat, lon);
   }
