@@ -99,8 +99,31 @@
     #kruispunt-blok{text-align:right;min-width:0;flex-shrink:1}
     #kruispunt-naam{font-size:11px;font-weight:600;color:#fff;
       white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:150px}
-    /* V11.17.9 W2: node-keuze twijfel — oranje kleur, geen layout-verandering. */
-    #kruispunt-naam.twijfel{color:var(--oranje)}
+    /* V11.17.9 W2: node-keuze twijfel — oranje kleur, geen layout-verandering.
+       V11.17.44: dat was te weinig. De waarschuwing was EEN kleurwissel op 11px
+       tekst, rechts uitgelijnd in een hoek en afgekapt op 150px — de gebruiker
+       moest er actief naar zoeken. Nu drie signalen tegelijk.
+       GROOTTE eerst: perifeer zicht ziet formaat eerder dan tint. line-height 1.1
+       houdt de regel op 13 x 1,1 = 14,3px, praktisch gelijk aan de 14,4px van de
+       11px-variant. Zonder die regel groeit #kruispunt-blok — de BINDENDE kolom
+       (43,6px, zie r71-78) — en daarmee de hele #fase-balk, precies de ruimte die
+       V11.17.35 net heeft teruggewonnen.
+       VORM als tweede: het ::before-icoon blijft leesbaar bij fel zonlicht, waar
+       het contrast tussen #fff en #FF9F0A wegvalt. Het staat vooraan, dus de
+       ellipsis kapt de straatnaam af en nooit het icoon.
+       PULSE als derde, en die STOPT na drie keer — anders dan gpuls (r92) en
+       puls-focus (r454), die oneindig lopen. Die twee horen bij kortdurende
+       toestanden; twijfel kan minutenlang aanstaan en zou dan permanent knipperen
+       in het gezichtsveld van een rijdende bestuurder. Op `color`, niet op opacity
+       of transform: een kleurverandering wordt perifeer opgepikt zonder een
+       saccade af te dwingen, en transform zou de rijhoogte laten schuiven.
+       classList.toggle(naam, bool) op r9405/r9513 is idempotent — een class die
+       er al staat opnieuw zetten verandert de computed style niet, dus de animatie
+       herstart niet bij elke GPS-tick. */
+    #kruispunt-naam.twijfel{color:var(--oranje);font-size:13px;font-weight:700;
+      line-height:1.1;animation:twijfelPuls .9s ease-in-out 3}
+    #kruispunt-naam.twijfel::before{content:'⚠ '}
+    @keyframes twijfelPuls{0%,100%{color:var(--oranje)}50%{color:#fff}}
     #kruispunt-af{font-family:'Share Tech Mono',monospace;font-size:13px;
       color:var(--blauw);margin-top:1px}
     #kruispunt-dd{font-size:9px;color:rgba(255,255,255,0.3);margin-top:1px}
@@ -566,7 +589,7 @@
 <div id="startscherm">
   <div id="s-icoon">🚦</div>
   <div id="s-titel">Stoplicht<span>IQ</span></div>
-  <div id="s-versie">V11.17.43 — fase-staat lekt niet meer over een node-wissel</div>
+  <div id="s-versie">V11.17.44 — node-twijfel duidelijker zichtbaar</div>
   <div id="s-model-wrap">
     <div id="s-model-rij">
       <div id="s-model-label">🤖 YOLOv8 model laden…</div>
@@ -786,7 +809,7 @@
 
 <script>
 // ═══════════════════════════════════════════════════════════════
-//  StoplichtIQ V11.17.43
+//  StoplichtIQ V11.17.44
 //  V11.10: Zelfkalibratie + vergrendeling + crop smoothing
 //  — S1+S2 bevestiging (kruispunt-level confidence)
 //  — Route-herkenning basis (sequentie-opslag)
@@ -2699,7 +2722,7 @@ function exporteerMeetdata() {
   };
   setTimeout(() => {
     try {
-      const uit = { versie:'V11.17.43', geexporteerd:new Date().toISOString(),
+      const uit = { versie:'V11.17.44', geexporteerd:new Date().toISOString(),
                     passief:{}, bevestig:{}, namen:{}, leer:{}, s2:{}, klok:{}, opslag:{}, richting:{}, schaduw:{}, herziening:{},
                     // V11.17.33 W2: sl_v5_ viel volledig buiten deze export en
                     // verdween stilzwijgend op `if (!doel) continue`. Elke analyse
