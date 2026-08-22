@@ -595,7 +595,7 @@
 <div id="startscherm">
   <div id="s-icoon">🚦</div>
   <div id="s-titel">Stoplicht<span>IQ</span></div>
-  <div id="s-versie">V11.17.47 — waarschuwing bij stoplichten dicht bij elkaar</div>
+  <div id="s-versie">V11.17.48 — twee logvelden: closestAf en autoLock</div>
   <div id="s-model-wrap">
     <div id="s-model-rij">
       <div id="s-model-label">🤖 YOLOv8 model laden…</div>
@@ -816,7 +816,7 @@
 
 <script>
 // ═══════════════════════════════════════════════════════════════
-//  StoplichtIQ V11.17.47
+//  StoplichtIQ V11.17.48
 //  V11.10: Zelfkalibratie + vergrendeling + crop smoothing
 //  — S1+S2 bevestiging (kruispunt-level confidence)
 //  — Route-herkenning basis (sequentie-opslag)
@@ -1479,11 +1479,29 @@ function logOpslagMis(reden, extra) {
       node: nodeId,
       naam,
       afst: num(afstRuw),
+      // V11.17.48: de afstand tot de PURE dichtstbijzijnde node. `afst`
+      // hierboven is de afstand tot de GEKOZEN node; zonder deze tweede
+      // waarde is het verschil (gekozenAf - closestAf) niet te berekenen, en
+      // dat verschil is nu juist waar berekenNodeChkTwijfel (r9861) op
+      // NODE_CHK_DELTA_M=25m toetst en checkNodeCorrectieStilstand op
+      // NODE_CHK_CORRECTIE_MARGE_M=20m. Beide drempels waren daardoor
+      // onmeetbaar. LET OP bij het lezen: puurDichtsteNodeCache wordt een keer
+      // per GPS-update ververst (r9677), terwijl logOpslagMis ook per YOLO-run
+      // kan vuren — deze waarde kan dus tot een GPS-interval oud zijn.
+      closestAf: (puurDichtsteNodeCache && typeof puurDichtsteNodeCache.afstand === 'number')
+        ? num(puurDichtsteNodeCache.afstand) : null,
       dur: num(e.dur),
       kmh: num(typeof snelheidKmh === 'number' ? snelheidKmh : null),
       dd: (typeof huidigDDActief === 'function') ? huidigDDActief() : null,
       twijfel: !!dichtstbijOSMTwijfel,
       hand: !!handmatigLockActief,
+      // V11.17.48: onderscheidt een ECHTE tap van de stilstand-auto-lock.
+      // Poort 5 van checkNodeCorrectieStilstand luidt
+      // `handmatigLockActief && !stilstandAutoLock` (r9881): alleen een echte
+      // tap blokkeert. Met alleen `hand` was die poort niet te beoordelen,
+      // omdat de auto-lock (r9975/r10029) hand OOK op true zet.
+      // Lees dus: hand=1 en autoLock=0 -> poort 5 blokkeert.
+      autoLock: !!stilstandAutoLock,
       dw: !!v9DelayedWriteActief,
       tik: richtingLockKeuze || null,
       // V11.17.42: bij welke node hoort die tik? `tik` en `pre` hebben
@@ -1510,6 +1528,7 @@ function logOpslagMis(reden, extra) {
     console.log(`[${reden === 'ok' ? 'OPSLAG-OK' : 'OPSLAG-MIS'}] ${reden}`
       + ` node=${rec.node} naam=${rec.naam} afst=${rec.afst} dur=${rec.dur}`
       + ` kmh=${rec.kmh} dw=${rec.dw?1:0} twijfel=${rec.twijfel?1:0}`
+      + ` closestAf=${rec.closestAf} autoLock=${rec.autoLock?1:0}`
       + ` tik=${rec.tik} lockNode=${rec.lockNode} pre=${rec.pre}`
       + ` aanrij=${rec.aanrij} afrij=${rec.afrij}`
       + (rec.nieuw ? ` nieuw=${rec.nieuw}` : ''));
@@ -2773,7 +2792,7 @@ function exporteerMeetdata() {
   };
   setTimeout(() => {
     try {
-      const uit = { versie:'V11.17.47', geexporteerd:new Date().toISOString(),
+      const uit = { versie:'V11.17.48', geexporteerd:new Date().toISOString(),
                     passief:{}, bevestig:{}, namen:{}, leer:{}, s2:{}, klok:{}, opslag:{}, richting:{}, schaduw:{}, herziening:{},
                     // V11.17.33 W2: sl_v5_ viel volledig buiten deze export en
                     // verdween stilzwijgend op `if (!doel) continue`. Elke analyse
