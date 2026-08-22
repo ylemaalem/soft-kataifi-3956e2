@@ -126,7 +126,15 @@
     @keyframes twijfelPuls{0%,100%{color:var(--oranje)}50%{color:#fff}}
     #kruispunt-af{font-family:'Share Tech Mono',monospace;font-size:13px;
       color:var(--blauw);margin-top:1px}
-    #kruispunt-dd{font-size:9px;color:rgba(255,255,255,0.3);margin-top:1px}
+    /* V11.17.49: dagdeel verborgen — dit is de enige regel die de rijhoogte
+       werkelijk verkort. #kruispunt-blok is de BINDENDE kolom (gemeten 44,4px
+       tegen 16,0px links), dus alleen snijden in de rechterkolom helpt.
+       Gemeten op 375px: 55,2px -> 41,4px, dus 13,8px terug naar de camera.
+       Zelfde patroon als #fase-woord (r96, V11.17.28 W1a): display:none, het
+       element en zijn drie schrijvers (r7882/9707/9723) blijven intact, zodat
+       terugzetten een enkele regel is. Het dagdeel staat bovendien al in
+       #leer-kaart eronder, dus er gaat geen informatie verloren. */
+    #kruispunt-dd{font-size:9px;color:rgba(255,255,255,0.3);margin-top:1px;display:none}
     /* V11.8.0: Compact countdown pill */
     #cd-pill{display:none;align-items:baseline;gap:8px;
       background:rgba(0,0,0,0.75);backdrop-filter:blur(8px);-webkit-backdrop-filter:blur(8px);
@@ -595,7 +603,7 @@
 <div id="startscherm">
   <div id="s-icoon">🚦</div>
   <div id="s-titel">Stoplicht<span>IQ</span></div>
-  <div id="s-versie">V11.17.48 — twee logvelden: closestAf en autoLock</div>
+  <div id="s-versie">V11.17.49 — HUD-regel compacter, debug-tekst weg</div>
   <div id="s-model-wrap">
     <div id="s-model-rij">
       <div id="s-model-label">🤖 YOLOv8 model laden…</div>
@@ -816,7 +824,7 @@
 
 <script>
 // ═══════════════════════════════════════════════════════════════
-//  StoplichtIQ V11.17.48
+//  StoplichtIQ V11.17.49
 //  V11.10: Zelfkalibratie + vergrendeling + crop smoothing
 //  — S1+S2 bevestiging (kruispunt-level confidence)
 //  — Route-herkenning basis (sequentie-opslag)
@@ -2792,7 +2800,7 @@ function exporteerMeetdata() {
   };
   setTimeout(() => {
     try {
-      const uit = { versie:'V11.17.48', geexporteerd:new Date().toISOString(),
+      const uit = { versie:'V11.17.49', geexporteerd:new Date().toISOString(),
                     passief:{}, bevestig:{}, namen:{}, leer:{}, s2:{}, klok:{}, opslag:{}, richting:{}, schaduw:{}, herziening:{},
                     // V11.17.33 W2: sl_v5_ viel volledig buiten deze export en
                     // verdween stilzwijgend op `if (!doel) continue`. Elke analyse
@@ -5310,7 +5318,13 @@ function updateUIKleur(kleur, horizontaal) {
   const subs    = { rood:'Stop — wachten op groen', groen:'', oranje:'Afremmen' };
   faseWoord.textContent = woorden[kleur]||'—';
   faseSub.textContent   = (kleur in subs) ? subs[kleur] : 'Richt camera op stoplicht';
-  faseBron.textContent  = `YOLOv8${horizontaal?' ↔':' ↕'} ·`;
+  // V11.17.49: de YOLOv8-regel was debug-tekst op een rijscherm. Het ELEMENT
+  // blijft staan — checkOsmVoorspelling (r6038) schrijft er de label
+  // de OSM-voorspellingslabel in, en die tak komt terug zodra de A1-poort opengaat.
+  // Alleen de tekst hier verdwijnt. Levert geen ruimte op (de rijhoogte wordt
+  // door #kruispunt-blok bepaald, gemeten 44,4px tegen 16,0px links), dus dit
+  // is puur opruiming; de ruimtewinst komt van #kruispunt-dd hieronder.
+  faseBron.textContent  = '';
 }
 
 // Reset UI terug naar neutraal als tolerantie overschreden maar nog geen officiële fase
@@ -5643,7 +5657,7 @@ function updateUI(f, horizontaal) {
   const subs    = { rood:'Stop — wachten op groen', groen:'', oranje:'Afremmen' };
   faseWoord.textContent = woorden[f]||'—';
   faseSub.textContent   = (f in subs) ? subs[f] : 'Richt camera op stoplicht';
-  faseBron.textContent  = f ? `YOLOv8${horizontaal?' ↔':' ↕'}` : '';
+  faseBron.textContent  = '';   // V11.17.49: zie updateUIKleur
   if (f==='groen') {
     // V11.17.28 W1c: .actief blijft staan (r5001 leest hem voor de
     // bevestigknoppen); alleen de zichtbaarheid gaat uit.
