@@ -603,7 +603,7 @@
 <div id="startscherm">
   <div id="s-icoon">🚦</div>
   <div id="s-titel">Stoplicht<span>IQ</span></div>
-  <div id="s-versie">V11.17.49 — HUD-regel compacter, debug-tekst weg</div>
+  <div id="s-versie">V11.17.50 — countdown zegt eerlijk wanneer de schatting op is</div>
   <div id="s-model-wrap">
     <div id="s-model-rij">
       <div id="s-model-label">🤖 YOLOv8 model laden…</div>
@@ -824,7 +824,7 @@
 
 <script>
 // ═══════════════════════════════════════════════════════════════
-//  StoplichtIQ V11.17.49
+//  StoplichtIQ V11.17.50
 //  V11.10: Zelfkalibratie + vergrendeling + crop smoothing
 //  — S1+S2 bevestiging (kruispunt-level confidence)
 //  — Route-herkenning basis (sequentie-opslag)
@@ -2800,7 +2800,7 @@ function exporteerMeetdata() {
   };
   setTimeout(() => {
     try {
-      const uit = { versie:'V11.17.49', geexporteerd:new Date().toISOString(),
+      const uit = { versie:'V11.17.50', geexporteerd:new Date().toISOString(),
                     passief:{}, bevestig:{}, namen:{}, leer:{}, s2:{}, klok:{}, opslag:{}, richting:{}, schaduw:{}, herziening:{},
                     // V11.17.33 W2: sl_v5_ viel volledig buiten deze export en
                     // verdween stilzwijgend op `if (!doel) continue`. Elke analyse
@@ -5811,6 +5811,7 @@ function tickCd() {
   // W2: Modus-afhankelijke weergave
   // V11.17.3: prefix rijdersperspectief-symbool bij bekende tikrichting.
   const rs = richtingSymbool(richtingLockKeuze);
+  let schattingOp = false;   // V11.17.50: stuurt de kleurregel onderaan
   if (herzienOver != null) {
     // Herziene weergave vervangt de modus-cascade. "nu" kan hier niet meer
     // verschijnen: die blijft voorbehouden aan het geval waarin de tabel
@@ -5818,7 +5819,29 @@ function tickCd() {
     cdPillGetal.textContent = rs + (herzienOver < 1 ? '<1' : Math.ceil(herzienOver)) + 's';
     cdPillLabel.textContent = 'bijgesteld';
     cdPillGetal.style.color = herzienOver <= 6 ? 'var(--groen)' : '#fff';
+  } else if (over === 0 && fase === 'rood') {
+    // V11.17.50: de countdown is VOORBIJ zijn schatting, en het licht is nog
+    // rood. Tot nu toonde dat 'nu / elk moment' — dezelfde weergave als een
+    // countdown die daadwerkelijk bijna op groen staat. Dat is een andere
+    // boodschap: hier weet de app het niet meer.
+    // Gemeten op 194 passieve records (export 13 aug): in 32% van de fasen
+    // liep de countdown leeg terwijl het rood bleef, mediaan 13s en bij modus
+    // 'vaag' zelfs 20s. Over alle rode seconden samen stond deze weergave
+    // 26% van de tijd in beeld. Twee onafhankelijke simulaties (bouwCondTabel
+    // en ECMT) schreven het leeuwendeel van hun 'winst' aan precies dit
+    // moment toe — het was nooit een schattingsprobleem maar een
+    // communicatieprobleem.
+    // Bewust GEEN getal: een ondergrens verzinnen zou beweren dat het licht
+    // niet binnen X seconden springt, en dat is een bewering zonder data en
+    // in de gevaarlijke richting.
+    cdPillGetal.textContent = rs + '⏳';
+    cdPillLabel.textContent = 'schatting op';
+    schattingOp = true;
   } else if (activeCdModus === CD_NU || over === 0) {
+    // over===0 kan hier alleen nog met fase!==null-rood: de preemptieve tak
+    // (osmVoorspellingActief, fase===null). CD_NU wordt nergens toegekend —
+    // bepaalCdModus geeft alleen ZEKER/GESCHAT/VAAG (r2173-2176) en in 194
+    // passieve records komt bron:'nu' nul keer voor.
     cdPillGetal.textContent = rs + 'nu';
     cdPillLabel.textContent = 'elk moment';
   } else if (activeCdModus === CD_VAAG && activeCdMin != null) {
@@ -5840,7 +5863,13 @@ function tickCd() {
   }
   // V11.17.32: de herziene tak zet zijn eigen kleur (r5303); die niet
   // overschrijven met de kleur van de oorspronkelijke `over`.
-  if (herzienOver == null) cdPillGetal.style.color = over <= 6 ? 'var(--groen)' : '#fff';
+  // V11.17.50: bij 'schatting op' NIET groen. over===0 viel onder de <=6-regel
+  // en kleurde dus groen — op een stoplicht-app leest groen als 'rijden', en
+  // dat is precies het omgekeerde van wat deze toestand betekent.
+  if (herzienOver == null) {
+    cdPillGetal.style.color = schattingOp ? 'rgba(255,255,255,0.55)'
+                            : (over <= 6 ? 'var(--groen)' : '#fff');
+  }
 
   // V11.16.0 B2: markeer de countdown "voorlopig" zolang de rijrichting
   // onbekend is bij een multi-richting node. huidigCdBron 'v4_multi' of
