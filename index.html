@@ -603,7 +603,7 @@
 <div id="startscherm">
   <div id="s-icoon">🚦</div>
   <div id="s-titel">Stoplicht<span>IQ</span></div>
-  <div id="s-versie">V11.17.52 — groen gemiddelde weegt niet meer op de duur zelf</div>
+  <div id="s-versie">V11.17.53 — leerpercentage telt waarnemingen, niet seconden</div>
   <div id="s-model-wrap">
     <div id="s-model-rij">
       <div id="s-model-label">🤖 YOLOv8 model laden…</div>
@@ -824,7 +824,7 @@
 
 <script>
 // ═══════════════════════════════════════════════════════════════
-//  StoplichtIQ V11.17.52
+//  StoplichtIQ V11.17.53
 //  V11.10: Zelfkalibratie + vergrendeling + crop smoothing
 //  — S1+S2 bevestiging (kruispunt-level confidence)
 //  — Route-herkenning basis (sequentie-opslag)
@@ -982,6 +982,17 @@ const OBS_PROXY = 0.1;
 const OBS_TAP_BONUS = 0.2;
 const VOLLEDIG_CYCLUS_GEWICHT = 1.5;
 const OBS_DOEL_CYCLI = 2.5;
+// V11.17.53: vlak gewicht voor een gewone waarneming in berekenObsScore.
+// 0,50 is niet willekeurig gekozen: het is de kalibratie-neutrale waarde
+// (mediane obsPct blijft 34 over 474 nodes) en ligt op het empirische
+// gemiddelde van de obs-afgeleide gewichten in de bestaande data (0,551,
+// mediaan 0,51). Zie vlakGewichtVoor hieronder voor het waarom.
+const OBS_VLAK = 0.50;
+// Een handmatige tap blijft WEL meetellen: de gebruiker heeft de bbox zelf
+// bevestigd en dat zegt iets over de detectie, anders dan de duur. Expliciet
+// als OBS_VLAK + OBS_TAP_BONUS geschreven zodat de bonus dezelfde blijft als
+// die in berekenObsGewicht; 0,5 + 0,2 is in IEEE754 exact gelijk aan 0,7.
+const OBS_VLAK_TAP = OBS_VLAK + OBS_TAP_BONUS;
 // V11.17.30 W3: ondergrens voor de schaduw-R-schatting uit uitsluitend
 // overgang-geziene metingen. Gelijk aan V9_MIN_METINGEN (5) — onder die grens
 // is de gewogen mediaan van een subset te gevoelig voor één uitschieter.
@@ -1355,6 +1366,55 @@ function methodeM4(metingen) {
   return gewGem(filter);
 }
 
+// V11.17.53: kwam dit gewicht uit de obs-helling, of is het een override?
+// berekenObsGewicht (r1890) maakt van een gewone waarneming min(1, obs/45),
+// eventueel +OBS_TAP_BONUS. Maar obs is `(performance.now() - faseStart)/1000`
+// (r1903) en duur op het hoofdpad (verwerkFase, r5626) is diezelfde uitdrukking:
+// het gewicht is daar dus recht evenredig met de duur die het moest wegen.
+// Gemeten op de export van 13 augustus: binnen de obs-afgeleide groep is de
+// correlatie obs~duur 0,8736 en geldt obs == duur (+/-1s) in 86,8%.
+//
+// Gevolg voor de POORTEN: berekenObsScore normaliseert op OBS_DOEL_CYCLI, een
+// aantal CYCLI, maar de helling maakte er een secondenmaat van. Eén rode fase
+// van 45s gaf al 42% — over de GLOSA-poort van 40% (r6117) — terwijl een
+// kruispunt met 10s rood zes passages nodig had voor de 50%-poort die de
+// pre-emptive countdown ontgrendelt (r6169). Korte cycli zijn juist MAKKELIJKER
+// te leren: meer cycli per passage, en de standaardfout van de mediaan daalt
+// met het aantal waarnemingen, niet met hun lengte. 36,3% van de gemeten rode
+// fasen is korter dan 20s.
+//
+// Het terechte deel van 'lang = betrouwbaar' zit al in de ondergrenzen
+// (minDuur 4s r1625, OBS_MINIMUM 3, effectieveMinDur r5633); de lineaire helling
+// daarbovenop voegde alleen de vertekening toe. Het echte detectiesignaal is
+// entry.conf (r1909) en dat wordt nergens gelezen — aparte vondst.
+//
+// De bron-uitsluiting is NIET optioneel: 12 bevestig_fout- en 1 bevestig_bijna-
+// record liggen toevallig op de helling en zouden anders van 0,20/0,30 naar
+// 0,50 worden OPGETROKKEN. Overrides dragen hun eigen bron; 1,5 (volledige
+// cyclus) valt af omdat min(1, ...) nooit boven 1,0 komt. De dagdeel-split
+// (r1661) schrijft 0,5 met bron 's1' en kan dus wel meegenomen worden — dat is
+// een no-op, want die override en OBS_VLAK zijn hetzelfde getal.
+// Geeft het vlakke vervangingsgewicht terug, of null als dit gewicht NIET uit
+// de helling komt en dus ongemoeid moet blijven. De tap-variant houdt zijn
+// bonus: die is verdiend met een handmatige bevestiging van de bbox, niet met
+// wachttijd voor het stoplicht.
+// De volgorde van de twee vergelijkingen is niet vrijblijvend: vanaf obs = 36
+// klemt metTap op 1,0 en vanaf obs = 45 doet zonderTap dat ook, waarna de twee
+// niet meer te onderscheiden zijn. Door zonderTap eerst te toetsen geldt daar de
+// zuinige lezing (geen tap) — een onterecht toegekende bonus is erger dan een
+// gemiste, want hij tilt een node richting de poorten op r6117 en r6169.
+function vlakGewichtVoor(m) {
+  if (m.gewicht == null || typeof m.obs !== 'number') return null;
+  if (m.bron && m.bron !== 's1') return null;
+  if (m.gewicht === VOLLEDIG_CYCLUS_GEWICHT) return null;
+  const r2 = x => Math.round(x * 100) / 100;
+  const zonderTap = r2(Math.min(1.0, m.obs / OBS_REFERENTIE));
+  const metTap    = r2(Math.min(1.0, m.obs / OBS_REFERENTIE + OBS_TAP_BONUS));
+  if (Math.abs(m.gewicht - zonderTap) < 0.011) return OBS_VLAK;
+  if (Math.abs(m.gewicht - metTap)    < 0.011) return OBS_VLAK_TAP;
+  return null;
+}
+
 function berekenObsScore(metingen) {
   if (!metingen || !metingen.length) return 0;
   let som = 0;
@@ -1363,7 +1423,12 @@ function berekenObsScore(metingen) {
         || m.bron === 'bevestig_klopte') continue;
     let obsGewicht;
     if (m.gewicht != null && m.tier == null) {
-      obsGewicht = m.gewicht;
+      // V11.17.53: een obs-afgeleid gewicht telt vanaf nu als één vlakke
+      // waarneming (0,50), of 0,70 als er een handmatige tap bij zat.
+      // Overrides (bevestig, volledige cyclus, s2/proxy) en de legacy
+      // tierladder hieronder blijven exact zoals ze waren.
+      const vlak = vlakGewichtVoor(m);
+      obsGewicht = vlak != null ? vlak : m.gewicht;
     } else if (m.tier != null) {
       obsGewicht = m.tier === 1 ? 1.0 : m.tier === 2 ? 0.6 : m.tier === 4 ? 0.1 : 0.3;
     } else {
@@ -2851,7 +2916,7 @@ function exporteerMeetdata() {
   };
   setTimeout(() => {
     try {
-      const uit = { versie:'V11.17.52', geexporteerd:new Date().toISOString(),
+      const uit = { versie:'V11.17.53', geexporteerd:new Date().toISOString(),
                     passief:{}, bevestig:{}, namen:{}, leer:{}, s2:{}, klok:{}, opslag:{}, richting:{}, schaduw:{}, herziening:{},
                     // V11.17.33 W2: sl_v5_ viel volledig buiten deze export en
                     // verdween stilzwijgend op `if (!doel) continue`. Elke analyse
