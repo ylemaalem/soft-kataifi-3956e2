@@ -603,7 +603,7 @@
 <div id="startscherm">
   <div id="s-icoon">🚦</div>
   <div id="s-titel">Stoplicht<span>IQ</span></div>
-  <div id="s-versie">V11.17.51 — nauwelijks gemeten node heet niet langer zeker</div>
+  <div id="s-versie">V11.17.52 — groen gemiddelde weegt niet meer op de duur zelf</div>
   <div id="s-model-wrap">
     <div id="s-model-rij">
       <div id="s-model-label">🤖 YOLOv8 model laden…</div>
@@ -824,7 +824,7 @@
 
 <script>
 // ═══════════════════════════════════════════════════════════════
-//  StoplichtIQ V11.17.51
+//  StoplichtIQ V11.17.52
 //  V11.10: Zelfkalibratie + vergrendeling + crop smoothing
 //  — S1+S2 bevestiging (kruispunt-level confidence)
 //  — Route-herkenning basis (sequentie-opslag)
@@ -1637,7 +1637,15 @@ function slaGroenOp(osmId, richting, duur, obs) {
     gewicht: Math.round(gewicht * 100) / 100
   });
   if (m.length > MAX_METINGEN) {
-    m.sort((a,b) => (b.gewicht||1) - (a.gewicht||1));
+    // V11.17.52: sorteren op recentheid, niet op gewicht. Het oude
+    // `(b.gewicht||1) - (a.gewicht||1)` bewaarde de HOOGSTE gewichten, en omdat
+    // het gewicht hier min(1, duur/45) is (zie gewGemGroen hieronder), bewaarde
+    // het dus de langste groenfasen en gooide het de korte weg — onomkeerbaar.
+    // Rood (r1850), V5 (r2114) en S2 (r8678) sorteren al op recentheid; groen
+    // was het enige van de vier dat op de weegfactor snoeide. Nog niet
+    // afgegaan: op de export van 13 augustus is de grootste groenset 30
+    // records en de cap 50.
+    m.sort((a,b)=>gew(b.tijd)-gew(a.tijd));
     m = m.slice(0, MAX_METINGEN);
   }
   try {
@@ -1673,11 +1681,23 @@ function gewGemGroen(metingen) {
   let totaalGewicht = 0, gewogenSom = 0;
   for (const m of metingen) {
     const leeftijdDagen = (nu - (m.tijd || nu)) / dag;
+    // V11.17.52: alleen recentheid weegt nog mee. m.gewicht was hier een
+    // duur-proxy: slaGroenOp krijgt op r1662 en r5502 dezelfde variabele mee
+    // als `duur` EN als `obs`, waarna berekenObsGewicht er min(1, obs/45) van
+    // maakt. Het gewicht was dus recht evenredig met de duur die het moest
+    // wegen — gemeten correlatie obs~duur = 1,0000 over 3281 groenrecords,
+    // tegen 0,3666 aan de rode kant. Gevolg is lengte-bias (E[D^2]/E[D]):
+    // over 351 sleutels met >= 3 metingen trok het gemiddelde 3,22s omhoog,
+    // 336 sleutels omhoog tegen 7 omlaag, ergste geval 79,3s -> 164,5s.
+    // Dezelfde keuze als gewGem (r1247), dat x.gewicht evenmin raadpleegt —
+    // dat was de eigenlijke reparatie aan de rode kant in V11.17.10.
+    // De vervalvorm blijft ongemoeid: 0,5^(leeftijd/60) is een echte
+    // halfwaardetijd van 60 dagen, terwijl gew() een e-macht met TIJDCONSTANTE
+    // is (gew(t,180) halveert pas na 180*ln2 ~ 125 dagen). Overstappen zou het
+    // gewicht van oude metingen veranderen los van deze bug; losse beslissing.
     const tijdGewicht = Math.pow(0.5, leeftijdDagen / 60);
-    const obsGewicht = m.gewicht || 1.0;
-    const totaal = tijdGewicht * obsGewicht;
-    gewogenSom += m.duur * totaal;
-    totaalGewicht += totaal;
+    gewogenSom += m.duur * tijdGewicht;
+    totaalGewicht += tijdGewicht;
   }
   return totaalGewicht > 0 ? gewogenSom / totaalGewicht : null;
 }
@@ -2831,7 +2851,7 @@ function exporteerMeetdata() {
   };
   setTimeout(() => {
     try {
-      const uit = { versie:'V11.17.51', geexporteerd:new Date().toISOString(),
+      const uit = { versie:'V11.17.52', geexporteerd:new Date().toISOString(),
                     passief:{}, bevestig:{}, namen:{}, leer:{}, s2:{}, klok:{}, opslag:{}, richting:{}, schaduw:{}, herziening:{},
                     // V11.17.33 W2: sl_v5_ viel volledig buiten deze export en
                     // verdween stilzwijgend op `if (!doel) continue`. Elke analyse
