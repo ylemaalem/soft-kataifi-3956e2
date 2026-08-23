@@ -603,7 +603,7 @@
 <div id="startscherm">
   <div id="s-icoon">🚦</div>
   <div id="s-titel">Stoplicht<span>IQ</span></div>
-  <div id="s-versie">V11.17.53 — leerpercentage telt waarnemingen, niet seconden</div>
+  <div id="s-versie">V11.17.54 — 4K-opname en een sticky die meebeweegt</div>
   <div id="s-model-wrap">
     <div id="s-model-rij">
       <div id="s-model-label">🤖 YOLOv8 model laden…</div>
@@ -824,7 +824,7 @@
 
 <script>
 // ═══════════════════════════════════════════════════════════════
-//  StoplichtIQ V11.17.53
+//  StoplichtIQ V11.17.54
 //  V11.10: Zelfkalibratie + vergrendeling + crop smoothing
 //  — S1+S2 bevestiging (kruispunt-level confidence)
 //  — Route-herkenning basis (sequentie-opslag)
@@ -2916,7 +2916,7 @@ function exporteerMeetdata() {
   };
   setTimeout(() => {
     try {
-      const uit = { versie:'V11.17.53', geexporteerd:new Date().toISOString(),
+      const uit = { versie:'V11.17.54', geexporteerd:new Date().toISOString(),
                     passief:{}, bevestig:{}, namen:{}, leer:{}, s2:{}, klok:{}, opslag:{}, richting:{}, schaduw:{}, herziening:{},
                     // V11.17.33 W2: sl_v5_ viel volledig buiten deze export en
                     // verdween stilzwijgend op `if (!doel) continue`. Elke analyse
@@ -3319,6 +3319,8 @@ let zoomVergrendeld=false, vergrendeldZoomNiveau=1.0;
 let zoomVergrendelTijdstip=null, huidigActiefStoplichtPositie=null;
 let laatsteZoomCSS='';
 const headingBuffer=[];
+// V11.17.54: los van headingBuffer — ruwe fix + tijdstempel voor de yaw-snelheid.
+let yawVorigeH = null, yawVorigeT = 0, yawRateDps = 0;
 let gpsBuffer=10, snelheidKmh=0, gecorrigeerdeAfstand=0;
 
 // V11.9.0: Fase continuïteit state
@@ -3453,6 +3455,17 @@ let bboxOverrideMatchTeller = 0;
 let stickyDetectie = null;      // V11.16.5: { cx, cy, familie, hoogte, klasse, tijd }
 let stickyMissTeller = 0;
 const STICKY_MATCH_PX = 80;
+// V11.17.54: voorspellende correctie op de sticky. STICKY_MATCH_PX zelf blijft 80.
+const STICKY_VOORSPEL_MAX_DT = 3.0;    // s — oudere sticky: niet voorspellen
+const STICKY_YAW_VERS_MS     = 3000;   // ms — oudere yaw-snelheid telt niet mee
+const STICKY_VOORSPEL_CAP    = 0.75;   // max verschuiving als deel van STICKY_MATCH_PX
+// De verticale term rust op een AANGENOMEN lichthoogte en is daarmee onzeker met
+// een factor ~2 (3m licht geeft 23 YOLO-px op 40m, 6m licht 68). Bij die onzekerheid
+// is onderschatten strikt veiliger dan overschatten: corrigeer je 2x te veel, dan is
+// de restfout even groot als niet corrigeren en heb je alleen risico toegevoegd;
+// corrigeer je te weinig, dan ben je altijd beter af dan niets doen. Vandaar demping.
+const STICKY_VERT_DEMPING    = 0.6;
+const STICKY_LICHT_HOOGTE_M  = 3.5;    // aangenomen hoogte BOVEN de camera (5m licht, 1,5m camera)
 const STICKY_MISS_MAX = 5;
 
 // V11.16.5 Fix B: identity-secundairen — hoogte-continuiteit + klasse-familie
@@ -3749,6 +3762,7 @@ let debugLaatsteKandH = null;       // bbox-hoogte in YOLO-pixels van hoogst-sco
 // verwerkDetecties. Puur meelezend; geen enkele beslissing hangt ervan af.
 let detLogSkip = null, detLogRatio = null, detLogHintBron = null;
 let detLogAfst = null, detLogStickyDx = null, detLogFam = null;
+let detLogVdx = null, detLogVdy = null;   // V11.17.54: toegepaste voorspelcorrectie
 let debugLaatsteKandCy = null;      // cy als fractie 0..1 van beeldhoogte
 let debugLaatsteKandKlasse = null;  // topklasse-index van kandidaat
 // V11.15.10 DEBUG: helper — leest debug-globals + debugWaarden.ai, throttlet 1/s.
@@ -4080,6 +4094,7 @@ function preprocessVoorYOLO() {
   // V11.17.46: per-run reset VOOR berekenCropRegio, die hintBron zet.
   detLogSkip = skipCrop; detLogAfst = afst;
   detLogStickyDx = null; detLogFam = null; detLogHintBron = null;
+  detLogVdx = null; detLogVdy = null;   // V11.17.54
   cropRegio = skipCrop ? null : berekenCropRegio(vW, vH, afst);
   // huidigeCropRatio wordt binnen berekenCropRegio bijgewerkt; op een
   // skipCrop-run draait die functie niet, dus dan is er geen ratio.
@@ -4427,9 +4442,71 @@ function stickyCam(det) {
   return {
     camX: (det.cx - lbPadX) / lbScale + (cropRegio ? cropRegio.x : 0),
     camY: (det.cy - lbPadY) / lbScale + (cropRegio ? cropRegio.y : 0),
-    camH: det.h / lbScale
+    camH: det.h / lbScale,
+    // V11.17.54: afstand op het moment van vastleggen — de verticale voorspelling
+    // heeft D1 nodig. Via stickyCam meeliften dekt alle vijf de schrijfplekken
+    // (drie letterlijke creaties met ...stickyCam(), twee Object.assign-updates).
+    camAfst: (dichtstbijOSM && typeof dichtstbijOSM.afstand === 'number')
+               ? dichtstbijOSM.afstand : null
   };
 }
+// V11.17.54: schuif de bewaarde sticky-positie naar waar het stoplicht NU hoort
+// te staan, vóór stickyProjecteer en dus vóór elke drempeltoets. Twee volledig
+// onafhankelijke termen, allebei in CAMERApixels omdat dat stelsel frame-
+// onafhankelijk is (zie V11.17.45):
+//
+//  HORIZONTAAL — yaw. Enige aanname is de FOV; de headingverandering is gemeten.
+//    Nodig omdat 80px bij ratio 0,40 slechts 1,97 graden is: bij 2 graden/s is de
+//    matchradius binnen één seconde volledig opgebruikt. Volle sterkte.
+//  VERTICAAL — nadering. Het licht klimt in beeld naarmate je nadert. Rust op een
+//    aangenomen lichthoogte en is daarom gedempt (zie STICKY_VERT_DEMPING).
+//    Verwaarloosbaar ver weg (5 YOLO-px op 150m), dominant dichtbij (62px op 50m).
+//
+// Ontbreekt een van beide bronnen, dan valt alleen die term weg op 0 en gedraagt
+// de sticky zich bit-voor-bit als voorheen. Beide zijn zuiver additieve offsets.
+function stickyVoorspel(s) {
+  detLogVdx = null; detLogVdy = null;
+  if (!s || s.camX == null || !(lbScale > 0)) return;
+  const vW = video.videoWidth || 0, vH = video.videoHeight || 0;
+  if (!(vW > 0) || !(vH > 0)) return;
+  const nu = Date.now();
+  const dt = (nu - (s.tijd || nu)) / 1000;
+  if (!(dt > 0) || dt > STICKY_VOORSPEL_MAX_DT) return;
+
+  const fov  = (typeof CAMERA_FOV !== 'undefined') ? CAMERA_FOV : 70;
+  const vFov = 2 * Math.atan(Math.tan(fov / 2 * Math.PI / 180) * vH / vW) * 180 / Math.PI;
+
+  // horizontaal: draait het voertuig naar rechts (heading loopt op), dan schuift
+  // de wereld naar LINKS in beeld, dus camX omlaag.
+  let dCamX = 0;
+  if (yawVorigeT && (nu - yawVorigeT) < STICKY_YAW_VERS_MS && yawRateDps) {
+    dCamX = -yawRateDps * dt * (vW / fov);
+  }
+
+  // verticaal: elevatie = atan(hoogte / afstand). Nadert de afstand, dan stijgt de
+  // elevatie en gaat het licht OMHOOG in beeld, dus camY omlaag.
+  let dCamY = 0;
+  const D2 = (dichtstbijOSM && typeof dichtstbijOSM.afstand === 'number')
+               ? dichtstbijOSM.afstand : null;
+  const D1 = s.camAfst;
+  if (D1 != null && D2 != null && D1 > 1 && D2 > 1 && D2 < D1) {
+    const e1 = Math.atan(STICKY_LICHT_HOOGTE_M / D1) * 180 / Math.PI;
+    const e2 = Math.atan(STICKY_LICHT_HOOGTE_M / D2) * 180 / Math.PI;
+    dCamY = -(e2 - e1) * (vH / vFov) * STICKY_VERT_DEMPING;
+  }
+
+  if (!dCamX && !dCamY) return;
+  // Cap uitgedrukt in YOLO-pixels zodat hij dezelfde betekenis houdt als
+  // STICKY_MATCH_PX, en teruggerekend naar camerapixels via lbScale.
+  const capCam = (STICKY_MATCH_PX * STICKY_VOORSPEL_CAP) / lbScale;
+  const klem = v => Math.max(-capCam, Math.min(capCam, v));
+  const kx = klem(dCamX), ky = klem(dCamY);
+  s.camX += kx;
+  s.camY += ky;
+  detLogVdx = kx * lbScale;   // loggen in YOLO-px, vergelijkbaar met STICKY_MATCH_PX
+  detLogVdy = ky * lbScale;
+}
+
 function stickyProjecteer(s) {
   if (!s || s.camX == null || !(lbScale > 0)) return;   // oude sticky zonder cam-velden: laat staan
   s.cx     = (s.camX - (cropRegio ? cropRegio.x : 0)) * lbScale + lbPadX;
@@ -4491,6 +4568,9 @@ function selecteerBesteDetectie(detecties) {
         // V11.17.45: eerst terugprojecteren naar het frame van DEZE run. Alles
         // hieronder — matchradius, hoogtetolerantie, overname-routes, de
         // herstel-stap — vergelijkt daarna in een consistent stelsel.
+        // V11.17.54: eerst voorspellen waar hij NU hoort te staan, dan pas
+        // projecteren. Volgorde is bindend — stickyVoorspel werkt in camerapixels.
+        stickyVoorspel(stickyDetectie);
         stickyProjecteer(stickyDetectie);
         const kandidaten = [];
         for (const det of bruikbaar) {
@@ -7065,6 +7145,27 @@ function afstand(la1, lo1, la2, lo2) {
 
 function voegHeadingToe(h) {
   if (h==null||isNaN(h)) return;
+  // V11.17.54: yaw-SNELHEID uit twee opeenvolgende RUWE fixes. Nodig omdat
+  // getSmoothedHeading() het circulaire gemiddelde van drie kale getallen is
+  // (headingBuffer, r3321) zonder tijdstempels, en alleen bij een GPS-fix
+  // ververst — in de praktijk ~1 Hz, terwijl YOLO elke 0,6-1,3s draait. Het
+  // verschil tussen twee runs is daardoor vaak exact 0, juist tijdens het
+  // snelste deel van een bocht. Met een snelheid kan er WEL geextrapoleerd
+  // worden naar het tijdstip van de run. headingBuffer en getSmoothedHeading
+  // blijven ongemoeid: dit is puur additief, geen bestaande consument merkt iets.
+  const nuH = Date.now();
+  if (yawVorigeH != null && yawVorigeT) {
+    const dtH = (nuH - yawVorigeT) / 1000;
+    if (dtH > 0.15 && dtH < 5) {
+      let dH = h - yawVorigeH;
+      while (dH > 180) dH -= 360;
+      while (dH < -180) dH += 360;
+      yawRateDps = dH / dtH;
+    } else {
+      yawRateDps = 0;   // gat of dubbele fix: geen bruikbare snelheid
+    }
+  }
+  yawVorigeH = h; yawVorigeT = nuH;
   headingBuffer.push(h);
   if (headingBuffer.length > 3) headingBuffer.shift();
 }
@@ -9688,6 +9789,12 @@ function detLogSchrijf() {
       sMiss:  num(stickyMissTeller),
       sDx:    num(detLogStickyDx),      // kleinste afstand tot de sticky, VOOR de radiusfilter
       hint:   detLogHintBron,           // 1=tap 2=anchor 3=OSM 4=GOK
+      vW:     vW || null,               // V11.17.54: wat het toestel ECHT levert
+      vH:     vH || null,               // (4K gevraagd; ideal, dus terugval mogelijk)
+      // V11.17.54: toegepaste voorspelcorrectie in YOLO-px, dus direct
+      // vergelijkbaar met STICKY_MATCH_PX (80) en met sDx hierboven.
+      vdx:    num(detLogVdx, 1),        // yaw
+      vdy:    num(detLogVdy, 1),        // nadering
       node:   dichtstbijOSM ? String(dichtstbijOSM.id) : null,
       kmh:    num(typeof snelheidKmh === 'number' ? snelheidKmh : null),
       inf:    num(gemiddeldeInferentieTijd)
@@ -10744,7 +10851,18 @@ async function startApp() {
   document.getElementById('startscherm').classList.add('weg');
   try {
     const stream = await navigator.mediaDevices.getUserMedia({
-      video:{ facingMode:{exact:'environment'}, width:{ideal:1920}, height:{ideal:1080} },
+      // V11.17.54: 4K aangevraagd. De crop knipt min(vW,vH)*ratio uit het VOLLE
+      // beeld en schaalt naar 640; bij 1920 was dat 432px -> 640, dus 1,48x
+      // UPSCALEN — verzonnen detail. Bij 3840 wordt het 864px -> 640, een
+      // downscale met echte sensorpixels. De YOLO-invoer blijft 640x640, dus de
+      // inferentietijd verandert niet; alleen drawImage krijgt een grotere bron.
+      // Bewust `ideal` en GEEN `min`: min is een harde eis en laat getUserMedia
+      // afwijzen als de gekozen modus het niet haalt, waarna de catch hieronder
+      // de gebruiker op het startscherm terugzet en de app niet start. Met ideal
+      // kiest de browser zelf de dichtstbijzijnde modus en is de terugval gratis.
+      // De rest van de code rekent volledig relatief (berekenCropRegio r4036:
+      // min(vW,vH)*ratio) en heeft geen apart pad nodig.
+      video:{ facingMode:{exact:'environment'}, width:{ideal:3840}, height:{ideal:2160} },
       audio:false
     });
     video.srcObject = stream;
