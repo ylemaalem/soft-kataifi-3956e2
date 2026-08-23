@@ -603,7 +603,7 @@
 <div id="startscherm">
   <div id="s-icoon">🚦</div>
   <div id="s-titel">Stoplicht<span>IQ</span></div>
-  <div id="s-versie">V11.17.50 — countdown zegt eerlijk wanneer de schatting op is</div>
+  <div id="s-versie">V11.17.51 — nauwelijks gemeten node heet niet langer zeker</div>
   <div id="s-model-wrap">
     <div id="s-model-rij">
       <div id="s-model-label">🤖 YOLOv8 model laden…</div>
@@ -824,7 +824,7 @@
 
 <script>
 // ═══════════════════════════════════════════════════════════════
-//  StoplichtIQ V11.17.50
+//  StoplichtIQ V11.17.51
 //  V11.10: Zelfkalibratie + vergrendeling + crop smoothing
 //  — S1+S2 bevestiging (kruispunt-level confidence)
 //  — Route-herkenning basis (sequentie-opslag)
@@ -1302,6 +1302,18 @@ function gewSpreiding(m) {
   const duurs = bron.filter(x => x.duur > 0).map(x => x.duur);
   if (duurs.length < 2) return 0;
   return Math.max(...duurs) - Math.min(...duurs);
+}
+
+// V11.17.51: hoeveel metingen liggen er WERKELIJK onder gewSpreiding hierboven?
+// Exact dezelfde bron-selectie (recentheidsfilter met terugval op de volledige
+// set), zodat de twee niet uiteen kunnen lopen als een van beide ooit wijzigt.
+// Uitsluitend bepaalCdModus gebruikt dit. berekenVRIScore (r7437) blijft op
+// gewSpreiding: dat pad ijkt op ABSOLUTE seconden (30 / VRI_MIN_SPREIDING / 10)
+// en zou bij een ander getal stil andere VRI-labels gaan geven.
+function gewSpreidingN(m) {
+  const recent = m.filter(x => gew(x.tijd, HALFWAARDETIJD_SPREIDING) > 0.1);
+  const bron = recent.length >= 3 ? recent : m;
+  return bron.filter(x => x.duur > 0).length;
 }
 
 // V11.17.0 Release 1: schaduw-voorspelmethodes. Vier pure functies die naast
@@ -2167,6 +2179,25 @@ function aantalAanrijRichtingen(nodeId) {
 
 // V11.8.0: Modus-bepaling op basis van spreiding
 function bepaalCdModus(gem, metingen) {
+  // V11.17.51: gewSpreiding geeft 0 terug bij minder dan 2 bruikbare metingen
+  // (r1303). Dat betekent 'spreiding onbekend', niet 'spreiding nul' — maar
+  // relSpr werd daardoor 0 en de modus CD_ZEKER: maximale stelligheid op juist
+  // de node waar we het minst van weten. Gemeten op de export van 13 augustus:
+  // 229 van de 519 (node,dagdeel)-sets, alle met exact 1 meting en 0 V5-
+  // richtingen. Op het scherm is het zeldzaam (1 van 194 passieve records) —
+  // het zijn nodes die eenmalig gepasseerd zijn — maar het is wel precies het
+  // moment waarop een onbekend stoplicht een hard getal kreeg.
+  //
+  // CD_VAAG kan hier niet: de band wordt gem +/- 0, dus cdMin === cdMax en het
+  // scherm toont letterlijk '9-9s / onzeker' (r5878-5887). Bovendien zou r5920
+  // dan countdownNulTijd zetten en updateSchaduwCountdownNul aanroepen, en gaat
+  // de BIJNA-correctie leren van een schatting uit een enkel sample.
+  // Een verzonnen bandbreedte is erger: geen enkele meting draagt een waarde.
+  // CD_GESCHAT toont een enkel getal met voorbehoud ('~9s / geschat') en volgt
+  // de cap die V11.14.0 op r2352 al koos toen de basis te dun was.
+  // De bevestig-upgrade (r2380) draait dit niet terug: van de 229 dunne sets
+  // hebben 19 nodes >= 2 bevestig-records en haalt er 0 een score > 0,6.
+  if (gewSpreidingN(metingen) < 2) return { modus: CD_GESCHAT, cdMin: null, cdMax: null };
   const spr = gewSpreiding(metingen);
   const relSpr = gem > 0 ? spr / gem : 0;
   let modus, cdMin = null, cdMax = null;
@@ -2800,7 +2831,7 @@ function exporteerMeetdata() {
   };
   setTimeout(() => {
     try {
-      const uit = { versie:'V11.17.50', geexporteerd:new Date().toISOString(),
+      const uit = { versie:'V11.17.51', geexporteerd:new Date().toISOString(),
                     passief:{}, bevestig:{}, namen:{}, leer:{}, s2:{}, klok:{}, opslag:{}, richting:{}, schaduw:{}, herziening:{},
                     // V11.17.33 W2: sl_v5_ viel volledig buiten deze export en
                     // verdween stilzwijgend op `if (!doel) continue`. Elke analyse
