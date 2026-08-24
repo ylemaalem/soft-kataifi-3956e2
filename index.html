@@ -603,7 +603,7 @@
 <div id="startscherm">
   <div id="s-icoon">🚦</div>
   <div id="s-titel">Stoplicht<span>IQ</span></div>
-  <div id="s-versie">V11.17.54 — 4K-opname en een sticky die meebeweegt</div>
+  <div id="s-versie">V11.17.55 — bevestigknop telt niet meer vijf keer</div>
   <div id="s-model-wrap">
     <div id="s-model-rij">
       <div id="s-model-label">🤖 YOLOv8 model laden…</div>
@@ -824,7 +824,7 @@
 
 <script>
 // ═══════════════════════════════════════════════════════════════
-//  StoplichtIQ V11.17.54
+//  StoplichtIQ V11.17.55
 //  V11.10: Zelfkalibratie + vergrendeling + crop smoothing
 //  — S1+S2 bevestiging (kruispunt-level confidence)
 //  — Route-herkenning basis (sequentie-opslag)
@@ -1384,7 +1384,7 @@ function methodeM4(metingen) {
 // fasen is korter dan 20s.
 //
 // Het terechte deel van 'lang = betrouwbaar' zit al in de ondergrenzen
-// (minDuur 4s r1625, OBS_MINIMUM 3, effectieveMinDur r5633); de lineaire helling
+// (minDuur 4s r1625, OBS_MINIMUM 3, effectieveMinDur r5748); de lineaire helling
 // daarbovenop voegde alleen de vertekening toe. Het echte detectiesignaal is
 // entry.conf (r1909) en dat wordt nergens gelezen — aparte vondst.
 //
@@ -2354,9 +2354,23 @@ function verwerkBevestigLeren(osmId, categorie,
 
   if (categorie === 'fout') {
     const extremeWaarde = gem * 1.6;
-    slaOpIntern(osmId, null, extremeWaarde,
-      0.2, dd, 'bevestig_fout');
-    leerLog('bevestig fout: spreiding vergroot');
+    // V11.17.55: grens, symmetrisch met de bijna-tak hierboven. Die had er al
+    // een (nieuwGem > 5 && nieuwGem < 300), deze tak had er GEEN — en omdat hij
+    // slaOpIntern rechtstreeks aanroept, omzeilde hij ook de 180s-controle van
+    // slaOp (r1626). Gevolg: `gem` wordt bij elke aanroep vers gelezen, dus elke
+    // schrijving verhoogt de pool en de volgende schrijft 1,6x DAARVAN — een
+    // positieve terugkoppeling. In de export van 13 augustus staat node
+    // 6960792133_dag met 24 bevestig_fout-records binnen 11 seconden, monotoon
+    // van 153s naar 447s; 24 records over de hele store staan boven de 180s-cap.
+    // checkCyclusReset vangt dat structureel niet: elke stap is maar 1,03-1,26x
+    // gem, en bepaalResetDrempel wordt ruimhartiger naarmate de spreiding groeit.
+    if (extremeWaarde > 5 && extremeWaarde < 300) {
+      slaOpIntern(osmId, null, extremeWaarde,
+        0.2, dd, 'bevestig_fout');
+      leerLog('bevestig fout: spreiding vergroot');
+    } else {
+      logOpslagMis('bevestig_fout_grens', { node: osmId, dur: Math.round(extremeWaarde) });
+    }
   }
 
   if (categorie === 'klopte') {
@@ -2916,7 +2930,7 @@ function exporteerMeetdata() {
   };
   setTimeout(() => {
     try {
-      const uit = { versie:'V11.17.54', geexporteerd:new Date().toISOString(),
+      const uit = { versie:'V11.17.55', geexporteerd:new Date().toISOString(),
                     passief:{}, bevestig:{}, namen:{}, leer:{}, s2:{}, klok:{}, opslag:{}, richting:{}, schaduw:{}, herziening:{},
                     // V11.17.33 W2: sl_v5_ viel volledig buiten deze export en
                     // verdween stilzwijgend op `if (!doel) continue`. Elke analyse
@@ -3263,6 +3277,27 @@ let countdownNulTijd=null, cdBereikteNul=false, bevestigActief=false;
 // nog hoort bij de zojuist beëindigde rode fase), zodat sleutel-vergelijking
 // in beide tickCd-branches dezelfde sleutel oplevert.
 let bevestigGedaanVoorFase=null, laatsteRoodFaseStart=null;
+// V11.17.55: laatsteRoodFaseStart is null zolang de app in deze sessie nog geen
+// groen->rood-overgang zag — het normale geval als je naar een AL rood licht
+// rijdt. Dan bleef de marker hierboven ongezet, bleef _bevAlGedaan false, en
+// hertoonde tickCd de knoppen op de eerstvolgende rAF-frame (~16ms). De
+// gebruiker zag ze niet verdwijnen en tikte door: in de export van 13 augustus
+// 94 van 503 events (18,7%) overtollig, mediane tussentijd 184ms.
+// Terugval op een vaste sentinel. Die is stabiel over de rood->groen-grens,
+// wat r6142 expliciet eist, en verandert vanzelf zodra er WEL een rode fase
+// begint (r5734 nult de marker en vult laatsteRoodFaseStart) of de node wisselt
+// (de node zit in de sleutel). Faalrichting is bewust conservatief: in het
+// zeldzame geval dat je bij dezelfde node terugkeert zonder node-wissel en
+// zonder waargenomen rode fase, mis je één bevestiging in plaats van er een
+// dubbel te tellen.
+// Eén definitie voor beide gebruikers (tickCd r6142 en bevestigCountdown r6229),
+// zodat de twee sleutels niet uiteen kunnen lopen.
+function bevestigMarkerSleutel() {
+  if (!dichtstbijOSM) return null;
+  return String(dichtstbijOSM.id) + '_' + String(laatsteRoodFaseStart || 'geenfase');
+}
+// V11.17.55: vangnet bij het WEGSCHRIJVEN. Zie bevestigCountdown.
+const BEVESTIG_DEDUP_MS = 2000;
 let huidigCdBron=null, huidigCdWaarde=null;
 // V11.17.0 Release 1: schaduw-voorspellingen — per methode de voorspelde
 // cyclusduur (sec) resp. het voorspelde nul-moment (ms epoch). Gevuld door
@@ -6104,9 +6139,7 @@ function tickCd() {
   // V11.13.0: bereken sleutel voor bevestig-marker — gebruikt in BEIDE branches
   // zodat tap tijdens rood (faseStart=rood) en tap tijdens groen (cdBereikteNul,
   // faseStart=groen) beide dezelfde rood-faseStart referentie hebben.
-  const _bevSleutel = (dichtstbijOSM && laatsteRoodFaseStart)
-    ? String(dichtstbijOSM.id) + '_' + String(laatsteRoodFaseStart)
-    : null;
+  const _bevSleutel = bevestigMarkerSleutel();   // V11.17.55
   const _bevAlGedaan = _bevSleutel && bevestigGedaanVoorFase === _bevSleutel;
   if (cdPillActief && stilstaand) {
     if (!bevestigActief && !_bevAlGedaan) {
@@ -6147,6 +6180,20 @@ function bevestigCountdown(categorie) {
   try { data = JSON.parse(localStorage.getItem(sleutel)) || []; }
   catch(e) { data = []; }
   const nu = Date.now();
+  // V11.17.55: vangnet. De her-toon-lus hierboven is de vermoedelijke bron van de
+  // dubbeltiks, maar dat vermoeden is niet waterdicht — daarom ook hier een slot,
+  // dat werkt tegen bronnen die we niet kennen. Bewust op node EN categorie: een
+  // echte correctie (eerst 'fout', dan 'bijna') moet direct door kunnen. Geen
+  // debounce op de knop zelf: de gemeten tussentijden lopen tot 1851ms, dus een
+  // knop-debounce zou boven de 2s moeten liggen en juist die correctie blokkeren.
+  // Deze return slaat OOK verwerkBevestigLeren over, en dus de synthetische
+  // sl_v4_-schrijving — precies waar de schade zat.
+  const _vorige = data.length ? data[data.length - 1] : null;
+  if (_vorige && _vorige.categorie === categorie
+      && typeof _vorige.ts === 'number' && (nu - _vorige.ts) < BEVESTIG_DEDUP_MS) {
+    logOpslagMis('bevestig_dubbel', { node: dichtstbijOSM.id, dur: nu - _vorige.ts });
+    return;
+  }
   const schaduwLog = {
     m1: { voorspeldeCyclus: schaduwWaarden.m1, autoVerschilMs: schaduwCountdownNul.m1 != null ? nu - schaduwCountdownNul.m1 : null },
     m2: { voorspeldeCyclus: schaduwWaarden.m2, autoVerschilMs: schaduwCountdownNul.m2 != null ? nu - schaduwCountdownNul.m2 : null },
@@ -6176,9 +6223,10 @@ function bevestigCountdown(categorie) {
   bevestigWrap.classList.remove('actief');
   // V11.13.0: markeer deze rode fase als afgehandeld zodat tickCd() de
   // bevestigknoppen niet opnieuw toont in deze of een volgende cycle.
-  if (dichtstbijOSM && laatsteRoodFaseStart) {
-    bevestigGedaanVoorFase = String(dichtstbijOSM.id) + '_' + String(laatsteRoodFaseStart);
-  }
+  // V11.17.55: was `if (dichtstbijOSM && laatsteRoodFaseStart)` — de tweede
+  // voorwaarde liet de marker ongezet bij een al rood licht, en dat was het gat.
+  const _mk = bevestigMarkerSleutel();
+  if (_mk) bevestigGedaanVoorFase = _mk;
   cdPillGetal.textContent = '✓';
   cdPillLabel.textContent = 'opgeslagen';
   cdPill.classList.remove('cd-verborgen'); // V11.17.28 W1c: bevestiging blijft zichtbaar
