@@ -603,7 +603,7 @@
 <div id="startscherm">
   <div id="s-icoon">🚦</div>
   <div id="s-titel">Stoplicht<span>IQ</span></div>
-  <div id="s-versie">V11.17.56 — de richtingtik overleeft de node-wissel</div>
+  <div id="s-versie">V11.17.57 — de countdown telt door in plaats van stil te staan</div>
   <div id="s-model-wrap">
     <div id="s-model-rij">
       <div id="s-model-label">🤖 YOLOv8 model laden…</div>
@@ -776,6 +776,7 @@
       <!-- V11.17.34 W1: zicht-log export voor diagnose flikkerend rijscherm — TIJDELIJK -->
       <button id="export-zichtlog-btn" onclick="exporteerZichtLog()" style="flex:1;padding:8px 12px;background:rgba(56,189,248,0.15);color:#38bdf8;border:1px solid rgba(56,189,248,0.35);border-radius:8px;font-size:12px;cursor:pointer;min-width:100px">👁 Exp. zicht-log</button>
       <button id="export-detlog-btn" onclick="exporteerDetLog()" style="flex:1;padding:8px 12px;background:rgba(167,139,250,0.15);color:#a78bfa;border:1px solid rgba(167,139,250,0.35);border-radius:8px;font-size:12px;cursor:pointer;min-width:100px">🔍 Exp. detectie-log</button>
+      <button id="export-herzlog-btn" onclick="exporteerHerzieningLog()" style="flex:1;padding:8px 12px;background:rgba(34,197,94,0.15);color:#22c55e;border:1px solid rgba(34,197,94,0.35);border-radius:8px;font-size:12px;cursor:pointer;min-width:100px">📉 Exp. herziening-log</button>
       <button id="opruim-nu-btn" onclick="ruimOpslagNuOp()" style="flex:1;padding:8px 12px;background:rgba(239,68,68,0.15);color:#ef4444;border:1px solid rgba(239,68,68,0.35);border-radius:8px;font-size:12px;cursor:pointer;min-width:100px">🧹 Ruim opslag nu op</button>
       <button id="klok-analyse-btn" onclick="toonKlokAnalyse()" style="flex:1;padding:8px 12px;background:rgba(34,197,94,0.15);color:#22c55e;border:1px solid rgba(34,197,94,0.35);border-radius:8px;font-size:12px;cursor:pointer;min-width:100px">🕐 Analyseer klokritmes</button>
       <button id="terug-analyse-btn" onclick="toonTerugAnalyse()" style="flex:1;padding:8px 12px;background:rgba(167,139,250,0.15);color:#a78bfa;border:1px solid rgba(167,139,250,0.35);border-radius:8px;font-size:12px;cursor:pointer;min-width:100px">↶ Tel Terug-records</button>
@@ -824,7 +825,7 @@
 
 <script>
 // ═══════════════════════════════════════════════════════════════
-//  StoplichtIQ V11.17.56
+//  StoplichtIQ V11.17.57
 //  V11.10: Zelfkalibratie + vergrendeling + crop smoothing
 //  — S1+S2 bevestiging (kruispunt-level confidence)
 //  — Route-herkenning basis (sequentie-opslag)
@@ -1070,6 +1071,15 @@ const CD_NU      = 'nu';
 // Onder de 3 metingen boven w is de schatting te dun — dan terugval op het
 // bestaande gedrag.
 const CD_COND_FRACTIE   = 0.5;   // herzien vanaf 0,5 x het oorspronkelijke doel
+// V11.17.57: bovengrens van de overschrijdingsteller. Boven deze waarde meet
+// hij geen schattingsfout meer. Onderbouwing op de roodduren van de export van
+// 13 augustus (n=1784): mediaan 26s, p75 44s, p90 67s. Een overschrijding boven
+// 120s ligt verder buiten de verdeling dan de p90 van alle roodfasen samen, en
+// wijst vrijwel zeker op het fantoom-rood uit het sessieherstel (r10306, venster
+// NODE_SESSION_MAX_MS = 45s, maar de herstelde fase blijft daarna staan tot een
+// detectie hem tegenspreekt). Boven de grens: terug naar de neutrale weergave,
+// nooit een verzonnen getal.
+const CD_OVERSCHR_MAX_S = 120;
 const CD_COND_MIN_BOVEN = 3;     // min. metingen langer dan w, anders terugval
 const CD_COND_MAX_W     = 180;   // tabelgrens, gelijk aan de schrijf-cap (r4767)
 
@@ -2620,9 +2630,29 @@ function bouwCondTabel(metingen) {
 
 // Levensduur van de tabel: gebonden aan (node, countdown-start, bron). Wisselt
 // een van drie, dan is het een andere rode fase of een andere brondataset en
-// wordt opnieuw gebouwd. cdCondGetoond draagt de klem: het getoonde getal mag
-// nooit stijgen — bij een opwaartse bijstelling bevriest de weergave.
-let cdCondSleutel = null, cdCondTab = null, cdCondGetoond = null;
+// wordt opnieuw gebouwd.
+// V11.17.57: cdCondGetoond (bevroren getoonde waarde) is vervangen door een
+// DOEL plus het moment waarop dat doel gezet is. De klem blijft — een hogere
+// conditionele verwachting wordt genegeerd — maar de weergave telt voortaan in
+// echte tijd naar dat doel af in plaats van stil te staan.
+// Waarom `ver` en niet Date.now(): de waarde moet monotoon blijven t.o.v. `over`
+// (r6115), en die draait op performance.now() via cdStart. Twee klokken door
+// elkaar laat ze bij achtergrondpauze uit elkaar lopen. Door het doel in
+// ver-eenheden vast te leggen is er maar één klok in het spel.
+let cdCondSleutel = null, cdCondTab = null;
+let cdCondDoel = null, cdCondDoelVer = 0;
+// V11.17.57: de WERKELIJK laatst getoonde waarde. De klem hieronder eist dat
+// het getal nooit hoger wordt dan wat er stond; zonder dit anker viel de basis
+// terug op Infinity zodra `over` nul raakte, en sprong het scherm van 4s
+// naar 25s. Gevonden in de browsertest bij het bouwen van deze release.
+let cdLaatstGetoond = null;
+// Moment waarop de GETOONDE waarde nul bereikte. Bewust los van
+// countdownNulTijd (r6295/6302): die hangt aan de OORSPRONKELIJKE voorspelling
+// en voedt de BIJNA-knop en de schaduwmeting — zie het commentaar op r6120.
+// Onder V1 bereikt de getoonde waarde nul eerder dan `over` dat doet.
+let cdWeergaveNulTijd = null;
+// Per-fase teller voor het herzieninglog. Puur observerend.
+let herzTel = null;
 let cdHerzieningSnapshot = null;
 
 function maakPassiefSnapshot() {
@@ -2650,7 +2680,9 @@ function maakPassiefSnapshot() {
 // een herbouw bij de volgende herziening.
 function invalideerPassiefSnapshot() {
   passiefSnapshot = null; schaduwSnapshot = null;
-  cdCondSleutel = null; cdCondTab = null; cdCondGetoond = null;
+  cdCondSleutel = null; cdCondTab = null;
+  cdCondDoel = null; cdCondDoelVer = 0; cdWeergaveNulTijd = null;   // V11.17.57
+  cdLaatstGetoond = null;
   cdHerzieningSnapshot = null;
 }
 
@@ -2832,24 +2864,60 @@ function registreerHerziening(ver, ruw, getoond) {
   } catch(_) { /* mag de countdown nooit breken */ }
 }
 
-function herzieningLogSluit(werkDur) {
+// V11.17.57: twee wijzigingen.
+// (a) `reden` erbij, en `werkDur` mag null zijn. Dit wordt nu vanuit TWEE
+//     plekken aangeroepen: verwerkFase bij rood->groen (dan is de roodduur
+//     echt bekend) en beeindigFase bij node-wissel/handmatig/correctie (dan
+//     niet — we zijn weggereden voordat het groen werd). In dat tweede geval
+//     blijft `werk` null; de tellers zijn wel geldig en gaan gewoon mee.
+//     Zonder die tweede plek zou het log alleen fasen bevatten die netjes op
+//     groen eindigden, en dat is een selectie die precies de korte,
+//     onrustige passages weglaat.
+// (b) Er wordt nu OOK geschreven zonder herzieningssnapshot, zolang er een
+//     per-fase teller is. Een rode fase zonder enkele herziening is een
+//     geldige waarneming: nHerz = 0 hoort in de dataset.
+function herzieningLogSluit(werkDur, reden) {
   const snap = cdHerzieningSnapshot;
+  const tel  = herzTel;
   cdHerzieningSnapshot = null;
-  if (herzieningLogStop || !snap) return;
+  herzTel = null;
+  if (herzieningLogStop || (!snap && !tel)) return;
   try {
     const nodeId = dichtstbijOSM ? String(dichtstbijOSM.id) : null;
-    if (!nodeId || nodeId !== snap.nodeId) return;
-    const werk = Math.round(werkDur);
-    if (werk < 4 || werk > 180) return;
+    if (!nodeId) return;
+    if (snap && nodeId !== snap.nodeId) return;
+    const werk = (typeof werkDur === 'number' && !isNaN(werkDur))
+               ? Math.round(werkDur) : null;
+    if (werk !== null && (werk < 4 || werk > 180)) return;
     const num = v => (typeof v === 'number' && !isNaN(v)) ? Math.round(v) : null;
+    // laatste vriesperiode nog afsluiten — die loopt tot dit moment door
+    if (tel && tel.laatste !== null) {
+      const stilMs = Date.now() - tel.sinds;
+      if (stilMs >= 3000) {
+        const stilS = Math.round(stilMs / 1000);
+        tel.vries3 += stilS;
+        if (stilMs >= 10000) tel.vries10 += stilS;
+      }
+    }
     const rec = {
-      t: Date.now(), node: nodeId, dd: snap.dd, werk,
-      w: num(snap.wBijHerziening),
-      oud: num(snap.doelOud),
-      herzien: num(snap.doelHerzien),
-      getoond: num(snap.getoond),
-      nBoven: snap.nBoven, n: snap.nTotaal,
-      bron: snap.bron || null
+      t: Date.now(), node: nodeId, dd: snap ? snap.dd : huidigDDActief(), werk,
+      reden: reden || 'groen',
+      w: snap ? num(snap.wBijHerziening) : null,
+      oud: snap ? num(snap.doelOud) : num(activeCdDoel),
+      herzien: snap ? num(snap.doelHerzien) : null,
+      getoond: snap ? num(snap.getoond) : null,
+      nBoven: snap ? snap.nBoven : null, n: snap ? snap.nTotaal : null,
+      bron: snap ? (snap.bron || null) : (huidigCdBron || null),
+      // V11.17.57 — de tellers waarmee de vooraf vastgelegde verwachtingen
+      // toetsbaar worden. Zonder deze velden blijft alles simulatie.
+      nHerz:  tel ? tel.nHerz : null,
+      nKlem:  tel ? tel.nKlem : null,
+      klemMax: tel ? num(tel.klemMax) : null,
+      vries3:  tel ? tel.vries3 : null,
+      vries10: tel ? tel.vries10 : null,
+      nulOp:   tel ? tel.nulOp : null,
+      overschr: (cdWeergaveNulTijd != null)
+                ? Math.round((Date.now() - cdWeergaveNulTijd) / 1000) : null
     };
     let arr;
     try { arr = JSON.parse(localStorage.getItem('sl_herzieninglog')) || []; } catch(_) { arr = []; }
@@ -2866,6 +2934,8 @@ function herzieningLogSluit(werkDur) {
     }
     // fout van de oorspronkelijke voorspelling op het herzieningsmoment,
     // tegenover die van de herziene waarde. Positief = herziening was beter.
+    // V11.17.57: alleen zinvol als er een herziening EN een echte roodduur was.
+    if (werk === null || rec.w === null) return;
     const echtRest = werk - rec.w;
     const foutOud = Math.abs(Math.max(0, rec.oud - rec.w) - echtRest);
     const foutNieuw = Math.abs(rec.getoond - echtRest);
@@ -2938,7 +3008,7 @@ function exporteerMeetdata() {
   };
   setTimeout(() => {
     try {
-      const uit = { versie:'V11.17.56', geexporteerd:new Date().toISOString(),
+      const uit = { versie:'V11.17.57', geexporteerd:new Date().toISOString(),
                     passief:{}, bevestig:{}, namen:{}, leer:{}, s2:{}, klok:{}, opslag:{}, richting:{}, schaduw:{}, herziening:{},
                     // V11.17.33 W2: sl_v5_ viel volledig buiten deze export en
                     // verdween stilzwijgend op `if (!doel) continue`. Elke analyse
@@ -5704,6 +5774,11 @@ function beeindigFase(reden) {
       nieuw: dichtstbijOSM ? String(dichtstbijOSM.id) : null
     });
   }
+  // V11.17.57: sluit het herzieninglog VOORDAT de fase-state weg is — anders
+  // is faseStart al null en valt er geen duur meer te bepalen. `werk` blijft
+  // null omdat we het echte groen niet hebben gezien; de tellers (vries, klem,
+  // nulOp) zijn wel geldig en gaan mee.
+  herzieningLogSluit(null, reden);
   fase            = null;
   faseStart       = null;
   faseNodeId      = null;
@@ -5711,6 +5786,13 @@ function beeindigFase(reden) {
   cdStart         = null;
   cdWallStart     = null;
   cdWallNodeId    = null;
+  // V11.17.57: fase-state die over een node-wissel lekt was in dit project al
+  // eens een echte bug (A2, V11.17.43). Deze drie horen bij dezelfde fase.
+  cdCondDoel      = null;
+  cdCondDoelVer   = 0;
+  cdWeergaveNulTijd = null;
+  cdLaatstGetoond = null;
+  herzTel         = null;
 }
 
 function verwerkFase(nieuw, horizontaal, conf=null) {
@@ -5843,7 +5925,8 @@ function verwerkFase(nieuw, horizontaal, conf=null) {
   if (fase === 'rood' && nieuw === 'groen' && faseStart) {
     slaPassiefMeting((nu - faseStart) / 1000);
     schaduwLogSluit((nu - faseStart) / 1000);   // V11.17.30 W3: zelfde roodduur
-    herzieningLogSluit((nu - faseStart) / 1000); // V11.17.32 W2: idem
+    // V11.17.32 W2 / V11.17.57: zelfde roodduur, nu met reden.
+    herzieningLogSluit((nu - faseStart) / 1000, 'groen');
   }
   // V11.17.20 W1: klokmoment op een SCHONE fase-transitie (fase = expliciete
   // vorige waarde). Continuïteit-herstelde her-detecties (nieuw===laatsteFase,
@@ -6052,7 +6135,7 @@ function tickCd() {
     const sleutel = String(dichtstbijOSM.id) + '_' + String(cdWallStart) + '_' + String(huidigCdBron);
     if (sleutel !== cdCondSleutel) {
       cdCondSleutel = sleutel;
-      cdCondGetoond = null;
+      cdCondDoel = null; cdCondDoelVer = 0;   // V11.17.57
       cdCondTab = null;
       try {
         const dd = huidigDDActief();
@@ -6065,22 +6148,37 @@ function tickCd() {
     if (cdCondTab) {
       const c = cdCondTab[Math.min(CD_COND_MAX_W, Math.max(0, Math.floor(ver)))];
       if (c >= 0) {
-        // KLEM: nooit omhoog. Bij een opwaartse bijstelling bevriest de
-        // weergave op de vorige waarde i.p.v. terug te springen.
-        // De EERSTE herziening wordt geënt op `over` — de waarde die de pill
-        // op dat moment toont. Zonder die enting kan de sprong van de laatste
-        // statische seconde naar de eerste herziene seconde omhoog gaan, en
-        // dat is precies de sprong die de klem moet voorkomen.
-        // over === 0 bij de EERSTE herziening betekent dat de statische
-        // countdown al was afgelopen voordat tickCd hier aankwam — na een
-        // dropout of achtergrondpauze. Dan staat de pill op "elk moment" en is
-        // er geen lopend getal om monotoon mee te blijven; klemmen op nul zou
-        // de herziening permanent doodleggen. In doorlopend bedrijf kan dit
-        // niet optreden: bij w = 0,5 x doel is `over` per definitie nog 0,5 x doel.
-        const basis = (cdCondGetoond != null) ? cdCondGetoond
-                    : (over > 0 ? over : Infinity);
-        herzienOver = Math.min(c, basis);
-        cdCondGetoond = herzienOver;
+        // V11.17.57 — KLEM, nu op de AFLOPENDE waarde in plaats van op een
+        // bevroren getal. Tot V11.17.56 was `basis` de vorige herziening, die
+        // nergens afliep; het scherm stond daardoor stil zolang de conditionele
+        // verwachting steeg. Gesimuleerd stond het getal 40% van de zichtbare
+        // tijd langer dan 3s stil en 31% langer dan 10s — dat is de klacht
+        // "staat gewoon stil op 13 seconden".
+        // Nu: het doel loopt af met de klok, en alleen een LAGERE verwachting
+        // mag het doel vervangen. Het getoonde getal kan dus nog steeds nooit
+        // stijgen, maar het blijft wel tellen.
+        // De eerste herziening wordt nog steeds geënt op `over`; over === 0 kan
+        // hier alleen na een dropout of achtergrondpauze, en klemmen op nul zou
+        // de herziening permanent doodleggen — vandaar Infinity als basis.
+        // Basisvolgorde: een lopend doel wint, anders de laatst getoonde waarde,
+        // en pas als er nog NIETS getoond is (verse fase na dropout of
+        // achtergrondpauze) mag een herziening vrij inzetten. Klemmen op nul zou
+        // de herziening daar permanent doodleggen.
+        const huidig = (cdCondDoel != null)
+                     ? Math.max(0, cdCondDoel - (ver - cdCondDoelVer))
+                     : (cdLaatstGetoond != null ? cdLaatstGetoond
+                        : (over > 0 ? over : Infinity));
+        if (c < huidig) {
+          cdCondDoel = c; cdCondDoelVer = ver;
+        } else if (herzTel) {
+          herzTel.nKlem++;
+          const onderdrukt = c - huidig;
+          if (isFinite(onderdrukt) && onderdrukt > herzTel.klemMax) herzTel.klemMax = onderdrukt;
+        }
+        if (herzTel) herzTel.nHerz++;
+        herzienOver = (cdCondDoel != null)
+                    ? Math.max(0, cdCondDoel - (ver - cdCondDoelVer))
+                    : null;
         registreerHerziening(ver, c, herzienOver);
       }
     }
@@ -6090,31 +6188,70 @@ function tickCd() {
   // V11.17.3: prefix rijdersperspectief-symbool bij bekende tikrichting.
   const rs = richtingSymbool(richtingLockKeuze);
   let schattingOp = false;   // V11.17.50: stuurt de kleurregel onderaan
-  if (herzienOver != null) {
+
+  // ── V11.17.57: wat staat er WERKELIJK op het scherm? ─────────
+  // Onder V1 telt de herziene waarde af, dus die kan zelf nul bereiken.
+  // Alle logica hieronder werkt op deze ene waarde i.p.v. op `over`.
+  const getoondOver = (herzienOver != null) ? herzienOver : over;
+  cdLaatstGetoond = getoondOver;   // V11.17.57: anker voor de klem
+  if (fase === 'rood' && getoondOver <= 0 && cdWeergaveNulTijd === null) {
+    cdWeergaveNulTijd = Date.now();
+  }
+  // Per-fase teller voor het herzieninglog. Gesleuteld op cdWallStart zodat
+  // hij zichzelf herstelt bij een nieuwe fase, ook zonder expliciete reset.
+  // Vrieslengte wordt in WANDKLOKTIJD gemeten, niet in frames: tickCd draait
+  // vanuit de rAF-lus (~60Hz) en frames tellen zou vries3/vries10 met een
+  // factor 60 opblazen.
+  if (fase === 'rood' && cdWallStart) {
+    const nuMs = Date.now();
+    if (!herzTel || herzTel.wallStart !== cdWallStart) {
+      herzTel = { wallStart: cdWallStart, nHerz: 0, nKlem: 0, klemMax: 0,
+                  vries3: 0, vries10: 0, nulOp: null,
+                  laatste: null, sinds: nuMs };
+    }
+    const zicht = getoondOver > 0 ? Math.ceil(getoondOver) : null;
+    if (zicht !== herzTel.laatste) {
+      const stilMs = nuMs - herzTel.sinds;
+      if (herzTel.laatste !== null && stilMs >= 3000) {
+        const stilS = Math.round(stilMs / 1000);
+        herzTel.vries3 += stilS;
+        if (stilMs >= 10000) herzTel.vries10 += stilS;
+      }
+      herzTel.laatste = zicht;
+      herzTel.sinds = nuMs;
+    }
+    if (herzTel.nulOp === null && getoondOver <= 0) herzTel.nulOp = Math.round(ver);
+  }
+
+  if (fase === 'rood' && getoondOver <= 0) {
+    // V11.17.57: vervangt de zandloper van V11.17.50. De countdown is voorbij
+    // zijn schatting en het licht is nog rood — dat is geen voorspelling meer
+    // maar een WAARNEMING, en die mag je gewoon tonen. Geen tilde, geen circa:
+    // dit is de gemeten tijd sinds de weergave nul raakte.
+    // Waarom dit de gebruiker helpt: zonder getal is niet te kiezen tussen
+    // KLOPTE, BIJNA en FOUT (zie het C5-onderzoek — die marges staan nergens
+    // gedefinieerd). Met +7s is dat wel te doen.
+    // Deze tak staat BOVEN de herziene tak omdat cdCondDoel onder V1 zelf nul
+    // kan bereiken; anders zou de pill '0s / bijgesteld' tonen.
+    const overschrS = (cdWeergaveNulTijd != null)
+                    ? Math.floor((Date.now() - cdWeergaveNulTijd) / 1000) : 0;
+    if (overschrS <= CD_OVERSCHR_MAX_S) {
+      cdPillGetal.textContent = rs + '+' + overschrS + 's';
+      cdPillLabel.textContent = 'te laat';
+    } else {
+      // Boven de grens meet de teller geen schattingsfout meer. Terug naar
+      // de neutrale weergave in plaats van een getal dat niets betekent.
+      cdPillGetal.textContent = rs + '⏳';
+      cdPillLabel.textContent = 'schatting op';
+    }
+    schattingOp = true;
+  } else if (herzienOver != null) {
     // Herziene weergave vervangt de modus-cascade. "nu" kan hier niet meer
     // verschijnen: die blijft voorbehouden aan het geval waarin de tabel
     // geen steun heeft (c < 0) en we hieronder alsnog in de cascade vallen.
     cdPillGetal.textContent = rs + (herzienOver < 1 ? '<1' : Math.ceil(herzienOver)) + 's';
     cdPillLabel.textContent = 'bijgesteld';
     cdPillGetal.style.color = herzienOver <= 6 ? 'var(--groen)' : '#fff';
-  } else if (over === 0 && fase === 'rood') {
-    // V11.17.50: de countdown is VOORBIJ zijn schatting, en het licht is nog
-    // rood. Tot nu toonde dat 'nu / elk moment' — dezelfde weergave als een
-    // countdown die daadwerkelijk bijna op groen staat. Dat is een andere
-    // boodschap: hier weet de app het niet meer.
-    // Gemeten op 194 passieve records (export 13 aug): in 32% van de fasen
-    // liep de countdown leeg terwijl het rood bleef, mediaan 13s en bij modus
-    // 'vaag' zelfs 20s. Over alle rode seconden samen stond deze weergave
-    // 26% van de tijd in beeld. Twee onafhankelijke simulaties (bouwCondTabel
-    // en ECMT) schreven het leeuwendeel van hun 'winst' aan precies dit
-    // moment toe — het was nooit een schattingsprobleem maar een
-    // communicatieprobleem.
-    // Bewust GEEN getal: een ondergrens verzinnen zou beweren dat het licht
-    // niet binnen X seconden springt, en dat is een bewering zonder data en
-    // in de gevaarlijke richting.
-    cdPillGetal.textContent = rs + '⏳';
-    cdPillLabel.textContent = 'schatting op';
-    schattingOp = true;
   } else if (activeCdModus === CD_NU || over === 0) {
     // over===0 kan hier alleen nog met fase!==null-rood: de preemptieve tak
     // (osmVoorspellingActief, fase===null). CD_NU wordt nergens toegekend —
@@ -9926,6 +10063,58 @@ function detLogSchrijf() {
 }
 
 // V11.17.46: export van het detectielog. Zelfde vorm als exporteerZichtLog.
+// V11.17.57: het herzieninglog rijdt al mee in `Exporteer meetdata` (bucket
+// `herziening`). Deze knop staat er voor pariteit met de andere diagnoselogs
+// en om hem los te kunnen legen zonder de hele meetdata te exporteren.
+// Bewust compacter dan exporteerDetLog: geen in-memory buffer om te legen,
+// want dit log schrijft per fase rechtstreeks naar localStorage.
+function exporteerHerzieningLog() {
+  const btn = document.getElementById('export-herzlog-btn');
+  const origTekst = btn ? btn.textContent : null;
+  if (btn) { btn.textContent = '\u23F3 Bezig...'; btn.disabled = true; }
+  const herstelBtn = () => { if (btn) { btn.textContent = origTekst; btn.disabled = false; } };
+  setTimeout(() => {
+    try {
+      let arr;
+      try { arr = JSON.parse(localStorage.getItem('sl_herzieninglog')) || []; }
+      catch(_) { arr = []; }
+      if (!Array.isArray(arr) || arr.length === 0) {
+        alert('Nog geen herziening-log. Rijd eerst een rode fase uit.');
+        herstelBtn(); return;
+      }
+      const exportData = {
+        versie: 'V11.17.57-herziening', exportDatum: new Date().toISOString(),
+        app: 'StoplichtIQ', aantalEntries: arr.length,
+        gestaakt: herzieningLogStop ? 1 : 0,
+        fractie: CD_COND_FRACTIE, overschrMax: CD_OVERSCHR_MAX_S,
+        entries: arr
+      };
+      const jsonString = JSON.stringify(exportData);
+      const bestandsnaam = `stoplichtiq-herzlog-${new Date().toISOString().slice(0,10)}.json`;
+      const naExport = () => { try { localStorage.removeItem('sl_herzieninglog'); } catch(_) {} };
+      const download = () => {
+        const blob = new Blob([jsonString], { type:'application/json' });
+        const url  = URL.createObjectURL(blob);
+        const link = document.createElement('a');
+        link.href=url; link.download=bestandsnaam;
+        document.body.appendChild(link); link.click(); document.body.removeChild(link);
+        setTimeout(()=>URL.revokeObjectURL(url), 1000);
+        naExport(); herstelBtn();
+      };
+      if (navigator.share && navigator.canShare) {
+        const bestand = new File([jsonString], bestandsnaam, { type:'application/json' });
+        if (navigator.canShare({ files:[bestand] })) {
+          navigator.share({ files:[bestand], title:'StoplichtIQ Herziening-log' })
+            .then(() => { naExport(); alert('\u2705 Herziening-log gedeeld'); herstelBtn(); })
+            .catch(e => { if (e && e.name === 'AbortError') { herstelBtn(); return; } download(); });
+          return;
+        }
+      }
+      download();
+    } catch(e) { alert('Export mislukt: ' + e.message); herstelBtn(); }
+  }, 50);
+}
+
 function exporteerDetLog() {
   const btn = document.getElementById('export-detlog-btn');
   const origTekst = btn ? btn.textContent : null;
