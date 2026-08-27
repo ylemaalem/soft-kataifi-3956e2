@@ -603,7 +603,7 @@
 <div id="startscherm">
   <div id="s-icoon">🚦</div>
   <div id="s-titel">Stoplicht<span>IQ</span></div>
-  <div id="s-versie">V11.17.55 — bevestigknop telt niet meer vijf keer</div>
+  <div id="s-versie">V11.17.56 — de richtingtik overleeft de node-wissel</div>
   <div id="s-model-wrap">
     <div id="s-model-rij">
       <div id="s-model-label">🤖 YOLOv8 model laden…</div>
@@ -824,7 +824,7 @@
 
 <script>
 // ═══════════════════════════════════════════════════════════════
-//  StoplichtIQ V11.17.55
+//  StoplichtIQ V11.17.56
 //  V11.10: Zelfkalibratie + vergrendeling + crop smoothing
 //  — S1+S2 bevestiging (kruispunt-level confidence)
 //  — Route-herkenning basis (sequentie-opslag)
@@ -1596,6 +1596,14 @@ function logOpslagMis(reden, extra) {
       // pre null is daardoor een verwachte toestand, en zonder deze node-id is
       // niet te zien of de tik bij DIT kruispunt hoorde of bij een eerder.
       lockNode: richtingLockNodeId ? String(richtingLockNodeId) : null,
+      // V11.17.56: levensloop van de pre-selectie. preWis zegt WELK pad hem
+      // wiste, preWisNa hoe lang na het zetten. Samen maken ze in de volgende
+      // export leesbaar wat de tik om zeep hielp, in plaats van alleen dat hij weg is.
+      preNode:  preZet ? preZet.node : null,
+      preVorm:  preZet ? preZet.vorm : null,
+      preLeeft: preZet ? Date.now() - preZet.tijd : null,
+      preWis:   preWis ? preWis.reden : null,
+      preWisNa: (preZet && preWis) ? preWis.tijd - preZet.tijd : null,
       pre: v9PreSelectieAfrij || null,
       // V11.17.42: de node die de kandidaat verving (alleen bij
       // kandidaat_vervangen). Elders null.
@@ -2930,7 +2938,7 @@ function exporteerMeetdata() {
   };
   setTimeout(() => {
     try {
-      const uit = { versie:'V11.17.55', geexporteerd:new Date().toISOString(),
+      const uit = { versie:'V11.17.56', geexporteerd:new Date().toISOString(),
                     passief:{}, bevestig:{}, namen:{}, leer:{}, s2:{}, klok:{}, opslag:{}, richting:{}, schaduw:{}, herziening:{},
                     // V11.17.33 W2: sl_v5_ viel volledig buiten deze export en
                     // verdween stilzwijgend op `if (!doel) continue`. Elke analyse
@@ -3072,8 +3080,28 @@ function voerV9DelayedWriteUit(huidigeHeading, trigger = null, poort = null, onz
         aanrij: aanrijRichting, afrij: omgezet });
     }
   }
+  // V11.17.56 R5: TERUGVAL. Is de pre-selectie weg, maar is er in DEZE sessie
+  // wel voor precies deze kandidaat-node getikt, haal de richting dan terug uit
+  // sl_richting_. Dat is geen greep in oude opslag: toonRichtingKnoppen (r7861)
+  // leest diezelfde store al zonder recentheidsguard en zet er via
+  // activeerPersistenteRichting v9PreSelectieAfrij mee. De waarde die we hier
+  // terughalen is dus dezelfde die deze sessie al geinstalleerd stond en die
+  // resetRijrichtingState bij de node-wissel wegnam.
+  // De guard is preZet.node — daarom kan deze terugval geen tik van een ANDERE
+  // node toepassen, en geen tik uit een sessie waarin hier niet getikt is.
+  if (!preAfrij && preZet && preZet.node === String(v9KandidaatNode)) {
+    const rdHerstel = laadRichtingData(v9KandidaatNode);
+    if (rdHerstel && rdHerstel.tikrichting) {
+      const hersteld = berekenAfrijRichtingViaTik(aanrijNum, rdHerstel.tikrichting);
+      if (hersteld) {
+        preAfrij = hersteld;
+        logOpslagMis('tik_hersteld', { node: v9KandidaatNode, dur: v9KandidaatDuur,
+          aanrij: aanrijRichting, afrij: hersteld });
+      }
+    }
+  }
   // V11.17.31 W3: onthoud of de gekozen richting van een TIK komt. Alleen die
-  // mag nog naar V5 (zie r2560).
+  // mag nog naar V5 (zie r3152).
   const viaTik = !!(preAfrij && WINDRICHTINGEN.includes(preAfrij));
   const afrijRichting = viaTik ? preAfrij : gpsAfrijRichting;
   if (!afrijRichting) { logOpslagMis('geen_afrij', { node: v9KandidaatNode, dur: v9KandidaatDuur, aanrij: aanrijRichting }); resetV9Staat(); return; }
@@ -3171,6 +3199,7 @@ function voerV9DelayedWriteUit(huidigeHeading, trigger = null, poort = null, onz
 }
 
 function resetV9Staat() {
+  markeerPreWis('resetV9');   // V11.17.56
   v9KandidaatNode         = null;
   v9AanrijHeading         = null;
   v9AanrijSnelheidHeading = null;
@@ -3884,6 +3913,24 @@ let v9KandidaatZagOvergang  = null;
 let v9KandidaatV4Geschreven = false;
 let v9PassageStartTijd      = null;   // timestamp bij passeren
 let v9PreSelectieAfrij      = null;   // afrij via richtingknop pre-selectie
+// V11.17.56: levensloop van v9PreSelectieAfrij, puur registrerend.
+// Aanleiding: de V5-richtingratio bleef 2,1% en tik_laat_omgezet bleef 0,
+// terwijl twee reparaties (V11.17.38, V11.17.42) daar niets aan veranderden.
+// De bestaande logging liet alleen zien DAT de tik weg was, niet wanneer of
+// door welk pad. Deze twee registers maken dat wel zichtbaar.
+let preZet = null;   // { node, tijd, vorm } — waarvoor en wanneer gezet
+let preWis = null;   // { reden, tijd }      — welk pad hem wiste
+function markeerPreZet(node, waarde) {
+  preZet = { node: node != null ? String(node) : null, tijd: Date.now(),
+             vorm: (waarde === 'links' || waarde === 'rechtdoor' || waarde === 'rechts')
+                     ? 'label' : 'windrichting' };
+  preWis = null;
+}
+// Aanroepen VOOR de nulling, anders valt er niets meer te zien.
+function markeerPreWis(reden) {
+  if (v9PreSelectieAfrij == null) return;   // er viel niets te wissen
+  preWis = { reden, tijd: Date.now() };
+}
 let v9DelayedWriteActief    = false;  // wachten op afrijrichting
 let v9LaatstLageSnelheid    = 0;      // timestamp van lage-snelheid start (parkeer-check)
 let v9LaatstPassageNode     = null;   // cooldown: node-id van laatste passage
@@ -7856,6 +7903,7 @@ function activeerPersistenteRichting(nodeId, tikrichting) {
   richtingGedruktVoorNode = nodeId;
   const h = v9AanrijSnelheidHeading ?? v9AanrijHeading;
   v9PreSelectieAfrij = (h != null) ? berekenAfrijRichtingViaTik(h, tikrichting) : tikrichting;
+  markeerPreZet(nodeId, v9PreSelectieAfrij);   // V11.17.56
   updateAfrijRichtingUI(tikrichting);
 }
 
@@ -7897,6 +7945,7 @@ function tikRichting(richting) {
   if (v9AanrijHeading != null || v9AanrijSnelheidHeading != null) {
     const h = v9AanrijSnelheidHeading ?? v9AanrijHeading;
     v9PreSelectieAfrij = berekenAfrijRichtingViaTik(h, richting);
+    markeerPreZet(nodeId, v9PreSelectieAfrij);   // V11.17.56
     // V11.17.4 W8a: BINNEN lopende rode fase alleen bron bijwerken — NIET
     // startCd() aanroepen, want die kan door dropout-guard (r4161) op een
     // fresh-start-tak vallen en de verstreken tijd wissen. Guard: alleen
@@ -7910,7 +7959,8 @@ function tikRichting(richting) {
     // V11.17.38: dit tekstlabel wordt nu daadwerkelijk omgezet, in
     // voerV9DelayedWriteUit r2795-2804, met de aanrijheading van het
     // schrijfmoment. Tot dan bleef de belofte hieronder onvervuld.
-    v9PreSelectieAfrij = richting; // tijdelijk als tekstlabel, omgezet bij write (r2795)
+    v9PreSelectieAfrij = richting; // tijdelijk als tekstlabel, omgezet bij write (r3076)
+    markeerPreZet(nodeId, v9PreSelectieAfrij);   // V11.17.56
   }
 
   // V9: Na passeren — tik koppelen aan delayed write als zelfde node
@@ -7918,6 +7968,7 @@ function tikRichting(richting) {
     const h = v9AanrijSnelheidHeading ?? v9AanrijHeading;
     if (h != null) v9PreSelectieAfrij = berekenAfrijRichtingViaTik(h, richting);
     else v9PreSelectieAfrij = richting;
+    markeerPreZet(nodeId, v9PreSelectieAfrij);   // V11.17.56
   }
 
   updateAfrijRichtingUI(richting);
@@ -8169,7 +8220,16 @@ function renderV9Lijst() {
 // ── V8.9.11: CORRECTIELIJST + RIJRICHTING RESET ──────────────
 
 // Bug 2: Reset rijrichting volledig bij node-wissel
-function resetRijrichtingState() {
+// V11.17.56: `reden` is nieuw en puur voor het log. DIT is het pad dat de
+// richtingtik om zeep hielp: hij nult v9PreSelectieAfrij ONVOORWAARDELIJK,
+// terwijl de lock ernaast (r10178-10186) alleen bij >60m en >5km/u vervalt.
+// In updateDichtbij staat hij direct VOOR dat lock-blok, dus bij elke
+// node-wissel verdween de richting van de tik terwijl de lock kon blijven
+// staan — en de delayed write voor de OUDE node komt pas na die wissel.
+// Dat verklaart ook waarom tik_laat_omgezet 0 bleef: de late conversie
+// (r3075) eist een tekstlabel, en dat is hier al null geworden.
+function resetRijrichtingState(reden) {
+  markeerPreWis('rijrichting:' + (reden || 'onbekend'));   // V11.17.56
   geselecteerdeRichting = null;
   richtingGedruktVoorNode = null;
   if (richtingResetDebounce) { clearTimeout(richtingResetDebounce); richtingResetDebounce = null; }
@@ -8836,7 +8896,7 @@ function selecteerNodeHandmatig(nodeId) {
   dichtstbijOSM = nieuweNode;
   activeCdDoel  = gewGem(laadM(sl.id, huidigDDActief())) || 0;
   // Bug 2: Rijrichting direct resetten
-  resetRijrichtingState();
+  resetRijrichtingState('handmatig');   // V11.17.56
   richtingBlokVerborgen = false;  // V11.17.4 W3: handmatige node-correctie = blok weer zichtbaar
   // V11.17.43: voor de refresh. Die roept bij fase==='rood' startCd() aan
   // (r7710-7713) met een faseStart die nog van de OUDE node is; met de fase
@@ -10114,7 +10174,7 @@ function updateDichtbij(lat, lon) {
     // W3: reset bevestig state bij node-wissel
     bevestigActief = false; cdBereikteNul = false;
     bevestigWrap.classList.remove('actief');
-    resetRijrichtingState();
+    resetRijrichtingState('node-wissel');   // V11.17.56
     // V10.0.3: Richtingkeuze lock vervalt alleen bij echte node-wissel (>60m van locked node + snelheid)
     if (richtingLockNodeId && richtingLockNodeId !== String(nieuw.id)) {
       const lockNode = osmCache.find(s => String(s.id) === richtingLockNodeId);
@@ -10285,7 +10345,7 @@ function corrigeerNodeAutomatisch(nieuweNode, reden) {
 
   // UI-refresh + richting-state
   bijwerkLeerkaart(nieuw); bijwerkDashboardKnop();
-  resetRijrichtingState();
+  resetRijrichtingState('auto-correctie');   // V11.17.56
   richtingBlokVerborgen = false;
 
   // bbox-state resetten (mirror van updateDichtbij node-wissel-pad)
@@ -10484,7 +10544,7 @@ async function onGPS(pos) {
         // V11.17.5 W2: bewaar een expliciete richtingkeuze uit tikRichting.
         // Zonder guard wist elke nadering-frame een vroege keuze; met guard
         // wordt hij alleen gewist als er nog niets is gekozen.
-        if (!richtingLockKeuze) v9PreSelectieAfrij = null;
+        if (!richtingLockKeuze) { markeerPreWis('gps_kandidaat'); v9PreSelectieAfrij = null; }
       }
     }
 
