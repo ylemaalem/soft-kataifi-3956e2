@@ -254,7 +254,13 @@
       transition:opacity .4s,transform .4s}
     #dashboard.verborgen{opacity:0;pointer-events:none;transform:translateY(30px)}
     #dash-header{display:flex;align-items:center;justify-content:space-between;
-      padding:0 18px 12px;border-bottom:1px solid var(--border)}
+      padding:0 18px 12px;border-bottom:1px solid var(--border);flex-shrink:0}
+    /* V11.17.58: alles onder de kop scrollt als een geheel; de kop zelf blijft
+       staan zodat de sluitknop altijd bereikbaar is. min-height:0 is de kern van
+       de fix: een flex-item houdt standaard min-height:auto en kan dus niet
+       kleiner worden dan zijn inhoud, waardoor overflow-y nooit aanslaat. */
+    #dash-scroll{flex:1;min-height:0;overflow-y:auto;
+      -webkit-overflow-scrolling:touch;overscroll-behavior:contain}
     #dash-titel{font-size:18px;font-weight:700;letter-spacing:0.1em;text-transform:uppercase}
     #dash-titel span{color:var(--groen)}
     #dash-sluiten{background:rgba(255,255,255,0.08);border:1px solid var(--border);
@@ -271,7 +277,10 @@
       letter-spacing:0.08em;text-transform:uppercase;color:var(--dim);
       cursor:pointer;white-space:nowrap;transition:all .2s}
     .filter-btn.actief{background:rgba(52,199,89,.15);border-color:rgba(52,199,89,.4);color:var(--groen)}
-    #dash-lijst{flex:1;overflow-y:auto;padding:8px 18px 16px;display:flex;flex-direction:column;gap:8px}
+    /* V11.17.58: geen eigen scrollcontainer meer — #dash-scroll doet het werk.
+       Geneste scroll zou het veegbaar opsplitsen: de lijst zou eerst leegscrollen
+       voordat het paneel beweegt. */
+    #dash-lijst{padding:8px 18px 16px;display:flex;flex-direction:column;gap:8px}
     .sl-kaart{background:rgba(255,255,255,0.04);border:1px solid var(--border);
       border-radius:14px;padding:12px 14px;display:flex;flex-direction:column;gap:8px}
     .sl-kaart-header{display:flex;align-items:center;justify-content:space-between}
@@ -329,7 +338,7 @@
     .sl-richting-badge.actief{color:rgba(255,255,255,0.7)}
     .sl-richting-badge.goud{color:#FFD60A}
     #dash-leeg{display:flex;flex-direction:column;align-items:center;
-      justify-content:center;gap:12px;padding:40px;text-align:center;flex:1}
+      justify-content:center;gap:12px;padding:40px;text-align:center;flex:1;min-height:40vh}
     #startscherm{position:fixed;inset:0;background:#080A0C;z-index:300;
       display:flex;flex-direction:column;align-items:center;
       justify-content:center;gap:16px;padding:32px;transition:opacity .5s}
@@ -603,7 +612,7 @@
 <div id="startscherm">
   <div id="s-icoon">🚦</div>
   <div id="s-titel">Stoplicht<span>IQ</span></div>
-  <div id="s-versie">V11.17.57 — de countdown telt door in plaats van stil te staan</div>
+  <div id="s-versie">V11.17.58 — de kruispuntenlijst scrollt weer</div>
   <div id="s-model-wrap">
     <div id="s-model-rij">
       <div id="s-model-label">🤖 YOLOv8 model laden…</div>
@@ -741,6 +750,7 @@
     <div id="dash-titel">Stoplicht<span>IQ</span> — Geleerd</div>
     <div id="dash-sluiten" onclick="sluitDashboard()">✕ Sluiten</div>
   </div>
+  <div id="dash-scroll">
   <div id="dash-stats">
     <div class="dash-stat"><div class="dash-stat-getal" id="ds-kruispunten">0</div><div class="dash-stat-label">Kruispunten</div></div>
     <div class="dash-stat"><div class="dash-stat-getal" id="ds-metingen">0</div><div class="dash-stat-label">Metingen</div></div>
@@ -807,6 +817,7 @@
     <div class="filter-btn" onclick="filterDashboard('nacht',this)">🌙 Nacht</div>
   </div>
   <div id="dash-lijst"></div>
+  </div>
 </div>
 
 <!-- V10.0.2: V9 Richtingen Modal -->
@@ -825,7 +836,7 @@
 
 <script>
 // ═══════════════════════════════════════════════════════════════
-//  StoplichtIQ V11.17.57
+//  StoplichtIQ V11.17.58
 //  V11.10: Zelfkalibratie + vergrendeling + crop smoothing
 //  — S1+S2 bevestiging (kruispunt-level confidence)
 //  — Route-herkenning basis (sequentie-opslag)
@@ -6829,6 +6840,10 @@ function openDashboard() {
   // V11.14.1: toon dashboard direct met placeholder, dan zware berekening
   // in de volgende tick zodat de browser eerst kan renderen.
   document.getElementById('dashboard').classList.remove('verborgen');
+  // V11.17.58: terug naar de bovenkant — anders blijft de scrollpositie van
+  // de vorige keer staan en opent het paneel midden in de lijst.
+  const dashScrollEl = document.getElementById('dash-scroll');
+  if (dashScrollEl) dashScrollEl.scrollTop = 0;
   const lijstEl = document.getElementById('dash-lijst');
   if (lijstEl) lijstEl.innerHTML = '<div style="padding:24px;text-align:center;color:rgba(255,255,255,0.4);font-family:monospace;font-size:12px;">Laden…</div>';
   if (radarSheetOpen) sluitRadarSheet();
