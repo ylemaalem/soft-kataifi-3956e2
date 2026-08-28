@@ -153,7 +153,17 @@
     #bevestig-wrap.actief{display:flex}
     .bevestig-btn{flex:1;min-height:44px;border:none;border-radius:8px;
       font-family:'Rajdhani',sans-serif;font-size:13px;font-weight:700;
-      color:#fff;cursor:pointer;letter-spacing:0.04em}
+      color:#fff;cursor:pointer;letter-spacing:0.04em;
+      transition:opacity .2s,filter .2s}
+    /* V11.17.62: gedempte staat — deze knop registreert op dit moment niets.
+       Bewust GEEN display:none en GEEN disabled: de gebruiker moet blijven
+       zien dat de knop bestaat, alleen niet dat hij nu iets doet. Ook geen
+       tooltip of tekst: puur visueel, zodat er tijdens het rijden niets te
+       lezen valt. De tap-highlight gaat uit zodat er ook geen actieve
+       staat oplicht bij een tik die toch niets doet. */
+    .bevestig-btn.inert{opacity:0.32;filter:saturate(0.4);cursor:default;
+      -webkit-tap-highlight-color:transparent}
+    .bevestig-btn.inert:active{opacity:0.32;filter:saturate(0.4)}
     #leer-kaart{margin:0 14px 6px;background:rgba(0,0,0,0.45);
       border:1px solid var(--border);border-radius:14px;padding:10px 14px;
       display:flex;flex-direction:column;gap:8px}
@@ -616,7 +626,7 @@
 <div id="startscherm">
   <div id="s-icoon">🚦</div>
   <div id="s-titel">Stoplicht<span>IQ</span></div>
-  <div id="s-versie">V11.17.61 — bestaande lus-producten opruimen</div>
+  <div id="s-versie">V11.17.62 — eerlijke marges bij de bevestigknoppen</div>
   <div id="s-model-wrap">
     <div id="s-model-rij">
       <div id="s-model-label">🤖 YOLOv8 model laden…</div>
@@ -710,9 +720,9 @@
       <span id="cd-pill-label">groen over</span>
     </div>
     <div id="bevestig-wrap">
-      <button class="bevestig-btn" style="background:#22c55e" onclick="bevestigCountdown('klopte')">&#10003; KLOPTE</button>
-      <button class="bevestig-btn" style="background:#f59e0b" onclick="bevestigCountdown('bijna')">~ BIJNA</button>
-      <button class="bevestig-btn" style="background:#ef4444" onclick="bevestigCountdown('fout')">&#10007; FOUT</button>
+      <button id="bev-klopte" class="bevestig-btn" style="background:#22c55e" onclick="bevestigCountdown('klopte')">&#10003; KLOPTE</button>
+      <button id="bev-bijna" class="bevestig-btn" style="background:#f59e0b" onclick="bevestigCountdown('bijna')">~ BIJNA</button>
+      <button id="bev-fout" class="bevestig-btn" style="background:#ef4444" onclick="bevestigCountdown('fout')">&#10007; FOUT</button>
     </div>
     <div id="leer-kaart">
       <div id="leer-header">
@@ -841,7 +851,7 @@
 
 <script>
 // ═══════════════════════════════════════════════════════════════
-//  StoplichtIQ V11.17.61
+//  StoplichtIQ V11.17.62
 //  V11.10: Zelfkalibratie + vergrendeling + crop smoothing
 //  — S1+S2 bevestiging (kruispunt-level confidence)
 //  — Route-herkenning basis (sequentie-opslag)
@@ -2395,10 +2405,14 @@ function verwerkBevestigLeren(osmId, categorie,
   const gem = gewGem(laadM(osmId, dd).filter(m => m.bron !== 'bevestig_fout'));
   if (!gem || gem < 5) return;
 
+  // V11.17.62: 1500/30000 waren kale getallen, alleen hier. Nu de gedeelde
+  // BEV_MARGE_*-constanten, zodat de demping van de BIJNA-knop
+  // (bijnaIsNoOp) per definitie dezelfde grenzen hanteert als deze guard.
+  // Gedragsgelijk: dezelfde waarden, dezelfde strikte ongelijkheden.
   if (categorie === 'bijna'
       && typeof autoVerschilMs === 'number'
-      && Math.abs(autoVerschilMs) > 1500
-      && Math.abs(autoVerschilMs) < 30000) {
+      && Math.abs(autoVerschilMs) > BEV_MARGE_MIN_MS
+      && Math.abs(autoVerschilMs) < BEV_MARGE_MAX_MS) {
     const correctieSec = autoVerschilMs / 1000;
     const nieuwGem = gem + correctieSec;
     if (nieuwGem > 5 && nieuwGem < 300) {
@@ -3376,6 +3390,10 @@ const cdPill      = document.getElementById('cd-pill');
 const cdPillGetal = document.getElementById('cd-pill-getal');
 const cdPillLabel = document.getElementById('cd-pill-label');
 const bevestigWrap = document.getElementById('bevestig-wrap');
+// V11.17.62: losse refs voor de demping. Zie updateBevestigKnopStaat.
+const bevKlopteBtn = document.getElementById('bev-klopte');
+const bevBijnaBtn  = document.getElementById('bev-bijna');
+const bevFoutBtn   = document.getElementById('bev-fout');
 const kNaam       = document.getElementById('kruispunt-naam');
 const kAf         = document.getElementById('kruispunt-af');
 const kDD         = document.getElementById('kruispunt-dd');
@@ -3437,6 +3455,87 @@ function bevestigMarkerSleutel() {
 }
 // V11.17.55: vangnet bij het WEGSCHRIJVEN. Zie bevestigCountdown.
 const BEVESTIG_DEDUP_MS = 2000;
+
+// ── V11.17.62: EERLIJKE MARGES BIJ DE BEVESTIGKNOPPEN ─────────
+// De marges van BIJNA stonden tot nu toe alleen als kale getallen in de guard
+// van verwerkBevestigLeren. Ze waren nergens af te lezen: niet in de UI en
+// niet in de code die de knoppen tekent. Eén definitie, gebruikt door de guard
+// EN door de demping, zodat beeld en gedrag niet uiteen kunnen lopen.
+//   afwijking < BEV_MARGE_MIN_MS  -> BIJNA doet niets (telt als "klopte")
+//   daartussen                    -> BIJNA corrigeert met die afwijking
+//   afwijking > BEV_MARGE_MAX_MS  -> BIJNA doet niets (telt als "fout")
+const BEV_MARGE_MIN_MS = 1500;
+const BEV_MARGE_MAX_MS = 30000;
+
+// Het nulpunt waartegen de overschrijding gemeten wordt.
+// countdownNulTijd hoort bij de OORSPRONKELIJKE voorspelling en is exact het
+// moment waartegen de twee marges hierboven beslissen. Alleen die referentie
+// hoort op het scherm; anders kiest de gebruiker zijn knop op een ander getal
+// dan de guard gebruikt.
+// De koppeling aan cdBereikteNul is niet cosmetisch: countdownNulTijd wordt
+// nergens op null teruggezet — alleen gezet. Zonder die vlag draagt hij, na een
+// rode fase die groen zag vóór nul, nog de waarde van een vórige fase of zelfs
+// een vorig kruispunt.
+// Terugval op cdWeergaveNulTijd: onder de V11.17.32-herziening bereikt de
+// GETOONDE waarde nul eerder dan `over`. In dat gat bestaat er nog geen echte
+// overschrijding. We tonen dan wel een getal — zwijgen helpt niemand — maar
+// gemarkeerd als een ander getal (`echt:false` stuurt label en kleur).
+function overschrNulRef() {
+  if (cdBereikteNul && countdownNulTijd != null) {
+    return { t: countdownNulTijd, echt: true };
+  }
+  if (cdWeergaveNulTijd != null) return { t: cdWeergaveNulTijd, echt: false };
+  return null;
+}
+
+// W2: is een BIJNA-tik op dit moment een no-op?
+// Spiegelt de guard in verwerkBevestigLeren exact. Die eist een numerieke
+// autoVerschilMs, en bevestigCountdown zet die alleen bij fase 'groen' met een
+// countdownNulTijd. Tijdens rood is BIJNA dus altijd inert, en tijdens groen
+// alleen binnen het venster hierboven.
+function bijnaIsNoOp() {
+  if (fase !== 'groen' || !countdownNulTijd) return true;
+  const d = Math.abs(Date.now() - countdownNulTijd);
+  return !(d > BEV_MARGE_MIN_MS && d < BEV_MARGE_MAX_MS);
+}
+
+// W3: is een KLOPTE-tik op dit moment een no-op?
+// Tijdens de zandloper — rood, terwijl de voorspelling al verstreken is — is
+// "klopte" feitelijk onwaar. De tik zou `gem` ongewijzigd terugschrijven met
+// gewicht 0,4, de zwaarste schrijving van de drie, en dus gewicht verdichten
+// rond precies de waarde die op dat moment aantoonbaar te laag is. Dat is
+// hetzelfde mechanisme dat V11.17.60 beschreef, alleen in de andere richting.
+// De grens is BEV_MARGE_MIN_MS en geen nieuw getal: onder 1,5s behandelt de
+// BIJNA-tak de afwijking zelf al als "klopte", dus daar blijft de tik geldig.
+// FOUT blijft altijd actief — dat is de enige uitspraak die tijdens de
+// zandloper inhoudelijk waar kán zijn.
+function klopteIsNoOp() {
+  if (fase !== 'rood') return false;
+  const ref = overschrNulRef();
+  if (ref === null) return false;
+  return (Date.now() - ref.t) > BEV_MARGE_MIN_MS;
+}
+
+// Laatst geschreven demping, zodat de rAF-lus niet 60x per seconde dezelfde
+// klasse zet. '' betekent: knoppen staan niet, staat is niet van toepassing.
+let bevInertStaat = '';
+
+// De knopstaat MOET buiten tickCd bijgewerkt worden. tickCd valt bij groen
+// meteen terug op zijn eigen cdActief-guard (fase is dan niet 'rood' en
+// osmVoorspellingActief staat bij een bekende fase altijd uit), en juist
+// tijdens groen leeft het venster waarin BIJNA wél iets doet. Vandaar een
+// eigen functie, aangeroepen vanuit lus() naast tickCd.
+function updateBevestigKnopStaat() {
+  if (!bevestigActief) { bevInertStaat = ''; return; }
+  const kInert = klopteIsNoOp();
+  const bInert = bijnaIsNoOp();
+  const staat = (kInert ? 'K' : '-') + (bInert ? 'B' : '-');
+  if (staat === bevInertStaat) return;
+  bevInertStaat = staat;
+  if (bevKlopteBtn) bevKlopteBtn.classList.toggle('inert', kInert);
+  if (bevBijnaBtn)  bevBijnaBtn.classList.toggle('inert', bInert);
+  if (bevFoutBtn)   bevFoutBtn.classList.remove('inert');
+}
 let huidigCdBron=null, huidigCdWaarde=null;
 // V11.17.0 Release 1: schaduw-voorspellingen — per methode de voorspelde
 // cyclusduur (sec) resp. het voorspelde nul-moment (ms epoch). Gevuld door
@@ -6101,6 +6200,16 @@ function startCd() {
     cdStart = performance.now();
     cdWallStart = nuMs;
     cdWallNodeId = huidigeNodeId;
+    // V11.17.62: cdWeergaveNulTijd hoort bij ÉÉN rode fase, maar werd alleen
+    // gereset door beeindigFase en invalideerPassiefSnapshot — en die draaien
+    // geen van beide bij een gewone groen->rood-overgang. Gevolg: in de tweede
+    // rode fase op hetzelfde kruispunt bleef de waarde van de eerste staan, de
+    // set-guard (cdWeergaveNulTijd === null) sloeg over, en de teller rekende
+    // vanaf een nul van een fase geleden — vrijwel altijd boven
+    // CD_OVERSCHR_MAX_S, dus '⏳ schatting op' waar '+0s te laat' hoorde.
+    // Bewust alleen in deze tak: de dropout-continuïteit hierboven zet de
+    // LOPENDE fase voort, en daar is de weergave-nul nog geldig.
+    cdWeergaveNulTijd = null;
   }
   cdBereikteNul = false;
   cdPill.classList.add('actief');
@@ -6273,16 +6382,31 @@ function tickCd() {
     // gedefinieerd). Met +7s is dat wel te doen.
     // Deze tak staat BOVEN de herziene tak omdat cdCondDoel onder V1 zelf nul
     // kan bereiken; anders zou de pill '0s / bijgesteld' tonen.
-    const overschrS = (cdWeergaveNulTijd != null)
-                    ? Math.floor((Date.now() - cdWeergaveNulTijd) / 1000) : 0;
+    // V11.17.62: de teller hangt nu aan countdownNulTijd — het nulpunt van de
+    // OORSPRONKELIJKE voorspelling, en daarmee exact het moment waartegen
+    // BEV_MARGE_MIN_MS/BEV_MARGE_MAX_MS beslissen. Tot V11.17.61 telde hij
+    // vanaf cdWeergaveNulTijd; onder de V1-herziening loopt die eerder naar
+    // nul, dus het getal op het scherm was niet het getal waarop de knoppen
+    // reageerden — precies wat deze teller moest oplossen.
+    const _ovRef = overschrNulRef();
+    const _ovEcht = _ovRef != null && _ovRef.echt;
+    const overschrS = (_ovRef != null)
+                    ? Math.floor((Date.now() - _ovRef.t) / 1000) : 0;
     if (overschrS <= CD_OVERSCHR_MAX_S) {
       cdPillGetal.textContent = rs + '+' + overschrS + 's';
-      cdPillLabel.textContent = 'te laat';
+      // In het gat tussen weergave-nul en echte nul is dit nog niet de marge
+      // waarop de knoppen reageren. Eigen label en oranje in plaats van rood,
+      // zodat de terugsprong naar +0s bij de echte nul te plaatsen is.
+      cdPillLabel.textContent = _ovEcht ? 'te laat' : 'bijgesteld te laat';
+      // Waarneming, geen voorspelling: het bestaande rood/oranje-onderscheid,
+      // niet het gedempte grijs van V11.17.50. Zeker niet groen — zie hieronder.
+      cdPillGetal.style.color = _ovEcht ? 'var(--rood)' : 'var(--oranje)';
     } else {
       // Boven de grens meet de teller geen schattingsfout meer. Terug naar
       // de neutrale weergave in plaats van een getal dat niets betekent.
       cdPillGetal.textContent = rs + '⏳';
       cdPillLabel.textContent = 'schatting op';
+      cdPillGetal.style.color = 'rgba(255,255,255,0.55)';
     }
     schattingOp = true;
   } else if (herzienOver != null) {
@@ -6321,9 +6445,14 @@ function tickCd() {
   // V11.17.50: bij 'schatting op' NIET groen. over===0 viel onder de <=6-regel
   // en kleurde dus groen — op een stoplicht-app leest groen als 'rijden', en
   // dat is precies het omgekeerde van wat deze toestand betekent.
-  if (herzienOver == null) {
-    cdPillGetal.style.color = schattingOp ? 'rgba(255,255,255,0.55)'
-                            : (over <= 6 ? 'var(--groen)' : '#fff');
+  // V11.17.62: de overschrijdingstak zet nu zelf zijn kleur, dus hier niet meer
+  // overschrijven. Dat repareert meteen een gat: bij een ACTIEVE herziening was
+  // herzienOver != null én schattingOp true, waardoor geen van beide takken de
+  // kleur zette en de teller de laatste herzien-kleur hield — groen, want
+  // herzienOver <= 6 vlak voor nul. Een groen getal leest op een stoplicht-app
+  // als 'rijden', precies het omgekeerde van wat deze toestand betekent.
+  if (herzienOver == null && !schattingOp) {
+    cdPillGetal.style.color = over <= 6 ? 'var(--groen)' : '#fff';
   }
 
   // V11.16.0 B2: markeer de countdown "voorlopig" zolang de rijrichting
@@ -6397,6 +6526,22 @@ function tickCd() {
 // W3: Bevestiging tap handler
 function bevestigCountdown(categorie) {
   if (!dichtstbijOSM) return;
+  // V11.17.62 W3: tijdens de zandloper is KLOPTE geen geldige uitspraak meer.
+  // Volledig negeren, niet alleen het leren overslaan: het record in
+  // sl_bevestig_ voedt óók berekenBevestigScore, waar 'klopte' +1 telt en de
+  // score de bevestig-upgrade van de countdown-modus stuurt. Een tik die daar
+  // wél doorwerkt is nog steeds een vervuild leergeheugen.
+  // De knop staat op dat moment gedempt (updateBevestigKnopStaat), dus de
+  // gebruiker ziet dat hij niets registreert, en de knoppenrij blijft staan
+  // zodat FOUT alsnog gekozen kan worden.
+  if (categorie === 'klopte' && klopteIsNoOp()) {
+    const _kr = overschrNulRef();
+    logOpslagMis('bevestig_klopte_inert', {
+      node: dichtstbijOSM.id,
+      dur: _kr ? (Date.now() - _kr.t) / 1000 : null
+    });
+    return;
+  }
   const autoVerschil = (fase === 'groen' && countdownNulTijd)
     ? Date.now() - countdownNulTijd : null;
   const sleutel = 'sl_bevestig_' + dichtstbijOSM.id;
@@ -11111,6 +11256,7 @@ function lus(mijnGeneratie) {
 
   checkOsmVoorspelling();
   tickCd();
+  updateBevestigKnopStaat();   // V11.17.62: moet ook draaien als tickCd terugvalt
   zichtLogSample();   // V11.17.34 W1: meetinstrument — schrijft alleen bij een wissel
 
   // Dagdeel update — elke 1800 frames (~30s), puur astronomisch
