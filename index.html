@@ -616,7 +616,7 @@
 <div id="startscherm">
   <div id="s-icoon">🚦</div>
   <div id="s-titel">Stoplicht<span>IQ</span></div>
-  <div id="s-versie">V11.17.60 — de bevestig-lus is gebroken</div>
+  <div id="s-versie">V11.17.61 — bestaande lus-producten opruimen</div>
   <div id="s-model-wrap">
     <div id="s-model-rij">
       <div id="s-model-label">🤖 YOLOv8 model laden…</div>
@@ -792,6 +792,7 @@
       <button id="export-detlog-btn" onclick="exporteerDetLog()" style="flex:1;padding:8px 12px;background:rgba(167,139,250,0.15);color:#a78bfa;border:1px solid rgba(167,139,250,0.35);border-radius:8px;font-size:12px;cursor:pointer;min-width:100px">🔍 Exp. detectie-log</button>
       <button id="export-herzlog-btn" onclick="exporteerHerzieningLog()" style="flex:1;padding:8px 12px;background:rgba(34,197,94,0.15);color:#22c55e;border:1px solid rgba(34,197,94,0.35);border-radius:8px;font-size:12px;cursor:pointer;min-width:100px">📉 Exp. herziening-log</button>
       <button id="opruim-nu-btn" onclick="ruimOpslagNuOp()" style="flex:1;padding:8px 12px;background:rgba(239,68,68,0.15);color:#ef4444;border:1px solid rgba(239,68,68,0.35);border-radius:8px;font-size:12px;cursor:pointer;min-width:100px">🧹 Ruim opslag nu op</button>
+      <button id="bevestig-lus-btn" onclick="ruimBevestigLusOp()" style="flex:1;padding:8px 12px;background:rgba(239,68,68,0.15);color:#ef4444;border:1px solid rgba(239,68,68,0.35);border-radius:8px;font-size:12px;cursor:pointer;min-width:100px">🩹 Ruim bevestig-lus op</button>
       <button id="klok-analyse-btn" onclick="toonKlokAnalyse()" style="flex:1;padding:8px 12px;background:rgba(34,197,94,0.15);color:#22c55e;border:1px solid rgba(34,197,94,0.35);border-radius:8px;font-size:12px;cursor:pointer;min-width:100px">🕐 Analyseer klokritmes</button>
       <button id="terug-analyse-btn" onclick="toonTerugAnalyse()" style="flex:1;padding:8px 12px;background:rgba(167,139,250,0.15);color:#a78bfa;border:1px solid rgba(167,139,250,0.35);border-radius:8px;font-size:12px;cursor:pointer;min-width:100px">↶ Tel Terug-records</button>
       <button id="duurlabel-btn" onclick="toonDuurLabelAnalyse()" style="flex:1;padding:8px 12px;background:rgba(56,189,248,0.15);color:#38bdf8;border:1px solid rgba(56,189,248,0.35);border-radius:8px;font-size:12px;cursor:pointer;min-width:100px">⏱ Tel duur-labels</button>
@@ -840,7 +841,7 @@
 
 <script>
 // ═══════════════════════════════════════════════════════════════
-//  StoplichtIQ V11.17.60
+//  StoplichtIQ V11.17.61
 //  V11.10: Zelfkalibratie + vergrendeling + crop smoothing
 //  — S1+S2 bevestiging (kruispunt-level confidence)
 //  — Route-herkenning basis (sequentie-opslag)
@@ -7841,6 +7842,111 @@ function opslagOverzicht() {
 // geslaagde V4-schrijving, dus wie al over de drempel zit maar niet rijdt kan
 // er niet bij. Deze knop voert dezelfde zes passen uit, ongeacht de drempel.
 // Toont eerst wat er staat, vraagt bevestiging, en toont daarna het resultaat.
+// ── V11.17.61: OPRUIMING BEVESTIG-LUS ─────────────────────────
+// Tot V11.17.60 las verwerkBevestigLeren `gem` uit de complete emmer, inclusief
+// eerdere bevestig_fout-records. Omdat de FOUT-tak gem*1.6 wegschrijft,
+// vermenigvuldigde elke tik een pool die eerdere tikken al hadden opgehoogd.
+// V11.17.60 stopte nieuwe vervuiling; deze twee functies ruimen het bestaande op.
+//
+// CRITERIUM. Elke bevestig_fout-tik is per constructie 1,6 x gem-op-dat-moment.
+// Het onderscheid zit niet in de hoogte van de waarde maar in de herkomst: een
+// record is een LUS-PRODUCT als de pool waaruit zijn gem werd berekend zelf al
+// een eerdere bevestig_fout bevatte. Dat is chronologisch na te spelen en geeft
+// per record een harde ja/nee, geen inschatting. De EERSTE fout-tik van een
+// reeks blijft dus altijd staan — dat is echte gebruikersfeedback.
+//
+// Analyse is read-only; schrijven gebeurt uitsluitend na expliciete bevestiging.
+function analyseerBevestigLus() {
+  const uit = [];
+  for (const key of Object.keys(localStorage)) {
+    if (!key.startsWith(LS_PREFIX) || key.endsWith('_groen')) continue;
+    const rest = key.slice(LS_PREFIX.length);
+    const i = rest.lastIndexOf('_');
+    if (i < 1) continue;
+    const nodeId = rest.slice(0, i), dd = rest.slice(i + 1);
+    if (!DD[dd]) continue;
+    let arr;
+    try { arr = JSON.parse(localStorage.getItem(key)); } catch(e) { continue; }
+    if (!Array.isArray(arr) || !arr.length) continue;
+    if (!arr.some(m => m && m.bron === 'bevestig_fout')) continue;
+    const opTijd = arr.slice().sort((a, b) => (a.tijd || 0) - (b.tijd || 0));
+    const pool = [], lus = new Set();
+    for (const m of opTijd) {
+      if (m && m.bron === 'bevestig_fout') {
+        const gemEcht   = gewGem(pool);
+        const gemSchoon = gewGem(pool.filter(x => x.bron !== 'bevestig_fout'));
+        // basis was opgeblazen, of bestond uitsluitend uit eerdere fout-tikken
+        if (gemEcht != null && (gemSchoon == null || Math.abs(gemEcht - gemSchoon) > 0.5)) {
+          lus.add(m.tijd);
+        }
+      }
+      pool.push(m);
+    }
+    if (!lus.size) continue;
+    const behouden = arr.filter(m => !(m && m.bron === 'bevestig_fout' && lus.has(m.tijd)));
+    uit.push({ key, nodeId, dd, n: arr.length, weg: lus.size,
+               voor: gewGem(arr), na: gewGem(behouden), behouden });
+  }
+  const daling = r => (r.voor != null && r.na != null) ? (r.voor - r.na) : 0;
+  return uit.sort((a, b) => daling(b) - daling(a));
+}
+
+// Voorvertoning eerst, schrijven pas na confirm. Zelfde vorm als ruimOpslagNuOp.
+function ruimBevestigLusOp() {
+  const NLc = String.fromCharCode(10);
+  const btn = document.getElementById('bevestig-lus-btn');
+  const origTekst = btn ? btn.textContent : null;
+  try {
+    const lijst = analyseerBevestigLus();
+    if (!lijst.length) {
+      alert('BEVESTIG-LUS OPRUIMEN' + NLc + NLc
+        + 'Geen lus-producten gevonden. Er is niets op te ruimen.');
+      return;
+    }
+    const totWeg = lijst.reduce((sm, r) => sm + r.weg, 0);
+    const daling = lijst.reduce((sm, r) =>
+      sm + ((r.voor != null && r.na != null) ? (r.voor - r.na) : 0), 0);
+    const regels = lijst.slice(0, 20).map(r => {
+      let naam = r.nodeId;
+      try { naam = localStorage.getItem('sl_naam_' + r.nodeId) || r.nodeId; } catch(e) {}
+      const v = (r.voor != null) ? r.voor + 's' : '-';
+      const n = (r.na   != null) ? r.na   + 's' : '-';
+      return '  ' + String(naam).slice(0, 22) + ' (' + r.dd + ') '
+           + v + ' -> ' + n + '  (' + r.weg + ' weg)';
+    }).join(NLc);
+    const meer = lijst.length > 20
+      ? NLc + '  ... en ' + (lijst.length - 20) + ' emmers meer' : '';
+    const akkoord = confirm(
+      'BEVESTIG-LUS OPRUIMEN' + NLc + NLc
+      + '>>> EXPORTEER EERST EEN BACKUP <<<' + NLc
+      + 'Dit wijzigt het leergeheugen en is niet terug te draaien.' + NLc
+      + 'Gebruik "Exporteer backup" hierboven als je dat nog niet deed.' + NLc + NLc
+      + 'Emmers met lus-producten : ' + lijst.length + NLc
+      + 'Records die weggaan      : ' + totWeg + NLc
+      + 'Totale daling            : ' + Math.round(daling) + 's' + NLc + NLc
+      + 'De eerste fout-tik per emmer blijft altijd staan.' + NLc + NLc
+      + regels + meer + NLc + NLc
+      + 'Doorgaan?');
+    if (!akkoord) return;
+    if (btn) { btn.textContent = 'Bezig...'; btn.disabled = true; }
+    let geschreven = 0, mislukt = 0;
+    for (const r of lijst) {
+      try { localStorage.setItem(r.key, JSON.stringify(r.behouden)); geschreven++; }
+      catch(e) { mislukt++; }
+    }
+    if (btn) { btn.textContent = origTekst; btn.disabled = false; }
+    alert('BEVESTIG-LUS OPGERUIMD' + NLc + NLc
+      + 'Emmers aangepast   : ' + geschreven + NLc
+      + 'Records verwijderd : ' + totWeg + NLc
+      + (mislukt ? 'Mislukt            : ' + mislukt + NLc : '')
+      + NLc + 'Het dashboard is bijgewerkt.');
+    try { laadDashboard(); } catch(e) {}
+  } catch(e) {
+    if (btn) { btn.textContent = origTekst; btn.disabled = false; }
+    alert('Opruimen mislukt: ' + (e && e.message ? e.message : e));
+  }
+}
+
 function ruimOpslagNuOp() {
   const btn = document.getElementById('opruim-nu-btn');
   const origTekst = btn ? btn.textContent : null;
