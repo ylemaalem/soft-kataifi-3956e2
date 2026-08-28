@@ -616,7 +616,7 @@
 <div id="startscherm">
   <div id="s-icoon">🚦</div>
   <div id="s-titel">Stoplicht<span>IQ</span></div>
-  <div id="s-versie">V11.17.59 — de V9-richtingenlijst scrollt weer</div>
+  <div id="s-versie">V11.17.60 — de bevestig-lus is gebroken</div>
   <div id="s-model-wrap">
     <div id="s-model-rij">
       <div id="s-model-label">🤖 YOLOv8 model laden…</div>
@@ -840,7 +840,7 @@
 
 <script>
 // ═══════════════════════════════════════════════════════════════
-//  StoplichtIQ V11.17.59
+//  StoplichtIQ V11.17.60
 //  V11.10: Zelfkalibratie + vergrendeling + crop smoothing
 //  — S1+S2 bevestiging (kruispunt-level confidence)
 //  — Route-herkenning basis (sequentie-opslag)
@@ -2367,7 +2367,31 @@ function verwerkBevestigLeren(osmId, categorie,
   // emmer. In de meetdata staan 60 van de 60 bevestig-records uit dat venster
   // onder 'nacht'.
   const dd = huidigDDActief();
-  const gem = gewGem(laadM(osmId, dd));
+  // V11.17.60: `gem` telde tot nu toe de eigen bevestig_fout-records mee. Omdat
+  // de FOUT-tak gem*1.6 wegschrijft, vermenigvuldigde elke tik een pool die
+  // eerdere tikken al hadden opgehoogd — een zelfversterkende lus. Gemeten op de
+  // export van 23 augustus: 39 emmers met >=3 bevestig_fout-records, 31 emmers
+  // die daardoor 10s of meer te hoog stonden (mediaan +22s, tot +205s op
+  // sl_v4_6960792133_dag, dat 292s toonde waar 87s hoorde).
+  //
+  // checkCyclusReset (r1548) ving dit structureel niet. Een fout-tik schrijft
+  // altijd exact 1,6 x gem, dus |duur-gem|/gem = 0,60 — constant. En
+  // bepaalResetDrempel (r1541) geeft boven 20s spreiding 0,70 terug. De
+  // escalatie zet met haar EERSTE schrijving haar eigen rem uit, want die
+  // schrijving tilt de spreiding meteen over de 20s.
+  //
+  // Door bevestig_fout uit de basis te filteren schrijft elke tik op dezelfde
+  // emmer dezelfde waarde. Samenstellen is dan onmogelijk, niet alleen
+  // onwaarschijnlijk. Dit geldt ook voor de BIJNA-tak hieronder, die met
+  // nieuwGem = gem + correctie dezelfde zelfreferentie heeft; die is nu nog
+  // inert (4 records in de hele store) maar komt tot leven zodra de
+  // margewijziging BIJNA laat werken.
+  //
+  // LET OP: dit raakt ook de KLOPTE-tak, die `gem` ongewijzigd terugschrijft.
+  // Die kan niet escaleren, maar verdichtte wel gewicht rond een opgeblazen
+  // waarde. Op de export van 23 augustus verandert de basis bij 83 van de 529
+  // bruikbare emmers; geen enkele emmer verliest zijn basis.
+  const gem = gewGem(laadM(osmId, dd).filter(m => m.bron !== 'bevestig_fout'));
   if (!gem || gem < 5) return;
 
   if (categorie === 'bijna'
