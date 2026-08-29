@@ -626,7 +626,7 @@
 <div id="startscherm">
   <div id="s-icoon">🚦</div>
   <div id="s-titel">Stoplicht<span>IQ</span></div>
-  <div id="s-versie">V11.17.64 — het nulpunt is weer het nulpunt</div>
+  <div id="s-versie">V11.17.65 — node-correctie zichtbaar, pill blijft niet hangen</div>
   <div id="s-model-wrap">
     <div id="s-model-rij">
       <div id="s-model-label">🤖 YOLOv8 model laden…</div>
@@ -851,7 +851,7 @@
 
 <script>
 // ═══════════════════════════════════════════════════════════════
-//  StoplichtIQ V11.17.64
+//  StoplichtIQ V11.17.65
 //  V11.10: Zelfkalibratie + vergrendeling + crop smoothing
 //  — S1+S2 bevestiging (kruispunt-level confidence)
 //  — Route-herkenning basis (sequentie-opslag)
@@ -10775,6 +10775,28 @@ function updateDichtbij(lat, lon) {
       // dichtstbijOSM is hier al de nieuwe node, dus het logveld `nieuw` klopt.
       beeindigFase('wissel');
       activeCdDoel = gewGem(laadM(nieuw.id, huidigDDActief())) || 0;
+      // V11.17.65: de pill hoorde bij de OUDE node en bleef staan.
+      // beeindigFase zet fase en cdStart op null maar raakt de pill niet aan,
+      // en tickCd keert daarna meteen terug op zijn cdActief-guard (r6320).
+      // Gevolg: het laatste getal van het zojuist verlaten kruispunt bleef
+      // bevroren in beeld tot een volgende detectie een fase-overgang gaf en
+      // updateUI de pill overschreef — bij een mediane inferentietijd van
+      // ~1,1s (gemeten max 3,3s) dus ruim een seconde een getal dat er nog
+      // uitziet als een geldige countdown, mét de NIEUWE kruispuntnaam erboven,
+      // want die verspringt wel meteen (r10715).
+      // corrigeerNodeAutomatisch deed dit al goed (r10946); dit trekt het
+      // tweede wisselpad daarmee gelijk.
+      //
+      // Ook de modus-velden meegenomen: die bleven hier eveneens van de oude
+      // node staan, terwijl pad 2 ze wel nult. Ze worden pas bij de volgende
+      // startCd overschreven, en een blijven staande activeCdMin uit een
+      // CD_VAAG-node is precies het soort restant waar V11.17.64 op stukliep.
+      // tickCd leest ze niet zolang cdStart null is, dus dit is veilig.
+      cdPill.classList.remove('actief');
+      cdPill.classList.remove('cd-verborgen');
+      cdPillGetal.textContent = '—'; cdPillGetal.style.color = '#fff';
+      cdPillLabel.textContent = 'groen over';
+      activeCdModus = null; activeCdMin = null; activeCdMax = null;
     }
     bijwerkLeerkaart(nieuw); bijwerkDashboardKnop();
     bboxOverride = null; bboxOverrideTijd = 0;  // V11.4.5: override vervalt bij echte node-wissel
@@ -10994,6 +11016,22 @@ function corrigeerNodeAutomatisch(nieuweNode, reden) {
 
   // W5: correctie-log (niet gethrottled)
   nodeChkLog(reden, oude, nieuw, true);
+  // V11.17.65: nodeChkLog doet uitsluitend console.log, dus tot nu toe bleef er
+  // van een automatische correctie NIETS achter in een export. Daardoor was niet
+  // te onderscheiden of "geen enkel stilstaand geval met >=20m verschil" betekent
+  // dat deze functie zijn werk doet binnen 3s, of dat de situatie zich nooit
+  // voordoet. Dat onderscheid bepaalt of er aan de drempels iets te winnen valt.
+  //
+  // `closestAf` vult logOpslagMis zelf uit puurDichtsteNodeCache — en dat IS de
+  // node waarnaar we zojuist gecorrigeerd hebben, dus dat veld draagt hier de
+  // afstand van de NIEUWE node. `afst`/`node` dragen bewust de OUDE: het record
+  // beschrijft waar we vandaan kwamen. `dur` is de stilstandsduur in seconden.
+  logOpslagMis('node_auto_correctie', {
+    node: oude ? oude.id : null,
+    afst: (oude && typeof oude.afstand === 'number') ? oude.afstand : null,
+    nieuw: nieuw.id,
+    dur: stilstandSinds > 0 ? (Date.now() - stilstandSinds) / 1000 : null
+  });
 }
 
 // ── GPS ───────────────────────────────────────────────────────
