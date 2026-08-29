@@ -626,7 +626,7 @@
 <div id="startscherm">
   <div id="s-icoon">🚦</div>
   <div id="s-titel">Stoplicht<span>IQ</span></div>
-  <div id="s-versie">V11.17.63 — detectielog meet weer, crop-ratio start op doel</div>
+  <div id="s-versie">V11.17.64 — het nulpunt is weer het nulpunt</div>
   <div id="s-model-wrap">
     <div id="s-model-rij">
       <div id="s-model-label">🤖 YOLOv8 model laden…</div>
@@ -851,7 +851,7 @@
 
 <script>
 // ═══════════════════════════════════════════════════════════════
-//  StoplichtIQ V11.17.63
+//  StoplichtIQ V11.17.64
 //  V11.10: Zelfkalibratie + vergrendeling + crop smoothing
 //  — S1+S2 bevestiging (kruispunt-level confidence)
 //  — Route-herkenning basis (sequentie-opslag)
@@ -2949,6 +2949,13 @@ function herzieningLogSluit(werkDur, reden) {
                ? Math.round(werkDur) : null;
     if (werk !== null && (werk < 4 || werk > 180)) return;
     const num = v => (typeof v === 'number' && !isNaN(v)) ? Math.round(v) : null;
+    // V11.17.64: een voorlopige tak die nog liep bij het einde van de fase
+    // alsnog afsluiten. sprong blijft dan null, en dat is het informatieve
+    // geval: de oranje teller heeft gedraaid maar is nooit omgeslagen, want
+    // groen kwam vóór de oorspronkelijke voorspelling verstreek.
+    if (tel && tel.voorlVanaf !== null && tel.voorlMs === null) {
+      tel.voorlMs = Date.now() - tel.voorlVanaf;
+    }
     // laatste vriesperiode nog afsluiten — die loopt tot dit moment door
     if (tel && tel.laatste !== null) {
       const stilMs = Date.now() - tel.sinds;
@@ -2976,7 +2983,13 @@ function herzieningLogSluit(werkDur, reden) {
       vries10: tel ? tel.vries10 : null,
       nulOp:   tel ? tel.nulOp : null,
       overschr: (cdWeergaveNulTijd != null)
-                ? Math.round((Date.now() - cdWeergaveNulTijd) / 1000) : null
+                ? Math.round((Date.now() - cdWeergaveNulTijd) / 1000) : null,
+      // V11.17.64: de voorlopige (oranje) overschrijdingsteller.
+      //   voorlMs = hoe lang hij liep; null = de tak is nooit bereikt
+      //   sprong  = terugsprong in s bij de omslag naar de echte nul;
+      //             null terwijl voorlMs gevuld is = nooit omgeslagen
+      voorlMs: tel ? num(tel.voorlMs) : null,
+      sprong:  tel ? num(tel.sprong) : null
     };
     let arr;
     try { arr = JSON.parse(localStorage.getItem('sl_herzieninglog')) || []; } catch(_) { arr = []; }
@@ -3498,8 +3511,14 @@ function overschrNulRef() {
 // autoVerschilMs, en bevestigCountdown zet die alleen bij fase 'groen' met een
 // countdownNulTijd. Tijdens rood is BIJNA dus altijd inert, en tijdens groen
 // alleen binnen het venster hierboven.
+// V11.17.64 FIX B: de cdBereikteNul-gate stond wel in overschrNulRef maar niet
+// hier. countdownNulTijd wordt nergens op null teruggezet (alleen gezet, r3426/
+// r6558), dus zonder die vlag las deze functie na een rode fase die groen zag
+// vóór nul het nulpunt van een VORIGE fase of node. In de bevestig-store van
+// 28 augustus staan bijna-records met autoVerschilMs van 230s, 337s, 351s en
+// 588s — binnen één rode fase onmogelijk, dus alleen zo te verklaren.
 function bijnaIsNoOp() {
-  if (fase !== 'groen' || !countdownNulTijd) return true;
+  if (fase !== 'groen' || !cdBereikteNul || countdownNulTijd == null) return true;
   const d = Math.abs(Date.now() - countdownNulTijd);
   return !(d > BEV_MARGE_MIN_MS && d < BEV_MARGE_MAX_MS);
 }
@@ -6432,7 +6451,20 @@ function tickCd() {
     if (!herzTel || herzTel.wallStart !== cdWallStart) {
       herzTel = { wallStart: cdWallStart, nHerz: 0, nKlem: 0, klemMax: 0,
                   vries3: 0, vries10: 0, nulOp: null,
-                  laatste: null, sinds: nuMs };
+                  laatste: null, sinds: nuMs,
+                  // V11.17.64: meet de VOORLOPIGE teller — de oranje tak
+                  // 'bijgesteld te laat', die telt vanaf de weergave-nul omdat
+                  // de echte nul nog niet gevallen is. Met FIX A wordt dat de
+                  // normale route op elke node met een neerwaartse herziening,
+                  // waar het voorheen een randgeval was. Bij de omslag naar de
+                  // echte nul springt het getal terug naar +0s en dat kan op
+                  // zichzelf hinderlijk worden; deze drie velden maken zichtbaar
+                  // hoe vaak en hoe groot, zodat dat meetbaar is en niet
+                  // aangenomen. Puur observerend, geen gedrag.
+                  voorlVanaf: null,   // wandkloktijd waarop de oranje tak begon
+                  voorlMax: 0,        // hoogste getoonde +Ns in die tak
+                  voorlMs: null,      // hoe lang de oranje tak liep
+                  sprong: null };     // terugsprong in s bij de omslag; null = nooit omgeslagen
     }
     const zicht = getoondOver > 0 ? Math.ceil(getoondOver) : null;
     if (zicht !== herzTel.laatste) {
@@ -6474,6 +6506,17 @@ function tickCd() {
       // waarop de knoppen reageren. Eigen label en oranje in plaats van rood,
       // zodat de terugsprong naar +0s bij de echte nul te plaatsen is.
       cdPillLabel.textContent = _ovEcht ? 'te laat' : 'bijgesteld te laat';
+      // V11.17.64: registreer de voorlopige tak en de terugsprong. Zie herzTel.
+      if (herzTel) {
+        if (!_ovEcht) {
+          if (herzTel.voorlVanaf === null) herzTel.voorlVanaf = Date.now();
+          if (overschrS > herzTel.voorlMax) herzTel.voorlMax = overschrS;
+        } else if (herzTel.voorlVanaf !== null && herzTel.sprong === null) {
+          // omslag voorlopig -> echt: het getal valt van voorlMax terug naar +0s
+          herzTel.voorlMs = Date.now() - herzTel.voorlVanaf;
+          herzTel.sprong  = herzTel.voorlMax;
+        }
+      }
       // Waarneming, geen voorspelling: het bestaande rood/oranje-onderscheid,
       // niet het gedempte grijs van V11.17.50. Zeker niet groen — zie hieronder.
       cdPillGetal.style.color = _ovEcht ? 'var(--rood)' : 'var(--oranje)';
@@ -6542,20 +6585,35 @@ function tickCd() {
     cdPillGetal.style.color = 'rgba(255,255,255,0.55)';
   }
 
-  // V11.13.3: vroege trigger voor countdownNulTijd in CD_VAAG.
-  // Zonder deze trigger blijft countdownNulTijd null als groen valt
-  // tussen activeCdMin en activeCdDoel, waardoor BIJNA-correcties
-  // in dat vroege bereik geen autoVerschilMs hebben om te bewegen.
-  if (activeCdModus === CD_VAAG
-      && activeCdMin != null
-      && !cdBereikteNul
-      && Math.ceil(activeCdMin - ver) <= 0) {
-    cdBereikteNul = true;
-    countdownNulTijd = Date.now();
-    huidigCdWaarde = activeCdDoel;
-    updateSchaduwCountdownNul(activeCdDoel);
-  }
-  // W3: Detecteer countdown bereikt 0
+  // V11.17.64 FIX A — de vroege CD_VAAG-trigger van V11.13.3 is hier weg.
+  // Die zette countdownNulTijd zodra `ver` de ONDERGRENS van de onzekerheids-
+  // band passeerde (activeCdMin), niet wanneer de voorspelling verstreek. Het
+  // nulpunt betekende daardoor iets anders dan zijn naam, en drie consumenten
+  // rekenden ermee: de overschrijdingsteller, klopteIsNoOp en autoVerschil in
+  // bevestigCountdown.
+  //
+  // Waarom dat zo hard uitpakte: cdMin = max(1, round(gem - spr)) op r2336, en
+  // gewSpreiding levert de VOLLEDIGE range (max - min), geen spreidingsmaat.
+  // gem - spr is daardoor meestal negatief en cdMin klemt op 1 — de trigger
+  // vuurde dus zo'n beetje bij het begin van rood.
+  //
+  // Gemeten op de export van 28 augustus (541 emmers):
+  //   CD_VAAG: 203 emmers (37,5% van alles)
+  //   gat gem - cdMin: mediaan 21s, p75 33s, p90 42s, max 128s
+  //   cdMin geklemd op 1: 126 van 203 (62,1%)
+  // Symptomen: KLOPTE stond al na ~2,5s rood permanent gedempt, en de
+  // overschrijdingsteller sprong bij nul meteen naar +18s in plaats van +1s.
+  // In de bevestig-store staan bijna-correcties tot 588s — onmogelijk als het
+  // nulpunt het verstrijken van de voorspelling was.
+  //
+  // Wat dit kost: V11.13.3 bestond om BIJNA te laten werken als groen tussen
+  // cdMin en cdDoel valt. Daar is BIJNA nu een no-op. Dat is een echt verlies,
+  // maar het alternatief was een correctie met een aantoonbaar onjuist getal.
+  // De nette oplossing — de afwijking mét teken meten vanaf de start van de
+  // rode fase, zodat te vroeg groen een NEGATIEVE correctie wordt — verandert
+  // wat de marges meten en hoort in een eigen release.
+  //
+  // W3: Detecteer countdown bereikt 0 — nu het ENIGE punt dat het nulpunt zet.
   if (over === 0 && !cdBereikteNul) {
     cdBereikteNul = true;
     countdownNulTijd = Date.now();
@@ -6618,7 +6676,11 @@ function bevestigCountdown(categorie) {
     });
     return;
   }
-  const autoVerschil = (fase === 'groen' && countdownNulTijd)
+  // V11.17.64 FIX C: dezelfde gate als bijnaIsNoOp, maar op de SCHRIJFKANT.
+  // Zonder cdBereikteNul kon een nulpunt uit een vorige fase alsnog als
+  // correctie het leergeheugen in — Fix B alleen zou de knop netjes tonen en
+  // ondertussen laten schrijven. De twee horen bij elkaar.
+  const autoVerschil = (fase === 'groen' && cdBereikteNul && countdownNulTijd != null)
     ? Date.now() - countdownNulTijd : null;
   const sleutel = 'sl_bevestig_' + dichtstbijOSM.id;
   let data;
