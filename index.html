@@ -626,7 +626,7 @@
 <div id="startscherm">
   <div id="s-icoon">🚦</div>
   <div id="s-titel">Stoplicht<span>IQ</span></div>
-  <div id="s-versie">V11.17.62 — eerlijke marges bij de bevestigknoppen</div>
+  <div id="s-versie">V11.17.63 — detectielog meet weer, crop-ratio start op doel</div>
   <div id="s-model-wrap">
     <div id="s-model-rij">
       <div id="s-model-label">🤖 YOLOv8 model laden…</div>
@@ -851,7 +851,7 @@
 
 <script>
 // ═══════════════════════════════════════════════════════════════
-//  StoplichtIQ V11.17.62
+//  StoplichtIQ V11.17.63
 //  V11.10: Zelfkalibratie + vergrendeling + crop smoothing
 //  — S1+S2 bevestiging (kruispunt-level confidence)
 //  — Route-herkenning basis (sequentie-opslag)
@@ -2738,6 +2738,11 @@ function invalideerPassiefSnapshot() {
   cdCondDoel = null; cdCondDoelVer = 0; cdWeergaveNulTijd = null;   // V11.17.57
   cdLaatstGetoond = null;
   cdHerzieningSnapshot = null;
+  // V11.17.63: de crop-ratio hoort bij één nadering. Bleef hij over een
+  // node-wissel heen staan, dan kroop hij daarna ~14 crop-runs (~19s) naar zijn
+  // nieuwe doel — precies het geval "licht gepasseerd (0,6), volgende naderen
+  // (0,4)". null laat berekenCropRegio hem in één keer op het doel zetten.
+  huidigeCropRatio = null;
 }
 
 // W2: schrijf één record bij rood→groen als de snapshot geldig is en bij
@@ -3781,7 +3786,10 @@ const VOORKEUR_SCORE_BONUS = 25;
 // V11.8.0: Predictive bbox anchoring — exponentieel gemiddelde in camera-norm coords (0-1)
 let bboxAnchorCx = null, bboxAnchorCy = null, bboxAnchorTijd = 0;
 // V11.8.0: Geleidelijke crop ratio
-let huidigeCropRatio = 1.0;
+// V11.17.63: was 1,0 — een niet-geïnitialiseerde waarde die de smoothing als
+// beginpunt gebruikte. null betekent nu "nog niet gezaaid": de eerstvolgende
+// berekenCropRegio zet hem in één keer op zijn doel. Zie daar.
+let huidigeCropRatio = null;
 // V11.10.0: Vergrendeld op specifieke OSM node
 let vergrendeldNodeId = null;
 
@@ -4321,7 +4329,36 @@ function berekenCropRegio(vW, vH, afstand) {
   if (!afstand || afstand < 15) return null;
   // W6: Geleidelijke crop ratio — smooth interpolatie i.p.v. abrupte 0.4/0.6 schakeling
   const doelRatio = afstand < 70 ? 0.6 : 0.4;
-  huidigeCropRatio = CROP_SMOOTHING * huidigeCropRatio + (1 - CROP_SMOOTHING) * doelRatio;
+  // V11.17.63: de smoothing is bedoeld om BINNEN één nadering niet abrupt tussen
+  // 0,6 en 0,4 te schakelen (zie de regel hierboven). Ze werd echter ook gebruikt
+  // om vanaf 1,0 op te starten en om over een node-wissel heen te lopen, en dat
+  // waren allebei geen overgangen maar aanlopen.
+  //
+  // Gemeten op de export van 23 augustus (405 crop-runs):
+  //   - de aanloop vanaf 1,0 raakt maar 3,0% van de runs (12 stuks) — klein
+  //   - de echte achterstand is de overgang: op afst >= 70m (doel 0,40) is de
+  //     mediane ratio 0,457 en staat slechts 46,6% van de runs op doel. De ratio
+  //     ligt vrijwel uniform verdeeld tussen 0,40 en 0,60.
+  // Oorzaak: huidigeCropRatio bleef over een node-wissel heen staan. Je passeert
+  // een licht (0,6), nadert het volgende (doel 0,4), en met 0,85 per run duurt
+  // dat ~14 crop-runs, oftewel ~19 seconden.
+  //
+  // Wat dat kost: bij ratio 0,457 is lbScale 0,649 tegen 0,741 op doel. Een kast
+  // van 1m is dan op 107m nog 13 modelpixels hoog i.p.v. op 122m — de kleinste
+  // bbox die de app ooit accepteerde is 13px. Dus ~12% detectieafstand.
+  //
+  // Zaaien i.p.v. aanlopen. De smoothing blijft volledig intact voor de enige
+  // overgang waarvoor ze bedoeld is: het passeren van de 70m-grens binnen één
+  // nadering. invalideerPassiefSnapshot zet hem terug op null bij node-wissel,
+  // GPS-voorbij, auto-correctie, handmatige tap en resetNeutraal.
+  if (huidigeCropRatio === null) {
+    huidigeCropRatio = doelRatio;
+  } else {
+    huidigeCropRatio = CROP_SMOOTHING * huidigeCropRatio + (1 - CROP_SMOOTHING) * doelRatio;
+  }
+  // Kan sinds het zaaien niet meer vuren (0,4 en 0,6 liggen er allebei onder) —
+  // hij bestond juist voor de aanloop vanaf 1,0. Blijft staan als vangnet voor
+  // het geval doelRatio ooit hoger wordt.
   if (huidigeCropRatio > 0.95) return null; // bijna geen crop → skip
   const ratio = huidigeCropRatio;
   const cropMaat = Math.min(vW, vH) * ratio;
@@ -5308,7 +5345,44 @@ function resetVolgordeKennis(reden) {
 }
 
 // ── WORKER RESULTAAT VERWERKING ───────────────────────────────
+// V11.17.63: het detectielog schreef vier van zijn veertien velden altijd leeg —
+// fam, sDx, vdx en vdy stonden 100% op null in elke export (500/500 op 23 aug,
+// 26/26 op 28 aug). Geen van vieren was stuk: ze werden gewist voordat ze
+// gelezen werden.
+//
+// De volgorde in lus() is bindend:
+//     if (modelGeladen && !aiBezig) { ... voerAIUit(); }   <- preprocessVoorYOLO NULT ze
+//     verwerkDetecties();                                  <- detLogSchrijf LAS ze
+// De worker zet aiBezig pas op false NA deze functie, dus op het eerstvolgende
+// frame is aiBezig false, draait voerAIUit als eerste en wist hij de velden —
+// altijd, elke run. hint en ratio ontsnapten alleen omdat berekenCropRegio ze
+// direct na de nulling opnieuw zet, maar dan met de waarden van de VOLGENDE run.
+// Elk record mengde dus twee runs: crop-velden van het zojuist verzonden frame,
+// uitkomstvelden van het zojuist teruggekomen frame.
+//
+// De oplossing is het log te schrijven terwijl aiBezig nog true is — dan hoort
+// alles bij dezelfde run en kan er geen preprocess tussen komen. De kern heeft
+// vier vroege returns (leeg / geen beste / geen kleur / doorval), dus een
+// aanroep aan het eind zou drie ervan missen. Vandaar een omhulsel met finally
+// in plaats van vier losse aanroepen: geen enkele regel in de kern verandert.
+//
+// finally en niet catch+rethrow: detLogSchrijf heeft zijn eigen try/catch om
+// alles heen en kan de app dus niet breken. Gooit de kern, dan krijg je nu wel
+// een record van een half verwerkte run; dat is zichtbaar aan afwijs en beter
+// dan een gat in de meting.
+//
+// LET OP bij het vergelijken van exports: records van vóór deze versie koppelen
+// de hint van run N aan de uitkomst van run N-1. Leeg sl_detlog voordat je een
+// nieuwe meting begint, anders vergelijk je twee verschillende koppelingen.
 function _verwerkWorkerResultaat(detecties) {
+  try {
+    _verwerkWorkerResultaatKern(detecties);
+  } finally {
+    detLogSchrijf();   // V11.17.63: hier, niet in verwerkDetecties — zie hierboven
+  }
+}
+
+function _verwerkWorkerResultaatKern(detecties) {
   laatsteDetecties = detecties;
   debugLaatsteRuweBoxen = detecties.length; // V11.17.18 W1: post-postprocess survivors
   const zichtbareKlassen = new Set(detecties.map(d=>d.klasse));
@@ -5634,7 +5708,9 @@ function tekenOverlay(box, score, horizontaal) {
 function verwerkDetecties() {
   if (!nieuwAIResultaat) return;
   nieuwAIResultaat = false;
-  detLogSchrijf();   // V11.17.46: meetinstrument — alleen in het naderingsvenster
+  // V11.17.63: detLogSchrijf() stond hier en las vier velden die de preprocess
+  // van de VOLGENDE run een paar regels eerder in lus() al gewist had. Verplaatst
+  // naar het omhulsel van _verwerkWorkerResultaat, waar aiBezig nog true is.
   const aiR = laatsteAI;
 
   if (aiR && aiR.kleur) {
