@@ -154,7 +154,17 @@
     .bevestig-btn{flex:1;min-height:44px;border:none;border-radius:8px;
       font-family:'Rajdhani',sans-serif;font-size:13px;font-weight:700;
       color:#fff;cursor:pointer;letter-spacing:0.04em;
-      transition:opacity .2s,filter .2s}
+      transition:opacity .2s,filter .2s;
+      /* V11.17.68: tweede regel met de marge. Het kernprobleem uit het
+         C5-onderzoek was dat de marges nergens stonden — geen tooltip en geen
+         infoscherm, want die zijn er niet op het moment dat de gebruiker kiest.
+         Gemeten op 375x812: knop blijft 121x44, geen overflow, 19px over. */
+      display:flex;flex-direction:column;align-items:center;justify-content:center;
+      gap:1px;line-height:1.1;padding:4px 2px}
+    /* 10px en niet 9px: bij 10, 11 en 12px past het allemaal binnen de 44px,
+       en 10px is in perifeer zicht tijdens het rijden merkbaar rustiger te
+       lezen. Boven 11px gaat de marge concurreren met het woord zelf. */
+    .bev-marge{font-size:10px;font-weight:600;opacity:0.85;letter-spacing:0.02em}
     /* V11.17.62: gedempte staat — deze knop registreert op dit moment niets.
        Bewust GEEN display:none en GEEN disabled: de gebruiker moet blijven
        zien dat de knop bestaat, alleen niet dat hij nu iets doet. Ook geen
@@ -626,7 +636,7 @@
 <div id="startscherm">
   <div id="s-icoon">🚦</div>
   <div id="s-titel">Stoplicht<span>IQ</span></div>
-  <div id="s-versie">V11.17.67 — de echte overschrijding wordt vastgelegd</div>
+  <div id="s-versie">V11.17.68 — nieuwe bevestigindeling, marges op de knop</div>
   <div id="s-model-wrap">
     <div id="s-model-rij">
       <div id="s-model-label">🤖 YOLOv8 model laden…</div>
@@ -720,9 +730,9 @@
       <span id="cd-pill-label">groen over</span>
     </div>
     <div id="bevestig-wrap">
-      <button id="bev-klopte" class="bevestig-btn" style="background:#22c55e" onclick="bevestigCountdown('klopte')">&#10003; KLOPTE</button>
-      <button id="bev-bijna" class="bevestig-btn" style="background:#f59e0b" onclick="bevestigCountdown('bijna')">~ BIJNA</button>
-      <button id="bev-fout" class="bevestig-btn" style="background:#ef4444" onclick="bevestigCountdown('fout')">&#10007; FOUT</button>
+      <button id="bev-klopte" class="bevestig-btn" style="background:#22c55e" onclick="bevestigCountdown('klopte')"><span>&#10003; KLOPTE</span><span class="bev-marge">0-2s</span></button>
+      <button id="bev-bijna" class="bevestig-btn" style="background:#f59e0b" onclick="bevestigCountdown('bijna')"><span>~ BIJNA</span><span class="bev-marge">2-10s</span></button>
+      <button id="bev-fout" class="bevestig-btn" style="background:#ef4444" onclick="bevestigCountdown('fout')"><span>&#10007; FOUT</span><span class="bev-marge">&gt; 10s</span></button>
     </div>
     <div id="leer-kaart">
       <div id="leer-header">
@@ -851,7 +861,7 @@
 
 <script>
 // ═══════════════════════════════════════════════════════════════
-//  StoplichtIQ V11.17.67
+//  StoplichtIQ V11.17.68
 //  V11.10: Zelfkalibratie + vergrendeling + crop smoothing
 //  — S1+S2 bevestiging (kruispunt-level confidence)
 //  — Route-herkenning basis (sequentie-opslag)
@@ -2403,8 +2413,11 @@ function berekenBevestigScore(osmId) {
   } catch(e) { return null; }
 }
 
-function verwerkBevestigLeren(osmId, categorie,
-                              autoVerschilMs) {
+// V11.17.68: derde parameter is nu het gemeten moment (meetBevestigMoment,
+// r3564) in plaats van autoVerschilMs. Dat laatste mat vanaf het TIKmoment en
+// droeg dus reactietijd mee; het blijft wel in het bevestig-record staan zodat
+// oude en nieuwe records vergelijkbaar blijven.
+function verwerkBevestigLeren(osmId, categorie, mom) {
   // V11.17.33 W3: was huidigDD(). Tussen 20:00 en 22:00 las deze functie uit
   // 'nacht' terwijl de meting zelf naar 'avond' was geschreven, en schreef ze
   // haar correctierecords ook naar 'nacht'. De tik "klopt"/"fout" bereikte de
@@ -2439,15 +2452,20 @@ function verwerkBevestigLeren(osmId, categorie,
   const gem = gewGem(laadM(osmId, dd).filter(m => m.bron !== 'bevestig_fout'));
   if (!gem || gem < 5) return;
 
-  // V11.17.62: 1500/30000 waren kale getallen, alleen hier. Nu de gedeelde
-  // BEV_MARGE_*-constanten, zodat de demping van de BIJNA-knop
-  // (bijnaIsNoOp) per definitie dezelfde grenzen hanteert als deze guard.
-  // Gedragsgelijk: dezelfde waarden, dezelfde strikte ongelijkheden.
+  // V11.17.68: de correctie komt nu uit overschrMs — het GROEN-moment min het
+  // nulpunt — en niet meer uit autoVerschilMs, dat het TIKmoment gebruikte en
+  // dus de reactietijd van de gebruiker meedroeg.
+  // bevestigMomentDefinitief eist toestand 'groen-na-nul': tijdens de zandloper
+  // is overschrMs een ondergrens die nog groeit, en daarop corrigeren zou
+  // stelselmatig te weinig bijstellen. Een tik vóór nul valt hier ook buiten en
+  // schrijft dus niets, precies zoals bedoeld.
+  // Dezelfde grenzen als bevestigIndeling en als de demping van de knop, zodat
+  // beeld en gedrag niet uiteen kunnen lopen.
   if (categorie === 'bijna'
-      && typeof autoVerschilMs === 'number'
-      && Math.abs(autoVerschilMs) > BEV_MARGE_MIN_MS
-      && Math.abs(autoVerschilMs) < BEV_MARGE_MAX_MS) {
-    const correctieSec = autoVerschilMs / 1000;
+      && bevestigMomentDefinitief(mom)
+      && mom.overschrMs > BEV_GOED_MAX_MS
+      && mom.overschrMs <= BEV_BIJNA_MAX_MS) {
+    const correctieSec = mom.overschrMs / 1000;
     const nieuwGem = gem + correctieSec;
     if (nieuwGem > 5 && nieuwGem < 300) {
       slaOpIntern(osmId, null, nieuwGem,
@@ -3508,16 +3526,59 @@ function bevestigMarkerSleutel() {
 // V11.17.55: vangnet bij het WEGSCHRIJVEN. Zie bevestigCountdown.
 const BEVESTIG_DEDUP_MS = 2000;
 
-// ── V11.17.62: EERLIJKE MARGES BIJ DE BEVESTIGKNOPPEN ─────────
-// De marges van BIJNA stonden tot nu toe alleen als kale getallen in de guard
-// van verwerkBevestigLeren. Ze waren nergens af te lezen: niet in de UI en
-// niet in de code die de knoppen tekent. Eén definitie, gebruikt door de guard
-// EN door de demping, zodat beeld en gedrag niet uiteen kunnen lopen.
-//   afwijking < BEV_MARGE_MIN_MS  -> BIJNA doet niets (telt als "klopte")
-//   daartussen                    -> BIJNA corrigeert met die afwijking
-//   afwijking > BEV_MARGE_MAX_MS  -> BIJNA doet niets (telt als "fout")
-const BEV_MARGE_MIN_MS = 1500;
-const BEV_MARGE_MAX_MS = 30000;
+// ── V11.17.68: DE INDELING, GEMETEN OP HET GROEN-MOMENT ───────
+// Vervangt de marges van V11.17.62 (1,5s tot 30s). Dertig seconden was geen
+// "bijna": een schatting die er een halve minuut naast zit is fout.
+//
+//   groen valt 0 tot BEV_GOED_MAX_MS na nul   -> GOED
+//   daarna tot BEV_BIJNA_MAX_MS               -> BIJNA, mét correctie
+//   daarboven                                 -> FOUT
+//   getikt vóór nul (klok loopt nog)          -> BIJNA, ZONDER correctie
+//
+// TWEE DINGEN DIE DEZE INDELING ANDERS MAKEN DAN DE VORIGE
+//
+// 1. Ze meet op het GROEN-moment, niet op het tikmoment. Reactietijd achter
+//    het stuur ligt tussen 0,5 en 1,5s en varieert sterk met afleiding; bij een
+//    GOED-band van 2s zou dat het grootste deel van de band zijn. Twee
+//    gebruikers bij hetzelfde stoplicht zouden dan in verschillende categorieën
+//    vallen puur door hoe snel ze keken. overschrMs (V11.17.67) is vrij van dat
+//    effect — geverifieerd: 5 seconden later tikken geeft dezelfde waarde.
+//
+// 2. Een correctie wordt alleen geschreven als de overschrijding DEFINITIEF is,
+//    dus als groen daadwerkelijk gevallen is (toestand 'groen-na-nul'). Tijdens
+//    de zandloper is overschrMs een ondergrens die nog groeit; daarop
+//    corrigeren zou stelselmatig te weinig bijstellen.
+//
+// Tikken vóór nul worden wel geregistreerd maar schrijven niets. Op dat moment
+// is niet vast te stellen of de gebruiker gelijk had of te vroeg tikte. Eerst
+// meten (restMs legt vast hoeveel er nog op de klok stond), later eventueel op
+// sturen.
+//
+// NIET GEDEKT: groen dat valt vóórdat de voorspelling verstrijkt. Dan was de
+// schatting te LANG en zou de correctie negatief moeten zijn. Die richting
+// bestaat nog niet — nieuwGem = gem + correctie kan het rekenkundig wel, maar
+// er wordt nooit een negatief getal aangeboden. Behandeld als "vóór nul":
+// registreren, niet corrigeren. Dat is de aparte release die de afwijking mét
+// teken gaat meten.
+const BEV_GOED_MAX_MS  = 2000;
+const BEV_BIJNA_MAX_MS = 10000;
+
+// Welke categorie is op DIT moment de waarheid? null = niet vast te stellen,
+// wat hier altijd betekent: de klok is nog niet op nul geweest, of groen viel
+// eerder dan dat.
+function bevestigIndeling(mom) {
+  const m = mom || meetBevestigMoment();
+  if (m.overschrMs == null) return null;
+  if (m.overschrMs <= BEV_GOED_MAX_MS)  return 'goed';
+  if (m.overschrMs <= BEV_BIJNA_MAX_MS) return 'bijna';
+  return 'fout';
+}
+
+// Is de overschrijding uitgemeten, of loopt hij nog? Alleen een definitieve
+// waarde mag het leergeheugen in.
+function bevestigMomentDefinitief(m) {
+  return !!m && m.toestand === 'groen-na-nul' && typeof m.overschrMs === 'number';
+}
 
 // Het nulpunt waartegen de overschrijding gemeten wordt.
 // countdownNulTijd hoort bij de OORSPRONKELIJKE voorspelling en is exact het
@@ -3551,10 +3612,16 @@ function overschrNulRef() {
 // vóór nul het nulpunt van een VORIGE fase of node. In de bevestig-store van
 // 28 augustus staan bijna-records met autoVerschilMs van 230s, 337s, 351s en
 // 588s — binnen één rode fase onmogelijk, dus alleen zo te verklaren.
+// V11.17.68: volgt nu de indeling in plaats van het venster rond het tikmoment.
+// BIJNA is de aangewezen knop in twee gevallen: de overschrijding valt tussen
+// GOED en FOUT, of de klok is nog niet op nul geweest. Dat tweede geval was
+// tot nu toe gedempt, maar de tik wordt wél geregistreerd (zonder correctie) —
+// en demping betekent in deze app "deze knop registreert niets". Vandaar niet
+// meer dempen daar.
 function bijnaIsNoOp() {
-  if (fase !== 'groen' || !cdBereikteNul || countdownNulTijd == null) return true;
-  const d = Math.abs(Date.now() - countdownNulTijd);
-  return !(d > BEV_MARGE_MIN_MS && d < BEV_MARGE_MAX_MS);
+  const m = meetBevestigMoment();
+  if (m.toestand === 'rood-voor-nul' || m.toestand === 'groen-voor-nul') return false;
+  return bevestigIndeling(m) !== 'bijna';
 }
 
 // W3: is een KLOPTE-tik op dit moment een no-op?
@@ -3563,15 +3630,15 @@ function bijnaIsNoOp() {
 // gewicht 0,4, de zwaarste schrijving van de drie, en dus gewicht verdichten
 // rond precies de waarde die op dat moment aantoonbaar te laag is. Dat is
 // hetzelfde mechanisme dat V11.17.60 beschreef, alleen in de andere richting.
-// De grens is BEV_MARGE_MIN_MS en geen nieuw getal: onder 1,5s behandelt de
-// BIJNA-tak de afwijking zelf al als "klopte", dus daar blijft de tik geldig.
 // FOUT blijft altijd actief — dat is de enige uitspraak die tijdens de
 // zandloper inhoudelijk waar kán zijn.
+// V11.17.68: KLOPTE is alleen waar als de indeling GOED zegt. Dat is strenger
+// dan voorheen op twee punten. Tijdens GROEN werd hij nooit gedempt, ook niet
+// als groen acht seconden na nul viel — daar was "klopte" toen al onwaar.
+// En vóór nul is de klok nog niet verstreken, dus valt er nog niets te
+// bevestigen; die tik hoort bij BIJNA.
 function klopteIsNoOp() {
-  if (fase !== 'rood') return false;
-  const ref = overschrNulRef();
-  if (ref === null) return false;
-  return (Date.now() - ref.t) > BEV_MARGE_MIN_MS;
+  return bevestigIndeling() !== 'goed';
 }
 
 // ── V11.17.67: DE ECHTE OVERSCHRIJDING VASTLEGGEN ─────────────
@@ -6604,7 +6671,8 @@ function tickCd() {
     // kan bereiken; anders zou de pill '0s / bijgesteld' tonen.
     // V11.17.62: de teller hangt nu aan countdownNulTijd — het nulpunt van de
     // OORSPRONKELIJKE voorspelling, en daarmee exact het moment waartegen
-    // BEV_MARGE_MIN_MS/BEV_MARGE_MAX_MS beslissen. Tot V11.17.61 telde hij
+    // de bevestigindeling (BEV_GOED_MAX_MS/BEV_BIJNA_MAX_MS) beslist. Tot
+    // V11.17.61 telde hij
     // vanaf cdWeergaveNulTijd; onder de V1-herziening loopt die eerder naar
     // nul, dus het getal op het scherm was niet het getal waarop de knoppen
     // reageerden — precies wat deze teller moest oplossen.
@@ -6843,7 +6911,7 @@ function bevestigCountdown(categorie) {
     verwerkBevestigLeren(
       dichtstbijOSM.id,
       categorie,
-      autoVerschil
+      _mom            // V11.17.68: het gemeten moment, niet meer autoVerschil
     );
   }
   bevestigActief = false;

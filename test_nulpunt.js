@@ -2,7 +2,8 @@
 //  StoplichtIQ — test_nulpunt.js
 //  © 2026 StoplichtIQ — Y. Lemaalem
 //
-//  Regressietest bij V11.17.64. Toetst dat countdownNulTijd het moment
+//  Regressietest bij V11.17.64, bijgewerkt in V11.17.68 voor de nieuwe
+//  bevestigindeling. Toetst dat countdownNulTijd het moment
 //  markeert waarop de OORSPRONKELIJKE voorspelling verstrijkt, en niets
 //  anders.
 //
@@ -87,24 +88,37 @@ function testNulpunt() {
 
   // ══ T3 — KLOPTE volgt dat nulpunt, niet cdMin ═════════════════
   eis('T3 KLOPTE nog normaal direct na het nulpunt',
-      klopteIsNoOp() === false, 'false (< 1,5s verstreken)', String(klopteIsNoOp()));
+      klopteIsNoOp() === false, 'false (< 2s, dus nog GOED)', String(klopteIsNoOp()));
 
-  return slaap(1700).then(() => {
-    eis('T3b KLOPTE gedempt 1,7s na het nulpunt',
-        klopteIsNoOp() === true, 'true (> 1,5s verstreken)', String(klopteIsNoOp()));
+  // V11.17.68: 2,2s in plaats van 1,7s — de GOED-band loopt nu tot
+  // BEV_GOED_MAX_MS (2000ms) in plaats van tot 1500ms.
+  return slaap(2200).then(() => {
+    eis('T3b KLOPTE gedempt 2,2s na het nulpunt',
+        klopteIsNoOp() === true, 'true (> 2s, dus niet meer GOED)', String(klopteIsNoOp()));
 
-    // ══ T4 — stale nulpunt lekt niet naar BIJNA (FIX B) ═════════
+    // ══ T4 — groen dat VOOR het nulpunt viel ═══════════════
+    // V11.17.68: dit was 'BIJNA negeert een stale nulpunt' en toetste dat de
+    // knop dan gedempt werd. Onder de nieuwe indeling is dit de toestand
+    // 'groen-voor-nul' — de schatting was te LANG — en is BIJNA juist de
+    // aangewezen knop: de tik wordt geregistreerd, alleen zonder correctie.
+    // Dat de correctie niet geschreven wordt, toetst T5 hieronder.
     fase = 'groen';
     cdBereikteNul = false;                     // deze fase haalde nul niet
     countdownNulTijd = Date.now() - 5000;      // nulpunt van een VORIGE fase
-    eis('T4 BIJNA negeert een stale nulpunt',
-        bijnaIsNoOp() === true,
-        'true (cdBereikteNul=false)',
-        String(bijnaIsNoOp()) + ' bij 5s stale verschil');
+    groenStart = performance.now() - 1000;
+    eis('T4 groen-voor-nul: BIJNA blijft bedienbaar',
+        bijnaIsNoOp() === false && meetBevestigMoment().toestand === 'groen-voor-nul',
+        'false, toestand groen-voor-nul',
+        String(bijnaIsNoOp()) + ', ' + meetBevestigMoment().toestand);
 
-    cdBereikteNul = true;                      // zelfde verschil, nu geldig
-    eis('T4b BIJNA werkt wel met een geldig nulpunt',
-        bijnaIsNoOp() === false, 'false (5s valt in 1,5-30s)', String(bijnaIsNoOp()));
+    // groen viel 5s NA het nulpunt — dat valt in de BIJNA-band (2-10s)
+    cdBereikteNul = true;
+    countdownNulTijd = Date.now() - 6000;
+    groenStart = performance.now() - 1000;     // groen 5s na nul, 1s geleden getikt
+    eis('T4b BIJNA actief bij 5s overschrijding',
+        bijnaIsNoOp() === false && bevestigIndeling() === 'bijna',
+        'false, indeling bijna',
+        String(bijnaIsNoOp()) + ', ' + bevestigIndeling());
 
     // ══ T5 — stale nulpunt lekt niet naar het leergeheugen (FIX C)
     const sleutel = 'sl_bevestig_111111';
@@ -113,6 +127,7 @@ function testNulpunt() {
     fase = 'groen';
     cdBereikteNul = false;
     countdownNulTijd = Date.now() - 5000;
+    groenStart = null;
     bevestigActief = true;
     bevestigCountdown('bijna');
     let rec = null;
