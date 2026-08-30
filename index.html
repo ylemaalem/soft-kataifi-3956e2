@@ -636,7 +636,7 @@
 <div id="startscherm">
   <div id="s-icoon">🚦</div>
   <div id="s-titel">Stoplicht<span>IQ</span></div>
-  <div id="s-versie">V11.17.68 — nieuwe bevestigindeling, marges op de knop</div>
+  <div id="s-versie">V11.17.69 — kansloze runs op afstand worden overgeslagen</div>
   <div id="s-model-wrap">
     <div id="s-model-rij">
       <div id="s-model-label">🤖 YOLOv8 model laden…</div>
@@ -861,7 +861,7 @@
 
 <script>
 // ═══════════════════════════════════════════════════════════════
-//  StoplichtIQ V11.17.68
+//  StoplichtIQ V11.17.69
 //  V11.10: Zelfkalibratie + vergrendeling + crop smoothing
 //  — S1+S2 bevestiging (kruispunt-level confidence)
 //  — Route-herkenning basis (sequentie-opslag)
@@ -5698,8 +5698,90 @@ function _verwerkWorkerResultaatKern(detecties) {
 
 
 // ── AI DETECTIE ───────────────────────────────────────────────
+// ── V11.17.69: AFSTANDSGATE OP KANSLOZE RUNS ──────────────────
+// Bijna 38% van alle YOLO-runs draaide op een crop waarvan het centrum een gok
+// was (hint 4) of een OSM-peiling op grote afstand (hint 3), met vrijwel nul
+// opbrengst — in twee onafhankelijke metingen, drie weken uit elkaar:
+//
+//   23 aug (n=500)              29 aug (n=500)
+//   hint=3   72   0,0% ok       hint=3   62   1,6% ok
+//   hint=4  120   0,0% ok       hint=4  127   0,8% ok
+//
+// Dat is geen pech maar meetkunde. Bij de doelratio 0,40 en de bevestigde
+// portret-resolutie 2160x3840 is een volledige stoplichtkast van 1m op 122m nog
+// 13 modelpixels hoog — exact de kleinste bbox die de app ooit heeft
+// geaccepteerd. Op de mediane afstand van hint=4 (258m) is diezelfde kast nog
+// 6px. GATE_MIN_AFSTAND_M ligt net boven die 122m, met marge naar de kant van
+// "toch maar proberen".
+//
+// WAAROM HIER EN NIET IN preprocessVoorYOLO
+// aiBezig wordt hieronder gezet, vóór de preprocess-aanroep. Zou de gate daar
+// zitten en null teruggeven, dan staat aiBezig al op true terwijl er nooit een
+// worker-bericht komt, en blijft hij hangen tot de 3s-timeout. De app zou
+// trager worden in plaats van sneller.
+//
+// DRIE WAARBORGEN ZODAT DE INGANG NIET DICHTGAAT
+// Gemeten over 76 naderingen (zelfde node, tussenpozen < 60s): van de 27 met
+// een geslaagde detectie ontstond de EERSTE detectie 16x via hint 1, 8x via
+// hint 2 en 3x via een volbeeld-run. Nul keer via hint 3 of 4. De ingang loopt
+// dus nergens langs het pad dat hier wordt afgesloten.
+//   1. een volbeeld-run wordt NOOIT gegate — dat is de facto het acquisitiepad
+//      op afstand (de verste eerste detectie in de meting, op 302m, kwam daar
+//      vandaan)
+//   2. een actieve tap of anchor heft de gate altijd op
+//   3. onder de drempel verandert er niets; hint 3 blijft daar gewoon draaien
+const GATE_MIN_AFSTAND_M = 130;
+
+// Alles hieronder is af te lezen zonder rekenwerk; de OSM-peiling hoeft niet
+// uitgerekend te worden, want hint 3 en 4 zijn samen simpelweg "geen tap en
+// geen anchor". Losse functie en geen inline blok, zodat het predicaat
+// toetsbaar is zonder camera — voerAIUit keert zonder videoframe al eerder
+// terug en zou de gate in een test nooit bereiken.
+function runIsKansloos() {
+  const afst = dichtstbijOSM ? dichtstbijOSM.afstand : null;
+  if (typeof afst !== 'number' || afst <= GATE_MIN_AFSTAND_M) return false;
+  // Waarborg 1: een volbeeld-run gaat er nooit doorheen. De alternatie telt
+  // POGINGEN, niet uitvoeringen — zie de ophoging in slaKanslozeRunOver.
+  if ((cropAlternatieTeller + 1) % 5 === 0) return false;
+  // Waarborg 2a: lopende tap-hint.
+  if (cropHintPositie && cropHintTeller > 0) return false;
+  // Waarborg 2b — DE VAL: preprocessVoorYOLO VERVERST cropHintPositie uit
+  // bboxOverride aan zijn eigen begin (r4611). Op dit punt kan cropHintPositie
+  // dus nog null zijn terwijl er wel degelijk een geldige tap ligt. Zonder deze
+  // spiegeling gooit de gate precies de runs weg die de gebruiker zojuist heeft
+  // aangewezen.
+  if (bboxOverride && bboxOverrideCamX != null
+      && Date.now() - bboxOverrideTijd < TAP_FORCE_TIMEOUT) return false;
+  // Waarborg 2c: actieve anchor. Dit is meteen de reden dat de gate het
+  // stale-venster niet kan verkorten: elke geslaagde detectie zet de anchor, en
+  // BBOX_ANCHOR_TIMEOUT (15s) is even lang als STALE_FASE_BODEM_MS (15s).
+  if (bboxAnchorCx !== null
+      && (Date.now() - bboxAnchorTijd) < BBOX_ANCHOR_TIMEOUT) return false;
+  return true;
+}
+
+// De gegate populatie moet zichtbaar blijven, anders is na deze wijziging niet
+// te zien of de drempel te streng staat — dezelfde les als nodeChkLog, dat
+// alleen naar de console schreef. Zelfde recordvorm als elke andere
+// detlog-regel; alleen afst en afwijs dragen hier betekenis.
+function slaKanslozeRunOver() {
+  cropAlternatieTeller++;   // zie waarborg 1 in runIsKansloos
+  detLogSkip = false;
+  detLogAfst = dichtstbijOSM ? dichtstbijOSM.afstand : null;
+  detLogRatio = null; detLogHintBron = null;
+  detLogStickyDx = null; detLogFam = null;
+  detLogVdx = null; detLogVdy = null;
+  debugLaatsteAfwijsReden = 'gegate';
+  debugLaatsteKandH = null;
+  detLogSchrijf();
+}
+
 async function voerAIUit() {
   if (!modelGeladen || !onnxSession || video.readyState < 2 || aiBezig) return;
+  // V11.17.69: vóór aiBezig. Zou de gate in preprocessVoorYOLO zitten en null
+  // teruggeven, dan staat aiBezig al op true terwijl er nooit een worker-bericht
+  // komt, en blijft hij hangen tot de 3s-timeout op r5806.
+  if (runIsKansloos()) { slaKanslozeRunOver(); return; }
   aiBezig = true;
   const aiTimeout = setTimeout(() => { if (aiBezig) aiBezig=false; }, 3000);
   try {
