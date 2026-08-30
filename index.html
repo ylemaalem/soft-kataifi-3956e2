@@ -626,7 +626,7 @@
 <div id="startscherm">
   <div id="s-icoon">🚦</div>
   <div id="s-titel">Stoplicht<span>IQ</span></div>
-  <div id="s-versie">V11.17.65 — node-correctie zichtbaar, pill blijft niet hangen</div>
+  <div id="s-versie">V11.17.66 — lege S2-markeringen tellen niet meer mee</div>
   <div id="s-model-wrap">
     <div id="s-model-rij">
       <div id="s-model-label">🤖 YOLOv8 model laden…</div>
@@ -851,7 +851,7 @@
 
 <script>
 // ═══════════════════════════════════════════════════════════════
-//  StoplichtIQ V11.17.65
+//  StoplichtIQ V11.17.66
 //  V11.10: Zelfkalibratie + vergrendeling + crop smoothing
 //  — S1+S2 bevestiging (kruispunt-level confidence)
 //  — Route-herkenning basis (sequentie-opslag)
@@ -1451,12 +1451,39 @@ function vlakGewichtVoor(m) {
   return null;
 }
 
+// ── V11.17.66: LEGE S2-MARKERINGEN TELLEN NIET MEE ────────────
+// Vóór V11.2.0 (d2aac2c, dat het bron-veld introduceerde) schreef de app
+// S2-aanwezigheidsmarkeringen weg als gewone meetrecords: duur 0, geen bron,
+// wél de vlag s2:true en een gewicht van 0,30. Gemeten op de export van
+// 28 augustus: 2446 van 8111 records (30,2%), en alle 2446 hebben duur 0 —
+// er bestaat geen enkel record met duur <= 0 zonder die vlag.
+//
+// berekenObsScore slaat records over op `bron`, en deze hebben dat veld niet.
+// Ze glipten dus door het filter en telden voor 0,30 x recentheid mee. De
+// doelsom is OBS_DOEL_CYCLI * VOLLEDIG_CYCLUS_GEWICHT = 3,75, dus dertien
+// recente markeringen halen het plafond van 95% al. 164 emmers bestonden
+// UITSLUITEND uit zulke records en toonden mediaan 16% (max 95%) zonder ooit
+// één roodduur gemeten te hebben.
+//
+// Deze helper is de gedeelde definitie van "draagt een gemeten roodduur",
+// gebruikt door de score, de twee lengte-poorten en de dagdeel-tegels, zodat
+// ze niet uiteen kunnen lopen. gewGem (r1291), gewSpreiding (r1349) en
+// gewSpreidingN (r1362) hadden hun eigen duur>0-filter al en zijn dus nooit
+// geraakt geweest: de VOORSPELLING was altijd goed, alleen het PERCENTAGE niet.
+function heeftGemetenDuur(m) { return !!m && m.duur > 0; }
+
 function berekenObsScore(metingen) {
   if (!metingen || !metingen.length) return 0;
   let som = 0;
   for (const m of metingen) {
     if (m.bron === 's2' || m.bron === 'proxy'
         || m.bron === 'bevestig_klopte') continue;
+    // V11.17.66: bewust de COMBINATIE en niet de kale s2-vlag. Er bestaat
+    // vandaag geen s2-record met duur > 0, dus beide filteren identiek — maar
+    // de reden om over te slaan is "geen gemeten duur", niet "kwam ooit uit
+    // S2". Mocht er via de merge-route (r9186) ooit een oude backup binnenkomen
+    // met een s2-record dat wél een duur draagt, dan telt die terecht mee.
+    if (m.s2 === true && !heeftGemetenDuur(m)) continue;
     let obsGewicht;
     if (m.gewicht != null && m.tier == null) {
       // V11.17.53: een obs-afgeleid gewicht telt vanaf nu als één vlakke
@@ -1485,7 +1512,11 @@ function berekenLeerPct(osmId) {
   if (!alleM.length) return 0;
   const obsPct = berekenObsScore(alleM);
   const gem = gewGem(alleM);
-  const s2Bonus = alleM.length >= 3 && gem
+  // V11.17.66 poort 1: `alleM.length >= 3` telde de lege S2-markeringen mee.
+  // Bij een emmer die alleen daaruit bestaat was dat onschadelijk (gem is dan
+  // null), maar bij een GEMENGDE emmer opende een handvol markeringen de poort
+  // die anders dicht bleef. Gemeten: 34 nodes vallen anders uit.
+  const s2Bonus = alleM.filter(heeftGemetenDuur).length >= 3 && gem
     ? Math.min(10, zoekS2BevestigingScore(osmId, gem) * 3) : 0;
   let gpsTikBonus = 0;
   try {
@@ -2058,7 +2089,10 @@ function zoekS2BevestigingScore(osmId, cyclustijd) {
     const af = afstand(sl.lat, sl.lon, ander.lat, ander.lon);
     if (af > 80) continue;
     const anderM = laadM(String(ander.id), dd);
-    if (anderM.length < 3) continue;
+    // V11.17.66 poort 2: dezelfde lengte-fout, maar dan op de BUURNODE. Lege
+    // S2-markeringen maakten een buur stemgerechtigd om deze node te
+    // bevestigen zonder dat die buur ooit een roodduur had gemeten.
+    if (anderM.filter(heeftGemetenDuur).length < 3) continue;
     const anderGem = gewGem(anderM);
     if (!anderGem) continue;
     if (Math.abs(cyclustijd - anderGem) / anderGem < 0.20) {
@@ -6888,8 +6922,13 @@ function bijwerkLeerkaart(osm) {
   const gekozenDD = getoondDagdeel;
   if (gekozenDD && osm) {
     const mDD = laadM(osm.id, gekozenDD);
+    // V11.17.66: de bodem `x * 4` omzeilde berekenObsScore volledig — 32 lege
+    // S2-markeringen gaven min(95, max(128, 0)) = 95%, ongeacht de score. Nu
+    // telt die bodem alleen echte metingen. Dit verandert de uitkomst UITSLUITEND
+    // voor emmers met lege S2-records, want elk ander record heeft duur > 0.
+    const mDDecht = mDD.filter(heeftGemetenDuur).length;
     const pctDD = mDD.length > 0
-      ? Math.min(95, Math.max(mDD.length * 4, berekenObsScore(mDD)))
+      ? Math.min(95, Math.max(mDDecht * 4, berekenObsScore(mDD)))
       : 0;
     const kleurDD = leerKleur(pctDD);
     leerPctBalk.style.width = pctDD + '%';
@@ -6957,7 +6996,8 @@ function renderRichtingBlok(osm) {
   for (const d of Object.keys(DD)) {
     const m = laadM(nodeId, d);
     if (!m.length) continue;
-    const pctD = Math.min(95, Math.max(m.length * 4, berekenObsScore(m)));
+    // V11.17.66: zie r6890 — de bodem telt alleen records met een gemeten duur.
+    const pctD = Math.min(95, Math.max(m.filter(heeftGemetenDuur).length * 4, berekenObsScore(m)));
     algDds.push({ dd: d, m, pctD });
     algMetTot += m.length;
     algPctWeighted += pctD * m.length;
@@ -9250,7 +9290,8 @@ function renderNodeInfo(nodeId) {
   for (const d of Object.keys(DD)) {
     const m = laadM(nodeId, d);
     if (!m.length) continue;
-    const pct = Math.min(95, Math.max(m.length * 4, berekenObsScore(m)));
+    // V11.17.66: zie r6890 — de bodem telt alleen records met een gemeten duur.
+    const pct = Math.min(95, Math.max(m.filter(heeftGemetenDuur).length * 4, berekenObsScore(m)));
     dd4.push(`${DD[d].ic} <span style="color:${ni_kleur(pct)}">${pct}%</span> (${m.length}×)`);
   }
   if (dd4.length) {
