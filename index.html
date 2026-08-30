@@ -626,7 +626,7 @@
 <div id="startscherm">
   <div id="s-icoon">🚦</div>
   <div id="s-titel">Stoplicht<span>IQ</span></div>
-  <div id="s-versie">V11.17.66 — lege S2-markeringen tellen niet meer mee</div>
+  <div id="s-versie">V11.17.67 — de echte overschrijding wordt vastgelegd</div>
   <div id="s-model-wrap">
     <div id="s-model-rij">
       <div id="s-model-label">🤖 YOLOv8 model laden…</div>
@@ -851,7 +851,7 @@
 
 <script>
 // ═══════════════════════════════════════════════════════════════
-//  StoplichtIQ V11.17.66
+//  StoplichtIQ V11.17.67
 //  V11.10: Zelfkalibratie + vergrendeling + crop smoothing
 //  — S1+S2 bevestiging (kruispunt-level confidence)
 //  — Route-herkenning basis (sequentie-opslag)
@@ -3572,6 +3572,84 @@ function klopteIsNoOp() {
   const ref = overschrNulRef();
   if (ref === null) return false;
   return (Date.now() - ref.t) > BEV_MARGE_MIN_MS;
+}
+
+// ── V11.17.67: DE ECHTE OVERSCHRIJDING VASTLEGGEN ─────────────
+// Het onderzoek naar de bevestigmarges liep vast op de vaststelling dat een
+// vier-weg-indeling (goed / bijna / fout) niet te berekenen is uit wat er
+// vandaag in een bevestig-record staat. Twee redenen:
+//
+//  1. autoVerschilMs beeldt DRIE verschillende toestanden op null af: getikt
+//     vóór nul, getikt ná nul terwijl het licht nog rood staat, en de
+//     stale-gate die V11.17.64 toevoegde. Uit een null valt niet af te leiden
+//     welke van de drie het was.
+//  2. Waar hij wél een getal draagt — 43 van 423 fout-tikken (10,2%) en 14 van
+//     145 bijna-tikken op de export van 28 augustus — is dat `tiktijd minus
+//     nulpunt`. Dat is de overschrijding PLUS de reactietijd van de gebruiker,
+//     en die twee zijn achteraf niet te scheiden.
+//
+// Deze functie legt vast wat er werkelijk gebeurd is, los van wanneer er
+// getikt werd:
+//
+//   toestand    expliciet, zodat null nooit meer drie dingen tegelijk betekent
+//   overschrMs  het GROEN-moment min countdownNulTijd — de echte
+//               overschrijding, vrij van reactietijd
+//   restMs      wat er nog op de klok stond bij een tik vóór nul; laat zien of
+//               iemand met twee of met twintig seconden anticipeert
+//
+// LET OP bij het lezen: overschrMs betekent per toestand iets anders.
+//   groen-na-nul : EINDwaarde. Groen is gevallen, dit is de volledige
+//                  overschrijding en het getal waar een indeling op hoort te
+//                  sturen.
+//   rood-na-nul  : ONDERGRENS. De overschrijding loopt nog door; dit is hoe
+//                  lang hij op het moment van tikken al duurde.
+//   overige      : null.
+//
+// groenStart staat in performance.now()-eenheden (verwerkFase r6087) en
+// countdownNulTijd in Date.now(); de omrekening hieronder brengt groenStart
+// naar wandkloktijd. Beide klokken lopen binnen één sessie synchroon, en
+// groenStart wordt bij elke rode fase genuld (r6123), dus er kan geen waarde
+// van een vorige groenfase blijven staan.
+//
+// PUUR OBSERVEREND. Geen enkele bestaande beslissing leest deze velden; de
+// knoppen, de demping en het leergeheugen gedragen zich exact als voorheen.
+function meetBevestigMoment() {
+  const nuWand = Date.now();
+  const nulGezet = cdBereikteNul && countdownNulTijd != null;
+  const uit = { toestand: null, overschrMs: null, restMs: null };
+
+  if (fase === 'groen') {
+    if (!nulGezet) {
+      // Groen viel vóórdat de voorspelling verstreek. Er is dan geen
+      // overschrijding; de schatting was juist te LANG. Bewust geen negatief
+      // getal verzinnen: cdBereikteNul is nooit gezet, dus er is geen nulpunt
+      // om vanaf te meten.
+      uit.toestand = 'groen-voor-nul';
+      return uit;
+    }
+    uit.toestand = 'groen-na-nul';
+    if (groenStart != null) {
+      const groenWand = nuWand - (performance.now() - groenStart);
+      uit.overschrMs = Math.round(groenWand - countdownNulTijd);
+    }
+    return uit;
+  }
+
+  if (fase === 'rood') {
+    if (nulGezet) {
+      uit.toestand = 'rood-na-nul';
+      uit.overschrMs = Math.round(nuWand - countdownNulTijd);
+      return uit;
+    }
+    uit.toestand = 'rood-voor-nul';
+    if (cdStart != null && activeCdDoel > 0) {
+      uit.restMs = Math.round(Math.max(0, activeCdDoel * 1000 - (performance.now() - cdStart)));
+    }
+    return uit;
+  }
+
+  uit.toestand = (fase == null) ? 'geen-fase' : ('fase-' + fase);
+  return uit;
 }
 
 // Laatst geschreven demping, zodat de rAF-lus niet 60x per seconde dezelfde
@@ -6741,6 +6819,11 @@ function bevestigCountdown(categorie) {
     m3: { voorspeldeCyclus: schaduwWaarden.m3, autoVerschilMs: schaduwCountdownNul.m3 != null ? nu - schaduwCountdownNul.m3 : null },
     m4: { voorspeldeCyclus: schaduwWaarden.m4, autoVerschilMs: schaduwCountdownNul.m4 != null ? nu - schaduwCountdownNul.m4 : null }
   };
+  // V11.17.67: de echte overschrijding en de expliciete toestand. Puur
+  // observerend — zie meetBevestigMoment voor wat elk veld per toestand
+  // betekent. autoVerschilMs blijft ongewijzigd naast deze velden staan zodat
+  // oude en nieuwe records vergelijkbaar blijven.
+  const _mom = meetBevestigMoment();
   data.push({
     ts: nu,
     categorie,
@@ -6748,6 +6831,9 @@ function bevestigCountdown(categorie) {
     bron: huidigCdBron,
     countdownWaarde: huidigCdWaarde,
     autoVerschilMs: autoVerschil,
+    toestand:   _mom.toestand,     // V11.17.67
+    overschrMs: _mom.overschrMs,   // V11.17.67
+    restMs:     _mom.restMs,       // V11.17.67
     schaduw: schaduwLog
   });
   if (data.length > 20) data = data.slice(-20);
