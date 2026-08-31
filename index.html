@@ -642,7 +642,7 @@
 <div id="startscherm">
   <div id="s-icoon">🚦</div>
   <div id="s-titel">Stoplicht<span>IQ</span></div>
-  <div id="s-versie">V11.17.73 — ook V5 alle krijgt geen richtingpijl meer</div>
+  <div id="s-versie">V11.17.74 — de onzekerheidsband zegt weer iets</div>
   <div id="s-model-wrap">
     <div id="s-model-rij">
       <div id="s-model-label">🤖 YOLOv8 model laden…</div>
@@ -867,7 +867,7 @@
 
 <script>
 // ═══════════════════════════════════════════════════════════════
-//  StoplichtIQ V11.17.73
+//  StoplichtIQ V11.17.74
 //  V11.10: Zelfkalibratie + vergrendeling + crop smoothing
 //  — S1+S2 bevestiging (kruispunt-level confidence)
 //  — Route-herkenning basis (sequentie-opslag)
@@ -1359,12 +1359,56 @@ function telOvergangMetingen(m) {
   return Array.isArray(m) ? m.filter(isOvergangMeting).length : 0;
 }
 
-function gewSpreiding(m) {
+// V11.17.74: de bron-selectie stond twee keer letterlijk hetzelfde in
+// gewSpreiding en gewSpreidingN, met een comment dat waarschuwde dat ze niet
+// uiteen mochten lopen. Nu één definitie, gedeeld door alle drie de maten
+// hieronder. Zuivere extractie: zelfde filter, zelfde terugval, zelfde uitkomst.
+function spreidingBron(m) {
   const recent = m.filter(x => gew(x.tijd, HALFWAARDETIJD_SPREIDING) > 0.1);
   const bron = recent.length >= 3 ? recent : m;
-  const duurs = bron.filter(x => x.duur > 0).map(x => x.duur);
+  return bron.filter(x => x.duur > 0).map(x => x.duur);
+}
+
+function mediaanVan(getallen) {
+  if (!getallen.length) return null;
+  const s = [...getallen].sort((a, b) => a - b);
+  return s[Math.floor(s.length / 2)];
+}
+
+function gewSpreiding(m) {
+  const duurs = spreidingBron(m);
   if (duurs.length < 2) return 0;
   return Math.max(...duurs) - Math.min(...duurs);
+}
+
+// V11.17.74: een ECHTE spreidingsmaat, naast de range hierboven.
+//
+// gewSpreiding levert max - min: de uitschieter-tot-uitschieter afstand. Als
+// maat voor "hoe breed ligt deze cyclus" is dat onbruikbaar, want één enkele
+// afwijkende meting bepaalt hem volledig. Gemeten op de export van 28 augustus
+// is de range mediaan 4,2 tot 4,4 keer de MAD, en bij een tiende van de emmers
+// acht keer.
+//
+// Waar dat op het scherm toe leidde: cdMin/cdMax zetten de band op gem +/- spr,
+// dus TWEE keer de volle range breed. Die band dekte 100% van de eigen
+// metingen — geen onzekerheidsband maar een garantie — en klemde bij 62% van de
+// CD_VAAG-emmers op cdMin = 1, waardoor de ondergrens niets meer zei. Een
+// typisch geval: gem 19s, range 29s, dus '1-48s onzeker'.
+//
+// De factor 1,4826 maakt van de MAD een schatter van de standaardafwijking bij
+// een normale verdeling. Gemeten dekking daarmee: 78% (tegen 100% voor de range,
+// 59% voor de kale MAD en 92% voor 3 x MAD), en de klem zakt van 62% naar 13%.
+//
+// UITSLUITEND voor de band. relSpr — en dus de klasse ZEKER/GESCHAT/VAAG —
+// blijft op de range, en berekenVRIScore ook. Reden: die klassedrempels zijn op
+// de range geijkt, en bij n=2-4 (69% van de emmers) is een MAD-klasse tussen
+// twee bezoeken maar 35-39% consistent. De klasse zou gaan flikkeren.
+const MAD_NAAR_SIGMA = 1.4826;
+function gewSpreidingMAD(m) {
+  const duurs = spreidingBron(m);
+  if (duurs.length < 2) return 0;
+  const mid = mediaanVan(duurs);
+  return MAD_NAAR_SIGMA * mediaanVan(duurs.map(x => Math.abs(x - mid)));
 }
 
 // V11.17.51: hoeveel metingen liggen er WERKELIJK onder gewSpreiding hierboven?
@@ -1374,9 +1418,7 @@ function gewSpreiding(m) {
 // gewSpreiding: dat pad ijkt op ABSOLUTE seconden (30 / VRI_MIN_SPREIDING / 10)
 // en zou bij een ander getal stil andere VRI-labels gaan geven.
 function gewSpreidingN(m) {
-  const recent = m.filter(x => gew(x.tijd, HALFWAARDETIJD_SPREIDING) > 0.1);
-  const bron = recent.length >= 3 ? recent : m;
-  return bron.filter(x => x.duur > 0).length;
+  return spreidingBron(m).length;
 }
 
 // V11.17.0 Release 1: schaduw-voorspelmethodes. Vier pure functies die naast
@@ -2516,8 +2558,31 @@ function bepaalCdModus(gem, metingen) {
   else if (relSpr < 0.40) modus = CD_GESCHAT;
   else {
     modus = CD_VAAG;
-    cdMin = Math.max(1, Math.round(gem - spr));
-    cdMax = Math.round(gem + spr);
+    // V11.17.74: de BAND op 1,48 x MAD in plaats van op de range. Zie
+    // gewSpreidingMAD voor de onderbouwing; de klasse hierboven blijft op spr.
+    //
+    // De ondergrens van 1s vangt het geval waarin MAD nul wordt: dat gebeurt
+    // als meer dan de helft van de metingen identiek is en één uitschieter de
+    // relSpr over de 0,40 tilt. Gemeten: 11 van de 204 CD_VAAG-emmers (5%),
+    // steeds het patroon 20,20,40,20. Zonder ondergrens zou de pill dan
+    // '20-20s onzeker' tonen — een band van nul breed.
+    //
+    // Dat die emmers een smalle band krijgen terwijl de klasse VAAG blijft is
+    // een zichtbare tegenstrijdigheid, en dat is opzet: hun klasse is fout, niet
+    // hun band. Eén uitschieter tilt de range-gebaseerde relSpr over de drempel
+    // terwijl de data juist strak ligt. Dat repareren hoort bij de klasse, en
+    // die blijft in deze release bewust ongemoeid.
+    // De bovengrens `spr` is niet cosmetisch. Bij n=2 is de MAD per constructie
+    // GELIJK aan de range: met waarden a<b is de mediaan b, zijn de afwijkingen
+    // [b-a, 0], en pakt mediaanVan daarvan met de floor-conventie weer b-a.
+    // 1,4826 x dat is dus BREDER dan de range — precies het omgekeerde van wat
+    // deze wijziging moet doen. Gemeten op de export van 28 augustus trof dat 31
+    // van de 204 CD_VAAG-emmers (15%), waarvan 28 met n=2.
+    // De klem is bewust geen n-drempel maar een principe: een spreidingsmaat
+    // hoort nooit breder te zijn dan het bereik van de data zelf, ongeacht n.
+    const band = Math.max(1, Math.min(gewSpreidingMAD(metingen), spr));
+    cdMin = Math.max(1, Math.round(gem - band));
+    cdMax = Math.round(gem + band);
   }
   return { modus, cdMin, cdMax };
 }
