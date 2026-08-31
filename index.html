@@ -642,7 +642,7 @@
 <div id="startscherm">
   <div id="s-icoon">🚦</div>
   <div id="s-titel">Stoplicht<span>IQ</span></div>
-  <div id="s-versie">V11.17.71 — Eén licht in gebruikerstaal, met overzicht</div>
+  <div id="s-versie">V11.17.72 — de pijl claimt alleen nog een richting als die er is</div>
   <div id="s-model-wrap">
     <div id="s-model-rij">
       <div id="s-model-label">🤖 YOLOv8 model laden…</div>
@@ -867,7 +867,7 @@
 
 <script>
 // ═══════════════════════════════════════════════════════════════
-//  StoplichtIQ V11.17.71
+//  StoplichtIQ V11.17.72
 //  V11.10: Zelfkalibratie + vergrendeling + crop smoothing
 //  — S1+S2 bevestiging (kruispunt-level confidence)
 //  — Route-herkenning basis (sequentie-opslag)
@@ -6836,7 +6836,29 @@ function tickCd() {
 
   // W2: Modus-afhankelijke weergave
   // V11.17.3: prefix rijdersperspectief-symbool bij bekende tikrichting.
-  const rs = richtingSymbool(richtingLockKeuze);
+  // V11.17.72: alleen nog als de BRON werkelijk richting-specifiek is.
+  // De pijl kwam uitsluitend uit richtingLockKeuze — de getikte richting — en
+  // werd aan élk getal voorgezet, ook als de bron via stap 4 op V4 was
+  // teruggevallen. Het scherm zei dan '↑ 25s': een pijl die rechtdoor claimt,
+  // op een getal dat het gemiddelde van alle richtingen is.
+  //
+  // Dat was het laatste element dat richting-specificiteit beweerde. Het label
+  // relativeerde al ('· nog 3×' sinds V11.17.70, '· richting?' sinds V11.16.0)
+  // en de zekerheidsklasse wordt op multi-richting nodes gecapt (r2711), maar
+  // de pijl sprak dat alle drie tegen.
+  //
+  // Bewust GEEN gedempte pijl: rs gaat in dezelfde textContent als het getal
+  // (r6911 e.v.), dus dempen vraagt losse spans en raakt de kleurlogica die op
+  // vier plekken cdPillGetal.style.color zet. En een gedempte pijl claimt nog
+  // steeds een richting, alleen zachter — dat is niet wat hier moest.
+  //
+  // LET OP, één geval blijft over: bron 'V5 alle' (stap 3, r2694) is zelf een
+  // aggregaat over álle V5-richtingen van de node en dus net zo min
+  // richting-specifiek als V4. Die krijgt hier nog wel een pijl, omdat de regel
+  // op het bron-voorvoegsel 'V5' toetst. Bewust zo gelaten en apart te
+  // beoordelen; test_richting.js T13 legt dit gedrag vast zodat het zichtbaar is.
+  const rs = (huidigCdBron && String(huidigCdBron).startsWith('V5'))
+    ? richtingSymbool(richtingLockKeuze) : '';
   let schattingOp = false;   // V11.17.50: stuurt de kleurregel onderaan
 
   // ── V11.17.57: wat staat er WERKELIJK op het scherm? ─────────

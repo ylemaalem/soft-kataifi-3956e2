@@ -208,6 +208,68 @@ function testRichting() {
     richtingTekort = null;
   }
 
+  // ══ T11-T13 — de pijl in de pill (V11.17.72) ════════════════
+  // De richtingpijl kwam uit richtingLockKeuze en werd aan élk getal
+  // voorgezet, ook als de bron op V4 was teruggevallen. '↑ 25s' claimde dan
+  // rechtdoor op een getal dat het gemiddelde van alle richtingen is. De pijl
+  // hoort alleen te verschijnen als de BRON richting-specifiek is.
+  const pBron = huidigCdBron, pLock = richtingLockKeuze;
+  const pFase = fase, pStart = cdStart, pDoel = activeCdDoel;
+  const pModus = activeCdModus, pMin = activeCdMin;
+  const pNode = dichtstbijOSM, pPre = v9PreSelectieAfrij;
+  const pTekort = richtingTekort, pOsm = osmVoorspellingActief;
+  const pBereikt = cdBereikteNul, pNul = countdownNulTijd;
+  try {
+    const getal = () => document.getElementById('cd-pill-getal').textContent;
+    const heeftPijl = t => ['←', '↑', '→'].some(p => t.startsWith(p));
+    const opzet = bron => {
+      fase = 'rood'; activeCdDoel = 40; activeCdModus = CD_GESCHAT; activeCdMin = null;
+      osmVoorspellingActief = false;
+      dichtstbijOSM = { id: 970001, lat: 52, lon: 5, afstand: 30, naam: 'TEST' };
+      cdWallStart = Date.now(); cdCondSleutel = null; cdCondTab = null;
+      cdCondDoel = null; cdWeergaveNulTijd = null; cdLaatstGetoond = null;
+      herzTel = null; cdBereikteNul = false; countdownNulTijd = null;
+      richtingTekort = null;                 // suffix uit beeld houden
+      v9PreSelectieAfrij = 'Z';              // voorkomt de '· richting?'-tak
+      richtingLockKeuze = 'rechtdoor';       // de tik IS gedaan
+      huidigCdBron = bron;
+      cdStart = performance.now() - 15000;
+      tickCd();
+    };
+
+    opzet('V5 Z');
+    eis('T11 pijl aanwezig bij een richting-specifieke V5-bron',
+        heeftPijl(getal()), 'begint met een pijl', getal());
+
+    opzet('V4');
+    eis('T12 GEEN pijl bij een V4-terugval, ook al is er getikt',
+        !heeftPijl(getal()) && richtingLockKeuze === 'rechtdoor',
+        'geen pijl, terwijl de tik wel staat', getal());
+
+    opzet('v4_multi');
+    eis('T12b idem bij v4_multi',
+        !heeftPijl(getal()), 'geen pijl', getal());
+
+    opzet('V4_fallback');
+    eis('T12c idem bij V4_fallback',
+        !heeftPijl(getal()), 'geen pijl', getal());
+
+    // Vastgelegd, niet goedgekeurd: 'V5 alle' is zelf een aggregaat over alle
+    // richtingen van de node en dus net zo min richting-specifiek als V4. Hij
+    // krijgt nu wél een pijl omdat de regel op het voorvoegsel 'V5' toetst.
+    // Deze test maakt dat zichtbaar in plaats van het stil te laten.
+    opzet('V5 alle');
+    eis('T13 GEDRAG VASTGELEGD: V5 alle krijgt nog een pijl (aggregaat)',
+        heeftPijl(getal()), 'pijl (huidig gedrag, apart te beoordelen)', getal());
+  } finally {
+    huidigCdBron = pBron; richtingLockKeuze = pLock;
+    fase = pFase; cdStart = pStart; activeCdDoel = pDoel;
+    activeCdModus = pModus; activeCdMin = pMin;
+    dichtstbijOSM = pNode; v9PreSelectieAfrij = pPre;
+    richtingTekort = pTekort; osmVoorspellingActief = pOsm;
+    cdBereikteNul = pBereikt; countdownNulTijd = pNul;
+  }
+
   const gefaald = regels.filter(r => r.uitslag === 'GEFAALD');
   return { geslaagd: regels.length - gefaald.length, gefaald: gefaald.length, regels };
 }
