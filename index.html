@@ -636,7 +636,7 @@
 <div id="startscherm">
   <div id="s-icoon">🚦</div>
   <div id="s-titel">Stoplicht<span>IQ</span></div>
-  <div id="s-versie">V11.17.69 — kansloze runs op afstand worden overgeslagen</div>
+  <div id="s-versie">V11.17.70 — richtingconventie hersteld en bewaakt</div>
   <div id="s-model-wrap">
     <div id="s-model-rij">
       <div id="s-model-label">🤖 YOLOv8 model laden…</div>
@@ -861,7 +861,7 @@
 
 <script>
 // ═══════════════════════════════════════════════════════════════
-//  StoplichtIQ V11.17.69
+//  StoplichtIQ V11.17.70
 //  V11.10: Zelfkalibratie + vergrendeling + crop smoothing
 //  — S1+S2 bevestiging (kruispunt-level confidence)
 //  — Route-herkenning basis (sequentie-opslag)
@@ -2184,7 +2184,25 @@ function gpsHeadingNaarWindrichting(heading) {
   return richtingen[Math.round(h / 45) % 8];
 }
 
-// Berekent afrijrichting op basis van aanrij + tikrichting
+// ── DE RICHTINGCONVENTIE — ÉÉN PLEK ───────────────────────────
+// rechtdoor = aanrij + 180°, links = +90°, rechts = -90°.
+//
+// V11.17.70: deze conventie stond op zes plekken in het bestand, waarvan één
+// een functie was. In V11.17.24 (ae892cf) kostte dat een echte bug: de
+// GPS-afgeleide afrij gebruikte windrichting(h) zonder +180 terwijl de
+// tik-afgeleide dat wel deed, waardoor ELKE niet-getikte meting fout gelabeld
+// werd — rechtdoor werd 'Terug' en links/rechts verwisselden. 86 metingen in de
+// store dragen die fout nog.
+//
+// Nu: de voorwaartse afleiding hieronder, de omgekeerde in rijdersPijlLabel, en
+// de drie inline kopieën van de rechtdoor-tak (r2535/2632/2699) vervangen door
+// een aanroep. WINDRICHTING_TEGENOVER hoort er ook bij: 180° op een 8-punts
+// kompas is exact vier posities, en dat is precies de transformatie waarmee de
+// besmette records te herstellen zijn (zie migratieAfrijConventie).
+//
+// test_richting.js legt vast dat voorwaarts en omgekeerd elkaars inverse zijn,
+// voor alle 360 headings x 3 richtingen. Dat is de waarborg die in V11.17.24
+// ontbrak: die fix was één regel die niemand bewaakte.
 function berekenAfrijRichtingViaTik(aanrijHeading, tikrichting) {
   if (aanrijHeading == null) return null;
   const h = ((aanrijHeading % 360) + 360) % 360;
@@ -2192,6 +2210,25 @@ function berekenAfrijRichtingViaTik(aanrijHeading, tikrichting) {
   if (tikrichting === 'links')     return gpsHeadingNaarWindrichting((h + 90)  % 360);
   if (tikrichting === 'rechts')    return gpsHeadingNaarWindrichting((h - 90 + 360) % 360);
   return gpsHeadingNaarWindrichting((h + 180) % 360); // default rechtdoor
+}
+
+// Het kompaspunt 180° verderop. Op een 8-punts kompas is dat exact vier
+// posities — geen afronding, dus exact omkeerbaar.
+const WINDRICHTINGEN_8 = ['N','NO','O','ZO','Z','ZW','W','NW'];
+function windrichtingTegenover(w) {
+  const i = WINDRICHTINGEN_8.indexOf(w);
+  return i < 0 ? null : WINDRICHTINGEN_8[(i + 4) % 8];
+}
+
+// Hoekverschil afrij - aanrij in graden (0..315, veelvouden van 45).
+// Een TIK kan alleen 90 (links), 180 (rechtdoor) of 270 (rechts) opleveren;
+// elke andere waarde is bewijsbaar GPS-afgeleid. Dat onderscheid is de enige
+// manier om besmette records te herkennen, want een V5-record bewaart geen
+// rauwe heading en had tot V11.17.70 geen bron-veld.
+function v5HoekVerschil(aanrij, afrij) {
+  const a = WINDRICHTINGEN_8.indexOf(aanrij), b = WINDRICHTINGEN_8.indexOf(afrij);
+  if (a < 0 || b < 0) return null;
+  return (((b - a) % 8) + 8) % 8 * 45;
 }
 
 // V11.17.3: rijdersperspectief-symbool voor countdown-pill. Bron:
@@ -2253,20 +2290,115 @@ function laadMV5Geclusterd(nodeId, aanrij, afrij, dd) {
   return alle;
 }
 
-function slaOpV5(nodeId, aanrij, afrij, dd, duur, gewicht, zagOvergang=null) {
+function slaOpV5(nodeId, aanrij, afrij, dd, duur, gewicht, zagOvergang=null, bron='tik') {
   if (!nodeId || !aanrij || !afrij || !dd || !duur || duur < 4 || duur > 180) {
     logOpslagMis('v5_guard', { node: nodeId, dur: duur, aanrij, afrij });
     return;  // V11.17.10 Laag 2a: cap 300→180s
   }
   const sleutel = v5Sleutel(nodeId, aanrij, afrij, dd);
   let m = laadMV5(nodeId, aanrij, afrij, dd);
-  const v5entry = { duur: Math.round(duur), tijd: Date.now(), gewicht: gewicht ?? 1.0 };
+  // V11.17.70: `bron` legt vast HOE de richting bepaald is. Zonder dit veld was
+  // bij de conventiefout van V11.17.24 niet vast te stellen welke records
+  // besmet waren; dat moest uit het hoekverschil worden afgeleid, wat maar voor
+  // 98 van de 167 metingen uitsluitsel gaf. Bij een volgende conventiewijziging
+  // is die hele oefening hiermee overbodig.
+  const v5entry = { duur: Math.round(duur), tijd: Date.now(), gewicht: gewicht ?? 1.0, bron };
   // V11.17.26 W2: zelfde label als het gepaarde V4-record (r2350).
   if (zagOvergang === true) v5entry.zo = 1;
   else if (zagOvergang === false) v5entry.zo = 0;
   m.push(v5entry);
   if (m.length > MAX_METINGEN) { m.sort((a,b) => gew(b.tijd)-gew(a.tijd)); m = m.slice(0, MAX_METINGEN); }
   try { localStorage.setItem(sleutel, JSON.stringify(m)); } catch(e) {}
+}
+
+// ── V11.17.70: EENMALIGE CORRECTIE VAN DE AFRIJ-CONVENTIE ─────
+// Tot V11.17.24 (ae892cf, 8 aug 18:18) berekende de GPS-route de afrijrichting
+// als windrichting(afrijHeading) in plaats van windrichting(afrijHeading+180).
+// Elke niet-getikte meting kreeg daardoor een label dat 180° gedraaid was:
+// rechtdoor werd 'Terug', links en rechts wisselden om.
+//
+// WAT DEZE FUNCTIE WEL EN NIET AANRAAKT — dit is de kern.
+// Een V5-record bewaart geen rauwe heading en had tot nu toe geen bron-veld,
+// dus "geschreven vóór de fix" is géén bruikbaar criterium: tik-records uit
+// diezelfde periode waren altijd al correct. Het enige harde onderscheid is het
+// hoekverschil, want berekenAfrijRichtingViaTik kan uitsluitend 90, 180 of 270
+// opleveren:
+//
+//   hoek 0    -> onmogelijk via een tik. Bewijsbaar GPS + bug, en de correctie
+//                is eenduidig: tegenover(afrij) maakt er weer rechtdoor van.
+//                CORRIGEREN.  (86 metingen in 73 emmers op de export van 28 aug)
+//   hoek 45   -> ook onmogelijk via een tik, dus ook besmet. Maar de correctie
+//   hoek 315     landt op 225 resp. 135, precies de vensterrand tussen
+//                Rechtdoor en Rechts/Links in rijdersPijlLabel. Te onzeker om
+//                stil te herschrijven. MARKEREN, niet corrigeren. (12 metingen)
+//   hoek 90   -> kan van een tik komen én van GPS. Niet te onderscheiden.
+//   hoek 180     Blind corrigeren zou de correcte tik-records omklappen en het
+//   hoek 270     dus erger maken. MET RUST LATEN. (69 metingen)
+//
+// Verwijdert niets. De 86 records verhuizen naar de sleutel waar ze altijd al
+// hadden moeten staan; bij een botsing worden ze samengevoegd en op tijd
+// ontdubbeld. Eenmalig, geguard op een vlag, en het resultaat gaat naar
+// sl_opslaglog zodat achteraf te zien is wat er gebeurd is.
+function migratieAfrijConventie() {
+  try {
+    if (localStorage.getItem('sl_afrijmig_v1') === 'done') return;
+    let verplaatst = 0, samengevoegd = 0, gemarkeerd = 0, metRust = 0;
+    const bronnen = [];
+    for (const key of Object.keys(localStorage)) {
+      if (!key.startsWith(LS_PREFIX_V5)) continue;
+      const delen = key.slice(LS_PREFIX_V5.length).split('_');
+      if (delen.length < 4) continue;                 // onverwachte vorm: overslaan
+      const dd = delen[delen.length - 1];
+      const afrij = delen[delen.length - 2];
+      const aanrij = delen[delen.length - 3];
+      const nodeId = delen.slice(0, delen.length - 3).join('_');
+      const hoek = v5HoekVerschil(aanrij, afrij);
+      if (hoek === null) continue;
+      let arr;
+      try { arr = JSON.parse(localStorage.getItem(key)); } catch(e) { continue; }
+      if (!Array.isArray(arr) || !arr.length) continue;
+
+      if (hoek === 45 || hoek === 315) {
+        // markeren, niet corrigeren
+        let gewijzigd = false;
+        for (const r of arr) { if (r && r.conv !== 'onzeker') { r.conv = 'onzeker'; gewijzigd = true; } }
+        if (gewijzigd) {
+          try { localStorage.setItem(key, JSON.stringify(arr)); gemarkeerd += arr.length; } catch(e) {}
+        }
+        continue;
+      }
+      if (hoek !== 0) { metRust += arr.length; continue; }
+
+      // hoek 0: corrigeren naar het tegenoverliggende kompaspunt
+      const nieuwAfrij = windrichtingTegenover(afrij);
+      if (!nieuwAfrij) continue;
+      const doelKey = v5Sleutel(nodeId, aanrij, nieuwAfrij, dd);
+      if (doelKey === key) continue;                  // kan niet, maar wees zeker
+      let doel;
+      try { doel = JSON.parse(localStorage.getItem(doelKey)) || []; } catch(e) { doel = []; }
+      if (!Array.isArray(doel)) doel = [];
+      if (doel.length) samengevoegd++;
+      const gezien = new Set(doel.map(r => r && r.tijd));
+      for (const r of arr) {
+        if (!r || gezien.has(r.tijd)) continue;
+        gezien.add(r.tijd);
+        r.conv = 'gecorrigeerd';                      // herkomst blijft zichtbaar
+        doel.push(r);
+        verplaatst++;
+      }
+      if (doel.length > MAX_METINGEN) { doel.sort((a,b) => gew(b.tijd) - gew(a.tijd)); doel = doel.slice(0, MAX_METINGEN); }
+      try {
+        localStorage.setItem(doelKey, JSON.stringify(doel));
+        localStorage.removeItem(key);
+        bronnen.push(aanrij + '>' + afrij + '->' + nieuwAfrij);
+      } catch(e) { /* vol: laat de bron staan, migratie blijft onvoltooid */ }
+    }
+    localStorage.setItem('sl_afrijmig_v1', 'done');
+    logOpslagMis('afrij_migratie', { dur: verplaatst });
+    console.log('[AFRIJ-MIGRATIE] verplaatst=' + verplaatst + ' samengevoegd=' + samengevoegd
+      + ' gemarkeerd=' + gemarkeerd + ' metRust=' + metRust);
+    leerLog('afrij-conventie: ' + verplaatst + ' records hersteld, ' + gemarkeerd + ' gemarkeerd');
+  } catch(e) { console.warn('[AFRIJ-MIGRATIE] overgeslagen:', e); }
 }
 
 function berekenRichtingPct(nodeId, aanrij, afrij, dd) {
@@ -2532,7 +2664,9 @@ function kiesCountdownBron(nodeId, dd, aanrijRichting, preSelectieAfrij) {
   if (!resultaat && !neutraal && aanrijRichting) {
     const h = v9AanrijSnelheidHeading ?? v9AanrijHeading;
     if (h != null) {
-      const afrijRechtdoor = gpsHeadingNaarWindrichting((((h % 360) + 360) % 360 + 180) % 360);
+      // V11.17.70: was een inline kopie van de rechtdoor-tak. Nu de centrale
+      // functie, zodat de conventie op één plek staat en niet kan uiteenlopen.
+      const afrijRechtdoor = berekenAfrijRichtingViaTik(h, 'rechtdoor');
       const m2 = laadMV5Geclusterd(nodeId, aanrijRichting, afrijRechtdoor, dd);
       if (m2.length >= V9_MIN_METINGEN) {
         const gem = gewGem(m2);
@@ -2629,7 +2763,9 @@ function berekenSchaduwWaarden(nodeId, dd, aanrijRichting, preSelectieAfrij, win
   } else if (winnenBron === 'V5 ↑') {
     const h = v9AanrijSnelheidHeading ?? v9AanrijHeading;
     if (h != null && aanrijRichting) {
-      const afrijRechtdoor = gpsHeadingNaarWindrichting((((h % 360) + 360) % 360 + 180) % 360);
+      // V11.17.70: was een inline kopie van de rechtdoor-tak. Nu de centrale
+      // functie, zodat de conventie op één plek staat en niet kan uiteenlopen.
+      const afrijRechtdoor = berekenAfrijRichtingViaTik(h, 'rechtdoor');
       metingen = laadMV5Geclusterd(nodeId, aanrijRichting, afrijRechtdoor, dd);
     }
   } else if (winnenBron && winnenBron.startsWith('V5 ') && aanrijRichting && preSelectieAfrij) {
@@ -2696,7 +2832,9 @@ function haalMetingenVoorBron(nodeId, dd, aanrijRichting, preSelectieAfrij, bron
   if (bron === 'V5 ↑') {
     const h = v9AanrijSnelheidHeading ?? v9AanrijHeading;
     if (h != null && aanrijRichting) {
-      const afrijRechtdoor = gpsHeadingNaarWindrichting((((h % 360) + 360) % 360 + 180) % 360);
+      // V11.17.70: was een inline kopie van de rechtdoor-tak. Nu de centrale
+      // functie, zodat de conventie op één plek staat en niet kan uiteenlopen.
+      const afrijRechtdoor = berekenAfrijRichtingViaTik(h, 'rechtdoor');
       return laadMV5Geclusterd(nodeId, aanrijRichting, afrijRechtdoor, dd);
     }
     return null;
@@ -4478,6 +4616,7 @@ async function laadONNXModel() {
 laadONNXModel();
 
 saneerS2Nullen(); // V11.17.15 richting C: eenmalige opschoning vóór KP-telling
+migratieAfrijConventie(); // V11.17.70: eenmalige correctie van de afrij-conventie
 
 const aantalKP = telKP();
 const sGehInfo = document.getElementById('s-geh-info');
@@ -6846,6 +6985,15 @@ function tickCd() {
     cdPillLabel.textContent = cdPillLabel.textContent + ' · richting?';
     cdPillGetal.style.color = 'rgba(255,255,255,0.55)';
   }
+  // V11.17.70: de tik IS aangekomen — laat zien wat er nog nodig is voordat
+  // deze richting zelf mag voorspellen. Zonder dit ziet de gebruiker alleen dat
+  // er niets gebeurt. Zelfde suffix-patroon als ' · richting?' hierboven, en
+  // net als daar puur visueel: geen invloed op de countdown-waarde.
+  // De pijl staat er al via richtingSymbool() als prefix; hier alleen het tekort.
+  else if (richtingTekort && dichtstbijOSM
+           && richtingTekort.node === String(dichtstbijOSM.id)) {
+    cdPillLabel.textContent = cdPillLabel.textContent + ' · nog ' + richtingTekort.nog + '×';
+  }
 
   // V11.17.64 FIX A — de vroege CD_VAAG-trigger van V11.13.3 is hier weg.
   // Die zette countdownNulTijd zodra `ver` de ONDERGRENS van de onzekerheids-
@@ -8799,6 +8947,7 @@ function tikRichting(richting) {
     if (fase === 'rood' && dichtstbijOSM && activeCdDoel > 0 && laatsteRoodFaseStart) {
       pasBronAanBinnenLopendeCd();
     }
+    bepaalRichtingTekort(nodeId);   // V11.17.70: zie daar
   } else if (v9PreSelectieAfrij === null) {
     // Nog geen V9 heading — sla tikrichting op voor later
     // V11.17.38: dit tekstlabel wordt nu daadwerkelijk omgezet, in
@@ -9073,8 +9222,39 @@ function renderV9Lijst() {
 // staan — en de delayed write voor de OUDE node komt pas na die wissel.
 // Dat verklaart ook waarom tik_laat_omgezet 0 bleef: de late conversie
 // (r3075) eist een tekstlabel, en dat is hier al null geworden.
+// ── V11.17.70: LAAT ZIEN DAT DE TIK IS AANGEKOMEN ─────────────
+// De klacht: "als ik op de richtingknop druk verandert de countdown niet".
+// Dat klopt, en het is terecht. Een V5-emmer mag pas voorspellen vanaf
+// V9_MIN_METINGEN, en gemeten op 15 vergelijkbare gevallen is dat gerechtvaardigd:
+// de eerste V5-meting zit er mediaan 15s naast tegen 6s voor de V4-basis waar
+// de app nu op terugvalt. Overschakelen bij n=1 zou de schatting meetbaar
+// verslechteren.
+//
+// Maar de gebruiker kreeg daar geen enkel signaal over: de tik komt aan, de
+// bron wordt bijgewerkt, en er verandert zichtbaar niets. Verdedigbaar gedrag
+// met onverdedigbare terugkoppeling. Dit veld maakt zichtbaar wat er ontbreekt
+// zonder de voorspelling zelf aan te raken — kiesCountdownBron blijft
+// ongewijzigd.
+//
+// Eén keer berekend bij de tik, niet per frame: laadMV5Geclusterd leest
+// localStorage en de pill wordt vanuit de rAF-lus getekend.
+let richtingTekort = null;   // { node, richting, nog } of null
+function bepaalRichtingTekort(nodeId) {
+  richtingTekort = null;
+  try {
+    if (!nodeId || !richtingLockKeuze || !v9PreSelectieAfrij) return;
+    const aanrij = (v9AanrijHeading != null || v9AanrijSnelheidHeading != null)
+      ? gpsHeadingNaarWindrichting(v9AanrijSnelheidHeading ?? v9AanrijHeading) : null;
+    if (!aanrij) return;
+    const n = laadMV5Geclusterd(String(nodeId), aanrij, v9PreSelectieAfrij, huidigDDActief()).length;
+    if (n >= V9_MIN_METINGEN) return;   // deze richting stuurt al, niets te melden
+    richtingTekort = { node: String(nodeId), richting: richtingLockKeuze, nog: V9_MIN_METINGEN - n };
+  } catch(e) { richtingTekort = null; }
+}
+
 function resetRijrichtingState(reden) {
   markeerPreWis('rijrichting:' + (reden || 'onbekend'));   // V11.17.56
+  richtingTekort = null;   // V11.17.70: hoort bij de node die we verlaten
   geselecteerdeRichting = null;
   richtingGedruktVoorNode = null;
   if (richtingResetDebounce) { clearTimeout(richtingResetDebounce); richtingResetDebounce = null; }
