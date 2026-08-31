@@ -175,7 +175,11 @@ function testRichting() {
   }
 
   // ══ T10 — het signaal bij de knop ═══════════════════════════
-  const tk = 'sl_v5_990003_N_Z_dag';
+  // V11.17.73: dagdeel NIET hardcoderen. bepaalRichtingTekort leest met
+  // huidigDDActief(), dus een vaste '_dag'-sleutel maakte deze test
+  // tijdsafhankelijk: hij slaagde overdag en faalde 's avonds. Dat is precies
+  // het soort flakkerende test dat vertrouwen kost.
+  const tk = 'sl_v5_990003_N_Z_' + huidigDDActief();
   const tkBewaard = localStorage.getItem(tk);
   const bewaardLock = richtingLockKeuze, bewaardPre = v9PreSelectieAfrij;
   const bewaardAanrij = v9AanrijHeading, bewaardSnelh = v9AanrijSnelheidHeading;
@@ -254,13 +258,18 @@ function testRichting() {
     eis('T12c idem bij V4_fallback',
         !heeftPijl(getal()), 'geen pijl', getal());
 
-    // Vastgelegd, niet goedgekeurd: 'V5 alle' is zelf een aggregaat over alle
-    // richtingen van de node en dus net zo min richting-specifiek als V4. Hij
-    // krijgt nu wél een pijl omdat de regel op het voorvoegsel 'V5' toetst.
-    // Deze test maakt dat zichtbaar in plaats van het stil te laten.
+    // V11.17.73: 'V5 alle' aggregeert álle richtingen van de node en is dus net
+    // zo min richting-specifiek als V4. Dat de records toevallig uit V5 komen
+    // maakt het getal niet over één richting. Tot V11.17.72 kreeg hij nog een
+    // pijl omdat er alleen op het voorvoegsel 'V5' getoetst werd.
     opzet('V5 alle');
-    eis('T13 GEDRAG VASTGELEGD: V5 alle krijgt nog een pijl (aggregaat)',
-        heeftPijl(getal()), 'pijl (huidig gedrag, apart te beoordelen)', getal());
+    eis('T13 GEEN pijl bij V5 alle — dat is ook een aggregaat',
+        !heeftPijl(getal()), 'geen pijl', getal());
+
+    // De twee bronnen die WEL uit één richtingemmer komen houden hun pijl.
+    opzet('V5 ↑');
+    eis('T13b pijl blijft bij V5 ↑ (rechtdoor-default, stap 2)',
+        heeftPijl(getal()), 'begint met een pijl', getal());
   } finally {
     huidigCdBron = pBron; richtingLockKeuze = pLock;
     fase = pFase; cdStart = pStart; activeCdDoel = pDoel;

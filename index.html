@@ -642,7 +642,7 @@
 <div id="startscherm">
   <div id="s-icoon">🚦</div>
   <div id="s-titel">Stoplicht<span>IQ</span></div>
-  <div id="s-versie">V11.17.72 — de pijl claimt alleen nog een richting als die er is</div>
+  <div id="s-versie">V11.17.73 — ook V5 alle krijgt geen richtingpijl meer</div>
   <div id="s-model-wrap">
     <div id="s-model-rij">
       <div id="s-model-label">🤖 YOLOv8 model laden…</div>
@@ -867,7 +867,7 @@
 
 <script>
 // ═══════════════════════════════════════════════════════════════
-//  StoplichtIQ V11.17.72
+//  StoplichtIQ V11.17.73
 //  V11.10: Zelfkalibratie + vergrendeling + crop smoothing
 //  — S1+S2 bevestiging (kruispunt-level confidence)
 //  — Route-herkenning basis (sequentie-opslag)
@@ -6852,12 +6852,18 @@ function tickCd() {
   // vier plekken cdPillGetal.style.color zet. En een gedempte pijl claimt nog
   // steeds een richting, alleen zachter — dat is niet wat hier moest.
   //
-  // LET OP, één geval blijft over: bron 'V5 alle' (stap 3, r2694) is zelf een
-  // aggregaat over álle V5-richtingen van de node en dus net zo min
-  // richting-specifiek als V4. Die krijgt hier nog wel een pijl, omdat de regel
-  // op het bron-voorvoegsel 'V5' toetst. Bewust zo gelaten en apart te
-  // beoordelen; test_richting.js T13 legt dit gedrag vast zodat het zichtbaar is.
-  const rs = (huidigCdBron && String(huidigCdBron).startsWith('V5'))
+  // V11.17.73: 'V5 alle' (stap 3, r2694) uitgezonderd. Die bron aggregeert álle
+  // V5-richtingen van de node en is dus net zo min richting-specifiek als V4 —
+  // het toevallige feit dat de onderliggende records uit V5 komen maakt het
+  // getal niet over één richting. Toetsen op het voorvoegsel 'V5' alleen liet
+  // daar nog een pijl staan; nu krijgt hij dezelfde behandeling als V4.
+  //
+  // Blijven over met pijl: 'V5 <afrij>' (stap 1, de getikte richting) en
+  // 'V5 ↑' (stap 2, de rechtdoor-default). Dat zijn de enige twee bronnen die
+  // uit één richtingemmer komen.
+  const rs = (huidigCdBron
+              && String(huidigCdBron).startsWith('V5')
+              && huidigCdBron !== 'V5 alle')
     ? richtingSymbool(richtingLockKeuze) : '';
   let schattingOp = false;   // V11.17.50: stuurt de kleurregel onderaan
 
