@@ -334,6 +334,12 @@
     .vri-grijs{background:rgba(255,255,255,.08);color:rgba(255,255,255,.5);border:1px solid rgba(255,255,255,.15)}
     .vri-geel{background:rgba(255,214,10,.12);color:#FFD60A;border:1px solid rgba(255,214,10,.25)}
     .vri-onbekend{background:rgba(255,255,255,.04);color:rgba(255,255,255,.3);border:1px solid rgba(255,255,255,.08)}
+    /* V11.17.71: "Eén licht"-markering. Hergebruikt de .vri-badge-basis hierboven
+       — zelfde formaat en positie als de tag-, VRI- en richtingbadges in de
+       dashboardkop. Oranje: dezelfde accentkleur als de actieve toggle-knop in
+       het node-info-paneel (#node-info-neutraal.actief), zodat de markering in
+       beide schermen hetzelfde oogt. */
+    .eenlicht-badge{background:rgba(245,158,11,.15);color:#f59e0b;border:1px solid rgba(245,158,11,.35)}
     /* V11.17.5 W1: losse overlay uitgefaseerd — nieuwe richting-rijen in
        #leer-kaart (V11.17.4 W2) zijn de primaire keuze-UI. tikRichting,
        toonRichtingKnoppen en verbergRichtingKnoppen blijven intact voor
@@ -587,9 +593,9 @@
         <div id="node-info-naam">—</div>
         <div id="node-info-sub"></div>
       </div>
-      <button id="node-info-neutraal" onclick="toggleNodeNeutraal()">Ⓝ Neutraal</button>
+      <button id="node-info-neutraal" onclick="toggleNodeNeutraal()">⬤ Eén licht</button>
     </div>
-    <div id="node-info-neutraal-uitleg">Geen vaste rijrichting — richtingknoppen worden verborgen</div>
+    <div id="node-info-neutraal-uitleg">Eén rond stoplicht voor alle richtingen — de app splitst hier nooit op rijrichting</div>
     <div id="node-info-instructie"></div>
     <div id="node-info-body"></div>
     <div id="node-info-mergedialoog" style="display:none"></div>
@@ -636,7 +642,7 @@
 <div id="startscherm">
   <div id="s-icoon">🚦</div>
   <div id="s-titel">Stoplicht<span>IQ</span></div>
-  <div id="s-versie">V11.17.70 — richtingconventie hersteld en bewaakt</div>
+  <div id="s-versie">V11.17.71 — Eén licht in gebruikerstaal, met overzicht</div>
   <div id="s-model-wrap">
     <div id="s-model-rij">
       <div id="s-model-label">🤖 YOLOv8 model laden…</div>
@@ -861,7 +867,7 @@
 
 <script>
 // ═══════════════════════════════════════════════════════════════
-//  StoplichtIQ V11.17.70
+//  StoplichtIQ V11.17.71
 //  V11.10: Zelfkalibratie + vergrendeling + crop smoothing
 //  — S1+S2 bevestiging (kruispunt-level confidence)
 //  — Route-herkenning basis (sequentie-opslag)
@@ -7800,6 +7806,7 @@ function laadDashboard() {
     const tagLabel  = tagHTML ? `<span style="font-size:9px;padding:2px 6px;border-radius:6px;background:rgba(52,199,89,.1);color:rgba(52,199,89,.8);margin-left:4px">${tagHTML}</span>` : '';
     const vriLabel  = renderVRILabel(d.id);
     const richtingBadge = renderRichtingBadge(d.id);
+    const eenLichtBadge = renderEenLichtBadge(d.id);   // V11.17.71
     const spreidHTML = Object.keys(DD).map(dd => {
       const m=laadM(d.id,dd); if(!m.length) return '';
       const gem=gewGem(m), duurs=m.filter(x=>x.duur>0).map(x=>x.duur);
@@ -7816,7 +7823,7 @@ function laadDashboard() {
     const v5HTML = v5Richt.length > 0 ? `<div style="font-size:9px;color:rgba(255,255,255,0.4);margin-top:4px;display:flex;flex-direction:column;gap:2px"><div style="color:rgba(255,255,255,0.5);font-weight:600">Per rijrichting:</div>${v5Richt.map(r => { const lbl = rijdersPijlLabel(r.aanrij, r.afrij); return `<div>${lbl.pijl} ${lbl.tekst} (${DD[r.dd]?.ic||''} ${r.dd}): <span style="color:${r.pct>=60?'var(--groen)':r.pct>=30?'var(--oranje)':'var(--rood)'}">${r.pct}%</span> (${r.metingen}x)</div>`; }).join('')}</div>` : '';
     return `<div class="sl-kaart">
       <div class="sl-kaart-header">
-        <div class="sl-kaart-naam">${d.naam}${tagLabel}${vriLabel}${richtingBadge}</div>
+        <div class="sl-kaart-naam">${d.naam}${eenLichtBadge}${tagLabel}${vriLabel}${richtingBadge}</div>
         <div class="sl-kaart-pct" style="color:${kleurCSS}">${d.pct}%</div>
       </div>
       <div class="sl-kaart-balk-bg"><div class="sl-kaart-balk" style="width:${d.pct}%;background:${kleurCSS}"></div></div>
@@ -8733,6 +8740,19 @@ function berekenVRIScore(nodeId) {
 }
 
 // V8.8: VRI label rendering voor dashboard
+// V11.17.71: badge voor de "Eén licht"-markering in de dashboardlijst.
+// De markering was tot nu toe alleen zichtbaar op het kruispunt zelf — via de
+// toggle in het node-info-paneel en de 🧭-chip. Er was geen enkele plek waar je
+// zag WELKE kruispunten gemarkeerd zijn, en zonder dat overzicht is de
+// omkeerbaarheid van de markering in de praktijk waardeloos: je kunt een
+// vergissing niet terugvinden.
+// Zelfde patroon en formaat als renderVRILabel hieronder; leeg als de vlag niet
+// staat, zodat de kop niet voller wordt dan nodig.
+function renderEenLichtBadge(nodeId) {
+  if (!isNodeNeutraal(nodeId)) return '';
+  return `<span class="vri-badge eenlicht-badge" title="Eén rond stoplicht voor alle richtingen — de app splitst hier nooit op rijrichting">⬤ Eén licht</span>`;
+}
+
 function renderVRILabel(nodeId) {
   const vri = berekenVRIScore(nodeId);
   if (vri.label === 'onbekend') return `<span class="vri-badge vri-onbekend" title="Onbekend — minder dan ${VRI_MIN_METINGEN} metingen">❓</span>`;
@@ -9633,7 +9653,9 @@ function updateNodeInfoChip(nodeId) {
   nodeInfoChipLaatsteNode = String(nodeId);
   chip.classList.add('zichtbaar');
   if (isNodeNeutraal(nodeId)) {
-    tellerEl.textContent = 'Ⓝ';
+    // V11.17.71: zelfde symbool als de knop in het node-info-paneel (r590).
+    // Twee tekens voor dezelfde toestand las als twee verschillende dingen.
+    tellerEl.textContent = '⬤';
     return;
   }
   // uniek aantal aanrij→afrij combinaties (dagdelen niet apart geteld)
