@@ -227,6 +227,15 @@
       white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
     .rb-pct{font-family:'Share Tech Mono',monospace;font-size:11px;font-weight:700;min-width:32px;text-align:right}
     .rb-cyc{font-family:'Share Tech Mono',monospace;font-size:10px;color:rgba(255,255,255,0.55);min-width:28px;text-align:right}
+    /* V11.17.75: aanrijrichting in de rijweergave. renderRichtingBlok groepeert
+       op aanrij_afrij, maar rijdersPijlLabel mapt 64 kompasparen op 4 woorden —
+       twee ECHT verschillende naderingen werden zo twee keer 'Linksaf'. */
+    .rb-vanaf{color:rgba(255,255,255,0.4);font-size:10px;margin-left:5px;font-family:'Share Tech Mono',monospace}
+    /* V11.17.75: koppel-chip op de Algemeen-rij. Was '⧉ koppel' in 9px dim:
+       onleesbaar tijdens het rijden en het zei niet wat het deed. De actieve
+       staat was bovendien dimmer dan het aanbod — nu andersom. */
+    .rb-koppel{font-size:10px;font-weight:600;color:var(--blauw);cursor:pointer;margin-left:6px;letter-spacing:0.02em}
+    .rb-koppel.gekoppeld{color:var(--oranje)}
     .rb-leeg{font-size:10px;color:rgba(255,255,255,0.3);text-align:center;padding:3px 0;font-style:italic}
     /* V11.17.6: toevoeg-rij voor ontbrekende richtingen — compacte knopjes
        zodat je bij een nieuw kruispunt de eerste keuze kunt zetten. */
@@ -448,6 +457,22 @@
     .ni-rij-label{font-size:12px;color:rgba(255,255,255,0.85);flex-shrink:0;min-width:64px}
     .ni-rij-dds{display:flex;flex-wrap:wrap;gap:8px;font-size:11px;font-family:'Share Tech Mono',monospace}
     .ni-rij-algemeen{background:rgba(255,255,255,0.03)}
+    /* V11.17.75: aanrijrichting als subregel onder het label — zie .rb-vanaf */
+    .ni-rij-vanaf{display:block;font-size:9px;color:rgba(255,255,255,0.38);letter-spacing:0.03em;margin-top:2px;font-family:'Share Tech Mono',monospace}
+    /* V11.17.75: koppel-strip onder de Algemeen-rij. Staat bewust NIET in de
+       header naast 'Eén licht': die twee markeringen zeggen bijna het
+       tegenovergestelde, en naast elkaar zetten nodigt uit tot de verwarring
+       die we juist willen vermijden. Hier hangt hij aan de rij waar hij
+       iets over zegt. */
+    .ni-koppel{padding:9px 8px 11px;border-bottom:1px solid #1a2230;background:rgba(10,132,255,0.05)}
+    .ni-koppel.gekoppeld{background:rgba(255,159,10,0.07)}
+    .ni-koppel-tekst{font-size:10px;color:rgba(255,255,255,0.5);line-height:1.45;margin-bottom:7px}
+    .ni-koppel-tekst b{color:rgba(255,255,255,0.85);font-weight:700}
+    .ni-koppel-knoppen{display:flex;gap:6px}
+    .ni-koppel-btn{flex:1;min-height:34px;background:rgba(255,255,255,0.06);border:1px solid rgba(255,255,255,0.15);border-radius:8px;font-size:11px;font-weight:600;color:#fff;cursor:pointer;font-family:'Rajdhani',sans-serif;letter-spacing:0.03em;-webkit-tap-highlight-color:transparent}
+    .ni-koppel-btn:active{background:rgba(255,255,255,0.14)}
+    .ni-koppel-los{min-height:32px;padding:0 12px;background:transparent;border:1px solid rgba(255,255,255,0.2);border-radius:8px;font-size:11px;font-weight:600;color:rgba(255,255,255,0.7);cursor:pointer;font-family:'Rajdhani',sans-serif;-webkit-tap-highlight-color:transparent}
+    .ni-koppel-inert{font-size:9px;color:rgba(255,255,255,0.32);line-height:1.4;margin-top:7px;font-style:italic}
     .ni-leeg{font-size:12px;color:rgba(255,255,255,0.4);padding:12px 8px;line-height:1.5}
     #node-info-footer{display:flex;gap:8px;margin-top:12px}
     #node-info-merge,#node-info-sluiten{display:flex;align-items:center;justify-content:center;min-height:48px;flex:1;background:rgba(255,255,255,0.06);border:1px solid rgba(255,255,255,0.15);border-radius:10px;font-size:14px;font-weight:600;color:#fff;cursor:pointer;font-family:'Rajdhani',sans-serif;letter-spacing:0.08em;text-transform:uppercase;transition:background .15s}
@@ -595,7 +620,7 @@
       </div>
       <button id="node-info-neutraal" onclick="toggleNodeNeutraal()">⬤ Eén licht</button>
     </div>
-    <div id="node-info-neutraal-uitleg">Eén rond stoplicht voor alle richtingen — de app splitst hier nooit op rijrichting</div>
+    <div id="node-info-neutraal-uitleg"><b>Alle</b> richtingen zijn hier hetzelfde licht — de app splitst nooit op rijrichting. Geldt dat maar voor één richting? Zet deze markering dan uit en koppel Algemeen aan die ene richting.</div>
     <div id="node-info-instructie"></div>
     <div id="node-info-body"></div>
     <div id="node-info-mergedialoog" style="display:none"></div>
@@ -642,7 +667,7 @@
 <div id="startscherm">
   <div id="s-icoon">🚦</div>
   <div id="s-titel">Stoplicht<span>IQ</span></div>
-  <div id="s-versie">V11.17.74 — de onzekerheidsband zegt weer iets</div>
+  <div id="s-versie">V11.17.75 — twee keer linksaf is niet hetzelfde linksaf</div>
   <div id="s-model-wrap">
     <div id="s-model-rij">
       <div id="s-model-label">🤖 YOLOv8 model laden…</div>
@@ -867,7 +892,7 @@
 
 <script>
 // ═══════════════════════════════════════════════════════════════
-//  StoplichtIQ V11.17.74
+//  StoplichtIQ V11.17.75
 //  V11.10: Zelfkalibratie + vergrendeling + crop smoothing
 //  — S1+S2 bevestiging (kruispunt-level confidence)
 //  — Route-herkenning basis (sequentie-opslag)
@@ -7562,9 +7587,14 @@ function renderRichtingBlok(osm) {
     let erChip = '';
     if (erMark) {
       const p = richtingSymbool(erMark).trim() || '•';
-      erChip = ` <span onclick="event.stopPropagation();verwijderEnkelRicht('${nodeId}')" title="Algemeen geldt als ${erMark} — tik om te verwijderen" style="font-size:9px;color:var(--dim);cursor:pointer">= ${p} ✕</span>`;
+      // V11.17.75: de gekoppelde staat is nu de opvallende (oranje), niet de
+      // dimste. Hij was dimmer dan het aanbod, precies omgekeerd aan wat hij zegt.
+      erChip = ` <span onclick="event.stopPropagation();verwijderEnkelRicht('${nodeId}')" title="Algemeen is hetzelfde licht als ${erMark} — tik om los te maken" class="rb-koppel gekoppeld">= ${p} ✕</span>`;
     } else if (richtingLockKeuze === 'links' || richtingLockKeuze === 'rechtdoor' || richtingLockKeuze === 'rechts') {
-      erChip = ` <span onclick="event.stopPropagation();koppelEnkelRicht('${nodeId}')" title="Koppel Algemeen aan ${richtingLockKeuze}" style="font-size:9px;color:var(--blauw);cursor:pointer">⧉ koppel</span>`;
+      // V11.17.75: '⧉ koppel' zei niet wat het deed. 'zelfde als ↑?' is een vraag
+      // met een leesbaar antwoord, en past nog binnen de nowrap-labelbreedte.
+      const p = richtingSymbool(richtingLockKeuze).trim() || '•';
+      erChip = ` <span onclick="event.stopPropagation();koppelEnkelRicht('${nodeId}')" title="Markeer Algemeen als hetzelfde licht als ${richtingLockKeuze}" class="rb-koppel">zelfde als ${p}?</span>`;
     }
     html += `<div class="rb-rij" onclick="tikRichting('rechtdoor')" data-key="ALG">`
          + `<div class="rb-pijl">⬤</div>`
@@ -7583,7 +7613,7 @@ function renderRichtingBlok(osm) {
     const gekozen = (richtingLockKeuze === richt && richtingLockNodeId === nodeId) ? ' actief' : '';
     html += `<div class="rb-rij${gekozen}" onclick="tikRichting('${richt}')" data-key="${r.aanrij}>${r.afrij}">`
          + `<div class="rb-pijl">${r.label.pijl}</div>`
-         + `<div class="rb-label">${r.label.tekst}</div>`
+         + `<div class="rb-label">${r.label.tekst}<span class="rb-vanaf">· vanaf ${r.aanrij}</span></div>`
          + `<div class="rb-pct" style="color:${kleur}">${r.pct}%</div>`
          + `<div class="rb-cyc">${cycTxt(r.cyc)}</div></div>`;
   }
@@ -9698,14 +9728,74 @@ function koppelEnkelRicht(nodeId) {
   const r = richtingLockKeuze;
   if (!(r === 'links' || r === 'rechtdoor' || r === 'rechts')) return;
   zetEnkelRicht(nodeId, r);
-  toonToast('Algemeen geldt nu als ' + r);
+  toonToast('Algemeen telt hier als ' + KOPPEL_NAAM[r]);
   if (dichtstbijOSM) renderRichtingBlok(dichtstbijOSM);
+  if (String(nodeInfoNodeId) === String(nodeId)) renderNodeInfo(nodeId);
 }
 function verwijderEnkelRicht(nodeId) {
   if (!nodeId) return;
   wisEnkelRicht(nodeId);
-  toonToast('Enkel-richting markering verwijderd');
+  toonToast('Koppeling losgemaakt');
   if (dichtstbijOSM) renderRichtingBlok(dichtstbijOSM);
+  if (String(nodeInfoNodeId) === String(nodeId)) renderNodeInfo(nodeId);
+}
+
+// V11.17.75: koppelen vanuit het node-info-paneel. Anders dan koppelEnkelRicht,
+// die richtingLockKeuze leest, komt de richting hier uit de knop die je tikt.
+// In het paneel sta je meestal niet bij het kruispunt en is er dus geen actieve
+// rijrichting — precies de reden dat de markering tot nu toe alleen tijdens het
+// rijden te zetten was, en daardoor vrijwel nooit gezet werd (0 nodes).
+const KOPPEL_NAAM = { links: 'linksaf', rechtdoor: 'rechtdoor', rechts: 'rechtsaf' };
+const KOPPEL_PIJL = { links: '←', rechtdoor: '↑', rechts: '→' };
+function koppelVanuitPaneel(nodeId, richting) {
+  if (!nodeId || !KOPPEL_NAAM[richting]) return;
+  zetEnkelRicht(nodeId, richting);
+  toonToast('Algemeen telt hier als ' + KOPPEL_NAAM[richting]);
+  renderNodeInfo(nodeId);
+  if (dichtstbijOSM) renderRichtingBlok(dichtstbijOSM);
+}
+function ontkoppelVanuitPaneel(nodeId) {
+  if (!nodeId) return;
+  wisEnkelRicht(nodeId);
+  toonToast('Koppeling losgemaakt');
+  renderNodeInfo(nodeId);
+  if (dichtstbijOSM) renderRichtingBlok(dichtstbijOSM);
+}
+
+// V11.17.75: de strip onder de Algemeen-rij. Twee dingen die hij bewust NIET doet:
+//  - hij verschijnt niet op een 'Eén licht'-node. Die markering zegt dat ALLE
+//    richtingen hetzelfde licht zijn; de koppeling zegt dat Algemeen één van de
+//    richtingen is en de rest apart blijft. Allebei tegelijk aanbieden is vragen
+//    om de verwarring die we juist willen wegnemen.
+//  - hij verschijnt niet in merge-modus. De Algemeen-rij is daar een selectievak;
+//    twee interactiemodellen op één rij is er één te veel.
+function renderKoppelStrip(nodeId) {
+  if (mergeModusAan) return '';
+  if (isNodeNeutraal(nodeId)) return '';
+  const mark = laadEnkelRicht(nodeId);
+  // De koppeling heft de CD_GESCHAT-cap op in de v4_multi-tak. Die tak wordt
+  // alleen bereikt als isEenRichtingNode false is, en die telt AANRIJ-richtingen,
+  // geen manoeuvres: een kruispunt dat je altijd van dezelfde kant nadert komt
+  // er nooit, ook niet als je er rechtdoor én rechtsaf gaat. V4 is daar al
+  // ongecapt en de koppeling verandert dan niets. Gemeten op de export van
+  // 28-08-2026: 105 van de 112 nodes met V5-data zitten in die situatie.
+  const inert = aantalAanrijRichtingen(nodeId) <= 1;
+  const noot = inert
+    ? `<div class="ni-koppel-inert">Dit kruispunt is tot nu toe maar vanaf één kant gemeten. Algemeen telt daar al als richting-specifiek, dus de koppeling verandert voorlopig niets aan de countdown — pas als je hier ooit vanaf een andere kant aankomt.</div>`
+    : '';
+  if (mark) {
+    return `<div class="ni-koppel gekoppeld">`
+         + `<div class="ni-koppel-tekst">Algemeen is hier hetzelfde licht als `
+         + `<b>${KOPPEL_PIJL[mark]} ${KOPPEL_NAAM[mark]}</b>. De andere richtingen blijven apart.</div>`
+         + `<button class="ni-koppel-los" onclick="ontkoppelVanuitPaneel('${nodeId}')">✕ Losmaken</button>`
+         + noot + `</div>`;
+  }
+  return `<div class="ni-koppel">`
+       + `<div class="ni-koppel-tekst">Geen rond licht, alleen pijlen? Kies welke richting hetzelfde licht is als Algemeen — de andere richtingen blijven apart.</div>`
+       + `<div class="ni-koppel-knoppen">`
+       + ['links', 'rechtdoor', 'rechts'].map(r =>
+           `<button class="ni-koppel-btn" onclick="koppelVanuitPaneel('${nodeId}','${r}')">${KOPPEL_PIJL[r]} ${KOPPEL_NAAM[r]}</button>`).join('')
+       + `</div>` + noot + `</div>`;
 }
 
 // ── V11.16.1: NODE-INFO PANEL ─────────────────────────────────
@@ -9828,6 +9918,8 @@ function renderNodeInfo(nodeId) {
   if (dd4.length) {
     html += `<div class="ni-rij ni-rij-algemeen${selCls('ALG')}" data-key="ALG"${klik('ALG')}>${vink('ALG')}<div class="ni-rij-pijl">⬤</div>`
          +  `<div class="ni-rij-label">Algemeen</div><div class="ni-rij-dds">${dd4.join(' ')}</div></div>`;
+    // V11.17.75: de koppeling hoort bij de Algemeen-rij, dus staat hij eronder.
+    html += renderKoppelStrip(nodeId);
   }
   // Richting-rijen: groepeer per aanrij_afrij, dagdelen als sub-items
   const richtingen = verzamelV5Richtingen(nodeId); // {aanrij, afrij, dd, pct, metingen}
@@ -9847,7 +9939,7 @@ function renderNodeInfo(nodeId) {
     const mkey = `${g.aanrij}>${g.afrij}`;
     html += `<div class="ni-rij${selCls(mkey)}" data-aanrij="${g.aanrij}" data-afrij="${g.afrij}" data-key="${mkey}"${klik(mkey)}>${vink(mkey)}`
          +  `<div class="ni-rij-pijl">${r.pijl}</div>`
-         +  `<div class="ni-rij-label">${r.tekst}</div>`
+         +  `<div class="ni-rij-label">${r.tekst}<span class="ni-rij-vanaf">vanaf ${g.aanrij}</span></div>`
          +  `<div class="ni-rij-dds">${g.dds.join(' ')} <span style="color:rgba(255,255,255,0.35)">Σ${g.totaal}×</span></div></div>`;
   }
   if (!gesorteerd.length) {
