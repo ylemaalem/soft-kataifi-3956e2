@@ -154,7 +154,7 @@
     .bevestig-btn{flex:1;min-height:44px;border:none;border-radius:8px;
       font-family:'Rajdhani',sans-serif;font-size:13px;font-weight:700;
       color:#fff;cursor:pointer;letter-spacing:0.04em;
-      transition:opacity .2s,filter .2s;
+      transition:opacity .2s,filter .2s,box-shadow .2s;
       /* V11.17.68: tweede regel met de marge. Het kernprobleem uit het
          C5-onderzoek was dat de marges nergens stonden — geen tooltip en geen
          infoscherm, want die zijn er niet op het moment dat de gebruiker kiest.
@@ -171,9 +171,33 @@
        tooltip of tekst: puur visueel, zodat er tijdens het rijden niets te
        lezen valt. De tap-highlight gaat uit zodat er ook geen actieve
        staat oplicht bij een tik die toch niets doet. */
-    .bevestig-btn.inert{opacity:0.32;filter:saturate(0.4);cursor:default;
+    .bevestig-btn.inert{opacity:0.32;filter:saturate(0) brightness(1.25);cursor:default;
       -webkit-tap-highlight-color:transparent}
-    .bevestig-btn.inert:active{opacity:0.32;filter:saturate(0.4)}
+    .bevestig-btn.inert:active{opacity:0.32;filter:saturate(0) brightness(1.25)}
+    /* V11.17.77 V1: saturate(0.4) hield 40% van de kleur vast, dus een gedempte
+       KLOPTE las als donkergroen en een gedempte BIJNA als donkerbruin — niet
+       als "uit". Met saturate(0) landen ze allebei op vrijwel hetzelfde grijs
+       (grijswaarde 155 resp. 166 van 255), en dat is precies de bedoeling: de
+       uit-staat mag niet meer verraden welke knop het waás. De brightness-
+       correctie tilt het resultaat weg van bijna-zwart, zodat de knop zichtbaar
+       blijft bestaan zonder aandacht te trekken. */
+
+    /* V11.17.77 V2: ring om de knop die op DIT moment het juiste antwoord is.
+       Volle kleur tegenover grijs is op een zonnig scherm in perifeer zicht te
+       subtiel; een halo in de eigen kleur leest ook zonder scherp te kijken.
+       :not(.inert) is bewust gekozen boven een aparte klasse — zo hangt de ring
+       aan exact dezelfde klasse en hetzelfde DOM-schrijfmoment als de
+       klikbaarheid (updateBevestigKnopStaat r4065-4067). Kleur en gedrag kunnen
+       daardoor per constructie niet uit elkaar lopen, en de overgang loopt mee
+       in de 200ms-transitie hierboven.
+       De hex komt overeen met de inline achtergrond van de knop (r764-766); die
+       blijft ongewijzigd, zodat de actieve kleuren zelf niet verschuiven.
+       FOUT krijgt bewust GEEN ring: die knop is altijd actief, dus een
+       permanente ring zou juist het signaal verdunnen dat de ring moet dragen.
+       Staat de indeling op 'fout', dan zijn de andere twee grijs en is FOUT de
+       enige gekleurde knop — dat leest al als het antwoord. */
+    #bev-klopte:not(.inert){box-shadow:0 0 0 2px rgba(34,197,94,0.55),0 0 9px rgba(34,197,94,0.45)}
+    #bev-bijna:not(.inert){box-shadow:0 0 0 2px rgba(245,158,11,0.55),0 0 9px rgba(245,158,11,0.45)}
     #leer-kaart{margin:0 14px 6px;background:rgba(0,0,0,0.45);
       border:1px solid var(--border);border-radius:14px;padding:10px 14px;
       display:flex;flex-direction:column;gap:8px}
@@ -667,7 +691,7 @@
 <div id="startscherm">
   <div id="s-icoon">🚦</div>
   <div id="s-titel">Stoplicht<span>IQ</span></div>
-  <div id="s-versie">V11.17.76 — meten wat de marge verbergt</div>
+  <div id="s-versie">V11.17.77 — de juiste knop licht op</div>
   <div id="s-model-wrap">
     <div id="s-model-rij">
       <div id="s-model-label">🤖 YOLOv8 model laden…</div>
@@ -892,7 +916,7 @@
 
 <script>
 // ═══════════════════════════════════════════════════════════════
-//  StoplichtIQ V11.17.76
+//  StoplichtIQ V11.17.77
 //  V11.10: Zelfkalibratie + vergrendeling + crop smoothing
 //  — S1+S2 bevestiging (kruispunt-level confidence)
 //  — Route-herkenning basis (sequentie-opslag)
