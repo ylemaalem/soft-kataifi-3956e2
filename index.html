@@ -667,7 +667,7 @@
 <div id="startscherm">
   <div id="s-icoon">🚦</div>
   <div id="s-titel">Stoplicht<span>IQ</span></div>
-  <div id="s-versie">V11.17.75 — twee keer linksaf is niet hetzelfde linksaf</div>
+  <div id="s-versie">V11.17.76 — meten wat de marge verbergt</div>
   <div id="s-model-wrap">
     <div id="s-model-rij">
       <div id="s-model-label">🤖 YOLOv8 model laden…</div>
@@ -892,7 +892,7 @@
 
 <script>
 // ═══════════════════════════════════════════════════════════════
-//  StoplichtIQ V11.17.75
+//  StoplichtIQ V11.17.76
 //  V11.10: Zelfkalibratie + vergrendeling + crop smoothing
 //  — S1+S2 bevestiging (kruispunt-level confidence)
 //  — Route-herkenning basis (sequentie-opslag)
@@ -1697,6 +1697,65 @@ function toggleLeerLog() {
 // enkele conditie of drempel — puur observeren. Elk record heeft dezelfde
 // vorm (ontbrekende waarden expliciet null) zodat analyse simpel blijft.
 const MAX_OPSLAGLOG = 500;
+
+// V11.17.76: peiling naar een node t.o.v. de rijrichting. Gesigneerd:
+// 0 = recht vooruit, +90 = rechts opzij, -90 = links opzij, ±180 = pal achter.
+// Gebruikt dezelfde sferische formule als vindDichtbijScore (r8188) en
+// checkNodeCorrectieStilstand (r11596) — bewust NIET die van isStoplichtVoorbij
+// (r8390), waar de cos(breedtegraad)-correctie op de lengtecomponent ontbreekt
+// en de peiling op 52 graden NB tot ~13 graden verschuift.
+//
+// WAAROM DIT VELD BESTAAT: sl_opslaglog bewaarde afstanden maar geen richting.
+// Daardoor was niet vast te stellen of een gekozen node die verder weg ligt dan
+// de dichtstbijzijnde VÓÓR de bestuurder lag (de app kijkt correct vooruit over
+// een net gepasseerd kruispunt heen) of ACHTER hem (de app houdt vast wat al
+// gepasseerd is). Op 500 records ging het 122 keer om dat onderscheid, en beide
+// verklaringen vragen om een tegengestelde fix. Zonder deze peiling is elke
+// wijziging aan de scorefunctie een gok.
+function peilingTovRijrichting(pos, node, heading) {
+  if (!pos || !node || heading == null || isNaN(heading)) return null;
+  if (typeof node.lat !== 'number' || typeof node.lon !== 'number') return null;
+  const dLon = (node.lon - pos.lon) * Math.PI / 180;
+  const lat1 = pos.lat * Math.PI / 180;
+  const lat2 = node.lat * Math.PI / 180;
+  const y = Math.sin(dLon) * Math.cos(lat2);
+  const x = Math.cos(lat1) * Math.sin(lat2)
+            - Math.sin(lat1) * Math.cos(lat2) * Math.cos(dLon);
+  const peiling = (Math.atan2(y, x) * 180 / Math.PI + 360) % 360;
+  return Math.round(((peiling - heading + 540) % 360) - 180);
+}
+
+// V11.17.76: afstand van een node tot zijn dichtstbijzijnde BUURNODE. Dit is
+// een eigenschap van de kaart, niet van de GPS-positie — dus ruisvrij, en te
+// memoïseren per node-id. De memo wordt gewist zodra osmCache opnieuw geladen
+// wordt (r8120); dat is het enige moment waarop het antwoord kan veranderen.
+//
+// WAAROM DIT VELD BESTAAT: NODE_CHK_CORRECTIE_MARGE_M=20 blokkeert correctie
+// onder 20m verschil. Die drempel is ontworpen tegen flapperen, maar wordt
+// gelezen alsof hij zegt "binnen 20m is het hetzelfde stoplicht". Gemeten op de
+// export van 28-08-2026: 4.195 van de 4.900 bekende nodes (86%) hebben een buur
+// binnen 20m, en van de 761 paren waar beide namen bekend zijn verschilt de
+// naam in 335 gevallen (44%); van de 164 paren met beide een naderingsprofiel
+// wijkt dat in 65 gevallen (40%) meer dan 60 graden af. Het dichtstbijzijnde
+// bewijsbaar aparte paar ligt 4,2m uit elkaar (Postjesweg / Hoofdweg, 178 graden
+// andere nadering). De marge verbergt dus reële alternatieven; dit veld meet
+// hoe vaak.
+let buurNodeMemo = new Map();
+function dichtstbijzijndeBuur(node) {
+  if (!node || !osmCache || !osmCache.length) return null;
+  if (typeof node.lat !== 'number' || typeof node.lon !== 'number') return null;
+  const id = String(node.id);
+  if (buurNodeMemo.has(id)) return buurNodeMemo.get(id);
+  let besteAf = Infinity, besteId = null;
+  for (const sl of osmCache) {
+    if (String(sl.id) === id) continue;
+    const a = afstand(node.lat, node.lon, sl.lat, sl.lon);
+    if (a < besteAf) { besteAf = a; besteId = String(sl.id); }
+  }
+  const r = besteId ? { af: besteAf, id: besteId } : null;
+  buurNodeMemo.set(id, r);
+  return r;
+}
 let opslagLogCooldownNode = null;   // guard tegen herhaald cooldown-loggen
 function logOpslagMis(reden, extra) {
   try {
@@ -1705,8 +1764,17 @@ function logOpslagMis(reden, extra) {
       : (dichtstbijOSM ? String(dichtstbijOSM.id) : null);
     const afstRuw = (e.afst != null) ? e.afst
       : (dichtstbijOSM ? dichtstbijOSM.afstand : null);
-    let naam = null;
-    try { naam = osmCache?.find(n => String(n.id) === String(nodeId))?.naam || null; } catch(_) {}
+    // V11.17.76: het node-OBJECT vasthouden i.p.v. alleen de naam. De peiling
+    // en de buurafstand hieronder hebben lat/lon nodig, en die moeten over
+    // DEZELFDE node gaan als `afst` — dat is e.node als die gezet is (bij
+    // kandidaat_vervangen de oude kandidaat), anders dichtstbijOSM.
+    let logNode = null, naam = null;
+    try {
+      logNode = osmCache?.find(n => String(n.id) === String(nodeId)) || null;
+      naam = logNode?.naam || null;
+    } catch(_) {}
+    if (!logNode && dichtstbijOSM && String(dichtstbijOSM.id) === String(nodeId)) logNode = dichtstbijOSM;
+    const buurGek = dichtstbijzijndeBuur(logNode);
     const num = (v) => (typeof v === 'number' && !isNaN(v)) ? Math.round(v) : null;
     const rec = {
       t: Date.now(),
@@ -1759,7 +1827,32 @@ function logOpslagMis(reden, extra) {
       // kandidaat_vervangen). Elders null.
       nieuw: (e.nieuw != null) ? String(e.nieuw) : null,
       aanrij: e.aanrij || null,
-      afrij: e.afrij || null
+      afrij: e.afrij || null,
+      // ── V11.17.76: velden voor de node-toewijzingsanalyse ──────────────
+      // Puur observerend. Geen selectie-, score- of correctiepad leest ze; ze
+      // bestaan om twee vragen te kunnen beantwoorden die met de huidige velden
+      // niet te beantwoorden zijn. Zie de toelichting bij
+      // peilingTovRijrichting en dichtstbijzijndeBuur (r1700).
+      //
+      // hdg is de heading die de SELECTIE gebruikte (vindDichtbij krijgt hem op
+      // r11378), niet de gladgestreken variant. Hij wordt alleen bijgewerkt als
+      // pos.coords.heading geldig is (r11710), dus hij kan verouderd zijn na een
+      // stilstand — en juist dan is de peiling eronder met een korrel zout te
+      // nemen. Daarom staat hij erbij: zonder de heading is de peiling niet te
+      // beoordelen.
+      hdg: num(huidigeRichting),
+      peilGek:   peilingTovRijrichting(huidigePos, logNode, huidigeRichting),
+      peilDicht: peilingTovRijrichting(huidigePos, puurDichtsteNodeCache, huidigeRichting),
+      // closestAf hierboven zegt HOE VER de dichtstbijzijnde node was, maar niet
+      // WELKE. Daardoor is achteraf niet te toetsen of dat een ander stoplicht
+      // was (andere straatnaam, ander naderingsprofiel, andere cyclus) of
+      // dezelfde lantaarn onder een ander id. Zonder deze id komt de analyse
+      // niet rond.
+      closestId: (puurDichtsteNodeCache && puurDichtsteNodeCache.id != null)
+        ? String(puurDichtsteNodeCache.id) : null,
+      buurAf:   buurGek ? Math.round(buurGek.af) : null,
+      buurNode: buurGek ? buurGek.id : null,
+      alt20:    buurGek ? (buurGek.af <= 20) : null
     };
     let arr;
     try { arr = JSON.parse(localStorage.getItem('sl_opslaglog')) || []; } catch(_) { arr = []; }
@@ -8117,6 +8210,7 @@ async function downloadOSM(lat, lon) {
         nodeWegen.get(nid).push(way);
       }
     }
+    buurNodeMemo.clear();   // V11.17.76: buurafstanden gelden per cache
     osmCache = nodes.map(el => {
       const besteWeg = kiesBesteWeg(nodeWegen.get(el.id)||[], huidigeRichting);
       const straat=besteWeg?.tags?.name||null, stad=huidigeStad;
