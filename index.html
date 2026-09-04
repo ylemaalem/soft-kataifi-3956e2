@@ -691,7 +691,7 @@
 <div id="startscherm">
   <div id="s-icoon">🚦</div>
   <div id="s-titel">Stoplicht<span>IQ</span></div>
-  <div id="s-versie">V11.17.79 — bij stilstand telt de hoek mee</div>
+  <div id="s-versie">V11.17.80 — de afwijking mét teken</div>
   <div id="s-model-wrap">
     <div id="s-model-rij">
       <div id="s-model-label">🤖 YOLOv8 model laden…</div>
@@ -916,7 +916,7 @@
 
 <script>
 // ═══════════════════════════════════════════════════════════════
-//  StoplichtIQ V11.17.79
+//  StoplichtIQ V11.17.80
 //  V11.10: Zelfkalibratie + vergrendeling + crop smoothing
 //  — S1+S2 bevestiging (kruispunt-level confidence)
 //  — Route-herkenning basis (sequentie-opslag)
@@ -4014,6 +4014,10 @@ function klopteIsNoOp() {
 //               overschrijding, vrij van reactietijd
 //   restMs      wat er nog op de klok stond bij een tik vóór nul; laat zien of
 //               iemand met twee of met twintig seconden anticipeert
+//   afwijkingMs V11.17.80: het GROEN-moment min het VERWACHTE nulmoment, mét
+//               teken. Negatief = groen kwam eerder dan voorspeld. Gevuld in
+//               beide groen-toestanden, ook waar overschrMs al bestaat — daar
+//               meten de twee hetzelfde en dienen ze als ijking van elkaar.
 //
 // LET OP bij het lezen: overschrMs betekent per toestand iets anders.
 //   groen-na-nul : EINDwaarde. Groen is gevallen, dit is de volledige
@@ -4031,17 +4035,99 @@ function klopteIsNoOp() {
 //
 // PUUR OBSERVEREND. Geen enkele bestaande beslissing leest deze velden; de
 // knoppen, de demping en het leergeheugen gedragen zich exact als voorheen.
+// ── V11.17.80: DE AFWIJKING MÉT TEKEN ─────────────────────────
+// © 2026 StoplichtIQ — Y. Lemaalem
+//
+// Het verwachte nulmoment in WANDKLOKTIJD, of null als het niet betrouwbaar
+// vast te stellen is. Dit is de enige nieuwe rekenregel van deze release.
+//
+// WAAROM NIET cdStart — DIT IS DE VALSTRIK.
+// cdStart + activeCdDoel*1000 ligt voor de hand en is FOUT. verwerkFase zet op
+// r6815 groenStart, en roept 192 regels verderop op r7007 stopCd() aan, die op
+// r7117 cdStart op null zet. Tegen de tijd dat meetBevestigMoment tijdens groen
+// draait is cdStart dus altijd null, en `null + getal` levert NaN — geen null,
+// dus zonder guard glijdt dat als "getal" het leergeheugen in. cdWallStart
+// overleeft die overgang wel: stopCd raakt hem niet aan, alleen beeindigFase
+// nult hem (r6784).
+//
+// TWEE GELDIGHEIDSTOETSEN, allebei nodig.
+//
+// 1. DEZELFDE NODE. resetNeutraal roept stopCd() aan (r6737) maar houdt
+//    cdWallStart en cdWallNodeId BEWUST vast voor dropout-continuïteit — het
+//    commentaar op r6741-6743 zegt dat met zoveel woorden. Na een dropout kan
+//    cdWallStart dus bij een vorig kruispunt horen. Dat is exact het
+//    staleness-patroon dat V11.17.64 FIX B voor countdownNulTijd moest
+//    repareren: in de bevestig-store van 28 augustus stonden daardoor
+//    bijna-records met autoVerschilMs van 230s, 337s, 351s en 588s — binnen één
+//    rode fase onmogelijk.
+//
+// 2. BINNEN HET CONTINUÏTEITSVENSTER. De node-toets alleen is niet genoeg: een
+//    dropout op DEZELFDE node laat cdWallStart staan terwijl er minuten
+//    voorbijgaan, en dan zou de afwijking een verzonnen groot negatief getal
+//    worden. De grens is niet nieuw bedacht maar overgenomen van startCd
+//    (r7055): daar geldt een lopende countdown als voortzetting zolang
+//    elapsed < activeCdDoel + CD_DROPOUT_MAX_S. Buiten dat venster zou startCd
+//    zelf de countdown opnieuw hebben gestart, dus daarbuiten is cdWallStart
+//    per definitie niet meer de start van DEZE voorspelling.
+//
+// Faalrichting is bewust conservatief: bij twijfel null, dus liever een meting
+// missen dan er een verzinnen. Dit veld stuurt niets aan — het wordt alleen in
+// het bevestig-record geschreven — dus een gemiste meting kost data, geen gedrag.
+function verwachtNulWand() {
+  try {
+    if (cdWallStart == null) return null;
+    if (typeof activeCdDoel !== 'number' || !(activeCdDoel > 0)) return null;
+    const nodeNu = dichtstbijOSM ? String(dichtstbijOSM.id) : null;
+    if (nodeNu == null || cdWallNodeId !== nodeNu) return null;
+    const doelWand = cdWallStart + activeCdDoel * 1000;
+    if (!isFinite(doelWand)) return null;
+    // Toets 2: valt NU nog binnen het venster waarin startCd deze countdown als
+    // dezelfde zou beschouwen?
+    const elapsedS = (Date.now() - cdWallStart) / 1000;
+    if (!(elapsedS < activeCdDoel + CD_DROPOUT_MAX_S)) return null;
+    return doelWand;
+  } catch (_) { return null; }
+}
+
+// Het GROEN-moment in wandkloktijd, of null. Zelfde omrekening als r4050:
+// groenStart staat in performance.now()-eenheden en moet naar Date.now().
+function groenWandTijd() {
+  try {
+    if (groenStart == null) return null;
+    const w = Date.now() - (performance.now() - groenStart);
+    return isFinite(w) ? w : null;
+  } catch (_) { return null; }
+}
+
 function meetBevestigMoment() {
   const nuWand = Date.now();
   const nulGezet = cdBereikteNul && countdownNulTijd != null;
-  const uit = { toestand: null, overschrMs: null, restMs: null };
+  // V11.17.80: afwijkingMs is een APART veld, bewust niet overschrMs.
+  // bevestigIndeling (r3920) toetst ondertekend — `m.overschrMs <= 2000` is waar
+  // voor élk negatief getal — dus een negatieve waarde in overschrMs zou KLOPTE
+  // laten oplichten bij groen dat veertig seconden te vroeg viel, en via de
+  // schrijfpoort op r7514 met gewicht 0,4 het leergeheugen in laten lopen.
+  // Door een eigen veld te gebruiken blijft elke bestaande consument
+  // (bevestigIndeling, klopteIsNoOp, bijnaIsNoOp, bevestigMomentDefinitief en
+  // de drie takken in verwerkBevestigLeren) letterlijk ongewijzigd: die lezen
+  // allemaal alleen overschrMs. Het samenvoegen van de twee grootheden is de
+  // release waarin gedrag WEL mag veranderen.
+  const uit = { toestand: null, overschrMs: null, restMs: null, afwijkingMs: null };
 
   if (fase === 'groen') {
+    // De gesigneerde afwijking van het groen-moment ten opzichte van het
+    // VERWACHTE nulmoment. Negatief = groen kwam eerder dan voorspeld,
+    // positief = later, nul = precies. Los van cdBereikteNul, dus in beide
+    // groen-toestanden beschikbaar.
+    const _dw = verwachtNulWand();
+    const _gw = groenWandTijd();
+    if (_dw != null && _gw != null) uit.afwijkingMs = Math.round(_gw - _dw);
+
     if (!nulGezet) {
-      // Groen viel vóórdat de voorspelling verstreek. Er is dan geen
-      // overschrijding; de schatting was juist te LANG. Bewust geen negatief
-      // getal verzinnen: cdBereikteNul is nooit gezet, dus er is geen nulpunt
-      // om vanaf te meten.
+      // Groen viel vóórdat de voorspelling verstreek. overschrMs blijft hier
+      // BEWUST null — zie de toelichting bij `uit` hierboven. De afwijking zelf
+      // staat nu in afwijkingMs; dat is wat V11.17.68 (r3907-3912) als
+      // ontbrekend beschreef.
       uit.toestand = 'groen-voor-nul';
       return uit;
     }
@@ -7497,6 +7583,18 @@ function bevestigCountdown(categorie) {
     // (r1821), zodat de twee bronnen naast elkaar te leggen zijn.
     kmh: (typeof snelheidKmh === 'number' && !isNaN(snelheidKmh))
       ? Math.round(snelheidKmh) : null,
+    // V11.17.80: de afwijking MÉT teken. Negatief = groen kwam eerder dan
+    // voorspeld — de helft die tot nu toe onmeetbaar was en waarop het
+    // symmetrische venster (-2/+2 groen, -10/+10 oranje) moet gaan leunen.
+    // Staat naast overschrMs en vervangt hem niet: overschrMs blijft precies
+    // doen wat hij deed, zodat geen enkele bestaande consument iets merkt.
+    afwijkingMs: _mom.afwijkingMs,
+    // Meetversie. 2 = de gesigneerde meting bestaat in dit record. Zonder dit
+    // veld is een nieuw record met een POSITIEVE afwijking niet te
+    // onderscheiden van een oud: de negatieve helft verraadt zichzelf wel
+    // (die kon vroeger niet bestaan), de positieve niet. Twee tekens in een
+    // store die op 20 records per node gekapt wordt.
+    mv: 2,
     schaduw: schaduwLog
   });
   if (data.length > 20) data = data.slice(-20);

@@ -71,6 +71,7 @@ function testZichtbaarheid() {
     activeCdDoel, activeCdModus, bevestigActief, bevInertStaat,
     bevestigGedaanVoorFase, laatsteRoodFaseStart, snelheidKmh,
     dichtstbijOSM, osmVoorspellingActief, huidigCdBron,
+    cdWallStart, cdWallNodeId,   // V11.17.80: gelezen door meetBevestigMoment
     wrapClass: bevestigWrap.className,
     pillClass: cdPill.className
   };
@@ -223,9 +224,16 @@ function testZichtbaarheid() {
     // Zelfde opzet als test_knopkleur.js r80-95: door groenStart op nu te
     // zetten is groenWand = Date.now(), en dan levert countdownNulTijd =
     // nu - X precies overschrMs = X.
+    // V11.17.80: zie de gelijknamige helper in test_knopkleur.js. cdWallStart,
+    // cdWallNodeId, activeCdDoel en groenStart worden nu in elke tak expliciet
+    // gezet, omdat meetBevestigMoment ze sinds die release leest voor
+    // afwijkingMs. cdWallNodeId blijft null, dus de afwijking is hier bewust
+    // onbepaald en deze suite toetst onveranderd de kleurmatrix op overschrMs.
     function zet(toestand, overschrMs, kmh) {
       dichtstbijOSM = { id: 777003, lat: 52, lon: 5, afstand: 12, naam: 'TEST-ZICHT' };
       osmVoorspellingActief = false;
+      cdWallStart = null; cdWallNodeId = null;
+      groenStart = null; cdStart = null; activeCdDoel = 0;
       if (toestand === 'rood-voor-nul') {
         fase = 'rood'; cdBereikteNul = false; countdownNulTijd = null;
         cdStart = performance.now(); activeCdDoel = 30;
@@ -356,6 +364,7 @@ function testZichtbaarheid() {
     dichtstbijOSM = bewaard.dichtstbijOSM;
     osmVoorspellingActief = bewaard.osmVoorspellingActief;
     huidigCdBron = bewaard.huidigCdBron;
+    cdWallStart = bewaard.cdWallStart; cdWallNodeId = bewaard.cdWallNodeId;
     bevestigWrap.className = bewaard.wrapClass;
     cdPill.className = bewaard.pillClass;
     bevKlopteBtn.classList.remove('inert');

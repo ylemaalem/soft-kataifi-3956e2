@@ -66,6 +66,9 @@ async function testKnopkleur() {
   const bewaard = {
     fase, cdBereikteNul, countdownNulTijd, groenStart, cdStart,
     activeCdDoel, bevestigActief, bevInertStaat,
+    // V11.17.80: cdWallStart en cdWallNodeId horen erbij sinds meetBevestigMoment
+    // ze leest voor afwijkingMs. Zonder herstel lekt de testopzet naar de app.
+    cdWallStart, cdWallNodeId, dichtstbijOSM,
     wrapClass: bevestigWrap.className
   };
 
@@ -77,7 +80,17 @@ async function testKnopkleur() {
   // groenWand - countdownNulTijd, waarbij groenWand de wandkloktijd van
   // groenStart is. Door groenStart op nu te zetten is groenWand = Date.now(),
   // en dan levert countdownNulTijd = nu - X precies overschrMs = X.
+  // V11.17.80: cdWallStart, cdWallNodeId, activeCdDoel en groenStart worden nu
+  // in ELKE tak expliciet gezet. Sinds meetBevestigMoment die vier leest voor
+  // afwijkingMs zou een tak die ze ongemoeid laat rekenen met restwaarden uit
+  // een vorige testcase of uit de draaiende app — niet-deterministisch, en dat
+  // is erger dan ongedekt. De opzet hieronder maakt de afwijking per tak
+  // ONBEPAALD (cdWallNodeId komt niet overeen met dichtstbijOSM), zodat deze
+  // suite blijft toetsen wat hij toetst: de kleurmatrix op overschrMs, niet de
+  // nieuwe meting. Die heeft zijn eigen bestand (test_meting_gesigneerd.js).
   function zet(toestand, overschrMs) {
+    cdWallStart = null; cdWallNodeId = null;   // afwijkingMs bewust onbepaald
+    groenStart = null; cdStart = null; activeCdDoel = 0;
     if (toestand === 'rood-voor-nul') {
       fase = 'rood'; cdBereikteNul = false; countdownNulTijd = null;
       cdStart = performance.now(); activeCdDoel = 30;
@@ -252,6 +265,8 @@ async function testKnopkleur() {
         /bevInertStaat/.test(String(updateBevestigKnopStaat)) ? 'memo aanwezig' : 'MEMO WEG');
 
   } finally {
+    cdWallStart = bewaard.cdWallStart; cdWallNodeId = bewaard.cdWallNodeId;
+    dichtstbijOSM = bewaard.dichtstbijOSM;
     fase = bewaard.fase; cdBereikteNul = bewaard.cdBereikteNul;
     countdownNulTijd = bewaard.countdownNulTijd; groenStart = bewaard.groenStart;
     cdStart = bewaard.cdStart; activeCdDoel = bewaard.activeCdDoel;
