@@ -691,7 +691,7 @@
 <div id="startscherm">
   <div id="s-icoon">🚦</div>
   <div id="s-titel">Stoplicht<span>IQ</span></div>
-  <div id="s-versie">V11.17.77 — de juiste knop licht op</div>
+  <div id="s-versie">V11.17.78 — bevestigen kan ook rijdend</div>
   <div id="s-model-wrap">
     <div id="s-model-rij">
       <div id="s-model-label">🤖 YOLOv8 model laden…</div>
@@ -916,7 +916,7 @@
 
 <script>
 // ═══════════════════════════════════════════════════════════════
-//  StoplichtIQ V11.17.77
+//  StoplichtIQ V11.17.78
 //  V11.10: Zelfkalibratie + vergrendeling + crop smoothing
 //  — S1+S2 bevestiging (kruispunt-level confidence)
 //  — Route-herkenning basis (sequentie-opslag)
@@ -7271,15 +7271,66 @@ function tickCd() {
     huidigCdWaarde = activeCdDoel;
     updateSchaduwCountdownNul(activeCdDoel);
   }
-  // V11.10.1: Bevestigknoppen tonen bij actieve countdown + snelheid < 15
+  // ── V11.17.78: DE KNOPPEN VERSCHIJNEN ZODRA ER EEN COUNTDOWN LOOPT ──
+  // De stilstand-eis (snelheidKmh < 15, V11.10.1) is hier weg, en met haar de
+  // verbergtak op wegrijden (V11.14.2). Dat waren TWEE remmen op dezelfde
+  // beweging: alleen de eerste weghalen liet de tweede de knoppen zeven regels
+  // verderop in dezelfde tickCd-aanroep meteen weer verbergen, en op het scherm
+  // was er dan niets veranderd.
+  //
+  // DIT IS EEN MEETFOUTCORRECTIE, NIET ALLEEN EEN WENS. berekenBevestigScore
+  // (r2732) stuurt de bevestig-upgrade van de countdownmodus aan en wordt
+  // gevoed door sl_bevestig_. Die steekproef selecteerde tot nu toe op
+  // "de bestuurder stond na nul nog stil" — en dat is precies de toestand
+  // waarin de voorspelling FOUT was. Klopte ze, dan sprong het licht op groen,
+  // reed de bestuurder weg en verdween de knoppenrij ongebruikt. Op de export
+  // van 3 september: van de 678 bevestigingen 462 fout (68,1%), 164 bijna
+  // (24,2%) en 52 klopte (7,7%), en geen enkel bevestig-gerelateerd logrecord
+  // boven 5 km/u. Die scheefheid is een eigenschap van het meetproces, niet
+  // van de voorspellingen.
+  //
+  // fase === 'rood' is bewust toegevoegd en niet louter cdPillActief. De pill
+  // krijgt .actief ook van startCd() onder osmVoorspellingActief (r7547-7548),
+  // en dat is een GPS-voorspelling zonder camera-detectie: geen vaste bbox,
+  // fase === null. De opdracht luidt "een bbox zit vast EN een countdown start";
+  // zonder deze conjunct zouden de knoppen ook verschijnen bij 50 km/u op 50m
+  // van een bekend kruispunt dat de camera nog nooit gezien heeft.
+  //
+  // LET OP bij het lezen: cdPillActief is op DIT punt tautologisch waar.
+  // r6982 zet .actief onvoorwaardelijk, direct na de cdActief-guard, dus wie
+  // hier komt heeft de klasse altijd. De conjunct die werkelijk beslist is
+  // fase === 'rood'. cdPillActief blijft staan omdat hij de historische vorm
+  // van deze poort draagt en niets kost; wie hem ooit weghaalt verandert niets
+  // aan het gedrag. Vastgelegd in test_zichtbaarheid.js T5.
+  //
+  // De groen-tak hieronder heeft die conjunct NIET nodig: fase === 'groen'
+  // sluit de GPS-voorspelling per constructie al uit, want checkOsmVoorspelling
+  // zet osmVoorspellingActief op false zodra fase niet null is (r7511-7513).
+  //
+  // Diezelfde groen-tak is bovendien ONBEREIKBAAR vanuit tickCd, en dat was hij
+  // vóór deze release al. De guard op r6975-6976 eist fase === 'rood' of
+  // osmVoorspellingActief; bij groen is het eerste onwaar en het tweede door
+  // r7511-7513 uitgezet, dus tickCd keert terug vóór deze regel. Precies dat
+  // staat ook in de toelichting bij updateBevestigKnopStaat (r4077-4081) en het
+  // is de reden dat die functie apart vanuit lus() draait. Wat de gebruiker
+  // tijdens groen ziet, is de rij die de RODE fase heeft aangezet en die daarna
+  // door niets is verborgen. Het weghalen van de stilstand-eis hier is dus
+  // defensief: het houdt de twee takken gelijk voor het geval de guard ooit
+  // verruimd wordt. Vastgelegd in test_zichtbaarheid.js T8-T9.
+  //
+  // WAT DIT KOST — bekend en aanvaard: de >15-tak was het enige opruimpad dat
+  // niet aan een node hing. Wat overblijft is de tik zelf (r7448), resetNeutraal
+  // (r6584), de node-wissel (r11678) en corrigeerNodeAutomatisch (r11830).
+  // In de praktijk vangt resetNeutraal het wegrijden af zodra de camera het
+  // licht kwijt is; blijft de camera na groen hetzelfde licht zien zonder dat
+  // de node wisselt, dan blijven de knoppen langer staan dan voorheen.
   const cdPillActief = cdPill.classList.contains('actief');
-  const stilstaand = snelheidKmh < 15;
   // V11.13.0: bereken sleutel voor bevestig-marker — gebruikt in BEIDE branches
   // zodat tap tijdens rood (faseStart=rood) en tap tijdens groen (cdBereikteNul,
   // faseStart=groen) beide dezelfde rood-faseStart referentie hebben.
   const _bevSleutel = bevestigMarkerSleutel();   // V11.17.55
   const _bevAlGedaan = _bevSleutel && bevestigGedaanVoorFase === _bevSleutel;
-  if (cdPillActief && stilstaand) {
+  if (cdPillActief && fase === 'rood') {
     if (!bevestigActief && !_bevAlGedaan) {
       bevestigActief = true;
       bevestigWrap.classList.add('actief');
@@ -7288,20 +7339,11 @@ function tickCd() {
       // z-index/tap-interceptie meer. Guard in toonRichtingKnoppen r5386
       // blijft voor de losse #richting-knoppen overlay.
     }
-  } else if (fase === 'groen' && cdBereikteNul && stilstaand) {
+  } else if (fase === 'groen' && cdBereikteNul) {
     if (!bevestigActief && !_bevAlGedaan) {
       bevestigActief = true;
       bevestigWrap.classList.add('actief');
       // V11.17.4 W4: idem — geen verbergaanroep meer.
-    }
-  }
-  // V11.14.2: verberg alleen bij wegrijden (>15 km/u). Timeout-tak
-  // verwijderd — knoppen blijven staan tot gebruiker drukt (r3463) of
-  // de fase naar groen wisselt (r3301).
-  if (bevestigActief) {
-    if (snelheidKmh > 15) {
-      bevestigActief = false;
-      bevestigWrap.classList.remove('actief');
     }
   }
 
@@ -7373,6 +7415,24 @@ function bevestigCountdown(categorie) {
     toestand:   _mom.toestand,     // V11.17.67
     overschrMs: _mom.overschrMs,   // V11.17.67
     restMs:     _mom.restMs,       // V11.17.67
+    // V11.17.78: de snelheid op het tikmoment. Tot deze release stond de
+    // knoppenrij alleen bij stilstand in beeld, dus was dit getal per definitie
+    // < 15 en had het geen informatie. Nu de poort open is, is het de enige
+    // manier om de oude populatie van de nieuwe te scheiden: filteren op
+    // kmh < 15 reconstrueert exact de steekproef waaruit de 678 records van
+    // 3 september komen. Zonder dat onderscheid valt achteraf niet aan te tonen
+    // dat de scheefheid (68,1% fout) door DEZE wijziging is rechtgetrokken en
+    // niet door iets anders.
+    //
+    // Bewust geen versiestempel maar het meetgetal zelf: dat draagt daarnaast
+    // het antwoord op de vraag waar de release om begon — bij welke snelheid
+    // wordt er werkelijk bevestigd. toestand/overschrMs/restMs (V11.17.67)
+    // markeren wel "na 11.17.67" maar scheiden 11.17.78 niet van 11.17.67-77.
+    //
+    // Zelfde afronding en null-behandeling als het kmh-veld in logOpslagMis
+    // (r1821), zodat de twee bronnen naast elkaar te leggen zijn.
+    kmh: (typeof snelheidKmh === 'number' && !isNaN(snelheidKmh))
+      ? Math.round(snelheidKmh) : null,
     schaduw: schaduwLog
   });
   if (data.length > 20) data = data.slice(-20);
@@ -9096,10 +9156,6 @@ let richtingGroenDelayTimer = null;
 
 // V8.8.1: Toon bij rood fase of eerste rood detectie, geen bevestigingslimiet
 function toonRichtingKnoppen(nodeId, forceerTonen = false) {
-  // V11.12.3: bevestigknoppen hebben altijd voorrang — richting-knoppen
-  // mogen NOOIT getoond worden terwijl bevestig-knoppen actief zijn,
-  // anders intercepteert richting-knoppen (z:46) alle taps op bevestig-wrap (z:10 via #ui)
-  if (bevestigActief) return;
   if (!nodeId) return;
   // V11.16.1 c1: neutrale node heeft geen vaste rijrichting → geen knoppen.
   if (isNodeNeutraal(nodeId)) return;
@@ -9119,6 +9175,28 @@ function toonRichtingKnoppen(nodeId, forceerTonen = false) {
     // size===0 (nieuwe node) valt hier bewust NIET onder: die krijgt de knoppen.
     if (aantalAanrijRichtingen(nodeId) === 1) return;
   }
+  // V11.12.3: bevestigknoppen hebben altijd voorrang — richting-knoppen
+  // mogen NOOIT getoond worden terwijl bevestig-knoppen actief zijn,
+  // anders intercepteert richting-knoppen (z:46) alle taps op bevestig-wrap (z:10 via #ui)
+  //
+  // V11.17.78: deze return stond bovenaan de functie en dekte daarmee ook het
+  // persistente-keuze-blok hierboven af. Dat was tot nu toe onzichtbaar, omdat
+  // bevestigActief alleen bij stilstand aanstond. Met de knoppen tijdens het
+  // rijden werd het een echte lek: rijdend naar een bekend kruispunt start
+  // checkOsmVoorspelling een GPS-countdown, tickCd zet bevestigActief aan, en
+  // de rood-detectie die daarna binnenkomt (r6424) keerde hier terug ZONDER
+  // activeerPersistenteRichting aan te roepen. Dan blijft v9PreSelectieAfrij
+  // null en kiest de startCd zeven regels verderop (r6449 -> r6927) een andere
+  // countdownbron — een gedragswijziging aan de countdown, terwijl deze release
+  // uitsluitend zichtbaarheid mag raken. GLOSA viel er bovendien mee uit (de
+  // guard op r7477 eist een niet-lege v9PreSelectieAfrij).
+  //
+  // Verplaatst naar hier, vlak vóór het enige dat de guard blijkens zijn eigen
+  // toelichting moet voorkomen: het ZICHTBAAR maken van de overlay. Bij
+  // stilstand verandert er niets — checkOsmVoorspelling roept deze functie op
+  // r7560 al aan vóórdat tickCd in dezelfde lus-frame draait (r12293 vóór
+  // r12294), dus de persistente activering had daar al plaatsgevonden.
+  if (bevestigActief) return;
   richtingKnoppenNodeId = nodeId;
   document.querySelectorAll('.richting-btn').forEach(b => b.classList.remove('gekozen'));
   // V10.0.2: Pre-highlight opgeslagen tikrichting zodat gebruiker ziet wat actief is
