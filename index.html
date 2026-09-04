@@ -691,7 +691,7 @@
 <div id="startscherm">
   <div id="s-icoon">🚦</div>
   <div id="s-titel">Stoplicht<span>IQ</span></div>
-  <div id="s-versie">V11.17.78 — bevestigen kan ook rijdend</div>
+  <div id="s-versie">V11.17.79 — bij stilstand telt de hoek mee</div>
   <div id="s-model-wrap">
     <div id="s-model-rij">
       <div id="s-model-label">🤖 YOLOv8 model laden…</div>
@@ -916,7 +916,7 @@
 
 <script>
 // ═══════════════════════════════════════════════════════════════
-//  StoplichtIQ V11.17.78
+//  StoplichtIQ V11.17.79
 //  V11.10: Zelfkalibratie + vergrendeling + crop smoothing
 //  — S1+S2 bevestiging (kruispunt-level confidence)
 //  — Route-herkenning basis (sequentie-opslag)
@@ -4713,6 +4713,70 @@ const NODE_CHK_STANDSTILL_DUUR_MS = 3000;  // W3: minimum stilstand-duur voor he
 const NODE_CHK_CORRECTIE_MARGE_M  = 20;    // W3: alternatief moet zoveel dichterbij zijn
 const NODE_CHK_HEADING_MAX_GRAD   = 60;    // W3: heading-match tolerantie (indien beschikbaar)
 const NODE_CHK_LOG_INTERVAL_MS    = 1000;  // W5: [NODE-CHK] throttle voor twijfel-events
+
+// ── V11.17.79: DE PEILING TELT MEE BIJ GELIJKE AFSTAND ────────
+// vindDichtbijScore heeft twee takken (r8423). Boven 5 km/u weegt de peiling
+// mee met 0,35, plus bboxCentrering en de laterale bonus. Onder 5 km/u blijft
+// alleen `normAf * 0.95 + conf * 0.05` over — daar komt geen enkele
+// richtingsterm in voor. Bij twee nodes op dezelfde afstand is de score dan
+// EXACT gelijk en beslist alleen conf (spanwijdte 0,05), of anders de volgorde
+// waarin osmCache toevallig staat.
+//
+// Gemeten geval, export 3 september, 16:59:05: twee nodes allebei op 22m,
+// de ene 17 graden uit de rijrichting, de andere 49. De app koos de scheve en
+// de gebruiker moest handmatig corrigeren. Doorgerekend met deze constanten:
+//   stilstandtak, beide 22m : 0,778689 tegen 0,778689  — identiek
+//   rijdende tak, zelfde geval: 0,744543 tegen 0,639457 — 0,105 voorsprong
+// Het verschil van 0,105 in de rijdende tak is 2,1x de hele conf-spanwijdte.
+// Boven 5 km/u was dit dus geen twijfelgeval geweest.
+//
+// En het is onherstelbaar: de hysterese in vindDichtbij (r8551) eist dat een
+// uitdager 1,20x de score van de zittende node haalt. Bij een zittende node op
+// 22m moet de uitdager daarvoor binnen 1,67m komen; staat de zittende node
+// dichterbij dan 20m, dan kan geen enkele tegenstander hem ooit nog verslaan.
+// Vandaar dat er naast de tiebreak ook een route in
+// checkNodeCorrectieStilstand bij moet — de tiebreak repareert alleen de
+// EERSTE keuze.
+//
+// DE VIER GETALLEN, EN WAAROP ZE RUSTEN
+//
+// GELIJK_M = 5. Niet nieuw: CLUSTER_AFSTAND_M (r4131) draagt hetzelfde getal
+// op dezelfde grond. Het commentaar daar legt de meting vast — over 14.228
+// nodes heeft 10,2% een buur binnen 5m maar 47,1% binnen 10m, "daar verliest
+// de melding zijn waarde". Bij 22m afstand is 5m verschil 0,031 score waard;
+// dat overrulen is verdedigbaar omdat het binnen de GPS-onzekerheid valt. Bij
+// 10m is het 0,058 en dan gooi je echte afstandsinformatie weg.
+//
+// VOORDEEL_GRAD = 25. Ondergrens uit de peilingruis: een laterale positiefout
+// van 3m geeft op 22m 7,8 graden, op 15m 11,3 en op 10m 16,7. Bovengrens uit
+// het gemeten geval zelf: 49 - 17 = 32 graden, dus onder 32 moet het blijven om
+// te vuren. 25 ligt met marge tussen 16,7 en 32. Bij 30 zou het gemeten geval
+// nog nét vuren maar zonder speling.
+//
+// MIN_AFSTAND_M = 12. Onder ongeveer 10m is de peiling ruis: bij 3m
+// positiefout loopt de fout daar op tot 16,7 graden en bij 5m tot 31. Deze
+// ondergrens sluit meteen het voorsorteergeval uit — twee nodes op enkele
+// meters, allebei ruwweg vooruit — waar een hoektoets het juist slechter zou
+// maken.
+//
+// KMH = 5. Gelijk aan de drempel van de scoretak (r8423), want dit repareert
+// precies de tak die daar begint. Bewust NIET gelijkgetrokken met
+// NODE_CHK_STANDSTILL_KMH (3): die stuurt de bestaande afstandsroute en de
+// auto-lock, en daar verandert niets aan.
+//
+// STABIEL_N = 3. checkNodeCorrectieStilstand leunt voor stabiliteit op
+// stilstandSinds, maar die teller loopt alleen onder 3 km/u (r12092) — bij het
+// gemeten geval (kmh 4) staat hij op 0. De hoekroute heeft dus een eigen
+// stabiliteitseis nodig: hetzelfde oordeel drie GPS-updates op rij, bij ~1 Hz
+// dus ~3 seconden, gelijk aan NODE_CHK_STANDSTILL_DUUR_MS.
+const NODE_HOEK_GELIJK_M       = 5;    // binnen dit afstandsverschil telt afstand niet meer
+const NODE_HOEK_VOORDEEL_GRAD  = 25;   // zoveel graden moet de kandidaat beter staan
+const NODE_HOEK_MIN_AFSTAND_M  = 12;   // daaronder is de peiling ruis
+const NODE_HOEK_KMH            = 5;    // gelijk aan de scoretak-drempel r8423
+const NODE_HOEK_STABIEL_N      = 3;    // opeenvolgende GPS-updates met hetzelfde oordeel
+let hoekStabielSleutel = null;         // "gekozenId>altId" van het lopende oordeel
+let hoekStabielTeller  = 0;            // hoe vaak dat oordeel al op rij gezien is
+
 let dichtstbijOSMTwijfel   = false;        // W1: huidige twijfel-vlag (edge-getriggerd log)
 let laatsteNodeCorrectieTijd = 0;          // W3: bounce-guard (hergebruikt NODE_WISSEL_MIN_INTERVAL_MS)
 let nodeChkLaatsteLog      = 0;            // W5: throttle-timer voor twijfel-log
@@ -8396,12 +8460,49 @@ function vindDichtbijScore(lat, lon, heading, sl) {
   return { score: Math.min(1.01, s), afstand: af };
 }
 
+// V11.17.79: staat `alt` op peiling DUIDELIJK beter dan `huidige`, bij een
+// afstand die feitelijk gelijk is? Eén definitie voor beide gebruikers — de
+// tiebreak in vindDichtbij en de correctieroute in checkNodeCorrectieStilstand
+// — zodat de twee oordelen niet uiteen kunnen lopen. Datzelfde patroon als
+// bevestigMarkerSleutel (r3873).
+//
+// Werkt op huidigeRichting en niet op getSmoothedHeading(): dat is de heading
+// die de selectie zelf gebruikt (vindDichtbij krijgt hem op r11702) én de
+// heading die in het log naast peilGek/peilDicht staat (r1868-1869). Zo zegt
+// het log hetzelfde als het gedrag. huidigeRichting wordt alleen bijgewerkt bij
+// een geldige GPS-heading (r12068) en staat bij stilstand dus stil op de laatste
+// aanrijwaarde — dat is hier een voordeel: de referentie ruist niet mee, alleen
+// de positie doet dat.
+//
+// De headingBuffer-toets is geen detail. huidigeRichting begint op 0 (r4121) en
+// dat is een geldig getal, geen null — zonder deze poort zou een sessie die nog
+// nooit een heading zag alle peilingen tegen het NOORDEN meten en op grond
+// daarvan nodes gaan omwisselen. headingBuffer krijgt alleen geldige waarden
+// (voegHeadingToe r8588, aangeroepen achter de guard op r12067).
+function peilingDuidelijkBeter(pos, huidige, huidigeAf, alt, altAf) {
+  if (!pos || !huidige || !alt) return false;
+  if (!headingBuffer.length) return false;
+  if (typeof huidigeAf !== 'number' || typeof altAf !== 'number') return false;
+  if (huidigeAf < NODE_HOEK_MIN_AFSTAND_M || altAf < NODE_HOEK_MIN_AFSTAND_M) return false;
+  if (Math.abs(altAf - huidigeAf) > NODE_HOEK_GELIJK_M) return false;
+  const pH = peilingTovRijrichting(pos, huidige, huidigeRichting);
+  const pA = peilingTovRijrichting(pos, alt,     huidigeRichting);
+  if (pH == null || pA == null) return false;
+  return (Math.abs(pH) - Math.abs(pA)) >= NODE_HOEK_VOORDEEL_GRAD;
+}
+
 function vindDichtbij(lat, lon, heading) {
   if (!osmCache.length) return null;
   let beste=null, bestS=-Infinity;
+  // V11.17.79: de gescoorde kandidaten vasthouden voor de tiebreak hieronder.
+  // Geen extra lus en geen extra afstandsberekening: vindDichtbijScore keert
+  // null terug boven 400m (r8419), dus dit zijn alleen de nodes die toch al
+  // meededen — in de praktijk enkele tientallen, bij ~1 Hz.
+  const kandidaten = [];
   for (const sl of osmCache) {
     const r = vindDichtbijScore(lat, lon, heading, sl);
     if (!r) continue;
+    kandidaten.push({ sl, afstand: r.afstand, score: r.score });
     if (r.score > bestS) { bestS=r.score; beste={...sl, afstand:r.afstand}; }
   }
   if (!beste) {
@@ -8409,6 +8510,33 @@ function vindDichtbij(lat, lon, heading) {
     for (const sl of osmCache) {
       const a=afstand(lat,lon,sl.lat,sl.lon);
       if (a<minA) { minA=a; beste={...sl, afstand:a}; }
+    }
+  }
+  // ── V11.17.79: tiebreak op peiling, alleen onder NODE_HOEK_KMH ──
+  // Boven die grens heeft de score de hoek al met gewicht 0,35 (r8435) en is er
+  // niets te repareren; daar verandert deze release dus letterlijk niets.
+  //
+  // STAAT BEWUST VÓÓR DE HYSTERESE. Erna zetten zou betekenen dat de tiebreak de
+  // hysterese overrult, en dat is precies het mechanisme dat flapperen tegenhoudt.
+  // Hier gezet raakt hij alleen wélke node als beste uit de scoreronde komt.
+  //
+  // Gevolg dat je moet kennen: is er al een zittende node, dan wint die daarna
+  // alsnog via de hysterese (bij gelijke afstand is de maximaal haalbare ratio
+  // 1,064 tegen een drempel van 1,20). De tiebreak repareert dus de EERSTE
+  // keuze, niet een al vastgezette verkeerde keuze — dat doet de hoekroute in
+  // checkNodeCorrectieStilstand (r11932), die de bounce-guard van 10s erft.
+  if (beste && kandidaten.length > 1 && snelheidKmh < NODE_HOEK_KMH) {
+    const pos = { lat, lon };
+    let alt = null, altAbs = Infinity;
+    for (const k of kandidaten) {
+      if (String(k.sl.id) === String(beste.id)) continue;
+      if (!peilingDuidelijkBeter(pos, beste, beste.afstand, k.sl, k.afstand)) continue;
+      const p = Math.abs(peilingTovRijrichting(pos, k.sl, huidigeRichting));
+      if (p < altAbs) { altAbs = p; alt = k; }
+    }
+    if (alt) {
+      beste = { ...alt.sl, afstand: alt.afstand };
+      bestS = alt.score;
     }
   }
   // Hysterese: huidige node behoudt voorsprong
@@ -11763,26 +11891,54 @@ function nodeChkLog(reden, gekozen, closest, gecorrigeerd) {
 // voorwaarden gelden. KRITIEKE VEILIGHEIDSREGEL: een handmatig
 // (echte tap) gekozen node wordt NOOIT automatisch overschreven —
 // stilstandAutoLock === false onderscheidt tap van auto-lock.
+// V11.17.79: de hoekroute heeft een eigen stabiliteitsteller nodig, want de
+// bestaande poort 2 leunt op stilstandSinds en die loopt alleen onder 3 km/u
+// (r12092 nult hem daarboven). Het gemeten geval staat op kmh 4, dus poort 2
+// zou de hoekroute blokkeren nog vóór poort 7 bereikt wordt.
+// De sleutel bevat beide node-ids: wisselt de kandidaat, dan begint het tellen
+// opnieuw en kan een heen-en-weer schommelende peiling nooit doortellen.
+function hoekStabielReset() { hoekStabielSleutel = null; hoekStabielTeller = 0; }
+
 function checkNodeCorrectieStilstand(lat, lon) {
-  // 1. stilstand-drempel
-  if (snelheidKmh >= NODE_CHK_STANDSTILL_KMH) return;
-  // 2. minimum stilstand-duur — één GPS-hapering triggert niets
-  if (stilstandSinds === 0
-      || (Date.now() - stilstandSinds) < NODE_CHK_STANDSTILL_DUUR_MS) return;
+  // 1. snelheidsdrempel — V11.17.79: twee routes, twee grenzen. De bestaande
+  //    afstandsroute blijft op NODE_CHK_STANDSTILL_KMH (3); de hoekroute mag tot
+  //    NODE_HOEK_KMH (5), gelijk aan de scoretak die zij repareert. Daartussen
+  //    lag een dode zone: onder 5 valt de hoek uit de score weg, maar pas onder
+  //    3 zet enig correctiemechanisme aan. Het gemeten geval (kmh 4) viel daarin.
+  if (snelheidKmh >= NODE_HOEK_KMH) { hoekStabielReset(); return; }
   // 3. bounce-guard — geen correctie kort na een vorige
   if ((Date.now() - laatsteNodeCorrectieTijd) < NODE_WISSEL_MIN_INTERVAL_MS) return;
   // 4. er moet een gekozen node én een closest zijn
-  if (!dichtstbijOSM || !puurDichtsteNodeCache) return;
+  if (!dichtstbijOSM || !puurDichtsteNodeCache) { hoekStabielReset(); return; }
   // 5. VEILIGHEID: handmatige tap NOOIT overschrijven.
   //    handmatigLockActief && !stilstandAutoLock  =  echte tap.
-  if (handmatigLockActief && !stilstandAutoLock) return;
+  if (handmatigLockActief && !stilstandAutoLock) { hoekStabielReset(); return; }
   const closest = puurDichtsteNodeCache;
   // 6. closest moet anders zijn dan gekozen
-  if (String(closest.id) === String(dichtstbijOSM.id)) return;
-  // 7. closest moet duidelijk dichterbij zijn (marge)
+  if (String(closest.id) === String(dichtstbijOSM.id)) { hoekStabielReset(); return; }
   const gekozenAf = dichtstbijOSM.afstand ?? 999;
   const closestAf = closest.afstand ?? 999;
-  if ((gekozenAf - closestAf) < NODE_CHK_CORRECTIE_MARGE_M) return;
+  // 7a. AFSTANDSROUTE (V11.17.9, ongewijzigd): closest moet duidelijk dichterbij
+  //     zijn, en de auto ECHT stilstaan. Poort 2 van vroeger zit hier nu in.
+  const afstandRoute = snelheidKmh < NODE_CHK_STANDSTILL_KMH
+    && stilstandSinds !== 0
+    && (Date.now() - stilstandSinds) >= NODE_CHK_STANDSTILL_DUUR_MS
+    && (gekozenAf - closestAf) >= NODE_CHK_CORRECTIE_MARGE_M;
+  // 7b. HOEKROUTE (V11.17.79): de afstanden zijn feitelijk gelijk, maar closest
+  //     staat duidelijk rechter vooruit. Dit is het gat dat de afstandsroute per
+  //     constructie niet kan zien — bij verschil 0 weigert poort 7a altijd.
+  //     De eis van NODE_HOEK_STABIEL_N opeenvolgende gelijke oordelen vervangt
+  //     hier de stilstandSinds-duur uit 7a.
+  let hoekRoute = false;
+  if (peilingDuidelijkBeter({ lat, lon }, dichtstbijOSM, gekozenAf, closest, closestAf)) {
+    const sleutel = String(dichtstbijOSM.id) + '>' + String(closest.id);
+    if (sleutel !== hoekStabielSleutel) { hoekStabielSleutel = sleutel; hoekStabielTeller = 0; }
+    hoekStabielTeller++;
+    hoekRoute = hoekStabielTeller >= NODE_HOEK_STABIEL_N;
+  } else {
+    hoekStabielReset();
+  }
+  if (!afstandRoute && !hoekRoute) return;
   // 8. heading moet passen bij closest — alleen als heading bekend is.
   //    Bij standstill kan getSmoothedHeading nog een geldige oude waarde
   //    uit de aanrij bevatten; als er niets is, sla check over (marge
@@ -11800,7 +11956,12 @@ function checkNodeCorrectieStilstand(lat, lon) {
     if (rv > NODE_CHK_HEADING_MAX_GRAD) return;
   }
   // alle gates open — corrigeer
-  corrigeerNodeAutomatisch(closest, 'stilstand-hercontrole');
+  // V11.17.79: eigen reden voor de hoekroute, zodat in sl_opslaglog te scheiden
+  // is welke van de twee poorten vuurde. Zonder dat onderscheid is achteraf niet
+  // te meten of deze release iets doet. De teller gaat leeg: het oordeel is
+  // uitgevoerd en mag niet nog een keer doortellen op de nieuwe node.
+  hoekStabielReset();
+  corrigeerNodeAutomatisch(closest, afstandRoute ? 'stilstand-hercontrole' : 'stilstand-peiling');
 }
 
 // V11.17.9 W3+W4: voer de node-correctie uit. Gedraagt zich als een
