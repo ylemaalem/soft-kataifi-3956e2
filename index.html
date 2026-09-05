@@ -254,7 +254,9 @@
     /* V11.17.75: aanrijrichting in de rijweergave. renderRichtingBlok groepeert
        op aanrij_afrij, maar rijdersPijlLabel mapt 64 kompasparen op 4 woorden —
        twee ECHT verschillende naderingen werden zo twee keer 'Linksaf'. */
-    .rb-vanaf{color:rgba(255,255,255,0.4);font-size:10px;margin-left:5px;font-family:'Share Tech Mono',monospace}
+    /* V11.17.81: .rb-vanaf verwijderd — het rijblok toont geen aanrijaanduiding
+       meer. Zie renderRichtingBlok. .ni-rij-vanaf (r488) blijft: het node-info-
+       paneel toont de geleerde nadering wel. */
     /* V11.17.75: koppel-chip op de Algemeen-rij. Was '⧉ koppel' in 9px dim:
        onleesbaar tijdens het rijden en het zei niet wat het deed. De actieve
        staat was bovendien dimmer dan het aanbod — nu andersom. */
@@ -481,7 +483,8 @@
     .ni-rij-label{font-size:12px;color:rgba(255,255,255,0.85);flex-shrink:0;min-width:64px}
     .ni-rij-dds{display:flex;flex-wrap:wrap;gap:8px;font-size:11px;font-family:'Share Tech Mono',monospace}
     .ni-rij-algemeen{background:rgba(255,255,255,0.03)}
-    /* V11.17.75: aanrijrichting als subregel onder het label — zie .rb-vanaf */
+    /* V11.17.75: aanrijrichting als subregel onder het label. V11.17.81: draagt
+       nu de geleerde nadering in graden i.p.v. de rauwe kompasbucket. */
     .ni-rij-vanaf{display:block;font-size:9px;color:rgba(255,255,255,0.38);letter-spacing:0.03em;margin-top:2px;font-family:'Share Tech Mono',monospace}
     /* V11.17.75: koppel-strip onder de Algemeen-rij. Staat bewust NIET in de
        header naast 'Eén licht': die twee markeringen zeggen bijna het
@@ -691,7 +694,7 @@
 <div id="startscherm">
   <div id="s-icoon">🚦</div>
   <div id="s-titel">Stoplicht<span>IQ</span></div>
-  <div id="s-versie">V11.17.80 — de afwijking mét teken</div>
+  <div id="s-versie">V11.17.81 — één regel per richting</div>
   <div id="s-model-wrap">
     <div id="s-model-rij">
       <div id="s-model-label">🤖 YOLOv8 model laden…</div>
@@ -916,7 +919,7 @@
 
 <script>
 // ═══════════════════════════════════════════════════════════════
-//  StoplichtIQ V11.17.80
+//  StoplichtIQ V11.17.81
 //  V11.10: Zelfkalibratie + vergrendeling + crop smoothing
 //  — S1+S2 bevestiging (kruispunt-level confidence)
 //  — Route-herkenning basis (sequentie-opslag)
@@ -2589,6 +2592,148 @@ function migratieAfrijConventie() {
       + ' gemarkeerd=' + gemarkeerd + ' metRust=' + metRust);
     leerLog('afrij-conventie: ' + verplaatst + ' records hersteld, ' + gemarkeerd + ' gemarkeerd');
   } catch(e) { console.warn('[AFRIJ-MIGRATIE] overgeslagen:', e); }
+}
+
+// ── V11.17.81: GELEERDE NADERINGEN ────────────────────────────
+// © 2026 StoplichtIQ — Y. Lemaalem
+//
+// HET PROBLEEM. De aanrijrichting van een V5-sleutel komt uit
+// gpsHeadingNaarWindrichting (r2368): Math.round(h/45)%8. De grenzen liggen dus
+// op 22,5 + k*45 graden, en een meetwolk die daar dwars overheen ligt valt in
+// twee vakjes. Dat levert twee opslagemmers en — omdat renderRichtingBlok op
+// aanrij_afrij groepeert — twee schermregels met HETZELFDE label.
+//
+// Gemeten op node 3330495184 (Arnhemseweg): twee regels 'Rechtsaf', uit
+// sl_v5_..._NO_NW_avond en sl_v5_..._N_W_avond. Beide zijn dezelfde fysieke
+// manoeuvre.
+//
+// DE WOLK HOEFT DAARVOOR NIET BREED TE ZIJN. Op de export van 28 augustus
+// staan in de headings van diezelfde node twintig koersen van 21, 22 en 23
+// graden — een wolk van TWEE graden, precies op de grens van 22,5. Over alle
+// 834 nodes met minstens twee koersen valt de wolk bij 277 (33,2%) over
+// meerdere vakjes, terwijl de mediane wolkbreedte 6 graden is.
+//
+// HET ALGORITME. Leider-clustering op de GESORTEERDE koerslijst: elke koers
+// sluit aan bij de eerste nadering waarvan het lopende circulaire gemiddelde
+// binnen NAD_DREMPEL_GRAD ligt, anders begint er een nieuwe.
+//
+// Sorteren maakt het deterministisch — de headings-array is een rollend venster
+// van 20 (slaRichtingOp r9545-9558), dus zonder sortering zou dezelfde node bij
+// dezelfde inhoud een andere uitkomst geven zodra de volgorde verschuift.
+//
+// WAAROM LEIDER EN NIET ENKELVOUDIGE KOPPELING (knippen op een gat > drempel):
+// die ketent. Nagerekend op de koersen van 3 september
+// (12,12,12,12,23,32,32,34,39,39,39,50,76,88x7): de gatvariant maakt er EEN
+// nadering van 51 graden van, waarna N (0 graden) er 51 graden vanaf ligt en
+// nergens meer bij hoort. De leidervariant geeft twee naderingen, 28 en 87
+// graden, en dat is wat de kaart laat zien: twee verschillende wegen.
+//
+// GETOETST OP DE VIER GEVALLEN DIE ERTOE DOEN:
+//   voorbeeldnode 3 sept  -> 2 naderingen (28gr n=12, 87gr n=8); N en NO landen
+//                            allebei in nadering 0, dus de twee 'Rechtsaf'-
+//                            regels worden er een
+//   voorbeeldnode 28 aug  -> 1 nadering (22gr), wolk van 2 graden niet gesplitst
+//   node 7881376751       -> 2 naderingen (165gr, 345gr) BLIJVEN apart; dat is
+//                            hetzelfde kruispunt vanaf twee kanten
+//   node 7881213125       -> 1 nadering (68gr), wolk 62-73 over de grens NO/O
+//
+// 30 GRADEN. Ondergrens: de halve bucketbreedte is 22,5, dus alles daaronder
+// laat een wolk die net over een grens ligt alsnog splitsen. Bovengrens: bij 45
+// beginnen naderingen die 90 graden uit elkaar liggen aan elkaar te raken via
+// hun gemiddelde. 30 ligt daar met marge tussenin en is op de vier gevallen
+// hierboven stabiel — 25 en 35 geven dezelfde uitkomst, 20 splitst het
+// voorbeeld in drieen.
+//
+// PUUR LEZEND. Deze functies schrijven niets en raken geen enkele
+// opslagsleutel aan; ze bepalen alleen hoe de rijen op het scherm gegroepeerd
+// worden. Het herschrijven van de V5-sleutel naar (nadering, bocht) is een
+// eigen release — die heeft opgeslagen nadering-ids nodig, want een rollend
+// venster van 20 koersen laat het gemiddelde schuiven en een verschoven
+// gemiddelde zou bestaande sleutels wezen maken.
+const NAD_DREMPEL_GRAD = 30;
+
+function nadCirculairGemiddelde(hoeken) {
+  const s = hoeken.reduce((a, h) => a + Math.sin(h * Math.PI / 180), 0);
+  const c = hoeken.reduce((a, h) => a + Math.cos(h * Math.PI / 180), 0);
+  return (Math.atan2(s, c) * 180 / Math.PI + 360) % 360;
+}
+
+function nadHoekVerschil(a, b) {
+  return Math.abs(((a - b) + 540) % 360 - 180);
+}
+
+// De naderingen van een node, afgeleid uit sl_richting_.headings.
+// Levert [{gem, n}] gesorteerd op de volgorde waarin ze ontstonden; de INDEX in
+// die array is de nadering-aanduiding die de weergave gebruikt.
+function naderingenVoorNode(nodeId) {
+  try {
+    const rd = laadRichtingData(nodeId);
+    if (!rd || !Array.isArray(rd.headings) || !rd.headings.length) return [];
+    const gesorteerd = rd.headings
+      .filter(h => typeof h === 'number' && !isNaN(h))
+      .map(h => ((h % 360) + 360) % 360)
+      .sort((a, b) => a - b);
+    if (!gesorteerd.length) return [];
+    const cl = [];
+    for (const h of gesorteerd) {
+      let beste = null, besteAf = Infinity;
+      for (const c of cl) {
+        const v = nadHoekVerschil(h, c.gem);
+        if (v < besteAf) { besteAf = v; beste = c; }
+      }
+      if (beste && besteAf <= NAD_DREMPEL_GRAD) {
+        beste.hs.push(h);
+        beste.gem = nadCirculairGemiddelde(beste.hs);
+      } else {
+        cl.push({ gem: h, hs: [h] });
+      }
+    }
+    return cl.map(c => ({ gem: Math.round(c.gem), n: c.hs.length }));
+  } catch (_) { return []; }
+}
+
+// In welke nadering valt deze koers? Index, of null als er geen nadering binnen
+// de drempel ligt (dan is er niets om op te groeperen en valt de weergave terug
+// op het oude gedrag).
+function naderingVoorHoek(naderingen, hoek) {
+  if (!naderingen || !naderingen.length) return null;
+  if (typeof hoek !== 'number' || isNaN(hoek)) return null;
+  let beste = null, besteAf = Infinity;
+  for (let i = 0; i < naderingen.length; i++) {
+    const v = nadHoekVerschil(hoek, naderingen[i].gem);
+    if (v < besteAf) { besteAf = v; beste = i; }
+  }
+  return besteAf <= NAD_DREMPEL_GRAD ? beste : null;
+}
+
+// Idem, maar vanuit een windrichting zoals die in een V5-sleutel staat.
+// Het middelpunt van bucket X is index(X) * 45 graden.
+const NAD_WINDRICHTINGEN = ['N','NO','O','ZO','Z','ZW','W','NW'];
+function naderingVoorWindrichting(naderingen, w) {
+  const i = NAD_WINDRICHTINGEN.indexOf(w);
+  if (i < 0) return null;
+  return naderingVoorHoek(naderingen, i * 45);
+}
+
+// De koers waarmee de bestuurder dit kruispunt NU nadert, of null.
+// Zelfde bron als de V5-schrijving gebruikt (r3729-3736), zodat scherm en
+// opslag over dezelfde nadering praten.
+function huidigeAanrijHoek() {
+  const h = v9AanrijSnelheidHeading ?? v9AanrijHeading;
+  return (typeof h === 'number' && !isNaN(h)) ? ((h % 360) + 360) % 360 : null;
+}
+
+// V11.17.81: de aanduiding onder een richtingregel in het node-info-paneel.
+// Was 'vanaf NO' — de rauwe bucket, en dus precies het getal dat door de
+// rastergrens onbetrouwbaar was. Nu de geleerde nadering met haar gemeten
+// koers, want dat is wat de groepering gebruikt en wat de gebruiker met de
+// kaart kan vergelijken. Zonder herkende nadering valt hij terug op de bucket.
+function naderingLabel(naderingen, g) {
+  if (g && g.nadIdx != null && naderingen && naderingen[g.nadIdx]) {
+    const n = naderingen[g.nadIdx];
+    return 'nadering ' + n.gem + '° (' + n.n + '×)';
+  }
+  return 'vanaf ' + (g ? g.aanrij : '?');
 }
 
 function berekenRichtingPct(nodeId, aanrij, afrij, dd) {
@@ -7854,13 +7999,31 @@ function renderRichtingBlok(osm) {
   const algPct = algMetTot > 0 ? Math.round(algPctWeighted / algMetTot) : 0;
   const algCyc = algCycCount > 0 ? Math.round(algCycSum / algCycCount) : null;
 
-  // Richting-rijen: groepeer op aanrij_afrij, aggregeer pct/cyclustijd over dagdelen.
+  // ── V11.17.81: groeperen op (nadering, bocht) in plaats van op aanrij_afrij ──
+  // Twee sleutels die dezelfde manoeuvre beschrijven — NO_NW en N_W op node
+  // 3330495184 — gaven twee regels 'Rechtsaf'. Nu vallen ze samen: hun
+  // aanrijrichtingen liggen in dezelfde geleerde nadering, en hun bocht is via
+  // rijdersPijlLabel allebei 'Rechtsaf'.
+  //
+  // De bocht als tweede as is niet zomaar een keuze. Clusteren op de AFRIJ zou
+  // het voorbeeld niet oplossen: NW (315) en W (270) liggen 45 graden uit
+  // elkaar, meer dan NAD_DREMPEL_GRAD, dus die zouden apart blijven. De bocht
+  // brengt ze wel samen, en het is bovendien precies wat er op het scherm hoort
+  // te staan: links, rechtdoor of rechts.
+  //
+  // Terugval als de node nog geen naderingen kent (geen headings): dan is de
+  // nadering null en groepeert hij op (aanrij, bocht) — dat is nooit grover dan
+  // het oude gedrag, alleen de afrij-as is al samengevat.
+  const naderingen = naderingenVoorNode(nodeId);
   const richtingen = verzamelV5Richtingen(nodeId); // [{aanrij, afrij, dd, pct, metingen}]
   const groepen = new Map();
   for (const r of richtingen) {
-    const key = r.aanrij + '_' + r.afrij;
+    const nadIdx = naderingVoorWindrichting(naderingen, r.aanrij);
+    const lbl = rijdersPijlLabel(r.aanrij, r.afrij);
+    const key = (nadIdx != null ? 'A' + nadIdx : 'w' + r.aanrij) + '|' + lbl.tekst;
     if (!groepen.has(key)) groepen.set(key, {
-      aanrij: r.aanrij, afrij: r.afrij, metingen: 0, pctSum: 0, cycSum: 0, cycCount: 0
+      aanrij: r.aanrij, afrij: r.afrij, nadIdx, label: lbl,
+      metingen: 0, pctSum: 0, cycSum: 0, cycCount: 0
     });
     const g = groepen.get(key);
     g.metingen += r.metingen;
@@ -7870,15 +8033,39 @@ function renderRichtingBlok(osm) {
     const gemDd = gewGem(mDd);
     if (gemDd) { g.cycSum += gemDd * r.metingen; g.cycCount += r.metingen; }
   }
-  const rijen = [...groepen.values()]
+  const alleRijen = [...groepen.values()]
     .map(g => ({
-      aanrij: g.aanrij, afrij: g.afrij, metingen: g.metingen,
+      aanrij: g.aanrij, afrij: g.afrij, nadIdx: g.nadIdx, metingen: g.metingen,
       pct: g.metingen > 0 ? Math.round(g.pctSum / g.metingen) : 0,
       cyc: g.cycCount > 0 ? Math.round(g.cycSum / g.cycCount) : null,
-      label: rijdersPijlLabel(g.aanrij, g.afrij)
+      label: g.label
     }))
     .filter(r => !(r.label.tekst === 'Terug' && r.metingen < 5)) // V11.17.17 W3: was <3
     .sort((a, b) => b.metingen - a.metingen);
+
+  // ── V11.17.81: toon alleen de nadering waarmee je NU aankomt ──
+  // Groeperen op (nadering, bocht) haalt de rasterdubbels weg, maar niet de
+  // ECHTE dubbels: 229 van de 834 nodes (27,5%) hebben een koerswolk breder dan
+  // 45 graden, dus worden werkelijk vanaf twee kanten benaderd. Daar bestaan
+  // 'Rechtsaf vanaf A0' en 'Rechtsaf vanaf A1' allebei terecht, en dan zou het
+  // scherm tijdens het rijden alsnog twee identieke regels tonen.
+  //
+  // De oplossing is niet ze uit elkaar te labelen — dat was de '· vanaf NO'-tekst
+  // van V11.17.75, en een kompasafkorting is achter het stuur niet te lezen —
+  // maar er maar EEN te tonen. De bestuurder komt van één kant; de andere
+  // naderingen zijn op dat moment niet zijn stoplicht.
+  //
+  // Terugval is bewust ruimhartig: zonder koers of zonder herkende nadering
+  // wordt er NIET gefilterd. Liever een regel te veel dan een lege lijst, en het
+  // is dan exact het oude gedrag.
+  const nuHoek = huidigeAanrijHoek();
+  const nuNad = naderingVoorHoek(naderingen, nuHoek);
+  const gefilterd = (nuNad != null)
+    ? alleRijen.filter(r => r.nadIdx === nuNad)
+    : alleRijen;
+  // Filteren mag nooit alles wegnemen: staat er wel data maar hoort die bij een
+  // andere nadering, toon dan liever de volle lijst dan een leeg blok.
+  const rijen = gefilterd.length ? gefilterd : alleRijen;
 
   const heeftAlg = algMetTot > 0;
   // V11.17.8 W1: max 3 rijen totaal (incl. ALG) i.p.v. 4 — groter tikdoel
@@ -7941,6 +8128,13 @@ function renderRichtingBlok(osm) {
          + `<div class="rb-pct" style="color:${kleur}">${algPct}%</div>`
          + `<div class="rb-cyc">${cycTxt(algCyc)}</div></div>`;
   }
+  // V11.17.81: de rij toont alleen nog het label. De toevoeging '· vanaf NO'
+  // (V11.17.75) bestond om twee gelijk gelabelde regels uit elkaar te houden;
+  // de groepering op (nadering, bocht) en het naderingsfilter hierboven zorgen
+  // dat die twee er niet meer tegelijk staan. Een kompasafkorting op 10px was
+  // bovendien geen antwoord op de vraag "welke van deze twee is van mij". In
+  // het node-info-paneel blijft de aanduiding wel staan: daar is het een
+  // diagnoselijst en staat de auto stil.
   for (const r of zichtbareRichtingen) {
     const kleur = ni_kleur(r.pct);
     // richting-parameter voor tikRichting: mapping via labeltekst
@@ -7952,7 +8146,7 @@ function renderRichtingBlok(osm) {
     const gekozen = (richtingLockKeuze === richt && richtingLockNodeId === nodeId) ? ' actief' : '';
     html += `<div class="rb-rij${gekozen}" onclick="tikRichting('${richt}')" data-key="${r.aanrij}>${r.afrij}">`
          + `<div class="rb-pijl">${r.label.pijl}</div>`
-         + `<div class="rb-label">${r.label.tekst}<span class="rb-vanaf">· vanaf ${r.aanrij}</span></div>`
+         + `<div class="rb-label">${r.label.tekst}</div>`
          + `<div class="rb-pct" style="color:${kleur}">${r.pct}%</div>`
          + `<div class="rb-cyc">${cycTxt(r.cyc)}</div></div>`;
   }
@@ -10343,12 +10537,26 @@ function renderNodeInfo(nodeId) {
     // V11.17.75: de koppeling hoort bij de Algemeen-rij, dus staat hij eronder.
     html += renderKoppelStrip(nodeId);
   }
-  // Richting-rijen: groepeer per aanrij_afrij, dagdelen als sub-items
+  // Richting-rijen: groepeer per (nadering, bocht), dagdelen als sub-items.
+  // V11.17.81: was aanrij_afrij. Twee sleutels die dezelfde manoeuvre
+  // beschrijven — een wolk die over een 45-graden-bucketgrens valt — gaven hier
+  // twee regels met hetzelfde label, net als in het rijblok. Zelfde groepering
+  // als daar, zodat de twee schermen niet uiteenlopen.
+  //
+  // GEEN naderingsfilter hier, anders dan in het rijblok. Dit paneel is de
+  // diagnoselijst en opent alleen bij stilstand (r10467); daar hoort de
+  // gebruiker juist wél alle naderingen te zien die de app kent, met de
+  // aanduiding erbij.
+  const naderingenNI = naderingenVoorNode(nodeId);
   const richtingen = verzamelV5Richtingen(nodeId); // {aanrij, afrij, dd, pct, metingen}
-  const groepen = new Map(); // 'aanrij_afrij' → { aanrij, afrij, dds:[], totaal }
+  const groepen = new Map(); // '(nadering, bocht)' → { aanrij, afrij, dds:[], totaal }
   for (const r of richtingen) {
-    const key = r.aanrij + '_' + r.afrij;
-    if (!groepen.has(key)) groepen.set(key, { aanrij: r.aanrij, afrij: r.afrij, dds: [], totaal: 0 });
+    const nadIdx = naderingVoorWindrichting(naderingenNI, r.aanrij);
+    const lbl = rijdersPijlLabel(r.aanrij, r.afrij);
+    const key = (nadIdx != null ? 'A' + nadIdx : 'w' + r.aanrij) + '|' + lbl.tekst;
+    if (!groepen.has(key)) groepen.set(key, {
+      aanrij: r.aanrij, afrij: r.afrij, nadIdx, dds: [], totaal: 0
+    });
     const g = groepen.get(key);
     g.dds.push(`${DD[r.dd]?.ic || r.dd} <span style="color:${ni_kleur(r.pct)}">${r.pct}%</span> (${r.metingen}×)`);
     g.totaal += r.metingen;
@@ -10361,7 +10569,7 @@ function renderNodeInfo(nodeId) {
     const mkey = `${g.aanrij}>${g.afrij}`;
     html += `<div class="ni-rij${selCls(mkey)}" data-aanrij="${g.aanrij}" data-afrij="${g.afrij}" data-key="${mkey}"${klik(mkey)}>${vink(mkey)}`
          +  `<div class="ni-rij-pijl">${r.pijl}</div>`
-         +  `<div class="ni-rij-label">${r.tekst}<span class="ni-rij-vanaf">vanaf ${g.aanrij}</span></div>`
+         +  `<div class="ni-rij-label">${r.tekst}<span class="ni-rij-vanaf">${naderingLabel(naderingenNI, g)}</span></div>`
          +  `<div class="ni-rij-dds">${g.dds.join(' ')} <span style="color:rgba(255,255,255,0.35)">Σ${g.totaal}×</span></div></div>`;
   }
   if (!gesorteerd.length) {
