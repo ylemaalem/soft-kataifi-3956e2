@@ -694,7 +694,7 @@
 <div id="startscherm">
   <div id="s-icoon">🚦</div>
   <div id="s-titel">Stoplicht<span>IQ</span></div>
-  <div id="s-versie">V11.17.82 — één getal, marge apart</div>
+  <div id="s-versie">V11.17.83 — scherm volgt de richting</div>
   <div id="s-model-wrap">
     <div id="s-model-rij">
       <div id="s-model-label">🤖 YOLOv8 model laden…</div>
@@ -919,7 +919,7 @@
 
 <script>
 // ═══════════════════════════════════════════════════════════════
-//  StoplichtIQ V11.17.82
+//  StoplichtIQ V11.17.83
 //  V11.10: Zelfkalibratie + vergrendeling + crop smoothing
 //  — S1+S2 bevestiging (kruispunt-level confidence)
 //  — Route-herkenning basis (sequentie-opslag)
@@ -3076,6 +3076,36 @@ function kiesCountdownBron(nodeId, dd, aanrijRichting, preSelectieAfrij) {
           modusFinaal = md4multi.modus; // ongecapt
           bronLabel4 = 'v4_enkelricht';
           enkelRichtLog(nodeId, enkelRicht, richtingLockKeuze, modusCapped, modusFinaal);
+        } else if (preSelectieAfrij) {
+          // ── V11.17.83: HET EERLIJKE LABEL VOOR EEN GELEENDE COUNTDOWN ──
+          // © 2026 StoplichtIQ — Y. Lemaalem
+          //
+          // We staan in stap 4, dus stap 1 heeft gefaald: er IS een richting
+          // gekozen, maar haar eigen emmer haalt V9_MIN_METINGEN (5) niet.
+          // Deze countdown komt dus uit Algemeen terwijl het scherm een
+          // richting toont. Dat mag — geen enkele node mag zijn countdown
+          // verliezen (RV1) — maar het moet wel zo HETEN.
+          //
+          // WIE KOMT HIER TERECHT. Deze tak zit in de else van
+          // isEenRichtingNode, dus alleen nodes met TWEE OF MEER aanrijbuckets.
+          // Gemeten op de export van 28 augustus: 112 nodes hebben V5-data, en
+          // geen enkele daarvan heeft een richtingemmer die de drempel van 5
+          // haalt (140 emmers, grootste 7, precies 1 emmer >= 5) — ze leunen
+          // dus allemaal op Algemeen. Maar 105 van die 112 kennen maar één
+          // aanrijrichting en krijgen hierboven al het label 'V4'. Er blijven
+          // 7 nodes over die dit nieuwe label werkelijk gaan dragen. Dat is het
+          // startpunt van de teller in startCd (r7271).
+          //
+          // Het label begint bewust niet met 'V5', want de pijl-poort op r7366
+          // laat alleen die door. Een geleende countdown krijgt daarmee per
+          // constructie GEEN richtingspijl (RV3), en test_richting T12/T12b/T12c
+          // bewaken die poort al.
+          //
+          // Het PERCENTAGE blijft dat van de richting (laagLeerPct, r8327) en
+          // is dus 0 of laag. Percentage en countdown komen hier bewust uit
+          // verschillende bronnen: "ik weet nog niets van deze richting, maar
+          // ik toon je voorlopig het algemene getal."
+          bronLabel4 = 'v4_geen_richtingdata';
         }
         resultaat = { gem: gem4, bron: bronLabel4, metingen: m4.length, v5: false, modus: modusFinaal, cdMin: md4multi.cdMin ?? null, cdMax: md4multi.cdMax ?? null };
       }
@@ -3129,7 +3159,14 @@ function berekenSchaduwWaarden(nodeId, dd, aanrijRichting, preSelectieAfrij, win
   } else if (winnenBron && winnenBron.startsWith('V5 ') && aanrijRichting && preSelectieAfrij) {
     metingen = laadMV5Geclusterd(nodeId, aanrijRichting, preSelectieAfrij, dd);
   } else if (winnenBron === 'V4' || winnenBron === 'v4_s2bevestigd'
-          || winnenBron === 'v4_multi' || winnenBron === 'V4_fallback') {
+          || winnenBron === 'v4_multi' || winnenBron === 'V4_fallback'
+          || winnenBron === 'v4_geen_richtingdata') {
+    // V11.17.83: v4_geen_richtingdata is een GELEENDE countdown — het getal
+    // komt uit Algemeen, dus de schaduwmethodes horen dezelfde V4-set te
+    // krijgen. Zonder deze tak vielen m1..m4 stil voor precies de nodes die
+    // in de praktijk lenen (7 nodes op de export van 28 augustus).
+    // NB: 'v4_enkelricht' ontbreekt hier al sinds V11.17.19 — dat is een
+    // bestaande, aparte omissie en wordt in deze release niet aangeraakt.
     metingen = laadM(nodeId, dd);
   }
   if (!metingen || !metingen.length) return leeg;
@@ -3200,9 +3237,14 @@ function haalMetingenVoorBron(nodeId, dd, aanrijRichting, preSelectieAfrij, bron
   if (bron.startsWith('V5 ') && aanrijRichting && preSelectieAfrij) {
     return laadMV5Geclusterd(nodeId, aanrijRichting, preSelectieAfrij, dd);
   }
+  // V11.17.83: v4_geen_richtingdata hoort in deze lijst. Het is een GELEENDE
+  // countdown — de cijfers komen uit Algemeen — dus de conditionele tabel moet
+  // ook uit laadM lezen. Zou hij hier ontbreken, dan gaf haalMetingenVoorBron
+  // null terug en viel bouwCondTabel stil weg voor precies die nodes.
   if (bron === 'V4' || bron === 'v4_s2bevestigd' || bron === 'v4_multi'
       || bron === 'v4_enkelricht' || bron === 'V4_fallback'
-      || bron === 'V4_fallback_na_richting' || bron === 'osm_voorspelling') {
+      || bron === 'V4_fallback_na_richting' || bron === 'osm_voorspelling'
+      || bron === 'v4_geen_richtingdata') {
     return laadM(nodeId, dd);
   }
   return null;
@@ -6845,6 +6887,10 @@ function resetNeutraal() {
   // V11.17.5 W3: richtingLock ontbrak in resetNeutraal — vroege keuze bleef
   // plakken. Nu opgeruimd samen met de andere node-gebonden state.
   richtingLockKeuze = null; richtingLockNodeId = null;
+  // V11.17.83: de getoonde laag hoort bij ÉÉN node. laagGeldigVoor toetst dat
+  // ook op node-id, dus dit is een tweede slot en geen enkele beveiliging;
+  // hij staat hier zodat de staat niet meereist naar het volgende kruispunt.
+  getoondeLaag = null;
   stickyDetectie = null; stickyMissTeller = 0; // V11.15.8
   tapSeedDetectie = null; // V11.16.4
   correctieMultiframe = null; wachtGroenIntentie = null; // V11.16.3
@@ -7227,6 +7273,18 @@ function startCd() {
       activeCdMax = v9bron.cdMax;
       huidigCdBron = v9bron.bron;
       huidigCdWaarde = v9bron.gem;
+      // V11.17.83: de teller die C2 stuurt. Eén regel per countdown-start, niet
+      // per frame — kiesCountdownBron draait ook vanuit bijwerkLeerkaart (r8000)
+      // en dat is per GPS-tick. Pas als het aandeel geleende countdowns ver
+      // genoeg gezakt is, is Algemeen volledig loskoppelen verantwoord.
+      // Startpunt op de export van 28 augustus: 7 nodes dragen dit label. Dat
+      // zijn niet alle leners — 105 van de 112 nodes met richtingdata leunen
+      // ook op Algemeen, maar kennen maar één aanrijrichting en heten daarom
+      // al 'V4' (zie de else-tak in kiesCountdownBron, r3080). C2 heeft die
+      // 105 ook nodig; de teller hier meet voorlopig alleen de 7.
+      if (v9bron.bron === 'v4_geen_richtingdata') {
+        logOpslagMis('cd_geleend', { node: dichtstbijOSM.id, dur: v9bron.gem });
+      }
       schaduwWaarden = berekenSchaduwWaarden(dichtstbijOSM.id, dd, aanrij, v9PreSelectieAfrij, v9bron.bron);
       schaduwCountdownNul = { m1: null, m2: null, m3: null, m4: null };
     } else if (v9bron && v9bron.lerend) {
@@ -7979,7 +8037,12 @@ function bijwerkLeerkaart(osm) {
     return;
   }
   const dd = getoondDagdeel || huidigDDActief();
-  const pct=berekenLeerPct(osm.id), kleur=leerKleur(pct);
+  // V11.17.83: het percentage volgt de GETOONDE LAAG, niet meer altijd V4.
+  // Algemeen -> berekenLeerPct zoals voorheen; een gekozen richting -> haar
+  // eigen V5-emmer, en dus 0% zolang die leeg is. Zie laagLeerPct (r8327).
+  const _laag = laagGeldigVoor(osm.id);
+  const pct=laagLeerPct(osm.id, _laag), kleur=leerKleur(pct);
+  // RV4: naam en id horen bij de PLEK en veranderen nooit mee met de laag.
   leerNaam.textContent = osm.naam || `Stoplicht ${osm.id}`;
   updateNodeInfoChip(String(osm.id)); // V11.16.1: chip-teller bij node-wissel
   const totM = Object.keys(DD).reduce((s,d)=>s+laadM(osm.id,d).length, 0);
@@ -8003,24 +8066,36 @@ function bijwerkLeerkaart(osm) {
   leerPctGetal.style.color=kleur;
   const obsDbg = faseStart ? Math.round((performance.now() - faseStart) / 1000) : null;
   debugWaarden.leer = `leer:${pct}%${v9bron?.v5?' V9':''}${obsDbg!=null?' obs:'+obsDbg+'s':''}`;
+  // V11.17.83: de dagdeelstrip volgt dezelfde laag. Bij Algemeen levert
+  // laagDagdeelCijfers exact wat hier stond (laadM + gewGem); bij een richting
+  // de cijfers van haar eigen emmer, per dagdeel apart.
   Object.keys(DD).forEach(d => {
-    const m=laadM(osm.id,d), gem=gewGem(m);
-    document.getElementById(`dv-${d}`).textContent = gem ? Math.round(gem)+'s' : '—';
-    document.getElementById(`dc-${d}`).textContent = m.length+'x';
+    const c = laagDagdeelCijfers(osm.id, _laag, d);
+    document.getElementById(`dv-${d}`).textContent = c.gem ? Math.round(c.gem)+'s' : '—';
+    document.getElementById(`dc-${d}`).textContent = c.n+'x';
     document.getElementById(`dd-${d}`).classList.toggle('actief', d===dd);
   });
 
+  // ── V11.17.83: OOK DIT BLOK VOLGT DE LAAG ──────────────
+  // © 2026 StoplichtIQ — Y. Lemaalem
+  //
+  // Dit blok schreef leerPctGetal en leerPctBalk OPNIEUW, in beide takken, en
+  // altijd uit V4 (laadM en berekenLeerPct). Het stond na de berekening
+  // bovenaan en overschreef die dus volledig. Wie alleen de kop had aangepast
+  // had een release gebouwd waarin het percentage aantoonbaar niet meebeweegt
+  // — het zichtbare getal komt hiervandaan, niet van r8032.
+  //
+  // De Algemeen-takken zijn ongewijzigd van gedrag: laagDagdeelPct en
+  // laagDagdeelCijfers voeren voor laag === null exact dezelfde formules uit.
   const gekozenDD = getoondDagdeel;
   if (gekozenDD && osm) {
-    const mDD = laadM(osm.id, gekozenDD);
     // V11.17.66: de bodem `x * 4` omzeilde berekenObsScore volledig — 32 lege
     // S2-markeringen gaven min(95, max(128, 0)) = 95%, ongeacht de score. Nu
     // telt die bodem alleen echte metingen. Dit verandert de uitkomst UITSLUITEND
     // voor emmers met lege S2-records, want elk ander record heeft duur > 0.
-    const mDDecht = mDD.filter(heeftGemetenDuur).length;
-    const pctDD = mDD.length > 0
-      ? Math.min(95, Math.max(mDDecht * 4, berekenObsScore(mDD)))
-      : 0;
+    // (Die formule woont sinds V11.17.83 in laagDagdeelPct.)
+    const mDD = laagDagdeelCijfers(osm.id, _laag, gekozenDD).m;
+    const pctDD = laagDagdeelPct(osm.id, _laag, gekozenDD) ?? 0;
     const kleurDD = leerKleur(pctDD);
     leerPctBalk.style.width = pctDD + '%';
     leerPctBalk.style.background = kleurDD;
@@ -8032,7 +8107,11 @@ function bijwerkLeerkaart(osm) {
       // uitsluitend — countdown blijft dagdeel-geïsoleerd via
       // kiesCountdownBron (r1563), die valt op leeg dagdeel gewoon terug
       // op niets. Rapport Deel A.
-      const globaalPct = berekenLeerPct(osm.id);
+      // V11.17.83: de startbonus komt uit DEZELFDE laag. Bij een richting is
+      // dat haar eigen totaal over de andere dagdelen — en dus 0 zolang die
+      // richting nog niets weet, waarna de 'Geen data'-tak vuurt. Precies wat
+      // RV5 vraagt: geen V4-percentage lenen voor een richting.
+      const globaalPct = laagLeerPct(osm.id, _laag);
       if (globaalPct > 0) {
         const startBonusPct = Math.round(globaalPct * 0.5);
         leerPctBalk.style.width = startBonusPct + '%';
@@ -8054,7 +8133,11 @@ function bijwerkLeerkaart(osm) {
     }
     debugWaarden.leer = `leer:${pctDD}% ${DD[gekozenDD].ic}`;
   } else {
-    const pctGlobaal = berekenLeerPct(osm.id);
+    // V11.17.83: was berekenLeerPct — altijd V4, ongeacht de gekozen richting.
+    // Dit is de tak die in de praktijk vrijwel altijd draait (getoondDagdeel is
+    // null tenzij de gebruiker een dagdeel-chip vastzet), en dus de plek waar
+    // het percentage op het scherm werkelijk vandaan komt.
+    const pctGlobaal = laagLeerPct(osm.id, _laag);
     const kleurGlobaal = leerKleur(pctGlobaal);
     leerPctBalk.style.width = pctGlobaal + '%';
     leerPctBalk.style.background = kleurGlobaal;
@@ -8121,10 +8204,19 @@ function renderRichtingBlok(osm) {
     const lbl = rijdersPijlLabel(r.aanrij, r.afrij);
     const key = (nadIdx != null ? 'A' + nadIdx : 'w' + r.aanrij) + '|' + lbl.tekst;
     if (!groepen.has(key)) groepen.set(key, {
-      aanrij: r.aanrij, afrij: r.afrij, nadIdx, label: lbl,
+      key, aanrij: r.aanrij, afrij: r.afrij, nadIdx, label: lbl,
+      // V11.17.83: alle (aanrij, afrij)-paren die in deze regel samenvallen.
+      // De leerkaart leest ze straks allemaal, zodat haar percentage gelijk is
+      // aan het percentage dat op de regel zelf staat.
+      paren: [], parenGezien: new Set(),
       metingen: 0, pctSum: 0, cycSum: 0, cycCount: 0
     });
     const g = groepen.get(key);
+    const paarSleutel = r.aanrij + '_' + r.afrij;
+    if (!g.parenGezien.has(paarSleutel)) {
+      g.parenGezien.add(paarSleutel);
+      g.paren.push({ aanrij: r.aanrij, afrij: r.afrij });
+    }
     g.metingen += r.metingen;
     g.pctSum += r.pct * r.metingen;
     // cyclustijd per (aanrij,afrij,dagdeel) via bestaande gewGem-helper
@@ -8134,6 +8226,7 @@ function renderRichtingBlok(osm) {
   }
   const alleRijen = [...groepen.values()]
     .map(g => ({
+      key: g.key, paren: g.paren,
       aanrij: g.aanrij, afrij: g.afrij, nadIdx: g.nadIdx, metingen: g.metingen,
       pct: g.metingen > 0 ? Math.round(g.pctSum / g.metingen) : 0,
       cyc: g.cycCount > 0 ? Math.round(g.cycSum / g.cycCount) : null,
@@ -8221,7 +8314,12 @@ function renderRichtingBlok(osm) {
       const p = richtingSymbool(richtingLockKeuze).trim() || '•';
       erChip = ` <span onclick="event.stopPropagation();koppelEnkelRicht('${nodeId}')" title="Markeer Algemeen als hetzelfde licht als ${richtingLockKeuze}" class="rb-koppel">zelfde als ${p}?</span>`;
     }
-    html += `<div class="rb-rij" onclick="tikRichting('rechtdoor')" data-key="ALG">`
+    // V11.17.83: de ALG-rij riep tikRichting('rechtdoor') aan en selecteerde dus
+    // stilletjes een RIJRICHTING terwijl de gebruiker alleen de algemene cijfers
+    // wilde zien. Er was daardoor ook geen weg terug naar de Algemeen-laag.
+    // Nu een eigen handler die alleen de getoonde laag omzet.
+    const algActief = laagGeldigVoor(nodeId) ? '' : ' actief';
+    html += `<div class="rb-rij${algActief}" onclick="kiesLaagAlgemeen()" data-key="ALG">`
          + `<div class="rb-pijl">⬤</div>`
          + `<div class="rb-label">Algemeen${erChip}</div>`
          + `<div class="rb-pct" style="color:${kleur}">${algPct}%</div>`
@@ -8234,6 +8332,12 @@ function renderRichtingBlok(osm) {
   // bovendien geen antwoord op de vraag "welke van deze twee is van mij". In
   // het node-info-paneel blijft de aanduiding wel staan: daar is het een
   // diagnoselijst en staat de auto stil.
+  // V11.17.83: de zichtbare rijen worden hier vastgelegd zodat de klikafhandelaar
+  // exact dezelfde groep terugvindt (inclusief al haar paren) als die op het
+  // scherm staat. Leeggooien voor de lus, want een node zonder richtingen mag
+  // geen rijen van de vorige node laten staan.
+  laatsteRichtingRijen = [];
+  const _lg = laagGeldigVoor(nodeId);
   for (const r of zichtbareRichtingen) {
     const kleur = ni_kleur(r.pct);
     // richting-parameter voor tikRichting: mapping via labeltekst
@@ -8242,8 +8346,20 @@ function renderRichtingBlok(osm) {
     const richt = t.startsWith('linksaf') ? 'links'
                 : t.startsWith('rechtsaf') ? 'rechts'
                 : 'rechtdoor';
-    const gekozen = (richtingLockKeuze === richt && richtingLockNodeId === nodeId) ? ' actief' : '';
-    html += `<div class="rb-rij${gekozen}" onclick="tikRichting('${richt}')" data-key="${r.aanrij}>${r.afrij}">`
+    const idx = laatsteRichtingRijen.length;
+    laatsteRichtingRijen.push({ key: r.key, paren: r.paren, richt });
+    // V11.17.83: de markering volgt nu de GETOONDE LAAG in plaats van
+    // richtingLockKeuze. Reden: de lock wordt ook zonder tik gezet, door
+    // activeerPersistenteRichting (r9752), en dan zou een rij oplichten
+    // terwijl de leerkaart eronder nog de Algemeen-cijfers toont. De
+    // markering moet zeggen "dit zijn de cijfers die je nu leest", niet
+    // "hier rijd je vermoedelijk heen".
+    //
+    // Vergelijken op de groepssleutel, niet op de index: de lijst wordt
+    // gefilterd op de nadering waarmee je NU aankomt (r8218), dus indices
+    // kunnen tussen twee tekeningen verschuiven terwijl de groep dezelfde is.
+    const gekozen = (_lg && _lg.key === r.key) ? ' actief' : '';
+    html += `<div class="rb-rij${gekozen}" onclick="kiesLaagRichting(${idx})" data-key="${r.aanrij}>${r.afrij}">`
          + `<div class="rb-pijl">${r.label.pijl}</div>`
          + `<div class="rb-label">${r.label.tekst}</div>`
          + `<div class="rb-pct" style="color:${kleur}">${r.pct}%</div>`
@@ -8320,6 +8436,123 @@ let getoondDagdeel = null; // null = actueel dagdeel, anders: 'ochtend'/'dag'/'a
 function selecteerDagdeel(dd) {
   if (getoondDagdeel === dd) { getoondDagdeel = null; }
   else { getoondDagdeel = dd; }
+  if (dichtstbijOSM) bijwerkLeerkaart(dichtstbijOSM);
+}
+
+// ── V11.17.83: WELKE LAAG TOONT DE LEERKAART? ─────────────────
+// © 2026 StoplichtIQ — Y. Lemaalem
+//
+// De leerkaart toonde altijd de V4-cijfers, ook als er een richting gekozen
+// was: berekenLeerPct (r1619) leest uitsluitend laadM, en de dagdeelstrip
+// (r8006-8011) doet dat ook. Tik je op 'Rechtsaf', dan veranderde het
+// percentage en de seconden dus niet — terwijl dat een ander stoplicht is met
+// een eigen cyclus.
+//
+// Dezelfde vorm als getoondDagdeel hierboven: null betekent "de standaardlaag",
+// hier Algemeen. Een gekozen richting draagt de PAREN van haar groep mee, niet
+// één (aanrij, afrij). Dat moet ook: sinds V11.17.81 vat één regel meerdere
+// sleutels samen (NO_NW en N_W worden samen 'Rechtsaf', r8158). Zou de laag
+// maar één paar bewaren, dan las de leerkaart een smallere emmer dan de regel
+// waarop je tikte en stond er een LAGER percentage dan de regel zelf toont.
+//
+// WAAROM EEN EIGEN VARIABELE EN NIET richtingLockKeuze. Die laatste betekent
+// "waar rijd ik heen" en stuurt de countdownbron; hij kent geen waarde voor
+// "toon mij Algemeen". Bovendien wordt hij ook zonder tik gezet, door
+// activeerPersistenteRichting (r9752). Het scherm mag niet van laag wisselen
+// zonder dat de gebruiker daarom vraagt, dus de twee staan bewust los.
+let getoondeLaag = null;   // null = Algemeen; anders {node, key, paren, richt}
+
+// De rijen zoals renderRichtingBlok ze het laatst tekende. De klikafhandelaar
+// wijst hierin een rij aan via zijn index, zodat hij exact dezelfde groep
+// terugkrijgt als die op het scherm staat — inclusief alle paren. Een index
+// door de HTML sturen is veiliger dan een groepssleutel: die sleutel bevat een
+// '|' en een vrij label en zou in een onclick-attribuut moeten worden ontsnapt.
+let laatsteRichtingRijen = [];
+
+function laagGeldigVoor(nodeId) {
+  return (getoondeLaag && String(getoondeLaag.node) === String(nodeId)) ? getoondeLaag : null;
+}
+
+// Het leerpercentage van de getoonde laag. Algemeen -> berekenLeerPct (V4).
+// Een richting -> uitsluitend uit haar eigen V5-emmers, gewogen over paren en
+// dagdelen, en dus 0 zolang die leeg zijn. Dat is het hele punt: een nieuwe
+// richting begint op nul en leert het stoplicht zelf kennen.
+//
+// De formule is met opzet LETTERLIJK die van de regel in het richtingblok
+// (r8189-8192: pctSum/metingen over dezelfde paren), zodat de balk bovenaan en
+// het getal op de regel hetzelfde zeggen. Wijkt de een af, dan is dat een fout.
+function laagLeerPct(nodeId, laag) {
+  if (!laag) return berekenLeerPct(nodeId);
+  let som = 0, n = 0;
+  for (const p of (laag.paren || [])) {
+    for (const d of Object.keys(DD)) {
+      const r = berekenRichtingPct(nodeId, p.aanrij, p.afrij, d);
+      if (r) { som += r.pct * r.metingen; n += r.metingen; }
+    }
+  }
+  return n > 0 ? Math.round(som / n) : 0;
+}
+
+// De cijfers voor één dagdeel-chip. Zelfde vorm als de V4-tak die hij vervangt:
+// { gem, n } met gem in seconden of null, plus de onderliggende metingen `m`
+// omdat de dagdeel-tak van bijwerkLeerkaart die zelf nog scoort. Bij meerdere
+// paren worden de metingen samengevoegd vóór gewGem wordt genomen — pooling,
+// niet een gemiddelde van gemiddelden, want gewGem weegt zelf al op recentheid.
+function laagDagdeelCijfers(nodeId, laag, dd) {
+  if (!laag) {
+    const m = laadM(nodeId, dd);
+    return { gem: gewGem(m), n: m.length, m };
+  }
+  let m = [];
+  for (const p of (laag.paren || [])) m = m.concat(laadMV5Geclusterd(nodeId, p.aanrij, p.afrij, dd));
+  return { gem: gewGem(m), n: m.length, m };
+}
+
+// Het percentage van één dagdeel van de getoonde laag, of null als dat dagdeel
+// leeg is (de aanroeper heeft dan een eigen tak: startbonus of 'Geen data').
+// De Algemeen-kant is LETTERLIJK de formule die in bijwerkLeerkaart stond,
+// zodat het gedrag zonder gekozen richting niet één procent verschuift.
+function laagDagdeelPct(nodeId, laag, dd) {
+  if (!laag) {
+    const m = laadM(nodeId, dd);
+    if (!m.length) return null;
+    return Math.min(95, Math.max(m.filter(heeftGemetenDuur).length * 4, berekenObsScore(m)));
+  }
+  let som = 0, n = 0;
+  for (const p of (laag.paren || [])) {
+    const r = berekenRichtingPct(nodeId, p.aanrij, p.afrij, dd);
+    if (r) { som += r.pct * r.metingen; n += r.metingen; }
+  }
+  return n > 0 ? Math.round(som / n) : null;
+}
+
+// Terug naar Algemeen. Zet GEEN rijrichting — dat was de fout in de oude
+// ALG-rij, die tikRichting('rechtdoor') aanriep en dus stilletjes rechtdoor
+// selecteerde terwijl de gebruiker alleen de algemene cijfers wilde zien.
+function kiesLaagAlgemeen() {
+  getoondeLaag = null;
+  // bijwerkLeerkaart roept renderRichtingBlok zelf aan (r8120), dus één aanroep
+  // hertekent zowel de cijfers als de markering van de rijen.
+  if (dichtstbijOSM) bijwerkLeerkaart(dichtstbijOSM);
+}
+
+// Een richting kiezen doet twee dingen tegelijk, en dat is bedoeld: de
+// leerkaart schakelt naar die laag, én tikRichting legt vast dat je die kant
+// op gaat (lock, pre-selectie, sl_richting_, bronherziening). Dat tweede is
+// bestaand gedrag en blijft ongewijzigd.
+// De volgorde is bewust: eerst de laag zetten, dan tikRichting, dan hertekenen.
+// tikRichting kan de countdownbron binnen een lopende rode fase herzien
+// (pasBronAanBinnenLopendeCd), en bijwerkLeerkaart leest die bron daarna weer
+// (kiesCountdownBron, r8043) — omgekeerd zou het scherm één tik achterlopen.
+// De tik gaat door ook als dichtstbijOSM ontbreekt: dat was het oude gedrag en
+// tikRichting heeft zijn eigen node-bron (richtingKnoppenNodeId).
+function kiesLaagRichting(idx) {
+  const rij = laatsteRichtingRijen[idx];
+  if (!rij) return;
+  if (dichtstbijOSM) getoondeLaag = {
+    node: String(dichtstbijOSM.id), key: rij.key, paren: rij.paren, richt: rij.richt
+  };
+  tikRichting(rij.richt);
   if (dichtstbijOSM) bijwerkLeerkaart(dichtstbijOSM);
 }
 
