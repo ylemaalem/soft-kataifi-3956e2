@@ -694,7 +694,7 @@
 <div id="startscherm">
   <div id="s-icoon">🚦</div>
   <div id="s-titel">Stoplicht<span>IQ</span></div>
-  <div id="s-versie">V11.17.81 — één regel per richting</div>
+  <div id="s-versie">V11.17.82 — één getal, marge apart</div>
   <div id="s-model-wrap">
     <div id="s-model-rij">
       <div id="s-model-label">🤖 YOLOv8 model laden…</div>
@@ -919,7 +919,7 @@
 
 <script>
 // ═══════════════════════════════════════════════════════════════
-//  StoplichtIQ V11.17.81
+//  StoplichtIQ V11.17.82
 //  V11.10: Zelfkalibratie + vergrendeling + crop smoothing
 //  — S1+S2 bevestiging (kruispunt-level confidence)
 //  — Route-herkenning basis (sequentie-opslag)
@@ -7480,13 +7480,51 @@ function tickCd() {
     cdPillGetal.textContent = rs + 'nu';
     cdPillLabel.textContent = 'elk moment';
   } else if (activeCdModus === CD_VAAG && activeCdMin != null) {
-    const minOver = Math.max(0, Math.ceil(activeCdMin - ver));
-    const maxOver = Math.ceil(activeCdMax - ver);
-    if (maxOver <= 0) {
+    // ── V11.17.82: ÉÉN AFTELLEND GETAL IN PLAATS VAN TWEE ──────
+    // © 2026 StoplichtIQ — Y. Lemaalem
+    //
+    // Tot nu toe stond hier `minOver + '-' + maxOver`, met twee getallen die
+    // GELIJKTIJDIG aftelden vanaf dezelfde `ver`. Het verschil ertussen bleef
+    // dus constant, en het linkergetal klemde op 0 (Math.max(0, ...)) en bleef
+    // daar staan.
+    //
+    // Het probleem is niet cosmetisch. De KNOPPEN draaien niet op cdMin of
+    // cdMax maar op gem (activeCdDoel), via `over` op r7275 en het nulpunt op
+    // r7602. Zolang het linkergetal op 0 stond gebeurde er dus nog niets, en de
+    // gebruiker moest zelf uitrekenen welk van de twee getallen telde.
+    // Gemeten over de 200 CD_VAAG-emmers in de export van 28 augustus is dat
+    // dode gat (gem - cdMin) mediaan 12s, p75 21s, p90 33s; 51% van de emmers
+    // heeft een gat groter dan 10 seconden.
+    //
+    // Nu telt er nog één getal af — Math.ceil(over), exact hetzelfde getal
+    // waarop cdBereikteNul en countdownNulTijd draaien. Er kan per constructie
+    // geen zichtbaar getal meer op 0 staan terwijl de knoppen zwijgen.
+    //
+    // DE MARGE KOMT UIT activeCdMax - activeCdDoel EN NIET UIT cdMin.
+    // `band` zelf is een lokale const in bepaalCdModus (r2870) en wordt niet
+    // geretourneerd (r2874), dus hij moet hier gereconstrueerd worden. Van de
+    // twee kanten is alleen de bovenkant zuiver: cdMin draagt de klem
+    // Math.max(1, ...) (r2871), en die bijt bij 16 van de 200 CD_VAAG-emmers
+    // (8%). Bij een geklemde cdMin zou zowel (doel - cdMin) als
+    // (cdMax - cdMin)/2 een te kleine marge tonen. cdMax kent die klem niet.
+    //
+    // RV3: valt er geen bruikbare marge te maken, dan is de terugval de
+    // CD_GESCHAT-vorm — één getal met een tilde, zonder marge. Nooit een
+    // string met NaN of undefined erin.
+    const _bandRuw = (typeof activeCdMax === 'number' && typeof activeCdDoel === 'number')
+      ? Math.round(activeCdMax - activeCdDoel) : null;
+    const _band = (_bandRuw != null && isFinite(_bandRuw) && _bandRuw > 0) ? _bandRuw : null;
+    if (over <= 0) {
+      // Gelijk aan de CD_NU-tak hierboven: de voorspelling is verstreken.
+      // In de praktijk vangt tak 1 (getoondOver <= 0, r7419) dit al af; deze
+      // regel staat er zodat de tak ook zonder die voorganger klopt.
       cdPillGetal.textContent = rs + 'nu';
       cdPillLabel.textContent = 'elk moment';
+    } else if (_band != null) {
+      cdPillGetal.textContent = rs + '~' + Math.ceil(over) + 's ±' + _band;
+      cdPillLabel.textContent = 'onzeker';
     } else {
-      cdPillGetal.textContent = rs + minOver + '-' + maxOver + 's';
+      cdPillGetal.textContent = rs + '~' + Math.ceil(over) + 's';
       cdPillLabel.textContent = 'onzeker';
     }
   } else if (activeCdModus === CD_GESCHAT) {
@@ -7656,13 +7694,53 @@ function bevestigCountdown(categorie) {
   // De knop staat op dat moment gedempt (updateBevestigKnopStaat), dus de
   // gebruiker ziet dat hij niets registreert, en de knoppenrij blijft staan
   // zodat FOUT alsnog gekozen kan worden.
+  // ── V11.17.82: DE POORT WORDT VOORWAARDELIJK ──────────────────
+  // © 2026 StoplichtIQ — Y. Lemaalem
+  //
+  // De return hierboven blijft nodig — hij beschermt tegen een tik tijdens de
+  // zandloper, waar de klopte-tak `gem` ongewijzigd terugschrijft met gewicht
+  // 0,4, het zwaarste van de drie, op een waarde die op dat moment aantoonbaar
+  // te laag is. Maar hij blokkeerde ook het geval waarvoor de knoppen bestaan.
+  //
+  // HET UITGANGSPUNT: de gebruiker drukt op wat hij met eigen ogen ziet
+  // gebeuren, niet op wat de camera detecteert. De knoppen meten hoe goed de
+  // VOORSPELLING was ten opzichte van de WERKELIJKHEID; zou hij moeten wachten
+  // tot de app de omslag zelf doorheeft, dan meet elke bevestiging twee
+  // vertragingen tegelijk — de voorspellingsfout én de detectievertraging.
+  //
+  // Die vertraging is structureel: verwerkFase wordt pas bereikt als aiTeller
+  // de drempel haalt (r6699 -> r6744), en AI_DREMPEL is 2 (r1009). Bij een
+  // inferentie-interval van 0,6-1,3s is dat 1,2 tot 2,6 seconden waarin
+  // aiKleur al 'groen' is terwijl fase nog 'rood' zegt. Precies in dat venster
+  // drukt de gebruiker, en precies daar werd zijn tik weggegooid.
+  //
+  // De poort kijkt daarom niet meer alleen naar klopteIsNoOp maar ook naar wat
+  // de camera OP DIT MOMENT ziet:
+  //   aiKleur === 'groen'  -> de camera ziet het al, alleen niet bevestigd.
+  //                           De gebruiker heeft gelijk; laat de tik door.
+  //   anders               -> geen enkel groen in zicht. Oude gedrag: blokkeer.
+  //
+  // RV2, veilig falen: bij detectieverlies zet r6755 aiKleur op null. Een
+  // strikte vergelijking met 'groen' laat dat geval dus in de oude, blokkerende
+  // tak vallen — onbekend is nooit een reden om door te laten.
+  //
+  // Beide paden loggen, met een eigen reden, zodat achteraf meetbaar is hoe
+  // vaak deze uitzondering gebruikt wordt. Zonder dat onderscheid is niet te
+  // zien of de reparatie werkt.
   if (categorie === 'klopte' && klopteIsNoOp()) {
     const _kr = overschrNulRef();
-    logOpslagMis('bevestig_klopte_inert', {
-      node: dichtstbijOSM.id,
-      dur: _kr ? (Date.now() - _kr.t) / 1000 : null
-    });
-    return;
+    const _dur = _kr ? (Date.now() - _kr.t) / 1000 : null;
+    if (aiKleur === 'groen') {
+      logOpslagMis('bevestig_klopte_vroeg', {
+        node: dichtstbijOSM.id, dur: _dur
+      });
+      // bewust GEEN return: de tik telt.
+    } else {
+      logOpslagMis('bevestig_klopte_inert', {
+        node: dichtstbijOSM.id, dur: _dur
+      });
+      return;
+    }
   }
   // V11.17.64 FIX C: dezelfde gate als bijnaIsNoOp, maar op de SCHRIJFKANT.
   // Zonder cdBereikteNul kon een nulpunt uit een vorige fase alsnog als
@@ -7740,6 +7818,27 @@ function bevestigCountdown(categorie) {
     // (die kon vroeger niet bestaan), de positieve niet. Twee tekens in een
     // store die op 20 records per node gekapt wordt.
     mv: 2,
+    // V11.17.82: wat de CAMERA op het tikmoment zag. aiKleur is de laatst
+    // gedetecteerde kleur, aiTeller hoe vaak die op rij bevestigd is (r6648-
+    // 6654); pas bij AI_DREMPEL slaat de officiële fase om (r6699 -> r6744).
+    //
+    // Deze twee velden staan hier omdat een VASTE vertragingscompensatie op het
+    // tikmoment uitdrukkelijk is afgeraden. De vertraging is variabel —
+    // AI_DREMPEL x inferentie-interval, dus ruwweg 1,2 tot 2,6s, en
+    // effectieveAiDrempel (r6692) kan de drempel nog verhogen. Een vaste aftrek
+    // zou in elke meting een fout van eigen makelij introduceren die achteraf
+    // niet meer van de voorspellingsfout te scheiden is. Dat is precies het
+    // probleem dat V11.17.67 met overschrMs juist heeft opgelost door
+    // reactietijd uit de meting te halen in plaats van erin te verwerken.
+    //
+    // Met aiK en aiT wordt de vertraging MEETBAAR in plaats van aangenomen:
+    // een tik met aiK='groen' en fase nog 'rood' laat zien hoe vaak de
+    // gebruiker de camera voor is, en hoe ver. Een eventuele correctie kan
+    // later onderbouwd worden in plaats van nu geraden. Zelfde patroon als kmh
+    // (V11.17.78) en afwijkingMs (V11.17.80). Naamgeving volgt het bestaande
+    // `ait`-veld in zichtLogSample (r9160).
+    aiK: (typeof aiKleur === 'string') ? aiKleur : null,
+    aiT: (typeof aiTeller === 'number' && !isNaN(aiTeller)) ? aiTeller : null,
     schaduw: schaduwLog
   });
   if (data.length > 20) data = data.slice(-20);
