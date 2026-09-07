@@ -694,7 +694,7 @@
 <div id="startscherm">
   <div id="s-icoon">🚦</div>
   <div id="s-titel">Stoplicht<span>IQ</span></div>
-  <div id="s-versie">V11.17.84 — richting telt als stoplicht</div>
+  <div id="s-versie">V11.17.85 — dubbele meting telt één keer</div>
   <div id="s-model-wrap">
     <div id="s-model-rij">
       <div id="s-model-label">🤖 YOLOv8 model laden…</div>
@@ -919,7 +919,7 @@
 
 <script>
 // ═══════════════════════════════════════════════════════════════
-//  StoplichtIQ V11.17.84
+//  StoplichtIQ V11.17.85
 //  V11.10: Zelfkalibratie + vergrendeling + crop smoothing
 //  — S1+S2 bevestiging (kruispunt-level confidence)
 //  — Route-herkenning basis (sequentie-opslag)
@@ -1616,9 +1616,40 @@ function berekenObsScore(metingen) {
   return Math.min(95, Math.round(factor * 95));
 }
 
+// ── V11.17.85: METINGEN DIE BIJ EEN RICHTING HOREN ──────────
+// © 2026 StoplichtIQ — Y. Lemaalem
+//
+// Een getikte richting-meting belandt in TWEE stores: in haar eigen V5-emmer
+// én in V4. Dat is geen ongeluk — voerV9DelayedWriteUit doet het met zoveel
+// woorden ("Schrijf ook V4 parallel (backward compatibility)", r3930) — maar
+// het gevolg is dat Algemeen meegroeit met elke rechtsaf-rit. Gemeten op de
+// export van 28 augustus: 149 van de 167 V5-records (89,2%) hebben een
+// V4-tweeling met dezelfde duur, de meeste geschreven binnen dezelfde
+// milliseconde.
+//
+// De V4-kopie MAG NIET WEG. De countdown van vrijwel elke node komt uit V4
+// (485 van de 486 op diezelfde export), en een richting heeft er vijf nodig
+// voor een eigen countdown terwijl 89% van de V5-emmers op n=1 staat.
+// Weglaten zou het kruispunt dat je het vaakst gebruikt zijn countdown kosten.
+//
+// Daarom blijft de meting staan en krijgt hij alleen een vlaggetje: rv=1,
+// "hoort primair bij een richting". Alleen de drie plekken die het
+// ALGEMEEN-PERCENTAGE berekenen slaan hem over. Alles wat een duur of een
+// cyclus uitrekent — en dus de countdown — ziet hem onveranderd.
+//
+// Veld AFWEZIG = onbekend, dezelfde conventie als `zo` (r2188). Historische
+// records dragen geen rv en blijven dus gewoon meetellen; ze zijn niet meer te
+// herleiden en raden zou de data vervuilen.
+function zonderRichtingVerwant(m) {
+  return m.filter(x => !x || x.rv !== 1);
+}
+
 function berekenLeerPct(osmId) {
   const alleM = [];
-  for (const d of Object.keys(DD)) alleM.push(...laadM(osmId, d));
+  // V11.17.85: het één na laatste woord over het Algemeen-percentage. Filteren
+  // in de INLEESREGEL en niet in berekenObsScore, want die wordt ook door de
+  // richtingkant gebruikt (richtingLeerPct r2777) en door de dagdeeltegels.
+  for (const d of Object.keys(DD)) alleM.push(...zonderRichtingVerwant(laadM(osmId, d)));
   if (!alleM.length) return 0;
   const obsPct = berekenObsScore(alleM);
   const gem = gewGem(alleM);
@@ -1855,6 +1886,15 @@ function logOpslagMis(reden, extra) {
       nieuw: (e.nieuw != null) ? String(e.nieuw) : null,
       aanrij: e.aanrij || null,
       afrij: e.afrij || null,
+      // ── V11.17.85: de teller voor het overgangseffect ───────
+      // Alleen gevuld op een 'v4_gemarkeerd'-regel; overal elders null, dus
+      // geen enkele bestaande logregel verandert. rvGem is het aantal
+      // V4-records op deze node dat bij een richting hoort, rvTot het totaal.
+      // Het quotiënt laat zien hoe ver het Algemeen-percentage al naar het
+      // eerlijke niveau gezakt is — dat gebeurt geleidelijk, want alle
+      // historische records zijn ongemarkeerd en blijven meetellen.
+      rvGem: (e.rvGem != null) ? e.rvGem : null,
+      rvTot: (e.rvTot != null) ? e.rvTot : null,
       // ── V11.17.76: velden voor de node-toewijzingsanalyse ──────────────
       // Puur observerend. Geen selectie-, score- of correctiepad leest ze; ze
       // bestaan om twee vragen te kunnen beantwoorden die met de huidige velden
@@ -1931,6 +1971,7 @@ function slaOp(osmId, richting, duur, conf=null, bypassAfstand=false, gewichtOve
   // is gereset", niet "er is geschreven", en is bij een normale schrijving juist
   // false. Geen enkele aanroeper gebruikte de oude waarde (r2838 en r5221
   // gooiden hem weg), dus dit breekt niets. v9KandidaatV4Geschreven leunt erop.
+  laatsteV4Schrijvingen = [];   // V11.17.85: per slaOp-aanroep verzamelen
   if (faseStart) {
     const faseStartTs = Date.now() - (performance.now() - faseStart);
     const ddStart = huidigDDActief(faseStartTs);
@@ -2174,6 +2215,12 @@ function berekenObsGewicht(obs, bron, heeftHandmatigeTap) {
   return gewicht;
 }
 
+// V11.17.85: de dagdeel/tijd-paren van de laatste slaOp-aanroep. slaOp leegt
+// hem aan het begin, slaOpIntern vult hem — één keer bij een gewone meting,
+// twee keer bij een dagdeelovergang (r1934-1943). Alleen zinvol direct na
+// slaOp; verwerkFase leest hem meteen.
+let laatsteV4Schrijvingen = [];
+
 function slaOpIntern(osmId, richting, duur, gewichtOverride, dd, bron='s1', conf=null, zagOvergang=null) {
   let m = laadM(osmId, dd);
   const gewijzigd = checkCyclusReset(duur, gewGem(m), m, osmId);
@@ -2191,8 +2238,17 @@ function slaOpIntern(osmId, richting, duur, gewichtOverride, dd, bron='s1', conf
   if (zagOvergang === true) entry.zo = 1;
   else if (zagOvergang === false) entry.zo = 0;
   m.push(entry);
+  // V11.17.85: cap-gedrag ONGEWIJZIGD. Sorteren gebeurt uitsluitend op
+  // recentheid; `rv` komt hier bewust niet in voor. Een gemarkeerd record
+  // wordt dus niet eerder of later weggegooid dan een gewoon record (RV4).
   if (m.length > MAX_METINGEN) { m.sort((a,b)=>gew(b.tijd)-gew(a.tijd)); m=m.slice(0,MAX_METINGEN); }
   try { localStorage.setItem(`${LS_PREFIX}${osmId}_${dd}`, JSON.stringify(m)); } catch(e) {}
+  // V11.17.85: leg vast WELK record dit was. Het stempel verderop moet er
+  // precies één kunnen aanwijzen, en (node, dagdeel, afgeronde duur) is daar
+  // te grof voor: passeer je hetzelfde kruispunt twee keer in hetzelfde
+  // dagdeel met dezelfde cyclus, dan zijn die twee niet te onderscheiden.
+  // entry.tijd is per schrijving uniek en wordt nooit meer aangeraakt.
+  laatsteV4Schrijvingen.push({ dd, tijd: entry.tijd });
   checkLocalStorageRuimte();
   try {
     const _naam = osmCache?.find(n => String(n.id) === String(osmId))?.naam || '';
@@ -2481,6 +2537,65 @@ function laadMV5Geclusterd(nodeId, aanrij, afrij, dd) {
     }
   }
   return alle;
+}
+
+// ── V11.17.85: HET STEMPEL, ACHTERAF EN ALLEEN ALS HET ZEKER IS ──
+// © 2026 StoplichtIQ — Y. Lemaalem
+//
+// WAAROM ACHTERAF EN NIET BIJ HET SCHRIJVEN. verwerkFase schrijft het
+// V4-record als de rode fase eindigt — dus vóórdat het kruispunt gepasseerd is
+// en vóórdat bekend is of er een V5-record volgt. Gemeten over drie dagen
+// logdata: 'delayed_actief' (waarbij TAK 2 de V4-schrijving doet) vuurde
+// 0 keer, 'v4_dubbel_voorkomen' 10 keer — en van die tien leidden er maar
+// VIER tot een V5-record. De andere zes sneuvelden verderop (v5_geen_tik,
+// u-bocht, te_ver_dw, of een van de resetV9Staat-paden).
+//
+// Markeren op "er staat een tik klaar" zou dus zes van de tien records ten
+// onrechte uit Algemeen halen: leerdata die stil wegvalt, precies wat deze
+// release wil voorkomen. Het stempel wordt daarom pas gezet op het enige
+// moment waarop béé feiten vaststaan: het V5-record is geschreven én het
+// V4-record bestaat.
+//
+// WAT HET WEL EN NIET DOET. Het voegt één veld toe aan een record dat enkele
+// seconden eerder in dezelfde meetcyclus is geschreven. Duur, tijd, gewicht,
+// bron en alle andere velden blijven ongemoeid; er wordt nooit een record
+// herschreven, verplaatst of verwijderd, en historische data wordt niet
+// aangeraakt. Is het record er niet meer — weggesnoeid door MAX_METINGEN of
+// gewist door checkCyclusReset — dan gebeurt er niets.
+//
+// BIJ EEN DAGDEELOVERGANG WORDEN BEIDE KOPIEËN GESTEMPELD. slaOp schrijft dan
+// naar twee emmers (r1935-1944) terwijl het V5-record maar in één dagdeel
+// staat. berekenLeerPct gooit alle dagdelen op één hoop, dus één van de twee
+// stempelen zou de opblazing half laten staan — en onzichtbaar half, wat erger
+// is dan niet. Zeldzaam: 3 paren op 4.337 records in de export (0,14%).
+function stempelV4Richtingverwant(nodeId, stempels) {
+  if (!nodeId || !Array.isArray(stempels) || !stempels.length) return 0;
+  let gezet = 0;
+  for (const st of stempels) {
+    if (!st || !st.dd || typeof st.tijd !== 'number') continue;
+    const sleutel = `${LS_PREFIX}${nodeId}_${st.dd}`;
+    let m;
+    try { m = JSON.parse(localStorage.getItem(sleutel)); } catch(e) { continue; }
+    if (!Array.isArray(m)) continue;
+    const rec = m.find(x => x && x.tijd === st.tijd);
+    if (!rec || rec.rv === 1) continue;
+    rec.rv = 1;
+    try { localStorage.setItem(sleutel, JSON.stringify(m)); gezet++; } catch(e) {}
+  }
+  return gezet;
+}
+
+// V11.17.85: de teller voor het overgangseffect. Eén regel per stempel, zoals
+// elke andere overgang in dit project apart gelogd wordt — geen periodieke
+// samenvatting. rvGem/rvTot maken meetbaar hoe snel het Algemeen-percentage
+// naar het eerlijke niveau zakt: in het begin staat rvGem op vrijwel nul
+// omdat alle historische records ongemarkeerd zijn.
+function telRichtingVerwant(nodeId) {
+  let gem = 0, tot = 0;
+  for (const d of Object.keys(DD)) {
+    for (const x of laadM(nodeId, d)) { tot++; if (x && x.rv === 1) gem++; }
+  }
+  return { gem, tot };
 }
 
 function slaOpV5(nodeId, aanrij, afrij, dd, duur, gewicht, zagOvergang=null, bron='tik') {
@@ -3927,8 +4042,13 @@ function voerV9DelayedWriteUit(huidigeHeading, trigger = null, poort = null, onz
   // richtinglog-data is aangetoond, mag een GPS-richting de V5-dataset niet in.
   // V4 schrijft hieronder gewoon door, dus er gaat geen duurmeting verloren.
   // OPHEFFEN zodra het richtinglog laat zien dat `gemeten` bij bochten klopt.
+  // V11.17.85: onthoud of het V5-record er WERKELIJK gekomen is. Alleen dan
+  // mag het V4-record straks gestempeld worden — zonder V5-tweeling is de
+  // V4-meting gewoon een gewone meting voor Algemeen.
+  let v5Geschreven = false;
   if (viaTik) {
     slaOpV5(v9KandidaatNode, aanrijRichting, afrijRichting, dd, duur, gewicht, v9KandidaatZagOvergang);
+    v5Geschreven = true;
   } else {
     logOpslagMis('v5_geen_tik', { node: v9KandidaatNode, dur: duur,
       aanrij: aanrijRichting, afrij: afrijRichting });
@@ -3940,10 +4060,27 @@ function voerV9DelayedWriteUit(huidigeHeading, trigger = null, poort = null, onz
   // de vlag dan false staat: (a) schrijving #1 geblokkeerd door de poort op
   // r5217 (`delayed_actief`, meting van een andere node), (b) afstand > 80 m —
   // hier geldt bypassAfstand, (c) duur 4-8 s, die r5205 afwijst en slaOp accepteert.
+  let teStempelen = [];
   if (!v9KandidaatV4Geschreven) {
     slaOp(v9KandidaatNode, huidigeRichting, duur, null, true, null, null, v9KandidaatZagOvergang);
+    // Deze tak schreef zelf, dus de tijdstempels staan vers klaar.
+    teStempelen = laatsteV4Schrijvingen.slice();
   } else {
     logOpslagMis('v4_dubbel_voorkomen', { node: v9KandidaatNode, dur: duur });
+    // verwerkFase schreef bij groen; die legde de tijdstempels toen vast.
+    teStempelen = v9KandidaatV4Stempels;
+  }
+
+  // ── V11.17.85: HET STEMPEL ──────────────────────────
+  // Hier, en nergens eerder: dit is het eerste punt waarop vaststaat dát er een
+  // V5-record is. Zie stempelV4Richtingverwant (r2494) voor het waarom.
+  if (v5Geschreven) {
+    const gezet = stempelV4Richtingverwant(v9KandidaatNode, teStempelen);
+    if (gezet > 0) {
+      const t = telRichtingVerwant(v9KandidaatNode);
+      logOpslagMis('v4_gemarkeerd', { node: v9KandidaatNode, dur: duur,
+        rvGem: t.gem, rvTot: t.tot });
+    }
   }
 
   // V11.2.0: Auto-richting GPS opslaan als geen handmatige tik
@@ -3985,6 +4122,7 @@ function resetV9Staat() {
   v9KandidaatDagdeel      = null;
   v9KandidaatZagOvergang  = null;   // V11.17.26: null = onbekend, nooit false
   v9KandidaatV4Geschreven = false;  // V11.17.37
+  v9KandidaatV4Stempels   = [];     // V11.17.85
   v9PassageStartTijd      = null;
   v9PreSelectieAfrij      = null;
   v9DelayedWriteActief    = false;
@@ -4996,6 +5134,10 @@ let v9KandidaatZagOvergang  = null;
 // gewicht dat uit de GROENE fase komt (slaOpIntern r1667 leest faseStart),
 // typisch 0,2-0,4. Deze vlag legt vast of de meting bij groen al landde.
 let v9KandidaatV4Geschreven = false;
+// V11.17.85: de tijdstempels van de V4-records die bij DEZE kandidaat horen,
+// zodat het stempel na de passage precies die records terugvindt. Twee
+// elementen bij een dagdeelovergang, anders één.
+let v9KandidaatV4Stempels   = [];
 let v9PassageStartTijd      = null;   // timestamp bij passeren
 let v9PreSelectieAfrij      = null;   // afrij via richtingknop pre-selectie
 // V11.17.56: levensloop van v9PreSelectieAfrij, puur registrerend.
@@ -7143,6 +7285,10 @@ function verwerkFase(nieuw, horizontaal, conf=null) {
           v9KandidaatDagdeel = huidigDDActief();
           v9KandidaatZagOvergang = zagRoodOvergang;   // V11.17.26: reist mee met de meting
           v9KandidaatV4Geschreven = v4GeschrevenNu;   // V11.17.37: idem
+          // V11.17.85: welke V4-records deze schrijving opleverde. Alleen als
+          // er ook echt geschreven is — anders staat er nog een lijst van een
+          // eerdere aanroep in en zou het stempel op een vreemd record landen.
+          v9KandidaatV4Stempels = v4GeschrevenNu ? laatsteV4Schrijvingen.slice() : [];
         }
         bijwerkLeerkaart(dichtstbijOSM); bijwerkDashboardKnop();
       } else {
@@ -8216,8 +8362,14 @@ function renderRichtingBlok(osm) {
   for (const d of Object.keys(DD)) {
     const m = laadM(nodeId, d);
     if (!m.length) continue;
+    // V11.17.85: alleen het PERCENTAGE filtert. algMetTot en algCycSum blijven
+    // op de volle set: de Algemeen-regel toont ook een aantal en een cyclustijd,
+    // en die twee horen alles te zien wat er gemeten is — net als de countdown.
+    const mPct = zonderRichtingVerwant(m);
     // V11.17.66: zie r6890 — de bodem telt alleen records met een gemeten duur.
-    const pctD = Math.min(95, Math.max(m.filter(heeftGemetenDuur).length * 4, berekenObsScore(m)));
+    const pctD = mPct.length
+      ? Math.min(95, Math.max(mPct.filter(heeftGemetenDuur).length * 4, berekenObsScore(mPct)))
+      : 0;
     algDds.push({ dd: d, m, pctD });
     algMetTot += m.length;
     algPctWeighted += pctD * m.length;
@@ -8581,7 +8733,10 @@ function laagDagdeelCijfers(nodeId, laag, dd) {
 // zodat het gedrag zonder gekozen richting niet één procent verschuift.
 function laagDagdeelPct(nodeId, laag, dd) {
   if (!laag) {
-    const m = laadM(nodeId, dd);
+    // V11.17.85: zelfde filter als berekenLeerPct. Zonder dit toonde een
+    // vastgezet dagdeel het opgeblazen getal terwijl de balk bovenaan het
+    // eerlijke toonde — twee weergaven van hetzelfde, met een ander antwoord.
+    const m = zonderRichtingVerwant(laadM(nodeId, dd));
     if (!m.length) return null;
     return Math.min(95, Math.max(m.filter(heeftGemetenDuur).length * 4, berekenObsScore(m)));
   }
@@ -12925,6 +13080,7 @@ async function onGPS(pos) {
         v9KandidaatV4Geschreven = false;  // V11.17.37: vlag hoort bij de
         // kandidaat; deze tak vervangt de kandidaat zonder resetV9Staat, dus
         // moet hij hier mee gewist worden — net als v9KandidaatDuur hierboven.
+        v9KandidaatV4Stempels = [];       // V11.17.85: hoort bij dezelfde vlag
         // V11.17.5 W2: bewaar een expliciete richtingkeuze uit tikRichting.
         // Zonder guard wist elke nadering-frame een vroege keuze; met guard
         // wordt hij alleen gewist als er nog niets is gekozen.

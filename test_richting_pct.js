@@ -181,11 +181,16 @@ function testRichtingPct() {
         !/zoekS2BevestigingScore|berekenBevestigScore|gps_tik_score/.test(bronRP),
         'geen bonusaanroep', 'schoon');
 
-    // ══ T8 — berekenLeerPct IS ONGEWIJZIGD (RV3) ══════════════
+    // ══ T8 — berekenLeerPct HOUDT ZIJN VORM ═══════════════════
+    // V11.17.85: deze wacht toetste de inleesregel LETTERLIJK. D2 wikkelt daar
+    // met opzet een filter omheen (zonderRichtingVerwant), dus de letterlijke
+    // toets sloeg terecht aan. Wat D1 wilde bewaken is niet de tekst maar de
+    // VORM: het node-percentage blijft over alle vier de dagdelen lezen en
+    // blijft de drie bonussen optellen. Dat is wat hier nu staat.
     const bl = String(berekenLeerPct).replace(/\s+/g, ' ');
-    eis('T8 berekenLeerPct leest nog steeds laadM over alle dagdelen',
-        /for \(const d of Object\.keys\(DD\)\) alleM\.push\(\.\.\.laadM\(osmId, d\)\)/.test(bl),
-        'inleesregel ongewijzigd', bl.slice(0, 90));
+    eis('T8 berekenLeerPct leest laadM over ALLE dagdelen',
+        /for \(const d of Object\.keys\(DD\)\) alleM\.push\(.*laadM\(osmId, d\)/.test(bl),
+        'lus over Object.keys(DD) met laadM(osmId, d)', bl.slice(0, 120));
     eis('T8b en telt nog steeds de drie bonussen op bij obsPct',
         /Math\.min\(95, obsPct \+ s2Bonus \+ gpsTikBonus \+ bevestigBonus\)/.test(bl),
         'slotregel ongewijzigd',
