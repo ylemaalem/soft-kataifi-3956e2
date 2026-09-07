@@ -225,13 +225,24 @@ function testRichtingUi() {
 
     const leenPctTxt = pct0();
     const leenPctNum = parseInt(leenPctTxt, 10);
-    const leenLaag    = isNaN(leenPctNum) || leenPctNum <= 10;
+    // V11.17.84: deze toets luidde '<= 10%'. Dat was de 6% van de oude
+    // trapfunctie, en daarmee legde de test de bug vast die D1 juist opheft:
+    // één meting is nu 25%, net als bij een node. De BEDOELING blijft
+    // ongewijzigd — het getal moet uit de EIGEN emmer van de richting komen en
+    // niet uit V4 — dus toetsen we dat nu direct op de bron in plaats van op
+    // een bovengrens die aan de oude schaal hing.
+    const eigenPct = berekenRichtingPct(NODE_LEEN, 'N', 'W', DD_NU);
+    const leenLaag = !isNaN(leenPctNum) && leenPctNum <= leenV4Pct - 40;
     eis('T3 richting zonder eigen data: het percentage is NIET het V4-percentage',
         leenPctTxt !== leenAlgPct,
         'anders dan het Algemeen-getal ' + leenAlgPct, leenPctTxt);
-    eis('T3b het is de lage werkelijke V5-waarde (<= 10%), niet de ' + leenV4Pct + '% van V4',
-        leenLaag, 'laag percentage', leenPctTxt);
-    eis('T3c en de dagdeel-chip telt 1 eigen meting, niet de ' + v4n + ' van Algemeen',
+    eis('T3b het komt uit de eigen V5-emmer van deze richting',
+        eigenPct && leenPctNum === eigenPct.pct,
+        (eigenPct ? eigenPct.pct : '?') + '% uit de V5-emmer', leenPctTxt);
+    eis('T3c en dat ligt ruim onder de ' + leenV4Pct + '% van V4 (één meting tegen '
+        + laadM(NODE_LEEN, DD_NU).length + ')',
+        leenLaag, 'minstens 40 pp lager dan V4', leenPctTxt);
+    eis('T3d en de dagdeel-chip telt 1 eigen meting, niet de ' + v4n + ' van Algemeen',
         chip(DD_NU).cnt === '1x', '1x', chip(DD_NU).cnt);
 
     // ══ T6 — DE GELEENDE COUNTDOWN ════════════════════════════
@@ -252,7 +263,7 @@ function testRichtingUi() {
     eis('T6c percentage (richting) en countdown (Algemeen) komen bewust uit ' +
         'verschillende bronnen',
         leenLaag && bronLeen && bronLeen.bron === 'v4_geen_richtingdata',
-        'laag percentage naast een geleende countdown',
+        'richting-eigen percentage naast een geleende countdown',
         leenPctTxt + ' / ' + (bronLeen ? bronLeen.bron : '—'));
     // Het nieuwe label moet in ELKE bronschakelaar staan, anders vallen de
     // conditionele tabel en de schaduwmeting stil voor juist deze nodes.

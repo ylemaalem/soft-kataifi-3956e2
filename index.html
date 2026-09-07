@@ -694,7 +694,7 @@
 <div id="startscherm">
   <div id="s-icoon">🚦</div>
   <div id="s-titel">Stoplicht<span>IQ</span></div>
-  <div id="s-versie">V11.17.83 — scherm volgt de richting</div>
+  <div id="s-versie">V11.17.84 — richting telt als stoplicht</div>
   <div id="s-model-wrap">
     <div id="s-model-rij">
       <div id="s-model-label">🤖 YOLOv8 model laden…</div>
@@ -919,7 +919,7 @@
 
 <script>
 // ═══════════════════════════════════════════════════════════════
-//  StoplichtIQ V11.17.83
+//  StoplichtIQ V11.17.84
 //  V11.10: Zelfkalibratie + vergrendeling + crop smoothing
 //  — S1+S2 bevestiging (kruispunt-level confidence)
 //  — Route-herkenning basis (sequentie-opslag)
@@ -2736,18 +2736,64 @@ function naderingLabel(naderingen, g) {
   return 'vanaf ' + (g ? g.aanrij : '?');
 }
 
+// ── V11.17.84: EEN RICHTING WORDT GESCOORD ALS EEN STOPLICHT ───
+// © 2026 StoplichtIQ — Y. Lemaalem
+//
+// Het architectuurprincipe van dit project is dat elke richting een EIGEN
+// stoplicht is met een eigen cyclus. Dat stond niet in de formule. Tot deze
+// release scoorde een richting via een trapfunctie op het KALE AANTAL met een
+// plafond van 60, terwijl een node de logaritmische observatiescore kreeg met
+// een plafond van 95. Dezelfde metingen, gemeten:
+//
+//     n     berekenLeerPct     de oude trap
+//     1          25%                6%
+//     3          56%               25%
+//     8          95%               35%
+//    30          95%               60%
+//
+// De trap had bovendien een dode zone: n=3 tot en met n=7 gaf vijf keer 25%,
+// dus vier extra ritten veranderden niets op het scherm. De functie heette in
+// zijn eigen code `legacyPct` — het was een oud getal dat nooit is
+// gelijkgetrokken, geen tweede, bewuste implementatie.
+//
+// ── WAAROM berekenObsScore NIET RECHTSTREEKS OP V5 KAN ──────
+// Een V5-record draagt {duur, tijd, gewicht, bron} — GEEN `obs` en GEEN `tier`
+// (geteld op de export van 28 augustus: 0 van de 167 records heeft er een).
+// vlakGewichtVoor (r1552) valt daardoor uit op zijn eerste regel en
+// berekenObsScore gebruikt `m.gewicht` rauw. Maar dat V5-gewicht is geen
+// observatiegewicht: het is een AFSTANDSgewicht, V9_GEWICHT_DICHTBIJ (1,0)
+// onder 40 m en V9_GEWICHT_VER (0,6) daarboven. Een V4-meting krijgt via
+// vlakGewichtVoor juist het vlakke OBS_VLAK (0,50).
+//
+// Rechtstreeks scoren zou dus systematisch TE HOOG uitkomen — gemeten 42% bij
+// n=1 waar V4 25% geeft. Daarom eerst normaliseren naar de V4-schaal: een
+// dichtbij-meting telt als één vlakke waarneming, een verre houdt haar korting
+// (0,30). Daarmee ligt een richting bij gelijke n exact op de V4-lijn.
+//
+// De drie bonussen uit berekenLeerPct (s2, gps_tik, bevestig) blijven er
+// bewust buiten: alle drie zijn per NODE opgeslagen en niet aan één bocht toe
+// te wijzen. Een richting haalt dus wel de volle 95 via observatie — vanaf
+// acht dichtbij-metingen, hetzelfde punt als een node — maar niet via bonus.
+function richtingLeerPct(metingen) {
+  if (!metingen || !metingen.length) return 0;
+  // Alleen de velden die berekenObsScore leest, en bewust ZONDER `obs` en
+  // `tier`: dat maakt de gewichtstak deterministisch (vlakGewichtVoor geeft
+  // gegarandeerd null) terwijl de skiplijst op bron/s2 blijft werken.
+  return berekenObsScore(metingen.map(x => ({
+    duur: x.duur,
+    tijd: x.tijd,
+    s2: x.s2,
+    bron: x.bron,
+    gewicht: OBS_VLAK * ((x.gewicht ?? V9_GEWICHT_DICHTBIJ) / V9_GEWICHT_DICHTBIJ)
+  })));
+}
+
 function berekenRichtingPct(nodeId, aanrij, afrij, dd) {
   const m = laadMV5Geclusterd(nodeId, aanrij, afrij, dd);
+  // Leeg blijft null en niet 0: de aanroepers gebruiken dat om een regel
+  // helemaal weg te laten in plaats van hem op nul te tonen.
   if (!m.length) return null;
-  const aantal = m.length;
-  const legacyPct = Math.min(60,
-    aantal >= 30 ? 60 :
-    aantal >= 15 ? 45 :
-    aantal >= 8  ? 35 :
-    aantal >= 3  ? 25 :
-    aantal * 6
-  );
-  return { pct: legacyPct, metingen: aantal };
+  return { pct: richtingLeerPct(m), metingen: m.length };
 }
 
 function verzamelV5Richtingen(nodeId, lsIndex = null) {
@@ -8209,7 +8255,7 @@ function renderRichtingBlok(osm) {
       // De leerkaart leest ze straks allemaal, zodat haar percentage gelijk is
       // aan het percentage dat op de regel zelf staat.
       paren: [], parenGezien: new Set(),
-      metingen: 0, pctSum: 0, cycSum: 0, cycCount: 0
+      metingen: 0, cycSum: 0, cycCount: 0
     });
     const g = groepen.get(key);
     const paarSleutel = r.aanrij + '_' + r.afrij;
@@ -8218,7 +8264,6 @@ function renderRichtingBlok(osm) {
       g.paren.push({ aanrij: r.aanrij, afrij: r.afrij });
     }
     g.metingen += r.metingen;
-    g.pctSum += r.pct * r.metingen;
     // cyclustijd per (aanrij,afrij,dagdeel) via bestaande gewGem-helper
     const mDd = laadMV5Geclusterd(nodeId, r.aanrij, r.afrij, r.dd);
     const gemDd = gewGem(mDd);
@@ -8228,7 +8273,14 @@ function renderRichtingBlok(osm) {
     .map(g => ({
       key: g.key, paren: g.paren,
       aanrij: g.aanrij, afrij: g.afrij, nadIdx: g.nadIdx, metingen: g.metingen,
-      pct: g.metingen > 0 ? Math.round(g.pctSum / g.metingen) : 0,
+      // V11.17.84: het percentage van de regel komt uit DEZELFDE gepoolde
+      // verzameling die laagLeerPct straks leest, via dezelfde verzamelaar.
+      // Hier stond `pctSum / metingen` — een gemiddelde van de percentages per
+      // (paar, dagdeel). Twee verschillende sommen voor één getal zouden weer
+      // uiteen kunnen lopen; met één aanroep kan dat niet.
+      // `metingen` blijft de kale telling: hij stuurt de sortering en de
+      // Terug-poort hieronder, en die mogen niet mee verschuiven.
+      pct: richtingLeerPct(laagMetingen(nodeId, { paren: g.paren })),
       cyc: g.cycCount > 0 ? Math.round(g.cycSum / g.cycCount) : null,
       label: g.label
     }))
@@ -8478,19 +8530,35 @@ function laagGeldigVoor(nodeId) {
 // dagdelen, en dus 0 zolang die leeg zijn. Dat is het hele punt: een nieuwe
 // richting begint op nul en leert het stoplicht zelf kennen.
 //
-// De formule is met opzet LETTERLIJK die van de regel in het richtingblok
-// (r8189-8192: pctSum/metingen over dezelfde paren), zodat de balk bovenaan en
-// het getal op de regel hetzelfde zeggen. Wijkt de een af, dan is dat een fout.
+// ── V11.17.84: POOLEN, NIET PERCENTAGES MIDDELEN ─────────
+// Hier stond een gewogen gemiddelde van de percentages PÉR DAGDEEL. Dat is
+// niet wat berekenLeerPct doet: die gooit de metingen van ALLE dagdelen op één
+// hoop en scoort die hoop één keer (r1621). Het verschil is niet klein —
+// gemeten met vier dagdelen die elk één meting hebben:
+//
+//     middelen van percentages (oud)     6%
+//     gepoold, oude trapformule         25%
+//     gepoold, formule van een node     67%
+//
+// Vier losse zesjes middelen tot een zes, terwijl vier metingen samen een
+// stoplicht wel degelijk beter kennen dan één meting. Nu dezelfde vorm als
+// berekenLeerPct: eerst alles verzamelen, dan één keer scoren.
+//
+// laagMetingen is de gedeelde verzamelaar. Het richtingblok gebruikt hem ook
+// (r8231), zodat de balk bovenaan per constructie hetzelfde getal toont als de
+// regel eronder — test_richting_ui T2c bewaakt dat.
+function laagMetingen(nodeId, laag, dd = null) {
+  let m = [];
+  const dagdelen = dd ? [dd] : Object.keys(DD);
+  for (const p of (laag.paren || []))
+    for (const d of dagdelen)
+      m = m.concat(laadMV5Geclusterd(nodeId, p.aanrij, p.afrij, d));
+  return m;
+}
+
 function laagLeerPct(nodeId, laag) {
   if (!laag) return berekenLeerPct(nodeId);
-  let som = 0, n = 0;
-  for (const p of (laag.paren || [])) {
-    for (const d of Object.keys(DD)) {
-      const r = berekenRichtingPct(nodeId, p.aanrij, p.afrij, d);
-      if (r) { som += r.pct * r.metingen; n += r.metingen; }
-    }
-  }
-  return n > 0 ? Math.round(som / n) : 0;
+  return richtingLeerPct(laagMetingen(nodeId, laag));
 }
 
 // De cijfers voor één dagdeel-chip. Zelfde vorm als de V4-tak die hij vervangt:
@@ -8503,8 +8571,7 @@ function laagDagdeelCijfers(nodeId, laag, dd) {
     const m = laadM(nodeId, dd);
     return { gem: gewGem(m), n: m.length, m };
   }
-  let m = [];
-  for (const p of (laag.paren || [])) m = m.concat(laadMV5Geclusterd(nodeId, p.aanrij, p.afrij, dd));
+  const m = laagMetingen(nodeId, laag, dd);
   return { gem: gewGem(m), n: m.length, m };
 }
 
@@ -8518,12 +8585,11 @@ function laagDagdeelPct(nodeId, laag, dd) {
     if (!m.length) return null;
     return Math.min(95, Math.max(m.filter(heeftGemetenDuur).length * 4, berekenObsScore(m)));
   }
-  let som = 0, n = 0;
-  for (const p of (laag.paren || [])) {
-    const r = berekenRichtingPct(nodeId, p.aanrij, p.afrij, dd);
-    if (r) { som += r.pct * r.metingen; n += r.metingen; }
-  }
-  return n > 0 ? Math.round(som / n) : null;
+  // V11.17.84: zelfde omslag als laagLeerPct — eerst poolen over de paren van
+  // deze regel, dan één keer scoren. Bleef dit middelen, dan week de
+  // vastgezette-dagdeelweergave af van de gewone.
+  const m = laagMetingen(nodeId, laag, dd);
+  return m.length ? richtingLeerPct(m) : null;
 }
 
 // Terug naar Algemeen. Zet GEEN rijrichting — dat was de fout in de oude
