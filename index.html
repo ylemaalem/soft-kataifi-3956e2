@@ -694,7 +694,7 @@
 <div id="startscherm">
   <div id="s-icoon">🚦</div>
   <div id="s-titel">Stoplicht<span>IQ</span></div>
-  <div id="s-versie">V11.17.85 — dubbele meting telt één keer</div>
+  <div id="s-versie">V11.17.86 — peiling met breedtegraad</div>
   <div id="s-model-wrap">
     <div id="s-model-rij">
       <div id="s-model-label">🤖 YOLOv8 model laden…</div>
@@ -919,7 +919,7 @@
 
 <script>
 // ═══════════════════════════════════════════════════════════════
-//  StoplichtIQ V11.17.85
+//  StoplichtIQ V11.17.86
 //  V11.10: Zelfkalibratie + vergrendeling + crop smoothing
 //  — S1+S2 bevestiging (kruispunt-level confidence)
 //  — Route-herkenning basis (sequentie-opslag)
@@ -1770,16 +1770,48 @@ const MAX_OPSLAGLOG = 500;
 // gepasseerd is). Op 500 records ging het 122 keer om dat onderscheid, en beide
 // verklaringen vragen om een tegengestelde fix. Zonder deze peiling is elke
 // wijziging aan de scorefunctie een gok.
-function peilingTovRijrichting(pos, node, heading) {
-  if (!pos || !node || heading == null || isNaN(heading)) return null;
-  if (typeof node.lat !== 'number' || typeof node.lon !== 'number') return null;
-  const dLon = (node.lon - pos.lon) * Math.PI / 180;
-  const lat1 = pos.lat * Math.PI / 180;
-  const lat2 = node.lat * Math.PI / 180;
+// ── V11.17.86: ÉÉN DEFINITIE VAN "WELKE KANT OP LIGT DIE NODE" ──
+// © 2026 StoplichtIQ — Y. Lemaalem
+//
+// De peiling tussen twee punten werd op ELF plekken in dit bestand berekend,
+// in twee smaken, zonder één gedeelde bron:
+//
+//   VIER keer correct, elke keer los uitgeschreven — peilingTovRijrichting,
+//   de bbox-voorspelling (r5387), vindDichtbijScore (r9274) en poort 8 van
+//   checkNodeCorrectieStilstand (r12813).
+//
+//   ZEVEN keer PLAT: Math.atan2(dLon, dLat) op rauwe graden, zonder de
+//   cos(lat)-correctie op de lengtegraad. Op 52 graden noorderbreedte weegt de
+//   oost-westcomponent daardoor 1/cos(52,15) = 1,63x te zwaar. De fout is
+//   precies 0 op noord, oost, zuid en west — en loopt op tot 13,9 graden rond
+//   de diagonalen. Dat is waarom hij zo lang onopgemerkt bleef: wie op een
+//   rechte noord-zuidweg test, ziet niets.
+//
+// Vier losse kopieën van dezelfde formule is de reden dat de platte variant
+// een zevende keer kon ontstaan. Vandaar deze ene functie, met
+// peilingTovRijrichting als dunne wikkel eromheen.
+//
+// De volgorde van de bewerkingen is LETTERLIJK die van de vier bestaande
+// correcte plekken, zodat het resultaat bit voor bit gelijk blijft — dat is
+// geen aanname maar een regressietest (test_peiling_correctheid T6).
+function peilingNaar(vanPos, naarPos) {
+  if (!vanPos || !naarPos) return null;
+  if (typeof vanPos.lat !== 'number' || typeof vanPos.lon !== 'number') return null;
+  if (typeof naarPos.lat !== 'number' || typeof naarPos.lon !== 'number') return null;
+  const dLon = (naarPos.lon - vanPos.lon) * Math.PI / 180;
+  const lat1 = vanPos.lat * Math.PI / 180;
+  const lat2 = naarPos.lat * Math.PI / 180;
   const y = Math.sin(dLon) * Math.cos(lat2);
   const x = Math.cos(lat1) * Math.sin(lat2)
             - Math.sin(lat1) * Math.cos(lat2) * Math.cos(dLon);
-  const peiling = (Math.atan2(y, x) * 180 / Math.PI + 360) % 360;
+  return (Math.atan2(y, x) * 180 / Math.PI + 360) % 360;
+}
+
+function peilingTovRijrichting(pos, node, heading) {
+  if (!pos || !node || heading == null || isNaN(heading)) return null;
+  if (typeof node.lat !== 'number' || typeof node.lon !== 'number') return null;
+  const peiling = peilingNaar(pos, node);
+  if (peiling == null) return null;
   return Math.round(((peiling - heading + 540) % 360) - 180);
 }
 
@@ -5378,13 +5410,7 @@ function berekenOsmCropHint() {
   const afst = dichtstbijOSM.afstand ?? 999;
   if (afst < OSM_CROP_MIN_AFSTAND || afst > 200) return null;
 
-  const dLon = (dichtstbijOSM.lon - huidigePos.lon) * Math.PI / 180;
-  const lat1 = huidigePos.lat * Math.PI / 180;
-  const lat2 = dichtstbijOSM.lat * Math.PI / 180;
-  const y = Math.sin(dLon) * Math.cos(lat2);
-  const x = Math.cos(lat1) * Math.sin(lat2)
-            - Math.sin(lat1) * Math.cos(lat2) * Math.cos(dLon);
-  const bearing = (Math.atan2(y, x) * 180 / Math.PI + 360) % 360;
+  const bearing = peilingNaar(huidigePos, dichtstbijOSM);   // V11.17.86: was een losse kopie
 
   let hoek = bearing - heading;
   while (hoek > 180) hoek -= 360;
@@ -9268,10 +9294,7 @@ function vindDichtbijScore(lat, lon, heading, sl) {
   if (snelheidKmh < 5) {
     s = normAf * 0.95 + conf * 0.05;
   } else {
-    const dLon=(sl.lon-lon)*Math.PI/180;
-    const y2=Math.sin(dLon)*Math.cos(sl.lat*Math.PI/180);
-    const x2=Math.cos(lat*Math.PI/180)*Math.sin(sl.lat*Math.PI/180)-Math.sin(lat*Math.PI/180)*Math.cos(sl.lat*Math.PI/180)*Math.cos(dLon);
-    const hoek=(Math.atan2(y2,x2)*180/Math.PI+360)%360;
+    const hoek = peilingNaar({ lat, lon }, sl);   // V11.17.86: was een losse kopie
     let rv=Math.abs(heading-hoek); if(rv>180)rv=360-rv;
     const normHoek = Math.cos(rv*Math.PI/180);
     const bboxOffset = vorigeDetectie ? (vorigeDetectie.cx/YOLO_SIZE - 0.5) * 77 : 0;
@@ -9660,9 +9683,25 @@ function berekenDoelZoom(afst) {
   return 1.0;
 }
 
+// V11.17.86 (W3): de peiling werd hier plat gerekend, zonder cos(lat). De
+// drempel van 90 graden blijft ongewijzigd; alleen de hoek waarop hij toetst
+// klopt nu. Gemeten: 4,88% van alle (rijrichting, peiling)-combinaties geeft
+// een ander antwoord, en alleen binnen een band van 76,5 tot 103,5 graden —
+// buiten die band is de fout te klein om de 90-graden-grens te halen.
+//
+// WAT DAT RAAKT. Deze functie heeft vijf aanroepers, niet twee: naast de
+// handmatige lock (r13056) en de zoom-unlock (r13064) ook het verbergen van de
+// richtingknoppen (r13092) en TWEE poorten in de V9-meetketen — de trigger van
+// de delayed write (r13196) en de passagedetectie die hem start (r13232).
+// Beide V9-poorten zijn OR-combinaties met een afstandsterugval op
+// V9_VOORBIJ_AFSTAND (40 m), dus een andere uitkomst hier kan de registratie
+// alleen VERVROEGEN of VERTRAGEN, nooit laten uitvallen. Er gaat geen meting
+// verloren; hooguit verschuift v9PassageStartTijd enkele seconden — en dan in
+// de goede richting, want de gecorrigeerde peiling is de ware.
 function isStoplichtVoorbij(stoplichtPos, hPos, rijrichting) {
   if (!rijrichting||!stoplichtPos||!hPos) return false;
-  const hoek = Math.atan2(stoplichtPos.lon-hPos.lon, stoplichtPos.lat-hPos.lat)*180/Math.PI;
+  const hoek = peilingNaar(hPos, stoplichtPos);
+  if (hoek == null) return false;
   let verschil = Math.abs(((rijrichting+360)%360) - ((hoek+360)%360));
   if (verschil>180) verschil=360-verschil;
   return verschil>90;
@@ -10618,13 +10657,18 @@ function toonCorrectielijst() {
 
   let html = '';
   if (eenNode) {
-    html += '<div style="color:rgba(255,255,255,0.4);font-size:13px;text-align:center;padding:4px 0 12px;letter-spacing:0.04em">Geen alternatieven binnen 30m</div>';
+    html += '<div style="color:rgba(255,255,255,0.4);font-size:13px;text-align:center;padding:4px 0 12px;letter-spacing:0.04em">Geen andere stoplichten binnen 400 m</div>';
   }
 
   html += gesorteerd.map(sl => {
     const isActief = String(sl.id) === actiefId;
     const afTekst  = sl.afstand < 1000 ? `${Math.round(sl.afstand)}m` : `${(sl.afstand/1000).toFixed(1)}km`;
-    const h        = (Math.atan2(sl.lon - huidigePos.lon, sl.lat - huidigePos.lat) * 180 / Math.PI + 360) % 360;
+    // V11.17.86 (W1): was Math.atan2(dLon, dLat) op RAUWE graden, zonder de
+    // cos(lat)-correctie. Op 52 graden noorderbreedte gaf dat tot 13,9 graden
+    // fout — en juist dit getal is wat de gebruiker leest om te beoordelen of
+    // de app het goede stoplicht koos. Op een echt voorbeeld: waar 247 stond
+    // is de werkelijke peiling 235, waar 264 stond 260, waar 339 stond 347.
+    const h        = peilingNaar(huidigePos, sl);
     const hoekTekst = dirs[Math.round(h / 45) % 8] + ` ${Math.round(h)}°`;
     return `<div class="correctie-item" onclick="selecteerNodeHandmatig('${sl.id}')">
       <div class="correctie-item-balk${isActief ? ' actief' : ''}"></div>
@@ -12804,13 +12848,7 @@ function checkNodeCorrectieStilstand(lat, lon) {
   //    uit voorwaarde 7 blijft dan de enige gate).
   const heading = getSmoothedHeading();
   if (heading != null) {
-    const dLon = (closest.lon - lon) * Math.PI / 180;
-    const lat1 = lat * Math.PI / 180;
-    const lat2 = closest.lat * Math.PI / 180;
-    const y = Math.sin(dLon) * Math.cos(lat2);
-    const x = Math.cos(lat1) * Math.sin(lat2)
-              - Math.sin(lat1) * Math.cos(lat2) * Math.cos(dLon);
-    const bearing = (Math.atan2(y, x) * 180 / Math.PI + 360) % 360;
+    const bearing = peilingNaar({ lat, lon }, closest);   // V11.17.86: was een losse kopie
     let rv = Math.abs(heading - bearing); if (rv > 180) rv = 360 - rv;
     if (rv > NODE_CHK_HEADING_MAX_GRAD) return;
   }
