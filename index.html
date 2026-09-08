@@ -694,7 +694,7 @@
 <div id="startscherm">
   <div id="s-icoon">🚦</div>
   <div id="s-titel">Stoplicht<span>IQ</span></div>
-  <div id="s-versie">V11.17.87 — sessieherstel geteld</div>
+  <div id="s-versie">V11.17.88 — snelheidslimiet ingelezen</div>
   <div id="s-model-wrap">
     <div id="s-model-rij">
       <div id="s-model-label">🤖 YOLOv8 model laden…</div>
@@ -919,7 +919,7 @@
 
 <script>
 // ═══════════════════════════════════════════════════════════════
-//  StoplichtIQ V11.17.87
+//  StoplichtIQ V11.17.88
 //  V11.10: Zelfkalibratie + vergrendeling + crop smoothing
 //  — S1+S2 bevestiging (kruispunt-level confidence)
 //  — Route-herkenning basis (sequentie-opslag)
@@ -1927,6 +1927,15 @@ function logOpslagMis(reden, extra) {
       // historische records zijn ongemarkeerd en blijven meetellen.
       rvGem: (e.rvGem != null) ? e.rvGem : null,
       rvTot: (e.rvTot != null) ? e.rvTot : null,
+      // ── V11.17.88: de maxspeed-dekking per kaartdownload ──────
+      // Alleen gevuld op een 'maxspeed_dekking'-regel; overal elders null, dus
+      // geen bestaande logregel verandert. msGedekt is het aantal nodes met een
+      // bruikbare wettelijke limiet, msTotaal het aantal nodes in de payload.
+      // Het quotiënt is de echte dekking op het gebied waar gereden wordt —
+      // de drempel waaronder een GLOSA-advies met snelheidsplafond niet te
+      // geven is.
+      msGedekt: (e.msGedekt != null) ? e.msGedekt : null,
+      msTotaal: (e.msTotaal != null) ? e.msTotaal : null,
       // ── V11.17.76: velden voor de node-toewijzingsanalyse ──────────────
       // Puur observerend. Geen selectie-, score- of correctiepad leest ze; ze
       // bestaan om twee vragen te kunnen beantwoorden die met de huidige velden
@@ -9211,7 +9220,26 @@ async function downloadOSM(lat, lon) {
   if (cacheBezig) return;
   cacheBezig = true;
   pOSM.className='pill-dot o'; pOSMT.textContent='laden'; debugWaarden.osm='osm:laden';
-  const q = `[out:json][timeout:25];node["highway"="traffic_signals"](around:${OSM_RADIUS},${lat},${lon})->.tl;.tl out body;way(bn.tl)["name"];out geom;`;
+  // ── V11.17.88: OOK DE WEGEN MET EEN MAXSPEED OPHALEN ──────
+  // © 2026 StoplichtIQ — Y. Lemaalem
+  //
+  // Stond: way(bn.tl)["name"]. Daarmee viel elke naamloze weg buiten de
+  // payload, en juist daar zitten opritten en busbanen met een limiet. Het
+  // unieblok haalt beide verzamelingen op en Overpass dedupliceert ze, zodat
+  // gedeelde wegen één keer over de lijn gaan.
+  //
+  // WAAROM NIET way(bn.tl)["highway"], wat breder en simpeler lijkt. Live
+  // gemeten op 5 km rond Amersfoort (741 traffic_signals-nodes):
+  //
+  //   ["name"]                571 kB   dekking 49,3%
+  //   ["highway"]             704 kB   dekking 51,7%   (+23,2% payload)
+  //   twee losse out geom     904 kB   dekking 51,7%   (+58%, dubbel geschreven)
+  //   dit unieblok            591 kB   dekking 51,7%   (+3,5%)
+  //
+  // Van de 147 wegen die ["highway"] extra binnenhaalt zijn er 121 fietspad of
+  // voetpad ZONDER maxspeed — 82% payload voor niets. Het unieblok haalt
+  // dezelfde dekking voor een zevende van de extra kosten.
+  const q = `[out:json][timeout:25];node["highway"="traffic_signals"](around:${OSM_RADIUS},${lat},${lon})->.tl;.tl out body;(way(bn.tl)["name"];way(bn.tl)["maxspeed"];);out geom;`;
   try {
     const ctrl = new AbortController();
     const t = setTimeout(()=>ctrl.abort(), 25000);
@@ -9230,13 +9258,25 @@ async function downloadOSM(lat, lon) {
       }
     }
     buurNodeMemo.clear();   // V11.17.76: buurafstanden gelden per cache
+    // V11.17.88: msGedekt/msTotaal tellen de werkelijke dekking op het gebied
+    // waar daadwerkelijk gereden wordt. De bbox-schatting was daar geen goede
+    // maat voor — van de 486 nodes in de export vielen er 298 buiten de
+    // gemeten bbox, grotendeels Amsterdamse. Dit is het cijfer waarop een
+    // latere GLOSA-release beoordeeld wordt.
+    let msGedekt = 0;
     osmCache = nodes.map(el => {
-      const besteWeg = kiesBesteWeg(nodeWegen.get(el.id)||[], huidigeRichting);
+      const wegenVanNode = nodeWegen.get(el.id) || [];
+      const besteWeg = kiesBesteWeg(wegenVanNode, huidigeRichting);
       const straat=besteWeg?.tags?.name||null, stad=huidigeStad;
       const naam = straat ? (stad?`${straat}, ${stad}`:straat) : (stad?`Onbekende weg, ${stad}`:`${el.lat.toFixed(4)}, ${el.lon.toFixed(4)}`);
-      return { id:el.id, lat:el.lat, lon:el.lon, naam, straat, stad,
+      // V11.17.88: de wettelijke limiet, of null. Zie kiesMaxspeed (r9772)
+      // voor waarom dit NIET via besteWeg loopt.
+      const maxspeed = kiesMaxspeed(wegenVanNode);
+      if (maxspeed != null) msGedekt++;
+      return { id:el.id, lat:el.lat, lon:el.lon, naam, straat, stad, maxspeed,
                slim:!!(el.tags?.['traffic_signals:sound']||el.tags?.description?.toLowerCase().includes('ivri')) };
     });
+    logOpslagMis('maxspeed_dekking', { msGedekt, msTotaal: nodes.length });
     cacheCentrum={lat,lon}; cacheGeladen=true;
     migratieSlPos();
     berekenClusterNodes();   // V11.17.47: eenmalig per cache, voor updateDichtbij hieronder
@@ -9705,6 +9745,43 @@ function isStoplichtVoorbij(stoplichtPos, hPos, rijrichting) {
   let verschil = Math.abs(((rijrichting+360)%360) - ((hoek+360)%360));
   if (verschil>180) verschil=360-verschil;
   return verschil>90;
+}
+
+// ── V11.17.88: DE WETTELIJKE LIMIET VAN DEZE NODE ─────────
+// © 2026 StoplichtIQ — Y. Lemaalem
+//
+// BEWUST NIET VIA kiesBesteWeg. Die slaat elke naamloze weg over (r9776) —
+// dat is precies wat de straatnaam beschermt, maar het zou ook de opritten en
+// busbanen wegfilteren waarvoor het bredere filter hierboven is aangepast.
+// Twee vragen, twee selecties: kiesBesteWeg beantwoordt "hoe heet deze weg",
+// deze functie "hoe hard mag ik hier". Zo kan de één de ander niet breken.
+//
+// DE LAAGSTE WINT. Zeldzaam — 1 van de 383 gedekte nodes (0,3%) heeft wegen
+// met verschillende limieten — maar niet triviaal: een motorway_link met 130
+// kan door een stedelijk kruispunt lopen. Op de gemeten payload zitten er 3
+// van 130 en 1 van 100 tussen. Naar beneden afronden is daar de enige
+// verdedigbare kant.
+//
+// ALLEEN NUMERIEK, NOOIT EEN AANNAME. Op de gemeten payload is elke waarde
+// puur numeriek (50, 30, 80, 70, 60, 130, 100) — geen 'NL:urban', geen 'walk'.
+// De toets is er voor morgen, niet voor vandaag. Wat er niet doorheen komt
+// wordt null en NOOIT een standaardwaarde: een verzonnen limiet is gevaarlijker
+// dan geen limiet, want een latere GLOSA-poort zou erop kunnen leunen.
+// De bandbreedte 5-130 is het wettelijke bereik in Nederland; alles daarbuiten
+// is een tagfout en telt niet mee.
+function kiesMaxspeed(wegen) {
+  if (!Array.isArray(wegen) || !wegen.length) return null;
+  let laagste = null;
+  for (const weg of wegen) {
+    const ruw = (weg && weg.tags) ? weg.tags.maxspeed : null;
+    if (ruw == null) continue;
+    const m = /^\s*(\d{1,3})\s*$/.exec(String(ruw));
+    if (!m) continue;
+    const v = parseInt(m[1], 10);
+    if (!(v >= 5 && v <= 130)) continue;
+    if (laagste === null || v < laagste) laagste = v;
+  }
+  return laagste;
 }
 
 function kiesBesteWeg(wegen, gpsHeading) {
