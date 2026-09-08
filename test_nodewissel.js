@@ -127,12 +127,107 @@ function testNodewissel() {
       rec && typeof rec.dur === 'number' && rec.dur >= 8 && rec.dur <= 11,
       'dur ~9s', rec ? ('dur=' + rec.dur) : '-');
 
+  // ══ T4 — V11.17.87: het herstel laat nu een spoor na ══════
+  // Zelfde opzet als T2, maar met een lege log en een gebruikerspositie die
+  // NIET samenvalt met A. Dat laatste is de kern van de toets: de oude node
+  // staat op 222 m in dichtstbijOSM, en logOpslagMis zou daar zonder expliciete
+  // `afst` op terugvallen — dichtstbijOSM wijst op dat punt namelijk nog naar
+  // de VERLATEN node (hij wordt pas een regel later bijgewerkt).
+  localStorage.removeItem('sl_opslaglog');
+  opzet(A);
+  const posBijA = { lat: A.lat + 20 / 111132, lon: A.lon };   // ~20 m ten noorden van A
+  huidigePos = posBijA;
+  dichtstbijOSM = { ...B, afstand: 222 };     // de verlaten node, ver weg
+  vorigOsmId = B.id;
+  nodeSessionData[String(A.id)] = {
+    roodElapsed: 8000, cdElapsed: 8000, cdDoel: 40,
+    cdModus: CD_GESCHAT, opgeslagenOp: Date.now() - 12000   // 12 s oud
+  };
+  updateDichtbij(posBijA.lat, posBijA.lon);
+  let herstelRec = null;
+  try {
+    const arr = JSON.parse(localStorage.getItem('sl_opslaglog')) || [];
+    herstelRec = arr.filter(r => r.reden === 'sessie_hersteld').slice(-1)[0] || null;
+  } catch (e) {}
+  eis('T4 een sessieherstel schrijft een sessie_hersteld-record',
+      herstelRec !== null && String(dichtstbijOSM.id) === String(A.id),
+      'record aanwezig, node hersteld naar A',
+      herstelRec ? 'aanwezig' : 'ONTBREEKT');
+  eis('T4b het record draagt de TERUGGEKEERDE node, niet de verlaten node',
+      herstelRec && String(herstelRec.node) === String(A.id),
+      'node=A (' + A.id + ')',
+      herstelRec ? ('node=' + herstelRec.node) : '-');
+  eis('T4c het record draagt de ouderdom van de sessie in seconden',
+      herstelRec && typeof herstelRec.dur === 'number'
+      && herstelRec.dur >= 11 && herstelRec.dur <= 13,
+      'dur ~12s', herstelRec ? ('dur=' + herstelRec.dur) : '-');
+  // Dit is waarom `afst` expliciet meegaat: zonder die parameter had hier 222
+  // gestaan — de afstand tot het stoplicht dat je juist VERLAAT.
+  eis('T4d de afstand hoort bij de teruggekeerde node, niet de 222 m van de verlaten node',
+      herstelRec && typeof herstelRec.afst === 'number'
+      && herstelRec.afst >= 17 && herstelRec.afst <= 23,
+      '~20 m (niet 222)', herstelRec ? ('afst=' + herstelRec.afst) : '-');
+  eis('T4e en de snelheid komt gratis mee uit logOpslagMis',
+      herstelRec && herstelRec.kmh === 0, 'kmh=0',
+      herstelRec ? ('kmh=' + herstelRec.kmh) : '-');
+
+  // ══ T5 — een GEWONE wissel logt deze regel niet ══════════
+  localStorage.removeItem('sl_opslaglog');
+  opzet(A);
+  dichtstbijOSM = { ...A, afstand: 0 }; vorigOsmId = A.id;
+  huidigePos = { lat: B.lat, lon: B.lon };
+  updateDichtbij(B.lat, B.lon);              // geen bewaarde sessie voor B
+  let geenHerstel = [];
+  try {
+    const arr = JSON.parse(localStorage.getItem('sl_opslaglog')) || [];
+    geenHerstel = arr.filter(r => r.reden === 'sessie_hersteld');
+  } catch (e) {}
+  eis('T5 een wissel zonder bewaarde sessie logt geen sessie_hersteld',
+      geenHerstel.length === 0 && String(dichtstbijOSM.id) === String(B.id),
+      '0 records, wel gewisseld naar B',
+      geenHerstel.length + ' records, node=' + (dichtstbijOSM && dichtstbijOSM.id));
+
+  // ══ T6 — regressiewacht: alleen de logregel is erbij ══════
+  // De release voegt één aanroep toe en verandert verder niets. tickCd en het
+  // bevestigpad mogen hem niet kennen, en het herstelblok moet nog exact
+  // dezelfde velden zetten als voorheen.
+  const zc = (f) => String(f).replace(/\/\*[\s\S]*?\*\//g, ' ').replace(/\/\/.*/g, ' ');
+  const udBron = zc(updateDichtbij);
+  eis('T6 sessie_hersteld wordt precies één keer gelogd, en alleen in updateDichtbij',
+      (udBron.match(/sessie_hersteld/g) || []).length === 1
+      && !/sessie_hersteld/.test(zc(tickCd))
+      && !/sessie_hersteld/.test(zc(bevestigCountdown)),
+      '1x in updateDichtbij, 0x elders',
+      (udBron.match(/sessie_hersteld/g) || []).length + 'x in updateDichtbij');
+  eis('T6b het herstelblok zet nog steeds fase, pill en countdown terug',
+      /fase = 'rood'/.test(udBron) && /faseBevestigd = 'rood'/.test(udBron)
+      && /cdStart = performance\.now\(\) - sessie\.cdElapsed/.test(udBron)
+      && /cdPill\.classList\.add\('actief'\)/.test(udBron),
+      'alle vier de toewijzingen ongewijzigd', 'ongewijzigd');
+  eis('T6c het bevestigpad is niet aangeraakt: de KLOPTE-poort staat er nog',
+      /categorie === 'klopte' && klopteIsNoOp\(\)/.test(zc(bevestigCountdown))
+      && /aiKleur === 'groen'/.test(zc(bevestigCountdown)),
+      'KLOPTE-poort uit V11.17.82 intact', 'intact');
+  eis('T6d tickCd toont de bevestigknoppen nog op dezelfde twee voorwaarden',
+      /cdPillActief && fase === 'rood'/.test(zc(tickCd))
+      && /fase === 'groen' && cdBereikteNul/.test(zc(tickCd)),
+      'beide takken ongewijzigd', 'ongewijzigd');
+
   // ── opruimen ──────────────────────────────────────────────────
   osmCache = bewaardCache;
   localStorage.removeItem('sl_opslaglog');
   if (bewaardLog !== null) localStorage.setItem('sl_opslaglog', bewaardLog);
   dichtstbijOSM = null; vorigOsmId = null; puurDichtsteNodeCache = null;
   fase = null; faseStart = null; cdStart = null; stilstandSinds = 0;
+  // V11.17.87: de herstel-tak (T2 en T4) zet countdown- en bevestigstaat terug
+  // op de waarden uit de bewaarde sessie. Die bleven hier staan en reisden mee
+  // naar de volgende suite. Nu volledig opgeruimd, zodat deze suite geen enkel
+  // spoor achterlaat — dezelfde afspraak als in test_richting_ui.
+  activeCdDoel = 0; activeCdModus = null; activeCdMin = null; activeCdMax = null;
+  groenStart = null; countdownNulTijd = null; cdBereikteNul = false;
+  bevestigActief = false; bevInertStaat = '';
+  bevestigWrap.classList.remove('actief');
+  huidigePos = null; snelheidKmh = 0;
   handmatigLockActief = false; handmatigGeselecteerdNodeId = null; stilstandAutoLock = false;
   nodeSessionData = {};
   pill.classList.remove('actief');

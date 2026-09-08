@@ -694,7 +694,7 @@
 <div id="startscherm">
   <div id="s-icoon">🚦</div>
   <div id="s-titel">Stoplicht<span>IQ</span></div>
-  <div id="s-versie">V11.17.86 — peiling met breedtegraad</div>
+  <div id="s-versie">V11.17.87 — sessieherstel geteld</div>
   <div id="s-model-wrap">
     <div id="s-model-rij">
       <div id="s-model-label">🤖 YOLOv8 model laden…</div>
@@ -919,7 +919,7 @@
 
 <script>
 // ═══════════════════════════════════════════════════════════════
-//  StoplichtIQ V11.17.86
+//  StoplichtIQ V11.17.87
 //  V11.10: Zelfkalibratie + vergrendeling + crop smoothing
 //  — S1+S2 bevestiging (kruispunt-level confidence)
 //  — Route-herkenning basis (sequentie-opslag)
@@ -12652,6 +12652,35 @@ function updateDichtbij(lat, lon) {
           cdPill.classList.add('actief');
           cdPill.classList.remove('cd-verborgen'); // V11.17.28 W1c: herstelde countdown moet zichtbaar zijn
           sessionHersteld = true;
+          // ── V11.17.87: PUUR TELLEN, GEEN GEDRAG ──────────────
+          // © 2026 StoplichtIQ — Y. Lemaalem
+          //
+          // Dit herstelpad is de enige route naar het node-wisselgat in het
+          // bevestigpad: fase gaat terug op 'rood', de pill wordt weer actief,
+          // en tickCd toont de bevestigknoppen opnieuw — nu horend bij de
+          // NIEUWE node. Voordat daar iets aan gerepareerd wordt, moet eerst
+          // vaststaan hoe vaak het gebeurt. Op de export van 28 augustus is dat
+          // niet te zien: sessionHersteld was tot nu toe een lokale variabele
+          // die nergens een spoor achterliet.
+          //
+          // De voorwaarden maken het vermoedelijk zeldzaam — terugkeer binnen
+          // NODE_SESSION_MAX_MS (45s), binnen NODE_SESSION_MAX_M (50m), en
+          // zonder vier GPS-fixes boven 15 km/u die nodeSessionData wissen
+          // (r12981-12986) — maar "vermoedelijk" is geen getal. `kmh` staat al
+          // in elke logregel, dus deze ene regel levert meteen ook het antwoord
+          // op de vraag bíí welke snelheid het gebeurt.
+          //
+          // WAAROM afst EXPLICIET MEEGAAT. dichtstbijOSM wijst hier nog naar de
+          // VERLATEN node; hij wordt pas op r12661 bijgewerkt. Zonder deze
+          // waarde zou logOpslagMis (r1855) terugvallen op de afstand tot dat
+          // oude stoplicht, en zou de analyse straks concluderen dat het
+          // herstel op de verkeerde afstanden plaatsvindt. node en naam kloppen
+          // wel: die volgen `terugkeerId`.
+          logOpslagMis('sessie_hersteld', {
+            node: terugkeerId,
+            dur: Math.round(ouderdom / 1000),
+            afst: nieuw.afstand
+          });
         } else {
           delete nodeSessionData[terugkeerId];
         }
