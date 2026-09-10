@@ -694,7 +694,7 @@
 <div id="startscherm">
   <div id="s-icoon">🚦</div>
   <div id="s-titel">Stoplicht<span>IQ</span></div>
-  <div id="s-versie">V11.17.92 — verloren metingen hersteld</div>
+  <div id="s-versie">V11.17.93 — Algemeen is een eigen keuze</div>
   <div id="s-model-wrap">
     <div id="s-model-rij">
       <div id="s-model-label">🤖 YOLOv8 model laden…</div>
@@ -919,7 +919,7 @@
 
 <script>
 // ═══════════════════════════════════════════════════════════════
-//  StoplichtIQ V11.17.92
+//  StoplichtIQ V11.17.93
 //  V11.10: Zelfkalibratie + vergrendeling + crop smoothing
 //  — S1+S2 bevestiging (kruispunt-level confidence)
 //  — Route-herkenning basis (sequentie-opslag)
@@ -3407,10 +3407,10 @@ function kiesCountdownBron(nodeId, dd, aanrijRichting, preSelectieAfrij) {
         const enkelRicht = laadEnkelRicht(nodeId);
         let modusFinaal = modusCapped;
         let bronLabel4 = 'v4_multi';
-        if (enkelRicht && enkelRicht === richtingLockKeuze) {
+        if (enkelRicht && enkelRicht === rijrichting()) {
           modusFinaal = md4multi.modus; // ongecapt
           bronLabel4 = 'v4_enkelricht';
-          enkelRichtLog(nodeId, enkelRicht, richtingLockKeuze, modusCapped, modusFinaal);
+          enkelRichtLog(nodeId, enkelRicht, rijrichting(), modusCapped, modusFinaal);
         } else if (preSelectieAfrij) {
           // ── V11.17.83: HET EERLIJKE LABEL VOOR EEN GELEENDE COUNTDOWN ──
           // © 2026 StoplichtIQ — Y. Lemaalem
@@ -4307,9 +4307,22 @@ function resetV9Staat() {
 }
 
 // UI: afrijrichting pijl indicator
+//
+// V11.17.93: 'algemeen' is hier een gewone waarde met een gewone uitkomst — de
+// indicator gaat uit. Dat moest wel ergens landen: de pijl werd tot nu toe op
+// precies één plek verborgen, in resetRijrichtingState (zie daar), en die draait
+// bij een node-wissel. Op Algemeen drukken is geen node-wissel, dus bleef de
+// pijl van een eerder gekozen richting staan.
+//
+// Bewust hier en niet door kiesLaagAlgemeen een stuk van resetRijrichtingState
+// te laten aanroepen: die reset wist ook de pre-selectie, de knopstaat en het
+// richtingtekort van de node die je VERLAAT. Je verlaat de node niet, je kiest
+// een andere categorie. Dit is de kleinste ingreep die het principe volgt: de
+// functie die de pijl zet, zet hem ook uit.
 function updateAfrijRichtingUI(tikrichting) {
   const el = document.getElementById('v9-richting-indicator');
   if (!el) return;
+  if (tikrichting === 'algemeen') { el.style.display = 'none'; return; }
   const pijlen = { links:'↖', rechtdoor:'↑', rechts:'↗' };
   const labels = { links:'voor linksaf', rechtdoor:'voor rechtdoor', rechts:'voor rechtsaf' };
   const pijl = pijlen[tikrichting] || '↑';
@@ -4925,7 +4938,43 @@ const AFRIJ_MIN_SNELHEID_KMU = 12;  // V11.17.17 W3: was 8 — afrij pas boven 1
 
 // V10.0.3: Richtingkeuze lock — houdt tikrichting vast bij stilstand/GPS-drift
 let richtingLockNodeId = null;
-let richtingLockKeuze = null;
+
+// ── V11.17.93: ALGEMEEN IS EEN WAARDE, GEEN AFWEZIGE RICHTING ──
+// © 2026 StoplichtIQ — Y. Lemaalem
+//
+// richtingLockKeuze kende drie waarden: 'links', 'rechtdoor', 'rechts'. Een
+// vierde categorie bestond niet, dus "de gebruiker leest Algemeen" was alleen
+// uit te drukken als de AFWEZIGHEID van een richting — precies de restcategorie
+// die er niet hoort te zijn. Twee symptomen kwamen daar samen uit voort: de
+// koppel-chip in de Algemeen-regel bood 'zelfde als →?' aan op een lock die
+// activeerPersistenteRichting zonder tik had teruggezet, en de
+// afstandsindicator bleef een richtingpijl tonen nadat je op Algemeen drukte.
+// De waarde 'algemeen' maakt van beide een gewone, expliciete uitkomst.
+//
+// null blijft bestaan en betekent iets ANDERS: er is nog niets gekozen. Dat
+// onderscheid is de hele reparatie — zonder dat is 'ik lees Algemeen' niet te
+// scheiden van 'ik heb niets aangeraakt', en dat was de bug.
+//
+// TWEE ASSEN, ÉÉN VARIABELE. Deze variabele beantwoordt de vraag "welke van de
+// vier categorieën heb ik gekozen". Een deel van de code stelt een andere
+// vraag: "waar rijd ik heen" — de bbox-bonus, de enkelricht-ontkapping, de pijl
+// in de countdown-pill, de richtingknoppen, de tekortmelding en de GPS-keten.
+// Op die as bestaat Algemeen niet: je kunt niet 'algemeen' rijden. rijrichting()
+// projecteert de keuze op die as en geeft null terug zodra Algemeen actief is.
+//
+// Dat is bewust ÉÉN gedeelde lezing en geen zes losse uitzonderingen. Elke
+// oproeper stelde die vraag al; hij kon alleen tot nu toe aannemen dat de
+// variabele niets anders dan een richting kon bevatten. Voor de drie richtingen
+// verandert er daardoor geen enkel gedrag.
+//
+// De logvelden (tik: r1899, richt: r11978) lezen de RUWE waarde en niet deze
+// projectie: daar is 'algemeen' juist het antwoord dat tot nu toe ontbrak.
+let richtingLockKeuze = null;   // 'links' | 'rechtdoor' | 'rechts' | 'algemeen' | null
+
+function rijrichting() {
+  return (richtingLockKeuze === 'links' || richtingLockKeuze === 'rechtdoor'
+       || richtingLockKeuze === 'rechts') ? richtingLockKeuze : null;
+}
 
 // V11.2.3: Vingertap bbox selectie — V11.4.5: persistent bboxOverride
 let laatsteDetecties = [];
@@ -6479,7 +6528,7 @@ function selecteerBesteDetectie(detecties) {
       const andere = bruikbaar.find(d2 => d2 !== det && zijnDichtBijElkaar(det, d2));
       if (andere) {
         const normCx = det.cx / YOLO_SIZE;
-        richtingBonus = rijrichtingMatchScore(normCx, richtingLockKeuze || null) * 25;
+        richtingBonus = rijrichtingMatchScore(normCx, rijrichting()) * 25;
       }
     }
 
@@ -7826,7 +7875,7 @@ function tickCd() {
   const rs = (huidigCdBron
               && String(huidigCdBron).startsWith('V5')
               && huidigCdBron !== 'V5 alle')
-    ? richtingSymbool(richtingLockKeuze) : '';
+    ? richtingSymbool(rijrichting()) : '';
   let schattingOp = false;   // V11.17.50: stuurt de kleurregel onderaan
 
   // ── V11.17.57: wat staat er WERKELIJK op het scherm? ─────────
@@ -8801,6 +8850,13 @@ function renderRichtingBlok(osm) {
       // V11.17.75: de gekoppelde staat is nu de opvallende (oranje), niet de
       // dimste. Hij was dimmer dan het aanbod, precies omgekeerd aan wat hij zegt.
       erChip = ` <span onclick="event.stopPropagation();verwijderEnkelRicht('${nodeId}')" title="Algemeen is hetzelfde licht als ${erMark} — tik om los te maken" class="rb-koppel gekoppeld">= ${p} ✕</span>`;
+    } else if (richtingLockKeuze === 'algemeen') {
+      // V11.17.93: een eigen tak, geen uitzondering. Algemeen is zelf de gekozen
+      // categorie, dus er is geen richting om hem aan te koppelen — het aanbod
+      // 'zelfde als →?' zou naar een keuze wijzen die de gebruiker net losliet.
+      // Een bestaande koppeling (erMark hierboven) blijft wél staan en blijft
+      // opzegbaar; die is opgeslagen in sl_enkelricht_ en staat los van deze keuze.
+      erChip = '';
     } else if (richtingLockKeuze === 'links' || richtingLockKeuze === 'rechtdoor' || richtingLockKeuze === 'rechts') {
       // V11.17.75: '⧉ koppel' zei niet wat het deed. 'zelfde als ↑?' is een vraag
       // met een leesbaar antwoord, en past nog binnen de nowrap-labelbreedte.
@@ -9039,9 +9095,27 @@ function laagDagdeelPct(nodeId, laag, dd) {
 // Terug naar Algemeen. Zet GEEN rijrichting — dat was de fout in de oude
 // ALG-rij, die tikRichting('rechtdoor') aanriep en dus stilletjes rechtdoor
 // selecteerde terwijl de gebruiker alleen de algemene cijfers wilde zien.
+// V11.17.93: op Algemeen drukken is een KEUZE, geen leegte. Tot nu toe liet
+// deze functie richtingLockKeuze ongemoeid, waardoor een eerder gezette richting
+// bleef staan terwijl het scherm de Algemeen-cijfers toonde — de bron van beide
+// symptomen. Nu spiegelt hij kiesLaagRichting: die zet de keuze via tikRichting
+// en werkt de indicator bij, dit doet hetzelfde met de vierde waarde.
+//
+// richtingLockNodeId gaat mee, net als in tikRichting (r10690) en
+// activeerPersistenteRichting (r10650): een lock zonder node hoort bij geen
+// enkel kruispunt en zou bij het volgende blijven plakken.
+//
+// De volgorde telt: eerst de keuze, dan de indicator, dan hertekenen.
+// bijwerkLeerkaart roept renderRichtingBlok aan en die leest richtingLockKeuze
+// voor de koppel-chip — omgekeerd zou het scherm één tik achterlopen.
 function kiesLaagAlgemeen() {
   getoondeLaag = null;
-  // bijwerkLeerkaart roept renderRichtingBlok zelf aan (r8120), dus één aanroep
+  if (dichtstbijOSM) {
+    richtingLockNodeId = String(dichtstbijOSM.id);
+    richtingLockKeuze  = 'algemeen';
+  }
+  updateAfrijRichtingUI('algemeen');
+  // bijwerkLeerkaart roept renderRichtingBlok zelf aan (r8679), dus één aanroep
   // hertekent zowel de cijfers als de markering van de rijen.
   if (dichtstbijOSM) bijwerkLeerkaart(dichtstbijOSM);
 }
@@ -10504,7 +10578,7 @@ function toonRichtingKnoppen(nodeId, forceerTonen = false) {
   if (isNodeNeutraal(nodeId)) return;
   if (richtingGedruktVoorNode === nodeId) return;
   // V10.0.3: Richtingkeuze lock — niet opnieuw tonen als keuze al gemaakt voor deze node
-  if (richtingLockNodeId === nodeId && richtingLockKeuze) return;
+  if (richtingLockNodeId === nodeId && rijrichting()) return;
   // V11.17.17 W1: persistente keuze onderdrukt de knoppen (tenzij bewuste
   // correctie via de badge). De eerder getikte richting wordt direct
   // geactiveerd i.p.v. de gebruiker opnieuw te laten kiezen.
@@ -10924,13 +10998,13 @@ let richtingTekort = null;   // { node, richting, nog } of null
 function bepaalRichtingTekort(nodeId) {
   richtingTekort = null;
   try {
-    if (!nodeId || !richtingLockKeuze || !v9PreSelectieAfrij) return;
+    if (!nodeId || !rijrichting() || !v9PreSelectieAfrij) return;
     const aanrij = (v9AanrijHeading != null || v9AanrijSnelheidHeading != null)
       ? gpsHeadingNaarWindrichting(v9AanrijSnelheidHeading ?? v9AanrijHeading) : null;
     if (!aanrij) return;
     const n = laadMV5Geclusterd(String(nodeId), aanrij, v9PreSelectieAfrij, huidigDDActief()).length;
     if (n >= V9_MIN_METINGEN) return;   // deze richting stuurt al, niets te melden
-    richtingTekort = { node: String(nodeId), richting: richtingLockKeuze, nog: V9_MIN_METINGEN - n };
+    richtingTekort = { node: String(nodeId), richting: rijrichting(), nog: V9_MIN_METINGEN - n };
   } catch(e) { richtingTekort = null; }
 }
 
@@ -11269,8 +11343,8 @@ function enkelRichtLog(nodeId, gemarkeerd, actief, modusVoor, modusNa) {
 // Algemeen, of verwijder de markering. Beide re-renderen het richting-blok.
 function koppelEnkelRicht(nodeId) {
   if (!nodeId) return;
-  const r = richtingLockKeuze;
-  if (!(r === 'links' || r === 'rechtdoor' || r === 'rechts')) return;
+  const r = rijrichting();
+  if (!r) return;
   zetEnkelRicht(nodeId, r);
   toonToast('Algemeen telt hier als ' + KOPPEL_NAAM[r]);
   if (dichtstbijOSM) renderRichtingBlok(dichtstbijOSM);
@@ -13663,7 +13737,7 @@ async function onGPS(pos) {
         // Gated op werkelijk verlies: zonder die gate zou dit pad het log van
         // 500 records domineren en de andere redenen eruit duwen. Meet alleen,
         // verandert niets — het gedrag hieronder is ongewijzigd.
-        if (v9KandidaatNode && (v9KandidaatDuur || richtingLockKeuze || v9PreSelectieAfrij)) {
+        if (v9KandidaatNode && (v9KandidaatDuur || rijrichting() || v9PreSelectieAfrij)) {
           logOpslagMis('kandidaat_vervangen', {
             node: v9KandidaatNode, dur: v9KandidaatDuur, nieuw: nodeId });
         }
@@ -13678,7 +13752,7 @@ async function onGPS(pos) {
         // V11.17.5 W2: bewaar een expliciete richtingkeuze uit tikRichting.
         // Zonder guard wist elke nadering-frame een vroege keuze; met guard
         // wordt hij alleen gewist als er nog niets is gekozen.
-        if (!richtingLockKeuze) { markeerPreWis('gps_kandidaat'); v9PreSelectieAfrij = null; }
+        if (!rijrichting()) { markeerPreWis('gps_kandidaat'); v9PreSelectieAfrij = null; }
       }
     }
 
