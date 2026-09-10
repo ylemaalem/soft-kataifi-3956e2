@@ -129,6 +129,7 @@ function testNulpunt() {
     countdownNulTijd = Date.now() - 5000;
     groenStart = null;
     bevestigActief = true;
+    bevestigVoorNodeId = '111111';   // V11.17.89: hoort bij bevestigActief, zoals tickCd het zet
     bevestigCountdown('bijna');
     let rec = null;
     try { rec = (JSON.parse(localStorage.getItem(sleutel)) || []).slice(-1)[0] || null; } catch (e) {}

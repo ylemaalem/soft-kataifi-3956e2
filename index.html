@@ -694,7 +694,7 @@
 <div id="startscherm">
   <div id="s-icoon">🚦</div>
   <div id="s-titel">Stoplicht<span>IQ</span></div>
-  <div id="s-versie">V11.17.88 — snelheidslimiet ingelezen</div>
+  <div id="s-versie">V11.17.89 — bevestiging op de juiste node</div>
   <div id="s-model-wrap">
     <div id="s-model-rij">
       <div id="s-model-label">🤖 YOLOv8 model laden…</div>
@@ -919,7 +919,7 @@
 
 <script>
 // ═══════════════════════════════════════════════════════════════
-//  StoplichtIQ V11.17.88
+//  StoplichtIQ V11.17.89
 //  V11.10: Zelfkalibratie + vergrendeling + crop smoothing
 //  — S1+S2 bevestiging (kruispunt-level confidence)
 //  — Route-herkenning basis (sequentie-opslag)
@@ -4261,6 +4261,25 @@ let cdWallStart = null, cdWallNodeId = null;
 let activeCdModus=null, activeCdMin=null, activeCdMax=null;
 // V11.8.0: Bevestigingsknoppen state
 let countdownNulTijd=null, cdBereikteNul=false, bevestigActief=false;
+// ── V11.17.89: BIJ WELKE NODE VERSCHENEN DEZE KNOPPEN? ──────
+// © 2026 StoplichtIQ — Y. Lemaalem
+//
+// bevestigCountdown leest dichtstbijOSM LIVE op het moment van schrijven, en
+// bevestigMarkerSleutel (r4285) doet dat ook. Er was geen enkele referentie uit
+// het moment waarop de knoppen verschenen, en daardoor kon een tik op de
+// verkeerde node landen zonder dat marker, node-vergelijking of dedup het
+// merkten — die lezen alle drie dezelfde verkeerde node.
+//
+// Het gat zit in het SESSIEHERSTEL in updateDichtbij (r12719-12731): daar gaat
+// fase terug op 'rood' en krijgt de pill zijn actief-klasse terug, waarna
+// tickCd de knoppen binnen één beeldopbouw opnieuw toont — nu horend bij de
+// NIEUWE node. Bij een gewone node-wissel gebeurt dat niet: daar eindigt de
+// fase en keert tickCd terug op zijn cdActief-guard.
+//
+// null betekent "geen knoppenrij in beeld", niet "onbekende node". De
+// vergelijking in bevestigCountdown slaat over als hij null is, want dan is er
+// niets vastgelegd om tegen te toetsen.
+let bevestigVoorNodeId = null;
 // V11.13.0: voorkom dat tickCd() de bevestigknoppen opnieuw toont na een tap.
 // Sleutel = osmId + "_" + faseStart van de RODE fase. laatsteRoodFaseStart
 // blijft beschikbaar tijdens de groene fase (waarin de bevestiging logisch
@@ -4381,8 +4400,12 @@ function overschrNulRef() {
 // tot nu toe gedempt, maar de tik wordt wél geregistreerd (zonder correctie) —
 // en demping betekent in deze app "deze knop registreert niets". Vandaar niet
 // meer dempen daar.
-function bijnaIsNoOp() {
-  const m = meetBevestigMoment();
+// V11.17.89: `mom` is optioneel. Zonder argument leest hij de klok zelf, zoals
+// altijd; mét argument rekent hij op een moment dat de aanroeper al gemeten
+// heeft. Dat tweede is nodig omdat updateBevestigKnopStaat beide poorten
+// raadpleegt en ze anders elk hun eigen milliseconde lezen — zie daar.
+function bijnaIsNoOp(mom) {
+  const m = mom || meetBevestigMoment();
   if (m.toestand === 'rood-voor-nul' || m.toestand === 'groen-voor-nul') return false;
   return bevestigIndeling(m) !== 'bijna';
 }
@@ -4400,8 +4423,10 @@ function bijnaIsNoOp() {
 // als groen acht seconden na nul viel — daar was "klopte" toen al onwaar.
 // En vóór nul is de klok nog niet verstreken, dus valt er nog niets te
 // bevestigen; die tik hoort bij BIJNA.
-function klopteIsNoOp() {
-  return bevestigIndeling() !== 'goed';
+// V11.17.89: zie bijnaIsNoOp. bevestigIndeling doet de `mom || meetBevestigMoment()`
+// zelf al (r4332), dus doorgeven volstaat.
+function klopteIsNoOp(mom) {
+  return bevestigIndeling(mom) !== 'goed';
 }
 
 // ── V11.17.67: DE ECHTE OVERSCHRIJDING VASTLEGGEN ─────────────
@@ -4579,8 +4604,23 @@ let bevInertStaat = '';
 // eigen functie, aangeroepen vanuit lus() naast tickCd.
 function updateBevestigKnopStaat() {
   if (!bevestigActief) { bevInertStaat = ''; return; }
-  const kInert = klopteIsNoOp();
-  const bInert = bijnaIsNoOp();
+  // ── V11.17.89: ÉÉN KLOKMETING VOOR BEIDE POORTEN ──────────
+  // © 2026 StoplichtIQ — Y. Lemaalem
+  //
+  // Hier stond klopteIsNoOp() en bijnaIsNoOp() los van elkaar, en elk van de
+  // twee riep meetBevestigMoment() aan — dus elk las Date.now() opnieuw. Op
+  // exact overschrMs === BEV_GOED_MAX_MS (2000) kan de milliseconde daartussen
+  // omslaan: de eerste ziet 2000 -> 'goed' -> KLOPTE fel, de tweede 2001 ->
+  // 'bijna' -> BIJNA fel. Beide knoppen tegelijk aan, wat de invariant "KLOPTE
+  // en BIJNA nooit tegelijk fel" schendt.
+  //
+  // Gevonden tijdens V11.17.87: reproduceerbaar in ongeveer één op de tien
+  // volledige testrondes, altijd op precies die grenswaarde. Het venster is
+  // één milliseconde en in de praktijk vrijwel onbereikbaar, maar de invariant
+  // is een invariant — en de reparatie is dit ene regeltje.
+  const mom = meetBevestigMoment();
+  const kInert = klopteIsNoOp(mom);
+  const bInert = bijnaIsNoOp(mom);
   const staat = (kInert ? 'K' : '-') + (bInert ? 'B' : '-');
   if (staat === bevInertStaat) return;
   bevInertStaat = staat;
@@ -7145,7 +7185,7 @@ function resetNeutraal() {
   if (glosaBalk) glosaBalk.style.display='none';
   huidigeGlosa=null; osmVoorspellingActief=false;
   cdPill.classList.remove('actief');
-  bevestigActief = false; bevestigWrap.classList.remove('actief');
+  bevestigActief = false; bevestigVoorNodeId = null; bevestigWrap.classList.remove('actief');
   invalideerPassiefSnapshot(); // V11.17.13 W3
   zagRoodOvergang = false; faseNodeId = null; // V11.17.13
   stopCd();
@@ -7951,6 +7991,7 @@ function tickCd() {
   if (cdPillActief && fase === 'rood') {
     if (!bevestigActief && !_bevAlGedaan) {
       bevestigActief = true;
+      bevestigVoorNodeId = dichtstbijOSM ? String(dichtstbijOSM.id) : null;   // V11.17.89
       bevestigWrap.classList.add('actief');
       // V11.17.4 W4: verbergRichtingKnoppen()-aanroep verwijderd. Nieuwe
       // richting-lijst in #leer-kaart is sibling van #bevestig-wrap; geen
@@ -7960,6 +8001,7 @@ function tickCd() {
   } else if (fase === 'groen' && cdBereikteNul) {
     if (!bevestigActief && !_bevAlGedaan) {
       bevestigActief = true;
+      bevestigVoorNodeId = dichtstbijOSM ? String(dichtstbijOSM.id) : null;   // V11.17.89
       bevestigWrap.classList.add('actief');
       // V11.17.4 W4: idem — geen verbergaanroep meer.
     }
@@ -7971,6 +8013,46 @@ function tickCd() {
 // W3: Bevestiging tap handler
 function bevestigCountdown(categorie) {
   if (!dichtstbijOSM) return;
+  // ── V11.17.89: LANDT DEZE TIK OP DE NODE WAAR HIJ VOOR BEDOELD WAS? ──
+  // © 2026 StoplichtIQ — Y. Lemaalem
+  //
+  // Wisselde de node tussen het verschijnen van de knoppen en deze tik, dan is
+  // niet alleen het id anders — de hele MEETCONTEXT is dan overschreven. Het
+  // sessieherstel (r12738-12750) zet faseStart, cdStart, activeCdDoel en
+  // activeCdModus terug uit de sessie van de NIEUWE node, terwijl
+  // countdownNulTijd nog van de oude is en cdBereikteNul op r12837 op false
+  // gaat. meetBevestigMoment levert dan 'rood-voor-nul' met overschrMs null:
+  // een meting die bij geen van beide nodes hoort.
+  //
+  // WAAROM VERWERPEN EN NIET OMBUIGEN NAAR HET OUDE ID. Dat laatste zou die
+  // mengeling naar de oude node wegschrijven, en bij FOUT betekent dat een
+  // record dat via verwerkBevestigLeren gem x 1,6 in de V4-emmer zet (r3190) —
+  // precies het schrijfpad waar V11.17.60 een zelfversterkende lus in vond. Een
+  // synthetische leerschrijving op een aantoonbaar vervuilde context is de
+  // duurdere fout; één verloren tik in een zeldzaam scenario de goedkopere.
+  //
+  // Het uitgangspunt "de gebruiker drukt op wat hij ziet" (V11.17.82) gaat over
+  // TIMING — niet wachten tot de camera bijgetrokken is — niet over welke node
+  // de data krijgt. Het pleit hier dus niet voor ombuigen.
+  //
+  // null slaat de toets over: dan staat er geen knoppenrij achter deze tik en
+  // is er niets om tegen te vergelijken.
+  // V11.17.89: één meting voor de hele tik. De klopte-poort, de bijna-poort en
+  // het record dat straks weggeschreven wordt keken alle drie apart op de klok;
+  // nu delen ze dezelfde momentopname. Zelfde reden als in
+  // updateBevestigKnopStaat, en het maakt het weggeschreven record consistent
+  // met de poort die hem doorliet.
+  const _mom = meetBevestigMoment();
+  if (bevestigVoorNodeId !== null && bevestigVoorNodeId !== String(dichtstbijOSM.id)) {
+    logOpslagMis('bevestig_node_gewisseld', {
+      node: bevestigVoorNodeId,          // waar de knoppen voor verschenen
+      nieuw: String(dichtstbijOSM.id)    // waar de tik anders geland was
+    });
+    bevestigActief = false;
+    bevestigVoorNodeId = null;
+    bevestigWrap.classList.remove('actief');
+    return;
+  }
   // V11.17.62 W3: tijdens de zandloper is KLOPTE geen geldige uitspraak meer.
   // Volledig negeren, niet alleen het leren overslaan: het record in
   // sl_bevestig_ voedt óók berekenBevestigScore, waar 'klopte' +1 telt en de
@@ -8012,7 +8094,7 @@ function bevestigCountdown(categorie) {
   // Beide paden loggen, met een eigen reden, zodat achteraf meetbaar is hoe
   // vaak deze uitzondering gebruikt wordt. Zonder dat onderscheid is niet te
   // zien of de reparatie werkt.
-  if (categorie === 'klopte' && klopteIsNoOp()) {
+  if (categorie === 'klopte' && klopteIsNoOp(_mom)) {
     const _kr = overschrNulRef();
     const _dur = _kr ? (Date.now() - _kr.t) / 1000 : null;
     if (aiKleur === 'groen') {
@@ -8024,6 +8106,43 @@ function bevestigCountdown(categorie) {
       logOpslagMis('bevestig_klopte_inert', {
         node: dichtstbijOSM.id, dur: _dur
       });
+      return;
+    }
+  }
+  // ── V11.17.89: DEZELFDE POORT VOOR EEN GEDEMPTE BIJNA ──────
+  // © 2026 StoplichtIQ — Y. Lemaalem
+  //
+  // bijnaIsNoOp (r4384) bestond al, maar stuurde alleen de WEERGAVE. Een tik op
+  // een gedempte BIJNA kwam gewoon door, belandde in sl_bevestig_ en telde in
+  // berekenBevestigScore voor +0,5 (r3093) — alleen de correctie in
+  // verwerkBevestigLeren werd overgeslagen. Dat is een echte asymmetrie tussen
+  // "de knop ziet er niet-van-toepassing uit" en "de knop registreert niets".
+  // Zolang de knoppen alleen bij stilstand in beeld stonden was zo'n tik
+  // zeldzaam; sinds V11.17.78 staan ze er ook tijdens het rijden.
+  //
+  // DE aiKleur-UITZONDERING IS GEEN KOPIEERWERK MAAR NOODZAAK. In de zandloper
+  // ('rood-na-nul', r4574) is overschrMs een DOORLOPENDE ondergrens — de code
+  // zegt dat zelf op r4456. Valt groen 9 s na nul (= 'bijna') en tikt de
+  // gebruiker 2 s later door reactietijd plus cameravertraging, dan staat
+  // overschrMs op 11 s en luidt de indeling 'fout': BIJNA gedempt terwijl de
+  // waarheid 'bijna' was. Dat is exact de fout die V11.17.82 voor KLOPTE
+  // repareerde, alleen aan de BOVENgrens in plaats van de ondergrens. Zonder
+  // deze uitzondering zou deze release die fout op de andere knop herhalen.
+  //
+  // De twee voor-nul-toestanden hoeven niet apart: bijnaIsNoOp geeft daar
+  // onvoorwaardelijk false terug (r4386) en de poort vuurt dus niet. Die
+  // uitzondering blijft ongemoeid — dat is Countdown Release B (RV3).
+  //
+  // FOUT heeft geen poort en krijgt er ook geen (RV2): dat is de enige uitspraak
+  // die in elke toestand inhoudelijk waar kán zijn.
+  if (categorie === 'bijna' && bijnaIsNoOp(_mom)) {
+    const _br = overschrNulRef();
+    const _bdur = _br ? (Date.now() - _br.t) / 1000 : null;
+    if (aiKleur === 'groen') {
+      logOpslagMis('bevestig_bijna_vroeg', { node: dichtstbijOSM.id, dur: _bdur });
+      // bewust GEEN return: de camera ziet het groen al, de gebruiker heeft gelijk.
+    } else {
+      logOpslagMis('bevestig_bijna_inert', { node: dichtstbijOSM.id, dur: _bdur });
       return;
     }
   }
@@ -8062,7 +8181,6 @@ function bevestigCountdown(categorie) {
   // observerend — zie meetBevestigMoment voor wat elk veld per toestand
   // betekent. autoVerschilMs blijft ongewijzigd naast deze velden staan zodat
   // oude en nieuwe records vergelijkbaar blijven.
-  const _mom = meetBevestigMoment();
   data.push({
     ts: nu,
     categorie,
@@ -8137,6 +8255,7 @@ function bevestigCountdown(categorie) {
     );
   }
   bevestigActief = false;
+  bevestigVoorNodeId = null;   // V11.17.89
   bevestigWrap.classList.remove('actief');
   // V11.13.0: markeer deze rode fase als afgehandeld zodat tickCd() de
   // bevestigknoppen niet opnieuw toont in deze of een volgende cycle.
@@ -12813,6 +12932,7 @@ function updateDichtbij(lat, lon) {
     if (!sessionHersteld) { bboxAnchorCx = null; bboxAnchorCy = null; bboxAnchorTijd = 0; }
     // W3: reset bevestig state bij node-wissel
     bevestigActief = false; cdBereikteNul = false;
+    bevestigVoorNodeId = null;   // V11.17.89
     bevestigWrap.classList.remove('actief');
     resetRijrichtingState('node-wissel');   // V11.17.56
     // V10.0.3: Richtingkeuze lock vervalt alleen bij echte node-wissel (>60m van locked node + snelheid)
@@ -12992,6 +13112,7 @@ function corrigeerNodeAutomatisch(nieuweNode, reden) {
   cdPill.classList.remove('actief');
   activeCdModus = null; activeCdMin = null; activeCdMax = null;
   bevestigActief = false; cdBereikteNul = false;
+  bevestigVoorNodeId = null;   // V11.17.89
   bevestigWrap.classList.remove('actief');
   correctieMultiframe = null; wachtGroenIntentie = null;
   vorigeFaseVoorRood = null;

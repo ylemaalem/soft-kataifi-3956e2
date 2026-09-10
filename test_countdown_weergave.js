@@ -46,7 +46,7 @@ function testCountdownWeergave() {
     fase, cdStart, cdWallStart, cdWallNodeId, activeCdDoel, activeCdModus,
     activeCdMin, activeCdMax, cdBereikteNul, countdownNulTijd, groenStart,
     dichtstbijOSM, huidigCdBron, huidigCdWaarde, aiKleur, aiTeller,
-    bevestigActief, bevInertStaat, richtingLockKeuze,
+    bevestigActief, bevestigVoorNodeId, bevInertStaat, richtingLockKeuze,
     v9PreSelectieAfrij, osmVoorspellingActief, snelheidKmh,
     getal: cdPillGetal.textContent, label: cdPillLabel.textContent,
     pillClass: cdPill.className, wrapClass: bevestigWrap.className
@@ -62,6 +62,7 @@ function testCountdownWeergave() {
   // bepaalCdModus ze zou opleveren (r2870-2872), inclusief de klem op cdMin.
   function zetVaag(gem, band, verS) {
     dichtstbijOSM = { id: NODE, lat: 52, lon: 5, afstand: 12, naam: 'TEST-CW' };
+    bevestigVoorNodeId = String(NODE);   // V11.17.89: hoort bij de knoppenrij, zoals tickCd het zet
     fase = 'rood';
     cdStart = performance.now() - verS * 1000;
     cdWallStart = Date.now() - verS * 1000;
@@ -137,6 +138,7 @@ function testCountdownWeergave() {
     function zetInert() {
       zetLS('sl_bevestig_' + NODE, null);
       dichtstbijOSM = { id: NODE, lat: 52, lon: 5, afstand: 12, naam: 'TEST-CW' };
+      bevestigVoorNodeId = String(NODE);   // V11.17.89: hoort bij de knoppenrij, zoals tickCd het zet
       fase = 'rood';
       cdBereikteNul = true;
       countdownNulTijd = Date.now() - 30000;    // ver buiten BEV_BIJNA_MAX_MS
@@ -195,6 +197,7 @@ function testCountdownWeergave() {
     // ══ T10 — RV4: KLOPTE en BIJNA nooit tegelijk fel ═════════
     const zet = (toestand, overschrMs) => {
       dichtstbijOSM = { id: NODE, lat: 52, lon: 5, afstand: 12, naam: 'TEST-CW' };
+      bevestigVoorNodeId = String(NODE);   // V11.17.89: hoort bij de knoppenrij, zoals tickCd het zet
       cdWallStart = null; cdWallNodeId = null;
       groenStart = null; cdStart = null; activeCdDoel = 0;
       if (toestand === 'rood-voor-nul') {

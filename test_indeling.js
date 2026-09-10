@@ -129,6 +129,12 @@ function testIndeling() {
     schaduwCountdownNul = { m1:null,m2:null,m3:null,m4:null };
     opzet();
     bevestigActief = true;
+    // V11.17.89: tickCd zet dit id altijd samen met bevestigActief (r7973/7983).
+    // De fixture deed alleen het eerste, en liet daardoor een id van een vorige
+    // toets staan — een toestand die in productie niet kan bestaan. De
+    // node-toets in bevestigCountdown weigerde de tik dan terecht.
+    bevestigVoorNodeId = '222222';
+    aiKleur = 'rood';   // expliciet: de aiKleur-uitzondering mag hier niet meespelen
     bevestigCountdown('bijna');
     let arr = []; try { arr = JSON.parse(localStorage.getItem(v4)) || []; } catch(e) {}
     const geschreven = arr.filter(m => m.bron === 'bevestig_bijna');
@@ -141,6 +147,28 @@ function testIndeling() {
     return geschreven[0] || null;
   };
 
+  // V11.17.89: variant van schrijfTest voor een tik die door de BIJNA-poort
+  // wordt geweigerd — dan is er geen correctie én geen bevestigrecord.
+  const schrijfTestGeblokkeerd = (naam, opzet) => {
+    localStorage.removeItem(sleutel);
+    const nu2 = Date.now();
+    localStorage.setItem(v4, JSON.stringify(
+      [0,1,2,3].map(i => ({ duur: 40, tijd: nu2 - i * 3600000, richting: 0, obs: 40, gewicht: 0.89, bron: 's1' }))));
+    dichtstbijOSM = { id: 222222, lat: 52, lon: 5, afstand: 20, naam: 'TEST' };
+    huidigCdBron = 'test'; huidigCdWaarde = 40; snelheidKmh = 0;
+    schaduwWaarden = { m1:null,m2:null,m3:null,m4:null };
+    schaduwCountdownNul = { m1:null,m2:null,m3:null,m4:null };
+    opzet();
+    bevestigActief = true; bevestigVoorNodeId = '222222'; aiKleur = 'rood';
+    bevestigCountdown('bijna');
+    let arr = []; try { arr = JSON.parse(localStorage.getItem(v4)) || []; } catch(e) {}
+    let bev = []; try { bev = JSON.parse(localStorage.getItem(sleutel)) || []; } catch(e) {}
+    eis(naam,
+        arr.filter(m => m.bron === 'bevestig_bijna').length === 0 && bev.length === 0,
+        'geen correctie, geen tik gelogd',
+        arr.filter(m => m.bron === 'bevestig_bijna').length + ' correcties, ' + bev.length + ' tik gelogd');
+  };
+
   const g1 = schrijfTest('T9 groen 5s na nul: correctie geschreven',
     () => groenNaNul(5, 0.5), true);
   eis('T9b correctie is gem + overschrijding, niet gem + tikafstand',
@@ -151,7 +179,13 @@ function testIndeling() {
   schrijfTest('T11 zandloper (rood na nul): GEEN correctie, waarde nog niet definitief',
     () => { fase = 'rood'; cdBereikteNul = true; countdownNulTijd = Date.now() - 5000;
             groenStart = null; cdStart = null; activeCdDoel = 40; }, false);
-  schrijfTest('T12 groen 25s na nul (FOUT-band): GEEN bijna-correctie',
+  // V11.17.89: DEZE VERWACHTING IS OMGEDRAAID. Tot deze release werd een tik op
+  // een GEDEMPTE bijna wel degelijk weggeschreven — alleen de correctie bleef
+  // uit. Dat was precies de asymmetrie die release F opheft: de knop ziet er
+  // niet-van-toepassing uit én registreert nu ook niets. 25 s na nul valt in de
+  // FOUT-band, dus bijnaIsNoOp is waar en de poort blokkeert de hele tik.
+  // De oude verwachting (bev.length === 1) legde de bug vast, niet het gedrag.
+  schrijfTestGeblokkeerd('T12 groen 25s na nul (FOUT-band): de tik wordt helemaal geweigerd',
     () => groenNaNul(25, 0.5), false);
 
   // ── opruimen ──────────────────────────────────────────────────

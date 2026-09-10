@@ -204,9 +204,14 @@ function testNodewissel() {
       && /cdStart = performance\.now\(\) - sessie\.cdElapsed/.test(udBron)
       && /cdPill\.classList\.add\('actief'\)/.test(udBron),
       'alle vier de toewijzingen ongewijzigd', 'ongewijzigd');
+  // V11.17.89: de poort krijgt sinds deze release het al gemeten moment mee
+  // (klopteIsNoOp(_mom) in plaats van klopteIsNoOp()), zodat beide poorten
+  // dezelfde klokmeting delen. De wacht toetst nu de VORM — poort plus
+  // aiKleur-uitzondering plus beide logredenen — en niet meer de exacte haakjes.
   eis('T6c het bevestigpad is niet aangeraakt: de KLOPTE-poort staat er nog',
-      /categorie === 'klopte' && klopteIsNoOp\(\)/.test(zc(bevestigCountdown))
-      && /aiKleur === 'groen'/.test(zc(bevestigCountdown)),
+      /categorie === 'klopte' && klopteIsNoOp\(/.test(zc(bevestigCountdown))
+      && /aiKleur === 'groen'/.test(zc(bevestigCountdown))
+      && /bevestig_klopte_inert/.test(zc(bevestigCountdown)),
       'KLOPTE-poort uit V11.17.82 intact', 'intact');
   eis('T6d tickCd toont de bevestigknoppen nog op dezelfde twee voorwaarden',
       /cdPillActief && fase === 'rood'/.test(zc(tickCd))
