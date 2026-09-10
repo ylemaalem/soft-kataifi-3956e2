@@ -694,7 +694,7 @@
 <div id="startscherm">
   <div id="s-icoon">🚦</div>
   <div id="s-titel">Stoplicht<span>IQ</span></div>
-  <div id="s-versie">V11.17.91 — samenvoegen telt weer mee</div>
+  <div id="s-versie">V11.17.92 — verloren metingen hersteld</div>
   <div id="s-model-wrap">
     <div id="s-model-rij">
       <div id="s-model-label">🤖 YOLOv8 model laden…</div>
@@ -919,7 +919,7 @@
 
 <script>
 // ═══════════════════════════════════════════════════════════════
-//  StoplichtIQ V11.17.91
+//  StoplichtIQ V11.17.92
 //  V11.10: Zelfkalibratie + vergrendeling + crop smoothing
 //  — S1+S2 bevestiging (kruispunt-level confidence)
 //  — Route-herkenning basis (sequentie-opslag)
@@ -2707,6 +2707,120 @@ function slaOpV5(nodeId, aanrij, afrij, dd, duur, gewicht, zagOvergang=null, bro
 // hadden moeten staan; bij een botsing worden ze samengevoegd en op tijd
 // ontdubbeld. Eenmalig, geguard op een vlag, en het resultaat gaat naar
 // sl_opslaglog zodat achteraf te zien is wat er gebeurd is.
+// ── V11.17.92: DE WEZEN UIT HET GAT TUSSEN D2 EN RELEASE 1 ──
+// © 2026 StoplichtIQ — Y. Lemaalem
+//
+// Tussen V11.17.85 (D2) en V11.17.91 (release 1) verwijderde "samenvoegen met
+// Algemeen" de V5-bron zonder het rv-stempel van de V4-tweelingen te halen. Die
+// metingen telden daarna nergens meer: niet in de richting (V5 weg), niet in
+// Algemeen (rv:1 wordt overgeslagen). Release 1 repareert dat vanaf nu, maar
+// niet met terugwerkende kracht. Dit is die terugwerkende kracht, één keer.
+//
+// WAAROM DIT NIET VOORAF TE TELLEN WAS. De wezen staan in de localStorage van
+// het toestel. De nieuwste beschikbare export loopt tot 28 augustus en D2 kwam
+// op 8 september; in geen enkele export staat dus één rv-record. De telling kan
+// alleen draaien waar de data staat, en daarom zit de poort hier in de code:
+// pas 1 telt zonder iets te schrijven, pas 2 repareert alleen wat pas 1
+// ondubbelzinnig als wees aanwees. Vindt pas 1 niets, dan gebeurt er niets.
+//
+// HET WEES-CRITERIUM, EN WAAROM HET CONSERVATIEF IS
+//   rv === 1        het record is ooit als richting-verwant gestempeld
+//   rvK == null     het is gestempeld VÓÓR release 1 — records met rvK dragen hun
+//                   richting zelf en worden door herstelRvVoorMerge afgehandeld
+//   én er bestaat op deze node GEEN ENKEL V5-record meer met dezelfde afgeronde
+//   duur — in geen enkele emmer, geen enkel dagdeel, geen enkele richting
+//
+// Die laatste voorwaarde is de rem. Bestaat er nog wél een V5-record met die
+// duur, dan kan dit V4-record daarbij horen én bij een verdwenen emmer, en is
+// niet te zeggen welke. Dan blijft het met rust — hetzelfde inhouden bij twijfel
+// dat herstelRvVoorMerge doet. Liever een wees die gestempeld blijft dan een
+// meting die in twee categorieën tegelijk gaat meetellen.
+//
+// WAT ER GEBEURT IS ÉÉN VLAGGETJE WEG. Duur, tijd, gewicht, bron en alle andere
+// velden blijven ongemoeid; er wordt niets verplaatst, samengevoegd of gewist.
+function migratieRvWezen() {
+  try {
+    if (localStorage.getItem('sl_rvwees_v1') === 'done') return;
+
+    // ── pas 1: TELLEN, zonder één schrijfactie ──────────────
+    // Eerst alle duren die op een node nóg in V5 staan.
+    const v5Duren = new Map();
+    for (const key of Object.keys(localStorage)) {
+      const m = key.match(/^sl_v5_(.+)_([A-Z]{1,2})_([A-Z]{1,2})_(ochtend|dag|avond|nacht)$/);
+      if (!m) continue;
+      let arr; try { arr = JSON.parse(localStorage.getItem(key)); } catch(e) { continue; }
+      if (!Array.isArray(arr)) continue;
+      if (!v5Duren.has(m[1])) v5Duren.set(m[1], new Set());
+      for (const x of arr) if (x && typeof x.duur === 'number') v5Duren.get(m[1]).add(Math.round(x.duur));
+    }
+    const teHerstellen = [];   // { key, index } — pas 2 schrijft pas hierna
+    let metRvK = 0, nogGekoppeld = 0;
+    const nodes = new Set();
+    for (const key of Object.keys(localStorage)) {
+      const m = key.match(/^sl_v4_(.+)_(ochtend|dag|avond|nacht)$/);
+      if (!m) continue;
+      let arr; try { arr = JSON.parse(localStorage.getItem(key)); } catch(e) { continue; }
+      if (!Array.isArray(arr)) continue;
+      const duren = v5Duren.get(m[1]) || new Set();
+      for (let i = 0; i < arr.length; i++) {
+        const rec = arr[i];
+        if (!rec || rec.rv !== 1) continue;
+        if (rec.rvK != null) { metRvK++; continue; }                       // na release 1: niet van ons
+        if (typeof rec.duur !== 'number') { nogGekoppeld++; continue; }    // vorm onbekend: met rust
+        if (duren.has(Math.round(rec.duur))) { nogGekoppeld++; continue; } // twijfel: met rust
+        teHerstellen.push({ key, index: i });
+        nodes.add(m[1]);
+      }
+    }
+
+    // De telling gaat het log in VÓÓR er iets geschreven wordt, zodat hij ook
+    // landt als pas 2 op een vol quotum stukloopt.
+    logOpslagMis('rv_wezen_geteld', {
+      rvHer: teHerstellen.length, rvOnb: nogGekoppeld, rvExact: metRvK });
+    console.log('[RV-WEZEN] gevonden=' + teHerstellen.length + ' nodes=' + nodes.size
+      + ' nog-gekoppeld=' + nogGekoppeld + ' met-rvK=' + metRvK);
+
+    // ── pas 2: REPAREREN, alleen wat pas 1 aanwees ──────────
+    let hersteld = 0;
+    if (teHerstellen.length) {
+      const perSleutel = new Map();
+      for (const t of teHerstellen) {
+        if (!perSleutel.has(t.key)) perSleutel.set(t.key, []);
+        perSleutel.get(t.key).push(t.index);
+      }
+      for (const [key, indices] of perSleutel) {
+        let arr; try { arr = JSON.parse(localStorage.getItem(key)); } catch(e) { continue; }
+        if (!Array.isArray(arr)) continue;
+        let raak = 0;
+        for (const i of indices) {
+          const rec = arr[i];
+          if (!rec || rec.rv !== 1 || rec.rvK != null) continue;   // tussentijds veranderd: overslaan
+          delete rec.rv;
+          raak++;
+        }
+        if (!raak) continue;
+        try { localStorage.setItem(key, JSON.stringify(arr)); hersteld += raak; }
+        catch(e) { /* vol: laat deze emmer staan, de vlag hieronder blijft ongezet */ }
+      }
+    }
+
+    // De vlag gaat alleen om als ALLES gelukt is. Struikelde pas 2 op een vol
+    // quotum, dan blijft hij ongezet en probeert de volgende start opnieuw.
+    if (hersteld === teHerstellen.length) localStorage.setItem('sl_rvwees_v1', 'done');
+    if (hersteld > 0) {
+      // Alleen rvHer. rvExact betekent in het merge-log "via de exacte
+      // rvK-verwijzing" (r1947); daar het aantal nodes in schuiven zou die
+      // kolom in de export twee onverenigbare dingen laten zeggen. Het
+      // node-aantal staat in leerLog en op de console.
+      logOpslagMis('rv_wezen_hersteld', { rvHer: hersteld });
+      leerLog('rv-wezen: ' + hersteld + ' metingen op ' + nodes.size
+        + ' kruispunt(en) tellen weer mee bij Algemeen');
+    }
+    console.log('[RV-WEZEN] hersteld=' + hersteld + ' van ' + teHerstellen.length
+      + ' nodes=' + nodes.size);
+  } catch(e) { console.warn('[RV-WEZEN] overgeslagen:', e); }
+}
+
 function migratieAfrijConventie() {
   try {
     if (localStorage.getItem('sl_afrijmig_v1') === 'done') return;
@@ -5456,6 +5570,7 @@ laadONNXModel();
 
 saneerS2Nullen(); // V11.17.15 richting C: eenmalige opschoning vóór KP-telling
 migratieAfrijConventie(); // V11.17.70: eenmalige correctie van de afrij-conventie
+migratieRvWezen();        // V11.17.92: eenmalig, zie daar
 
 const aantalKP = telKP();
 const sGehInfo = document.getElementById('s-geh-info');
