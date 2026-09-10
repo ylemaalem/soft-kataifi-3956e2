@@ -27,6 +27,11 @@
 //  tekortkoming maar de reden dat de hoekroute in checkNodeCorrectieStilstand
 //  bestaat — die heeft de bounce-guard van 10s en de stabiliteitseis.
 //
+//  T21 tot en met T26 zijn V11.17.90: de MEETfunctie voor de band die geen
+//  correctieroute dekt (verschil tussen NODE_HOEK_GELIJK_M en
+//  NODE_CHK_CORRECTIE_MARGE_M). Puur observerend — T26 bewaakt dat er geen
+//  drempel, gewicht of correctiepad door die meting is aangeraakt.
+//
 //  T11 tot en met T14 toetsen die tweede route apart, inclusief de dode zone
 //  3 <= kmh < 5 waarin het gemeten geval viel.
 //
@@ -337,7 +342,110 @@ function testNodescore() {
           String(dichtstbijOSM.id) === String(A_ID) ? 'A' : 'B');
     })();
 
+    // ══ T21-T26 — V11.17.90: DE METING VAN DE ONGEDEKTE BAND ══
+    // Puur observerend. Deze toetsen bewaken dat hij meet wat hij moet meten
+    // én dat hij verder niets aanraakt.
+    const wisLog = () => localStorage.removeItem('sl_opslaglog');
+    const afwRegels = () => { try {
+      return (JSON.parse(localStorage.getItem('sl_opslaglog')) || [])
+        .filter(r => r.reden === 'stilstand_node_afwijking');
+    } catch (e) { return []; } };
+    const zetAfwijking = (gekozenAf, closestAf, kmh) => {
+      stilstandAfwijkingSleutel = null; stilstandAfwijkingTijd = 0;
+      snelheidKmh = kmh;
+      dichtstbijOSM         = { id: 960027, lat: 52, lon: 5, afstand: gekozenAf, naam: 'GEKOZEN' };
+      puurDichtsteNodeCache = { id: 960017, lat: 52, lon: 5, afstand: closestAf, naam: 'DICHTST' };
+    };
+
+    // Het screenshotgeval: 27 m gekozen, 17 m dichtstbij, stilstand.
+    wisLog();
+    zetAfwijking(27, 17, 0);
+    meetStilstandNodeAfwijking();
+    const r15 = afwRegels();
+    eis('T21 stilstand met een afwijking levert één logregel',
+        r15.length === 1, '1 regel', r15.length + ' regels');
+    eis('T21b de regel draagt de gekozen node, de dichtstbijzijnde en beide afstanden',
+        r15.length === 1 && String(r15[0].node) === '960027'
+        && String(r15[0].closestId) === '960017'
+        && r15[0].afst === 27 && r15[0].closestAf === 17,
+        'node 960027 @27m, closest 960017 @17m',
+        r15.length ? ('node ' + r15[0].node + ' @' + r15[0].afst + 'm, closest '
+          + r15[0].closestId + ' @' + r15[0].closestAf + 'm') : '-');
+    eis('T21c en het verschil staat er expliciet in (10 m — midden in de ongedekte band)',
+        r15.length === 1 && r15[0].afwM === 10, 'afwM=10',
+        r15.length ? ('afwM=' + r15[0].afwM) : '-');
+    eis('T21d met de snelheid erbij, zodat stilstand achteraf te bevestigen is',
+        r15.length === 1 && r15[0].kmh === 0, 'kmh=0',
+        r15.length ? ('kmh=' + r15[0].kmh) : '-');
+
+    // Tijdens RIJDEN mag hij niet vuren.
+    const rijdend = [];
+    for (const kmh of [NODE_CHK_STANDSTILL_KMH, NODE_CHK_STANDSTILL_KMH + 1, 12, 30, 50]) {
+      wisLog(); zetAfwijking(27, 17, kmh); meetStilstandNodeAfwijking();
+      if (afwRegels().length) rijdend.push(kmh + ' km/u');
+    }
+    eis('T22 boven de stilstandsdrempel vuurt hij niet',
+        rijdend.length === 0, 'geen enkele',
+        rijdend.length ? ('vuurde bij ' + rijdend.join(', ')) : 'geen enkele');
+
+    // Staat de JUISTE node actief, dan is er niets te melden.
+    wisLog();
+    zetAfwijking(17, 17, 0);
+    puurDichtsteNodeCache = { id: 960027, lat: 52, lon: 5, afstand: 17, naam: 'DICHTST' };
+    meetStilstandNodeAfwijking();
+    eis('T23 staat de dichtstbijzijnde node al actief, dan wordt er niets gelogd',
+        afwRegels().length === 0, '0 regels', afwRegels().length + ' regels');
+
+    // De volledige verdeling, niet alleen de 5-20 m-band.
+    wisLog();
+    for (const [g, c] of [[19, 17], [27, 17], [45, 17]]) {   // 2 m, 10 m, 28 m
+      zetAfwijking(g, c, 0); meetStilstandNodeAfwijking();
+    }
+    const verd = afwRegels().map(r => r.afwM).sort((a, b) => a - b);
+    eis('T24 elk verschil > 0 wordt gelogd, ook buiten de 5-20 m-band',
+        verd.length === 3 && verd[0] === 2 && verd[1] === 10 && verd[2] === 28,
+        '2, 10 en 28 m', verd.join(', ') + ' m');
+
+    // Per episode, niet per tick: MAX_OPSLAGLOG is 500 en 1 Hz zou dat vullen.
+    wisLog();
+    zetAfwijking(27, 17, 0);
+    for (let i = 0; i < 40; i++) meetStilstandNodeAfwijking();
+    eis('T25 veertig GPS-ticks op dezelfde afwijking geven één regel, geen veertig',
+        afwRegels().length === 1, '1 regel', afwRegels().length + ' regels');
+    dichtstbijOSM = { id: 960099, lat: 52, lon: 5, afstand: 27, naam: 'ANDER' };
+    meetStilstandNodeAfwijking();
+    eis('T25b een andere nodecombinatie telt wel als nieuwe episode',
+        afwRegels().length === 2, '2 regels', afwRegels().length + ' regels');
+
+    // ══ T20 — REGRESSIEWACHT: ALLEEN METEN ════════════════
+    const zcM = (f) => String(f).replace(/\/\*[\s\S]*?\*\//g, ' ').replace(/\/\/.*/g, ' ');
+    const mBron = zcM(meetStilstandNodeAfwijking);
+    eis('T26 de meetfunctie schrijft alleen naar het log en verandert geen staat',
+        /logOpslagMis\('stilstand_node_afwijking'/.test(mBron)
+        && !/dichtstbijOSM =/.test(mBron)
+        && !/corrigeerNodeAutomatisch/.test(mBron)
+        && !/puurDichtsteNodeCache =/.test(mBron),
+        'alleen logOpslagMis', 'alleen logOpslagMis');
+    eis('T26b de drempels zijn onaangeroerd',
+        NODE_CHK_CORRECTIE_MARGE_M === 20 && NODE_HOEK_GELIJK_M === 5
+        && NODE_HOEK_MIN_AFSTAND_M === 12 && NODE_CHK_STANDSTILL_KMH === 3,
+        'marge 20, gelijk 5, minafstand 12, stilstand 3',
+        [NODE_CHK_CORRECTIE_MARGE_M, NODE_HOEK_GELIJK_M,
+         NODE_HOEK_MIN_AFSTAND_M, NODE_CHK_STANDSTILL_KMH].join(', '));
+    eis('T26c de scoreformule is ongewijzigd: stilstandtak zonder hoekterm',
+        /normAf \* 0\.95 \+ conf \* 0\.05/.test(zcM(vindDichtbijScore))
+        && /normAf\*0\.50 \+ normHoek\*0\.35 \+ conf\*0\.15/.test(zcM(vindDichtbijScore)),
+        'beide takken ongewijzigd', 'ongewijzigd');
+    eis('T26d de hysterese staat nog op 1,20',
+        /bestS < hr\.score \* 1\.20/.test(zcM(vindDichtbij)),
+        'x1,20', 'ongewijzigd');
+    eis('T26e checkNodeCorrectieStilstand is niet aangeraakt door de meting',
+        !/stilstand_node_afwijking/.test(zcM(checkNodeCorrectieStilstand))
+        && !/meetStilstandNodeAfwijking/.test(zcM(checkNodeCorrectieStilstand)),
+        'gescheiden', 'gescheiden');
+
   } finally {
+    stilstandAfwijkingSleutel = null; stilstandAfwijkingTijd = 0;
     osmCache = bewaard.osmCache;
     dichtstbijOSM = bewaard.dichtstbijOSM;
     vorigOsmId = bewaard.vorigOsmId;

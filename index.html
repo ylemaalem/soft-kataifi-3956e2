@@ -694,7 +694,7 @@
 <div id="startscherm">
   <div id="s-icoon">🚦</div>
   <div id="s-titel">Stoplicht<span>IQ</span></div>
-  <div id="s-versie">V11.17.89 — bevestiging op de juiste node</div>
+  <div id="s-versie">V11.17.90 — nodeafwijking geteld</div>
   <div id="s-model-wrap">
     <div id="s-model-rij">
       <div id="s-model-label">🤖 YOLOv8 model laden…</div>
@@ -919,7 +919,7 @@
 
 <script>
 // ═══════════════════════════════════════════════════════════════
-//  StoplichtIQ V11.17.89
+//  StoplichtIQ V11.17.90
 //  V11.10: Zelfkalibratie + vergrendeling + crop smoothing
 //  — S1+S2 bevestiging (kruispunt-level confidence)
 //  — Route-herkenning basis (sequentie-opslag)
@@ -1936,6 +1936,11 @@ function logOpslagMis(reden, extra) {
       // geven is.
       msGedekt: (e.msGedekt != null) ? e.msGedekt : null,
       msTotaal: (e.msTotaal != null) ? e.msTotaal : null,
+      // V11.17.90: gekozenAf min closestAf, in meters. Alleen gevuld op een
+      // 'stilstand_node_afwijking'-regel; overal elders null, dus geen enkele
+      // bestaande logregel verandert. Afleidbaar uit afst en closestAf, maar
+      // expliciet zodat de verdeling in één filterstap te maken is.
+      afwM: (e.afwM != null) ? e.afwM : null,
       // ── V11.17.76: velden voor de node-toewijzingsanalyse ──────────────
       // Puur observerend. Geen selectie-, score- of correctiepad leest ze; ze
       // bestaan om twee vragen te kunnen beantwoorden die met de huidige velden
@@ -13028,6 +13033,74 @@ function nodeChkLog(reden, gekozen, closest, gecorrigeerd) {
 // opnieuw en kan een heen-en-weer schommelende peiling nooit doortellen.
 function hoekStabielReset() { hoekStabielSleutel = null; hoekStabielTeller = 0; }
 
+// ── V11.17.90: MEET DE BAND DIE GEEN CORRECTIEROUTE DEKT ────
+// © 2026 StoplichtIQ — Y. Lemaalem
+//
+// Bij stilstand kiest vindDichtbijScore aantoonbaar de dichtstbijzijnde node
+// (r9453-9454: normAf * 0,95 + conf * 0,05, en conf spant maar 0,05). Maar
+// zodra de app ergens op ZIT houdt de hysterese (r9578) hem vast tenzij een
+// uitdager 1,20x die score haalt — en binnen ~20 m is dat wiskundig onmogelijk.
+//
+// Er zijn twee vangnetten, en die sluiten niet op elkaar aan:
+//   hoekroute        werkt tot een afstandsverschil van NODE_HOEK_GELIJK_M (5)
+//   afstandsroute    begint pas bij NODE_CHK_CORRECTIE_MARGE_M (20)
+// Alles daartussen is onherstelbaar. Drie foto's van de gebruiker zitten alle
+// drie in dat gat (17 m tegen 27 m = 10 m verschil).
+//
+// WAAROM DIT NIET AL IN sl_opslaglog STAAT. Dat log schrijft alleen op
+// OPSLAGmomenten, niet doorlopend. Sta je stil op de verkeerde node zonder dat
+// er iets wordt weggeschreven, dan ziet het log dat niet: van de 89
+// stilstandrecords in de export van 28 augustus is 74x de reden 'ok' — per
+// definitie een moment waarop het wél goed ging. De band 5-20 m komt daar nul
+// keer voor, terwijl de gebruiker er drie foto's van heeft.
+//
+// PER EPISODE, NIET PER TICK. Bij 1 Hz zou één minuut stilstaan 60 records
+// schrijven — 12% van MAX_OPSLAGLOG (500), en dan duwt de meting precies de
+// records weg die ze nodig heeft. Bovendien is per episode BETERE steekproef:
+// de vraag is hoe vaak en hoe ver de selectie ernaast zit, niet hoe lang iemand
+// toevallig voor rood stond. Een lang wachten zou de verdeling anders
+// overwegen. Herhaling na STILSTAND_AFWIJKING_HERHAAL_MS houdt zicht op een
+// afwijking die blijft staan, zonder de rest weg te drukken.
+//
+// NA checkNodeCorrectieStilstand aangeroepen (r13327), niet ervoor: zo telt hij
+// alleen wat de bestaande routes hebben LATEN STAAN. Vuurt een van beide, dan
+// is dichtstbijOSM al gelijk aan de closest en slaat deze functie over.
+let stilstandAfwijkingSleutel = null;
+let stilstandAfwijkingTijd    = 0;
+const STILSTAND_AFWIJKING_HERHAAL_MS = 30000;
+
+function meetStilstandNodeAfwijking() {
+  if (typeof snelheidKmh !== 'number' || snelheidKmh >= NODE_CHK_STANDSTILL_KMH) {
+    stilstandAfwijkingSleutel = null; return;
+  }
+  if (!dichtstbijOSM || !puurDichtsteNodeCache) { stilstandAfwijkingSleutel = null; return; }
+  if (String(puurDichtsteNodeCache.id) === String(dichtstbijOSM.id)) {
+    stilstandAfwijkingSleutel = null; return;    // de goede node staat actief
+  }
+  const gekozenAf = dichtstbijOSM.afstand, closestAf = puurDichtsteNodeCache.afstand;
+  if (typeof gekozenAf !== 'number' || typeof closestAf !== 'number') return;
+  const verschil = gekozenAf - closestAf;
+  // Bewust GEEN drempel op het verschil: juist de volledige verdeling
+  // (0-5, 5-20, 20+) moet zichtbaar worden, anders is niet te onderbouwen
+  // waar NODE_CHK_CORRECTIE_MARGE_M straks zou moeten liggen.
+  if (!(verschil > 0)) { stilstandAfwijkingSleutel = null; return; }
+  const sleutel = String(dichtstbijOSM.id) + '>' + String(puurDichtsteNodeCache.id);
+  const nu = Date.now();
+  if (sleutel === stilstandAfwijkingSleutel
+      && (nu - stilstandAfwijkingTijd) < STILSTAND_AFWIJKING_HERHAAL_MS) return;
+  stilstandAfwijkingSleutel = sleutel;
+  stilstandAfwijkingTijd = nu;
+  // node/afst gaan expliciet mee; closestId, closestAf, kmh, hdg, peilGek en
+  // peilDicht vult logOpslagMis zelf in uit dezelfde twee caches (r1872-1944).
+  // peilGek/peilDicht beantwoorden meteen de oude vraag of de gekozen node
+  // vóór of achter de bestuurder lag.
+  logOpslagMis('stilstand_node_afwijking', {
+    node: String(dichtstbijOSM.id),
+    afst: gekozenAf,
+    afwM: Math.round(verschil)
+  });
+}
+
 function checkNodeCorrectieStilstand(lat, lon) {
   // 1. snelheidsdrempel — V11.17.79: twee routes, twee grenzen. De bestaande
   //    afstandsroute blijft op NODE_CHK_STANDSTILL_KMH (3); de hoekroute mag tot
@@ -13292,6 +13365,7 @@ async function onGPS(pos) {
   // en dichtstbijOSM.afstand vers zijn. Zelf gated op stilstand + duur +
   // veiligheidsregel — draait vaak leeg maar is goedkoop.
   if (cacheGeladen) checkNodeCorrectieStilstand(lat, lon);
+  if (cacheGeladen) meetStilstandNodeAfwijking();   // V11.17.90: zie daar
   refreshStadIndienNodig(lat, lon);
 
   // V9.0: Nadering detectie + delayed write
