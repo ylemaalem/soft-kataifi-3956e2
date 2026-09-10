@@ -694,7 +694,7 @@
 <div id="startscherm">
   <div id="s-icoon">🚦</div>
   <div id="s-titel">Stoplicht<span>IQ</span></div>
-  <div id="s-versie">V11.17.90 — nodeafwijking geteld</div>
+  <div id="s-versie">V11.17.91 — samenvoegen telt weer mee</div>
   <div id="s-model-wrap">
     <div id="s-model-rij">
       <div id="s-model-label">🤖 YOLOv8 model laden…</div>
@@ -919,7 +919,7 @@
 
 <script>
 // ═══════════════════════════════════════════════════════════════
-//  StoplichtIQ V11.17.90
+//  StoplichtIQ V11.17.91
 //  V11.10: Zelfkalibratie + vergrendeling + crop smoothing
 //  — S1+S2 bevestiging (kruispunt-level confidence)
 //  — Route-herkenning basis (sequentie-opslag)
@@ -1941,6 +1941,15 @@ function logOpslagMis(reden, extra) {
       // bestaande logregel verandert. Afleidbaar uit afst en closestAf, maar
       // expliciet zodat de verdeling in één filterstap te maken is.
       afwM: (e.afwM != null) ? e.afwM : null,
+      // ── V11.17.91: het herstel bij samenvoegen met Algemeen ─────
+      // Alleen gevuld op een 'merge_rv_hersteld'-regel; overal elders null.
+      // rvHer is het aantal V4-records dat zijn stempel verloor en dus weer
+      // meetelt, rvExact hoeveel daarvan via de exacte rvK-verwijzing ging, en
+      // rvOnb hoeveel er niet eenduidig toe te wijzen waren en bewust
+      // gestempeld bleven.
+      rvHer:   (e.rvHer   != null) ? e.rvHer   : null,
+      rvExact: (e.rvExact != null) ? e.rvExact : null,
+      rvOnb:   (e.rvOnb   != null) ? e.rvOnb   : null,
       // ── V11.17.76: velden voor de node-toewijzingsanalyse ──────────────
       // Puur observerend. Geen selectie-, score- of correctiepad leest ze; ze
       // bestaan om twee vragen te kunnen beantwoorden die met de huidige velden
@@ -2614,7 +2623,11 @@ function laadMV5Geclusterd(nodeId, aanrij, afrij, dd) {
 // staat. berekenLeerPct gooit alle dagdelen op één hoop, dus één van de twee
 // stempelen zou de opblazing half laten staan — en onzichtbaar half, wat erger
 // is dan niet. Zeldzaam: 3 paren op 4.337 records in de export (0,14%).
-function stempelV4Richtingverwant(nodeId, stempels) {
+// V11.17.91: `paarKey` (aanrij_afrij) gaat mee als rvK. D2 wist bij het
+// stempelen precies bij welke richting een V4-record hoorde, maar bewaarde dat
+// niet — en zonder die verwijzing is bij een merge later niet meer vast te
+// stellen welke records mee moeten verhuizen. Zie herstelRvVoorMerge.
+function stempelV4Richtingverwant(nodeId, stempels, paarKey) {
   if (!nodeId || !Array.isArray(stempels) || !stempels.length) return 0;
   let gezet = 0;
   for (const st of stempels) {
@@ -2626,6 +2639,7 @@ function stempelV4Richtingverwant(nodeId, stempels) {
     const rec = m.find(x => x && x.tijd === st.tijd);
     if (!rec || rec.rv === 1) continue;
     rec.rv = 1;
+    if (paarKey) rec.rvK = paarKey;
     try { localStorage.setItem(sleutel, JSON.stringify(m)); gezet++; } catch(e) {}
   }
   return gezet;
@@ -4121,7 +4135,8 @@ function voerV9DelayedWriteUit(huidigeHeading, trigger = null, poort = null, onz
   // Hier, en nergens eerder: dit is het eerste punt waarop vaststaat dát er een
   // V5-record is. Zie stempelV4Richtingverwant (r2494) voor het waarom.
   if (v5Geschreven) {
-    const gezet = stempelV4Richtingverwant(v9KandidaatNode, teStempelen);
+    const gezet = stempelV4Richtingverwant(v9KandidaatNode, teStempelen,
+                                           aanrijRichting + '_' + afrijRichting);   // V11.17.91
     if (gezet > 0) {
       const t = telRichtingVerwant(v9KandidaatNode);
       logOpslagMis('v4_gemarkeerd', { node: v9KandidaatNode, dur: duur,
@@ -11471,6 +11486,98 @@ function voerMergeUit(bronKey, doelKey) {
 }
 
 // De merge-operatie met undo-snapshot en quota-rollback.
+// ── V11.17.91: HET STEMPEL VERHUIST MEE ─────────────────
+// © 2026 StoplichtIQ — Y. Lemaalem
+//
+// mergeRichtingen verwijderde bij "samenvoegen met Algemeen" alleen de V5-bron,
+// met de aantekening "verliesloos, metingen staan al in V4". Dat klopte toen
+// V11.16.2 het bouwde. Sinds D2 (V11.17.85) dragen die V4-kopieën rv:1, en de
+// drie plekken die het Algemeen-percentage berekenen slaan rv===1 over. Gevolg:
+// na een samenvoeging telden die metingen NERGENS meer — niet in de richting
+// (V5 weg), niet in Algemeen (rv:1 overgeslagen). Stil dataverlies bij elke
+// druk op de knop.
+//
+// Samenvoegen met Algemeen betekent: de meting verhuist van categorie Rechtsaf
+// naar categorie Algemeen. Dan hoort het stempel dat zegt "deze hoort bij een
+// richting" weg te gaan. Dat is wat deze functie doet.
+//
+// TWEE MANIEREN OM DE JUISTE RECORDS TE VINDEN, IN DEZE VOLGORDE
+//
+// 1. rvK — exact. Sinds V11.17.91 schrijft het stempel de richting erbij
+//    (r2597), dus een record wijst zelf aan waar het bij hoort. Geen twijfel.
+//
+// 2. duur — alleen als het ANTWOORD EENDUIDIG IS. Records die tussen D2 en
+//    deze release gestempeld zijn dragen nog geen rvK. Daarvoor wordt gezocht
+//    op de afgeronde duur van de V5-meting. Zijn er meerdere kandidaten met
+//    diezelfde duur, dan wordt er NIETS aangeraakt en telt hij als onbeslist.
+//    Liever een record dat gestempeld blijft dan een record van een andere
+//    richting dat ten onrechte naar Algemeen verhuist.
+//
+//    Bewust GEEN tijdsvenster als criterium. Het V4-record wordt geschreven bij
+//    het einde van de rode fase en het V5-record pas bij het passeren; hoe lang
+//    daartussen zit hangt af van hoe snel je wegrijdt en is nergens begrensd.
+//    Een venster zou dus een gok zijn, en een verkeerde gok haalt het stempel
+//    van het verkeerde record.
+//
+// IDEMPOTENT. Een record zonder rv:1 wordt overgeslagen, dus een tweede aanroep
+// vindt niets meer en verandert niets. Records zonder rv-veld (van vóór D2)
+// telden altijd al mee in Algemeen en worden niet aangeraakt.
+function herstelRvVoorMerge(nodeId, bron, bronMetingen) {
+  const paarKey = bron.aanrij + '_' + bron.afrij;
+  let exact = 0, viaDuur = 0, onbeslist = 0;
+  // Alle V4-emmers van deze node één keer inlezen. Een V4-tweeling kan in een
+  // ANDER dagdeel staan dan het V5-record: bij een dagdeelovergang schrijft
+  // slaOp naar twee emmers (r1934-1943) terwijl V5 er maar één kent.
+  const emmers = {};
+  for (const d of Object.keys(DD)) {
+    const sleutel = `${LS_PREFIX}${nodeId}_${d}`;
+    try {
+      const arr = JSON.parse(localStorage.getItem(sleutel));
+      if (Array.isArray(arr)) emmers[sleutel] = arr;
+    } catch (e) { /* corrupte emmer: overslaan */ }
+  }
+  const alleRecords = () => Object.values(emmers).flat();
+  const gewijzigd = new Set();
+  const ontstempel = (rec, sleutel) => { delete rec.rv; delete rec.rvK; gewijzigd.add(sleutel); };
+
+  // ── pas 1: exact, op rvK ──
+  for (const [sleutel, arr] of Object.entries(emmers)) {
+    for (const rec of arr) {
+      if (rec && rec.rv === 1 && rec.rvK === paarKey) { ontstempel(rec, sleutel); exact++; }
+    }
+  }
+
+  // ── pas 2: op duur, en alleen bij een eenduidig antwoord ──
+  // Elke V5-meting mag hooguit één V4-record ontstempelen; verbruikte records
+  // gaan in `op` zodat twee V5-metingen met dezelfde duur niet hetzelfde
+  // V4-record aanwijzen en een ander gestempeld achterlaten.
+  const op = new Set();
+  for (const v5 of (bronMetingen || [])) {
+    if (!v5 || typeof v5.duur !== 'number') continue;
+    const doelDuur = Math.round(v5.duur);
+    const kandidaten = [];
+    for (const [sleutel, arr] of Object.entries(emmers)) {
+      for (const rec of arr) {
+        if (!rec || rec.rv !== 1 || rec.rvK != null) continue;   // rvK-records deed pas 1 al
+        if (op.has(rec)) continue;
+        if (Math.round(rec.duur) === doelDuur) kandidaten.push({ rec, sleutel });
+      }
+    }
+    if (kandidaten.length === 1) {
+      ontstempel(kandidaten[0].rec, kandidaten[0].sleutel);
+      op.add(kandidaten[0].rec);
+      viaDuur++;
+    } else if (kandidaten.length > 1) {
+      onbeslist++;   // meerdere even goede kandidaten: niets aanraken
+    }
+  }
+
+  for (const sleutel of gewijzigd) {
+    try { localStorage.setItem(sleutel, JSON.stringify(emmers[sleutel])); } catch (e) { /* quota */ }
+  }
+  return { exact, viaDuur, onbeslist, totaal: exact + viaDuur };
+}
+
 function mergeRichtingen(nodeId, bron, doel) {
   // 1. undo-snapshot van alle betrokken sleutels (bron + doel, alle dagdelen)
   const sleutels = {};
@@ -11482,18 +11589,37 @@ function mergeRichtingen(nodeId, bron, doel) {
       sleutels[dk] = localStorage.getItem(dk);
     }
   }
+  // V11.17.91: bij een merge met Algemeen wordt ook het rv-stempel op de
+  // V4-records weggehaald. Die emmers horen dus in de undo-snapshot, anders
+  // draait 'Ongedaan maken' de V5-bron wel terug maar het stempel niet — en
+  // dan telt de meting daarna in beide categorieën mee.
+  if (doel === 'ALGEMEEN') {
+    for (const d of Object.keys(DD)) {
+      const vk = `${LS_PREFIX}${nodeId}_${d}`;
+      if (!(vk in sleutels)) sleutels[vk] = localStorage.getItem(vk);
+    }
+  }
   mergeUndoBuffer = { nodeId, sleutels };
   console.log('[merge] snapshot', Object.keys(sleutels).map(k =>
     k + '=' + (sleutels[k] ? (JSON.parse(sleutels[k]).length + 'm') : '∅')).join(' '));
 
   // 2. operatie per dagdeel
+  // V11.17.91: het stempel eerst, met de V5-metingen nóg in de opslag — pas 2
+  // van herstelRvVoorMerge heeft hun duren nodig om de tweelingen te vinden.
+  let rvHerstel = { exact: 0, viaDuur: 0, onbeslist: 0, totaal: 0 };
+  if (doel === 'ALGEMEEN') {
+    const alleBron = [];
+    for (const d of Object.keys(DD)) alleBron.push(...laadMV5(nodeId, bron.aanrij, bron.afrij, d));
+    rvHerstel = herstelRvVoorMerge(nodeId, bron, alleBron);
+  }
   try {
     for (const d of Object.keys(DD)) {
       const bronKey = v5Sleutel(nodeId, bron.aanrij, bron.afrij, d);
       const bronArr = laadMV5(nodeId, bron.aanrij, bron.afrij, d);
       if (!bronArr.length) continue;
       if (doel === 'ALGEMEEN') {
-        // dual-write (S0.2): metingen staan al in V4 → alleen V5 opruimen (verliesloos)
+        // De metingen staan al in V4 en tellen daar sinds herstelRvVoorMerge
+        // hierboven ook weer méé — pas daarmee is dit werkelijk verliesloos.
         localStorage.removeItem(bronKey);
       } else {
         const doelKey = v5Sleutel(nodeId, doel.aanrij, doel.afrij, d);
@@ -11518,6 +11644,20 @@ function mergeRichtingen(nodeId, bron, doel) {
     return;
   }
 
+  // V11.17.91: het meetpunt. Laat in één oogopslag zien hoeveel metingen er
+  // sinds D2 in het niemandsland zaten, en hoeveel van dit herstel op de exacte
+  // rvK-verwijzing rustte tegenover de duur-terugval. Blijft `rvOnb` boven nul,
+  // dan zijn er records die niet eenduidig toe te wijzen waren en gestempeld
+  // gebleven zijn — dat is bewust, maar het hoort zichtbaar te zijn.
+  if (doel === 'ALGEMEEN' && (rvHerstel.totaal > 0 || rvHerstel.onbeslist > 0)) {
+    logOpslagMis('merge_rv_hersteld', {
+      node: nodeId,
+      nieuw: bron.aanrij + '_' + bron.afrij,
+      rvHer: rvHerstel.totaal,
+      rvExact: rvHerstel.exact,
+      rvOnb: rvHerstel.onbeslist
+    });
+  }
   // 4. afgeleiden invalideren + her-render
   nodeInfoChipLaatsteNode = null;
   mergeModusAan = false; mergeSelectie = [];
