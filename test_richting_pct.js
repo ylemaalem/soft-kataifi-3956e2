@@ -66,9 +66,14 @@ function testRichtingPct() {
   };
   const wisNode = () => {
     for (const d of Object.keys(DD)) zetLS('sl_v4_' + NODE + '_' + d, null);
-    for (let i = 0; i < localStorage.length; i++) {
-      const k = localStorage.key(i);
-      if (k && k.startsWith('sl_v5_' + NODE + '_')) zetLS(k, null);
+    // Eerst een momentopname van de sleutels, dan pas wissen. localStorage.key(i)
+    // leest een LIVE index: verwijder je tijdens de lus, dan schuift alles op en
+    // sla je de helft over. Met twee V5-sleutels op deze node bleef er daardoor
+    // eentje staan, en die lekte in een latere toets mee — hij viel pas op toen
+    // de klok in een ander dagdeel stond en de overblijvende sleutel toevallig
+    // wél meetelde. Gemeten: test_richting_pct T6b gaf 76% waar 67% hoorde.
+    for (const k of Object.keys(localStorage)) {
+      if (k.startsWith('sl_v5_' + NODE + '_')) zetLS(k, null);
     }
     zetLS('sl_richting_' + NODE, null);
     zetLS('sl_bevestig_' + NODE, null);

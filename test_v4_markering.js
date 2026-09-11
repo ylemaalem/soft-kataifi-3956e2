@@ -53,9 +53,14 @@ function testV4Markering() {
                          catch (e) { return []; } };
   const wis = () => {
     for (const d of Object.keys(DD)) zetLS('sl_v4_' + NODE + '_' + d, null);
-    for (let i = 0; i < localStorage.length; i++) {
-      const k = localStorage.key(i);
-      if (k && k.startsWith('sl_v5_' + NODE + '_')) zetLS(k, null);
+    // Eerst een momentopname van de sleutels, dan pas wissen. localStorage.key(i)
+    // leest een LIVE index: verwijder je tijdens de lus, dan schuift alles op en
+    // sla je de helft over. Met twee V5-sleutels op deze node bleef er daardoor
+    // eentje staan, en die lekte in een latere toets mee — hij viel pas op toen
+    // de klok in een ander dagdeel stond en de overblijvende sleutel toevallig
+    // wél meetelde. Gemeten: test_richting_pct T6b gaf 76% waar 67% hoorde.
+    for (const k of Object.keys(localStorage)) {
+      if (k.startsWith('sl_v5_' + NODE + '_')) zetLS(k, null);
     }
     zetLS('sl_richting_' + NODE, null);
     zetLS('sl_bevestig_' + NODE, null);
@@ -286,13 +291,25 @@ function testV4Markering() {
     eis('T8c de drie drempeltoetsen gaan nog over .length',
         (kb.match(/\w+\.length >= V9_MIN_METINGEN/g) || []).length === 3, '3',
         String((kb.match(/\w+\.length >= V9_MIN_METINGEN/g) || []).length));
-    // Precies drie plekken filteren, niet meer en niet minder.
-    const heleBron = [berekenLeerPct, laagDagdeelPct, renderRichtingBlok, kiesCountdownBron,
-                      gewGem, haalMetingenVoorBron, berekenSchaduwWaarden]
-      .map(f => String(f)).join('\n');
-    const tel = (heleBron.match(/zonderRichtingVerwant\(/g) || []).length;
-    eis('T8d alleen de drie Algemeen-percentages filteren, de countdownketen niet',
-        tel === 3, '3 aanroepen (berekenLeerPct, laagDagdeelPct, ALG-rij)', String(tel));
+    // De scheidslijn, niet het aantal. Hier stond `tel === 3` over een samengeplakte
+    // bron. Dat brak op V11.17.94 om twee redenen tegelijk: die release voegde
+    // laagDagdeelCijfers als vierde weergaveplek toe (terecht — de dagdeelstrip
+    // toonde een gefilterd percentage naast een ongefilterd aantal), en de telling
+    // liep ook over COMMENTAAR, zodat een functienaam die in een toelichting stond
+    // meetelde als aanroep. Een vast getal zegt bovendien niet waar het om gaat:
+    // de weergavekant moet filteren en de countdownketen niet.
+    const kaal = (f) => String(f).replace(/\/\*[\s\S]*?\*\//g, ' ').replace(/\/\/.*/g, ' ');
+    const telt = (f) => (kaal(f).match(/zonderRichtingVerwant\(/g) || []).length;
+    const weergave = { berekenLeerPct, laagDagdeelPct, laagDagdeelCijfers, renderRichtingBlok };
+    const keten    = { kiesCountdownBron, gewGem, haalMetingenVoorBron, berekenSchaduwWaarden };
+    const zonderFilter = Object.keys(weergave).filter(n => telt(weergave[n]) === 0);
+    const metFilter    = Object.keys(keten).filter(n => telt(keten[n]) > 0);
+    eis('T8d elke plek die een Algemeen-getal TOONT filtert op rv',
+        zonderFilter.length === 0, 'alle vier filteren',
+        zonderFilter.length ? 'filtert niet: ' + zonderFilter.join(', ') : 'alle vier filteren');
+    eis('T8e en geen enkele schakel van de countdownketen doet dat',
+        metFilter.length === 0, 'geen van de vier filtert',
+        metFilter.length ? 'filtert wel: ' + metFilter.join(', ') : 'geen van de vier filtert');
 
   } finally {
     for (const [k, v] of bewaardLS) {

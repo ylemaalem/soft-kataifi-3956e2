@@ -694,7 +694,7 @@
 <div id="startscherm">
   <div id="s-icoon">🚦</div>
   <div id="s-titel">Stoplicht<span>IQ</span></div>
-  <div id="s-versie">V11.17.93 — Algemeen is een eigen keuze</div>
+  <div id="s-versie">V11.17.94 — Algemeen alleen bij eigen data</div>
   <div id="s-model-wrap">
     <div id="s-model-rij">
       <div id="s-model-label">🤖 YOLOv8 model laden…</div>
@@ -919,7 +919,7 @@
 
 <script>
 // ═══════════════════════════════════════════════════════════════
-//  StoplichtIQ V11.17.93
+//  StoplichtIQ V11.17.94
 //  V11.10: Zelfkalibratie + vergrendeling + crop smoothing
 //  — S1+S2 bevestiging (kruispunt-level confidence)
 //  — Route-herkenning basis (sequentie-opslag)
@@ -8698,16 +8698,32 @@ function renderRichtingBlok(osm) {
   const algDds = [];
   let algMetTot = 0, algPctWeighted = 0, algCycSum = 0, algCycCount = 0;
   for (const d of Object.keys(DD)) {
-    const m = laadM(nodeId, d);
+    // ── V11.17.94: ÉÉN FILTER AAN DE INLEESREGEL ──────────
+    // © 2026 StoplichtIQ — Y. Lemaalem
+    //
+    // Hier stond het filter alleen om het PERCENTAGE heen; het aantal en de
+    // cyclustijd lazen de volle set. De redenering was dat die twee "alles
+    // horen te zien wat er gemeten is, net als de countdown". Dat klopt voor de
+    // countdown — die wordt bewust door alle metingen gevoed — maar niet voor
+    // een REGEL die zegt dat hij Algemeen is. Het gevolg was zichtbaar op elk
+    // splinternieuw stoplicht waar meteen een richting werd getikt: een
+    // Algemeen-regel met '1 meting' en een cyclustijd, op 0%. Die ene meting
+    // hoorde bij de richting en stond tegelijk in twee categorieën op het scherm.
+    //
+    // Nu filtert de inleesregel en rekent alles eronder op wat Algemeen
+    // werkelijk toebehoort: pctD, algMetTot, algPctWeighted, algCycSum en
+    // daarmee ook heeftAlg (r8807). De countdown blijft ongemoeid — die leest
+    // laadM rechtstreeks, buiten dit blok om, precies zoals D2 het bedoelde.
+    //
+    // GEEN TERUGWERKENDE SPRONG. rv wordt pas sinds V11.17.85 geschreven. Een
+    // record van daarvoor draagt geen rv-veld en glipt dus gewoon door
+    // zonderRichtingVerwant (die toetst op === 1, niet op afwezigheid). Een node
+    // met alleen oude data verandert daardoor geen procent. Het effect groeit
+    // mee met nieuwe, getikte metingen — net als bij D2 zelf.
+    const m = zonderRichtingVerwant(laadM(nodeId, d));
     if (!m.length) continue;
-    // V11.17.85: alleen het PERCENTAGE filtert. algMetTot en algCycSum blijven
-    // op de volle set: de Algemeen-regel toont ook een aantal en een cyclustijd,
-    // en die twee horen alles te zien wat er gemeten is — net als de countdown.
-    const mPct = zonderRichtingVerwant(m);
     // V11.17.66: zie r6890 — de bodem telt alleen records met een gemeten duur.
-    const pctD = mPct.length
-      ? Math.min(95, Math.max(mPct.filter(heeftGemetenDuur).length * 4, berekenObsScore(mPct)))
-      : 0;
+    const pctD = Math.min(95, Math.max(m.filter(heeftGemetenDuur).length * 4, berekenObsScore(m)));
     algDds.push({ dd: d, m, pctD });
     algMetTot += m.length;
     algPctWeighted += pctD * m.length;
@@ -8801,6 +8817,11 @@ function renderRichtingBlok(osm) {
   // andere nadering, toon dan liever de volle lijst dan een leeg blok.
   const rijen = gefilterd.length ? gefilterd : alleRijen;
 
+  // V11.17.94: algMetTot telt sinds deze release alleen nog metingen die NIET
+  // richting-verwant zijn (r8701), dus dit is per constructie hetzelfde als
+  // zonderRichtingVerwant(alleM).length > 0 — zonder de emmers een tweede keer
+  // te lezen. Draagt élke meting op deze node een rv-stempel, dan valt de
+  // Algemeen-regel volledig weg in plaats van als lege rest te blijven staan.
   const heeftAlg = algMetTot > 0;
   // V11.17.8 W1: max 3 rijen totaal (incl. ALG) i.p.v. 4 — groter tikdoel
   // vraagt om minder rijen zodat #leer-kaart niet te hoog wordt.
@@ -9065,7 +9086,13 @@ function laagLeerPct(nodeId, laag) {
 // niet een gemiddelde van gemiddelden, want gewGem weegt zelf al op recentheid.
 function laagDagdeelCijfers(nodeId, laag, dd) {
   if (!laag) {
-    const m = laadM(nodeId, dd);
+    // V11.17.94: hetzelfde filter als laagDagdeelPct hieronder. Die filterde
+    // sinds D2 wél en deze niet, dus stond in de dagdeelstrip een gefilterd
+    // PERCENTAGE naast een ongefilterd AANTAL en een ongefilterde cyclustijd —
+    // twee weergaven van dezelfde emmer met een ander antwoord. Het commentaar
+    // bij de aanroeper (r8618) beweerde al dat deze twee identieke formules
+    // draaien; sinds D2 was dat niet meer waar. Nu weer wel.
+    const m = zonderRichtingVerwant(laadM(nodeId, dd));
     return { gem: gewGem(m), n: m.length, m };
   }
   const m = laagMetingen(nodeId, laag, dd);
@@ -11525,17 +11552,40 @@ function renderNodeInfo(nodeId) {
 
   let html = '';
   // Algemeen-rij (V4-globaal) per dagdeel met data
+  //
+  // ── V11.17.94: HIER FILTEREN, MAAR DE RIJ NIET VERBERGEN ──
+  // © 2026 StoplichtIQ — Y. Lemaalem
+  //
+  // Dezelfde D2-omissie als in het rijblok: deze rij heet 'Algemeen' en rekende
+  // op de volle set, dus het percentage werd opgeblazen door metingen die bij
+  // een richting horen. Het filter hoort er dus bij, net als het getoonde aantal.
+  //
+  // MAAR DE RIJ ZELF BLIJFT STAAN zolang de node überhaupt V4-data heeft, ook
+  // als er na filtering niets van Algemeen overblijft. Reden: deze rij is het
+  // DOEL van een samenvoeging — klikMergeRij('ALG') (r11629) is de enige manier
+  // om een richting bij Algemeen te voegen. Verdwijnt de rij, dan verdwijnt die
+  // knop en is samenvoegen met Algemeen onmogelijk. Dat is precies wat release 1
+  // (V11.17.91) net heeft rechtgezet en wat release 4 nog moet uitbreiden.
+  //
+  // Het rijblok op het hoofdscherm mag de regel wél helemaal laten vallen: daar
+  // is hij een leesregel zonder tweede functie.
   const dd4 = [];
+  let heeftV4 = false;
   for (const d of Object.keys(DD)) {
-    const m = laadM(nodeId, d);
+    const mVol = laadM(nodeId, d);
+    if (mVol.length) heeftV4 = true;
+    const m = zonderRichtingVerwant(mVol);
     if (!m.length) continue;
     // V11.17.66: zie r6890 — de bodem telt alleen records met een gemeten duur.
     const pct = Math.min(95, Math.max(m.filter(heeftGemetenDuur).length * 4, berekenObsScore(m)));
     dd4.push(`${DD[d].ic} <span style="color:${ni_kleur(pct)}">${pct}%</span> (${m.length}×)`);
   }
-  if (dd4.length) {
+  if (dd4.length || heeftV4) {
     html += `<div class="ni-rij ni-rij-algemeen${selCls('ALG')}" data-key="ALG"${klik('ALG')}>${vink('ALG')}<div class="ni-rij-pijl">⬤</div>`
-         +  `<div class="ni-rij-label">Algemeen</div><div class="ni-rij-dds">${dd4.join(' ')}</div></div>`;
+         +  `<div class="ni-rij-label">Algemeen</div><div class="ni-rij-dds">`
+         +  (dd4.length ? dd4.join(' ')
+              : `<span style="color:var(--dim)">nog geen eigen metingen</span>`)
+         +  `</div></div>`;
     // V11.17.75: de koppeling hoort bij de Algemeen-rij, dus staat hij eronder.
     html += renderKoppelStrip(nodeId);
   }
