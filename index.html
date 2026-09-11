@@ -694,7 +694,7 @@
 <div id="startscherm">
   <div id="s-icoon">🚦</div>
   <div id="s-titel">Stoplicht<span>IQ</span></div>
-  <div id="s-versie">V11.17.96 — keuze hoort bij één kruispunt</div>
+  <div id="s-versie">V11.17.97 — paneel altijd bereikbaar</div>
   <div id="s-model-wrap">
     <div id="s-model-rij">
       <div id="s-model-label">🤖 YOLOv8 model laden…</div>
@@ -919,7 +919,7 @@
 
 <script>
 // ═══════════════════════════════════════════════════════════════
-//  StoplichtIQ V11.17.96
+//  StoplichtIQ V11.17.97
 //  V11.10: Zelfkalibratie + vergrendeling + crop smoothing
 //  — S1+S2 bevestiging (kruispunt-level confidence)
 //  — Route-herkenning basis (sequentie-opslag)
@@ -11421,9 +11421,13 @@ function updateKlasseCorrectieBtnState() {
   const stilstaand = snelheidKmh <= 15;
   btn.disabled = !(heeftDetectie && stilstaand);
   // opacity via CSS :disabled — geen inline styling nodig
-  // V11.16.1: node-info chip speed-guard (2Hz vanuit lus() zoals klasse-btn)
-  const chip = document.getElementById('node-info-chip');
-  if (chip) chip.classList.toggle('disabled', snelheidKmh > 15);
+  //
+  // V11.17.97: de node-info-chip stond hier ook, met dezelfde 15 km/u-toets.
+  // Die was overgenomen van deze knop ("zoals klasse-btn") en niet apart
+  // afgewogen. DEZE knop houdt zijn drempel wél: hij beoordeelt wat de camera
+  // op DIT moment ziet (heeftDetectie hierboven), en dat oordeel kan niet
+  // rijdend — het beeld is dan al weg. Het node-info-paneel leest opgeslagen
+  // data die niet wegloopt, dus daar gold die reden nooit. Zie openNodeInfo.
 }
 
 // ── V11.16.1: TOAST (generiek, hergebruikt #leer-toast) ───────
@@ -11648,8 +11652,69 @@ function updateNodeInfoChip(nodeId) {
   tellerEl.textContent = String(combos.size);
 }
 
+// ── V11.17.97: HET PANEEL IS ALTIJD BEREIKBAAR, EN RUIMT ZICHZELF OP ──
+// © 2026 StoplichtIQ — Y. Lemaalem
+//
+// Hier stond `if (snelheidKmh > 15) return;`. Die poort was in V11.16.1
+// overgenomen van de klasse-correctieknop ("zoals klasse-btn", zie
+// updateKlasseCorrectieBtnState) en nooit apart afgewogen. Voor DIE knop is de
+// eis inhoudelijk — hij beoordeelt een levende camera-detectie. Dit paneel leest
+// opgeslagen data, en die loopt niet weg. De beperking was bovendien nergens
+// anders van kracht: de correctielijst wisselt zelfs het ACTIEVE kruispunt en
+// staat bij elke snelheid open, net als het dashboard, en V11.17.78 haalde
+// precies zo'n 15 km/u-drempel al eens weg bij de bevestigknoppen.
+//
+// Erger dan de beperking was de vorm. `disabled` was een CSS-KLASSE, niet het
+// attribuut, dus de tap kwam gewoon aan en deze functie keerde stilzwijgend
+// terug. Een vaag knopje dat niet reageert en niets zegt.
+//
+// WAT ERVOOR IN DE PLAATS KOMT is geen tweede verbod maar een opruimregel: het
+// paneel dekt het camerabeeld af, en wie wegrijdt vergeet het te sluiten. Na 20
+// seconden ZONDER INTERACTIE sluit het zichzelf. De klok loopt vanaf het openen
+// en wordt door elke aanraking binnen het paneel opnieuw gezet — wie rustig zit
+// na te denken over een samenvoeging houdt hem dus vanzelf open, zolang hij
+// bezig blijft. Snelheid speelt nergens meer een rol; de keuze blijft bij de
+// gebruiker en alleen een vergeten paneel gaat vanzelf weg.
+const NODE_INFO_INACTIEF_MS = 20000;
+let nodeInfoTimer = null;
+
+// Eén plek die de klok (her)start. Aangeroepen bij het openen en bij elke
+// aanraking binnen het paneel.
+function nodeInfoTikAf() {
+  if (nodeInfoTimer) { clearTimeout(nodeInfoTimer); nodeInfoTimer = null; }
+  if (!nodeInfoNodeId) return;   // paneel dicht: niets te plannen
+  nodeInfoTimer = setTimeout(nodeInfoAutoSluit, NODE_INFO_INACTIEF_MS);
+}
+
+// Wat er gebeurt als de klok afloopt. Apart benoemd en niet inline in de
+// setTimeout, zodat elke tak los te beproeven is zonder twintig seconden te
+// wachten.
+function nodeInfoAutoSluit() {
+  nodeInfoTimer = null;
+  if (!nodeInfoNodeId) return;                    // al gesloten
+  // Een openstaande keuze-dialoog PAUZEERT de opruiming. Daar staat een vraag
+  // die de gebruiker nog moet beantwoorden ("welke kant op?"), en die mag niet
+  // onder zijn handen vandaan verdwijnen. De klok gaat opnieuw lopen, dus zodra
+  // de dialoog dicht is sluit het paneel alsnog binnen 20 seconden.
+  const dlg = document.getElementById('node-info-mergedialoog');
+  if (dlg && dlg.style.display !== 'none') { nodeInfoTikAf(); return; }
+  sluitNodeInfo();                                // dezelfde weg als de knop
+}
+
+// Aanraking = activiteit. In de CAPTURE-fase op de sheet, want de sheet zelf
+// stopt de propagatie naar de overlay (r640) en de knoppen eronder kunnen dat
+// ook doen; capture ziet ze allebei. Op de SHEET en niet op de body, omdat
+// renderNodeInfo de body-innerHTML vervangt en een listener daarop bij elke
+// hertekening zou sneuvelen.
+(function koppelNodeInfoActiviteit() {
+  const sheet = document.getElementById('node-info-sheet');
+  if (!sheet) return;
+  for (const ev of ['pointerdown', 'touchstart', 'keydown', 'wheel', 'scroll']) {
+    sheet.addEventListener(ev, nodeInfoTikAf, { capture: true, passive: true });
+  }
+})();
+
 function openNodeInfo() {
-  if (snelheidKmh > 15) return;          // guard: alleen bij stilstand
   const nodeId = dichtstbijOSM ? String(dichtstbijOSM.id) : null;
   if (!nodeId) return;
   nodeInfoNodeId = nodeId;
@@ -11657,9 +11722,14 @@ function openNodeInfo() {
   renderNodeInfo(nodeId);
   const overlay = document.getElementById('node-info-overlay');
   if (overlay) overlay.style.display = 'block';
+  nodeInfoTikAf();   // V11.17.97: de 20 seconden lopen vanaf NU
 }
 
 function sluitNodeInfo() {
+  // V11.17.97: de klok hoort bij een open paneel. Ook bij handmatig sluiten
+  // opruimen, anders vuurt hij straks op een paneel dat allang dicht is — en
+  // zou hij een paneel sluiten dat inmiddels opnieuw geopend is.
+  if (nodeInfoTimer) { clearTimeout(nodeInfoTimer); nodeInfoTimer = null; }
   const overlay = document.getElementById('node-info-overlay');
   if (overlay) overlay.style.display = 'none';
   mergeModusAan = false; mergeSelectie = []; sluitMergeDialoog(); // V11.16.2
