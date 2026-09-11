@@ -694,7 +694,7 @@
 <div id="startscherm">
   <div id="s-icoon">🚦</div>
   <div id="s-titel">Stoplicht<span>IQ</span></div>
-  <div id="s-versie">V11.17.97 — paneel altijd bereikbaar</div>
+  <div id="s-versie">V11.17.98 — nieuwe rode fase begint opnieuw</div>
   <div id="s-model-wrap">
     <div id="s-model-rij">
       <div id="s-model-label">🤖 YOLOv8 model laden…</div>
@@ -919,7 +919,7 @@
 
 <script>
 // ═══════════════════════════════════════════════════════════════
-//  StoplichtIQ V11.17.97
+//  StoplichtIQ V11.17.98
 //  V11.10: Zelfkalibratie + vergrendeling + crop smoothing
 //  — S1+S2 bevestiging (kruispunt-level confidence)
 //  — Route-herkenning basis (sequentie-opslag)
@@ -1974,7 +1974,19 @@ function logOpslagMis(reden, extra) {
         ? String(puurDichtsteNodeCache.id) : null,
       buurAf:   buurGek ? Math.round(buurGek.af) : null,
       buurNode: buurGek ? buurGek.id : null,
-      alt20:    buurGek ? (buurGek.af <= 20) : null
+      alt20:    buurGek ? (buurGek.af <= 20) : null,
+      // ── V11.17.98: de countdown-continuïteit ──────────────
+      // Alleen gevuld op een 'cd_continuiteit_geweigerd'-regel; overal elders
+      // null, dus geen enkele bestaande logregel verandert. cdVerstr is hoeveel
+      // seconden er verstreken waren sinds de start van de VORIGE rode fase,
+      // cdDoel de voorspelling van dat moment en cdVenster de grens waaronder de
+      // oude code zou hebben doorgeteld. Met die drie is per regel na te rekenen
+      // hoe ver de klok ernaast zou hebben gezeten: cdVerstr >= cdDoel betekent
+      // dat de pill meteen '+0s te laat' had getoond, daaronder dat hij vanaf
+      // (cdDoel - cdVerstr) had afgeteld in plaats van vanaf cdDoel.
+      cdVerstr:  (e.cdVerstr  != null) ? e.cdVerstr  : null,
+      cdDoel:    (e.cdDoel    != null) ? e.cdDoel    : null,
+      cdVenster: (e.cdVenster != null) ? e.cdVenster : null
     };
     let arr;
     try { arr = JSON.parse(localStorage.getItem('sl_opslaglog')) || []; } catch(_) { arr = []; }
@@ -7789,15 +7801,65 @@ function startCd() {
   // V11.14.3: dropout-continuïteit. Bij een korte YOLO-dropout op dezelfde
   // node reken cdStart terug naar het originele startmoment zodat de
   // countdown doorloopt i.p.v. herstart. Guards: zelfde node, activeCdDoel
-  // al gezet, elapsed < activeCdDoel + CD_DROPOUT_MAX_S (echte cyclus-
-  // omdraaiingen na groen vallen buiten dit venster).
+  // al gezet, elapsed < activeCdDoel + CD_DROPOUT_MAX_S.
+  //
+  // ── V11.17.98: "ECHTE CYCLUS-OMDRAAIINGEN VALLEN BUITEN DIT VENSTER" ──
+  // © 2026 StoplichtIQ — Y. Lemaalem
+  //
+  // Dat stond hier, en het klopte niet. De voorwaarde meet alleen verstreken
+  // WANDTIJD op dezelfde node; of er een groene fase tussen zat weet ze niet.
+  // En cdWallStart wordt bij een gewone groen->rood-omslag nergens genuld —
+  // beeindigFase (r7503) doet dat wel, maar die draait alleen bij een
+  // node-wissel, een handmatige keuze of een auto-correctie.
+  //
+  // Gevolg op een druk kruispunt: wordt het licht kort na groen weer rood, dan
+  // ziet de app dat aan voor de voortzetting van de vórige rode fase en telt de
+  // klok door. Gereproduceerd met doel 40s (venster 52s):
+  //
+  //   10s tussentijd -> pill toont '30s groen over'  (moest 40s zijn)
+  //   30s tussentijd -> pill toont '10s groen over'  (moest 40s zijn)
+  //   45s tussentijd -> pill toont '+0s te laat'     op het EERSTE frame
+  //
+  // Het eerste geval is het vervelendst: dat ziet er betrouwbaar uit.
+  //
+  // zagRoodOvergang (r7694) maakt het onderscheid dat hier ontbrak, en is op dit
+  // punt al gezet — 54 regels eerder in dezelfde verwerkFase-aanroep. Hij staat
+  // op true als de app de omslag groen/oranje -> rood op DEZE node zelf zag.
+  // Bij een echte dropout is hij per definitie false: de camera raakt het licht
+  // kwijt terwijl het rood is, verwerkFase keert dan terug op `nieuw === fase`,
+  // en het stale-venster zet fase op null via resetNeutraal (r7378) — de vorige
+  // fase is dan null, niet groen. De twee gevallen die deze voorwaarde niet uit
+  // elkaar kon houden, worden er dus exact door gescheiden.
+  //
+  // CD_DROPOUT_MAX_S blijft 12. Dat getal was het probleem niet; de ontbrekende
+  // vraag "was er groen tussen?" wel. Verlagen zou de dropout-reparatie
+  // beschadigen en dit symptoom alleen zeldzamer maken.
+  //
+  // De voorspelling zelf verandert niet: activeCdDoel, activeCdModus en
+  // cdMin/cdMax worden hieronder gewoon opnieuw bepaald door kiesCountdownBron,
+  // inclusief de zekerheidsklasse. Alleen het STARTMOMENT klopt nu.
   const nuMs = Date.now();
   const huidigeNodeId = dichtstbijOSM ? String(dichtstbijOSM.id) : null;
   const zelfdeNode = cdWallNodeId !== null && cdWallNodeId === huidigeNodeId;
   const elapsedS = cdWallStart !== null ? (nuMs - cdWallStart) / 1000 : Infinity;
-  if (zelfdeNode && activeCdDoel > 0 && elapsedS < activeCdDoel + CD_DROPOUT_MAX_S) {
+  const binnenVenster = zelfdeNode && activeCdDoel > 0
+                        && elapsedS < activeCdDoel + CD_DROPOUT_MAX_S;
+  if (binnenVenster && !zagRoodOvergang) {
     cdStart = performance.now() - elapsedS * 1000;
   } else {
+    // V11.17.98: het meetpunt. Alleen de regels waar de nieuwe voorwaarde de
+    // continuïteit WEIGERT — dus waar de oude code zou hebben doorgeteld. Zo is
+    // in de volgende export te zien hoe vaak dit werkelijk speelde en op welke
+    // kruispunten, in plaats van dat de reparatie onzichtbaar blijft. Zelfde
+    // opzet als de tellers van V11.17.87 en V11.17.90.
+    if (binnenVenster && zagRoodOvergang) {
+      logOpslagMis('cd_continuiteit_geweigerd', {
+        node: huidigeNodeId,
+        cdVerstr:  Math.round(elapsedS),
+        cdDoel:    Math.round(activeCdDoel),
+        cdVenster: Math.round(activeCdDoel + CD_DROPOUT_MAX_S)
+      });
+    }
     cdStart = performance.now();
     cdWallStart = nuMs;
     cdWallNodeId = huidigeNodeId;
