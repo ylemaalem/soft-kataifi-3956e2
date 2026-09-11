@@ -694,7 +694,7 @@
 <div id="startscherm">
   <div id="s-icoon">🚦</div>
   <div id="s-titel">Stoplicht<span>IQ</span></div>
-  <div id="s-versie">V11.17.94 — Algemeen alleen bij eigen data</div>
+  <div id="s-versie">V11.17.95 — samenvoegen kan beide kanten op</div>
   <div id="s-model-wrap">
     <div id="s-model-rij">
       <div id="s-model-label">🤖 YOLOv8 model laden…</div>
@@ -919,7 +919,7 @@
 
 <script>
 // ═══════════════════════════════════════════════════════════════
-//  StoplichtIQ V11.17.94
+//  StoplichtIQ V11.17.95
 //  V11.10: Zelfkalibratie + vergrendeling + crop smoothing
 //  — S1+S2 bevestiging (kruispunt-level confidence)
 //  — Route-herkenning basis (sequentie-opslag)
@@ -11682,24 +11682,52 @@ function toonMergeDialoog() {
   if (!dlg) return;
   const parse = (k) => k === 'ALG' ? 'ALG' : { aanrij: k.split('>')[0], afrij: k.split('>')[1] };
   const a = parse(mergeSelectie[0]), b = parse(mergeSelectie[1]);
+  // V11.17.95: voor Algemeen gaf dit 0 — er viel niets te tellen zolang
+  // Algemeen alleen doel kon zijn. Nu hij ook bron kan zijn is het aantal juist
+  // het getal waar de gebruiker op beslist, en telAlgemeenVerplaatsbaar geeft
+  // precies wat er zou verhuizen: dezelfde toets die de verhuizing zelf gebruikt.
   const totaal = (sel) => {
-    if (sel === 'ALG') return 0;
+    if (sel === 'ALG') return telAlgemeenVerplaatsbaar(nodeInfoNodeId);
     let t = 0;
     for (const d of Object.keys(DD)) t += laadMV5(nodeInfoNodeId, sel.aanrij, sel.afrij, d).length;
     return t;
   };
   // V11.16.12: rijderspijl + label via rijdersPijlLabel — consistent met renderNodeInfo richting-rijen.
   const label = (sel) => {
-    if (sel === 'ALG') return '⬤ Algemeen';
+    if (sel === 'ALG') return `⬤ Algemeen (${totaal('ALG')}×)`;
     const r = rijdersPijlLabel(sel.aanrij, sel.afrij);
     return `${r.pijl} ${r.tekst} (${totaal(sel)}×)`;
   };
   let html = '';
   if (a === 'ALG' || b === 'ALG') {
+    // ── V11.17.95: BEIDE KANTEN OP ─────────────────────────
+    // © 2026 StoplichtIQ — Y. Lemaalem
+    //
+    // Hier stond één knop, want er was maar één toegestane beweging. Nu zijn er
+    // twee, en ze doen tegengestelde dingen — dus staat er bij elke knop wat er
+    // met de metingen gebeurt, niet alleen waarheen.
+    //
+    // De tweede knop verschijnt alleen als er werkelijk iets te verplaatsen is.
+    // Op een kruispunt waar élke meting al bij een richting hoort (sinds
+    // V11.17.94 valt de Algemeen-REGEL daar weg, maar de rij in dit paneel
+    // blijft staan omdat hij het samenvoegdoel is) zou die knop een lege
+    // handeling aanbieden. Dan noemt de titel dat, in plaats van de gebruiker
+    // op een knop te laten drukken die niets doet.
     const richting = a === 'ALG' ? b : a;
-    html = `<div class="md-titel">${label(richting)} samenvoegen met Algemeen — richting-label vervalt, ${totaal(richting)} metingen blijven behouden.</div>`
-         + `<button onclick="voerMergeUit('${richting.aanrij}>${richting.afrij}','ALG')">Samenvoegen met Algemeen</button>`
-         + `<button class="md-annuleer" onclick="sluitMergeDialoog()">Annuleren</button>`;
+    const rl = rijdersPijlLabel(richting.aanrij, richting.afrij);
+    const rKey = `${richting.aanrij}>${richting.afrij}`;
+    const algN = totaal('ALG');
+    html = `<div class="md-titel">${label(richting)} en ${label('ALG')} samenvoegen — welke kant op?</div>`
+         + `<button onclick="voerMergeUit('${rKey}','ALG')">`
+         + `Naar Algemeen — richting-label vervalt, ${totaal(richting)} metingen blijven behouden</button>`;
+    if (algN > 0) {
+      html += `<button onclick="voerMergeUit('ALG','${rKey}')">`
+            + `Naar ${rl.pijl} ${rl.tekst} — ${algN} algemene metingen gaan voortaan bij deze richting horen</button>`;
+    } else {
+      html += `<div class="md-titel" style="opacity:.6;font-weight:400">`
+            + `Andersom kan hier niet: er zijn geen algemene metingen meer — ze horen al bij een richting.</div>`;
+    }
+    html += `<button class="md-annuleer" onclick="sluitMergeDialoog()">Annuleren</button>`;
   } else {
     html = `<div class="md-titel">Welke richting wil je behouden?</div>`
          + `<button onclick="voerMergeUit('${mergeSelectie[1]}','${mergeSelectie[0]}')">Behoud ${label(a)}</button>`
@@ -11716,11 +11744,19 @@ function sluitMergeDialoog() {
 }
 
 // V11.16.2: voer merge uit. bronKey/doelKey zijn 'aanrij>afrij' of 'ALG'.
+//
+// V11.17.95: `bronKey === 'ALG'` was hier een harde blokkade — Algemeen mocht
+// alleen doel zijn. Die poort is nu vervangen door de twee eisen die er
+// werkelijk toe doen: er moeten twee verschillende categorieën zijn, en ze
+// kunnen niet allebei Algemeen zijn. De richting waarin verplaatst wordt volgt
+// uit bron en doel, en mergeRichtingen kent alle drie de combinaties.
 function voerMergeUit(bronKey, doelKey) {
   const nodeId = nodeInfoNodeId;
-  if (!nodeId || bronKey === 'ALG') { sluitMergeDialoog(); return; }
-  const bron = { aanrij: bronKey.split('>')[0], afrij: bronKey.split('>')[1] };
-  const doel = doelKey === 'ALG' ? 'ALGEMEEN' : { aanrij: doelKey.split('>')[0], afrij: doelKey.split('>')[1] };
+  if (!nodeId || !bronKey || !doelKey || bronKey === doelKey) { sluitMergeDialoog(); return; }
+  const lees = (k) => k === 'ALG'
+    ? 'ALGEMEEN'
+    : { aanrij: k.split('>')[0], afrij: k.split('>')[1] };
+  const bron = lees(bronKey), doel = lees(doelKey);
   mergeRichtingen(nodeId, bron, doel);
 }
 
@@ -11817,27 +11853,140 @@ function herstelRvVoorMerge(nodeId, bron, bronMetingen) {
   return { exact, viaDuur, onbeslist, totaal: exact + viaDuur };
 }
 
-function mergeRichtingen(nodeId, bron, doel) {
-  // 1. undo-snapshot van alle betrokken sleutels (bron + doel, alle dagdelen)
-  const sleutels = {};
+// ── V11.17.95: DE ANDERE KANT OP ────────────────────────
+// © 2026 StoplichtIQ — Y. Lemaalem
+//
+// Samenvoegen kon tot nu toe maar één richting op: een V5-emmer kon opgeslokt
+// worden door Algemeen, nooit andersom (r11721 blokkeerde bronKey === 'ALG').
+// Dat was in V11.16.2 een verdedigbare keuze — er bestond toen geen manier om
+// aan een V4-record te zien bij welke categorie het hoorde. D2 (V11.17.85) gaf
+// het rv-stempel, V11.17.91 gaf het de richting erbij (rvK), en daarmee is de
+// omgekeerde beweging net zo goed te doen als de bestaande.
+//
+// WAT "ALGEMEEN SAMENVOEGEN MET RECHTDOOR" BETEKENT
+// De metingen die nu bij Algemeen horen, horen voortaan bij Rechtdoor. Een
+// meting die bij een richting hoort staat in TWEE stores: in de V5-emmer van
+// die richting, en in V4 met rv:1 zodat hij de countdown blijft voeden maar
+// niet meer in het Algemeen-percentage meetelt (zie zonderRichtingVerwant).
+// Deze functie brengt dus beide helften in orde:
+//
+//   1. het V4-record krijgt rv:1 + rvK van de doelrichting — het blijft staan
+//      waar het staat, precies zoals een getikte meting dat doet
+//   2. er komt een V5-kopie in de emmer van die richting, in HETZELFDE dagdeel
+//
+// Dat is exact het spiegelbeeld van herstelRvVoorMerge, die het stempel weghaalt
+// en de V5-emmer laat verdwijnen. De twee zijn elkaars tegengestelde, en een
+// heen-en-weer brengt de node terug in zijn oude staat (test T7).
+//
+// WELKE RECORDS VERHUIZEN — ALLES WAT NU BIJ ALGEMEEN HOORT
+// Dat is rv !== 1: ongestempelde records, inclusief alles van vóór D2. Records
+// die al rv:1 dragen horen bij een ANDERE richting en worden niet aangeraakt;
+// hun rvK blijft dus ongemoeid en hun herkomst herleidbaar. Geen deelverzameling
+// en geen keuzescherm: de gebruiker kiest hier een CATEGORIE, niet losse
+// metingen, en een halve Algemeen zou daarna voor niemand meer te lezen zijn.
+//
+// DE ENIGE UITZONDERING: EEN RECORD ZONDER BRUIKBARE DUUR
+// slaOpV5 weigert duur < 4 of > 180 (r2662), en een lege S2-markering heeft
+// helemaal geen duur. Zo'n record kan dus geen geldige V5-tweeling krijgen.
+// Het wordt daarom OOK NIET GESTEMPELD en blijft gewoon bij Algemeen — want een
+// stempel zonder tweeling is precies de wees die V11.17.92 terugwerkend moest
+// repareren. De invariant "rv:1 betekent: er is een V5-tweeling" blijft heel.
+//
+// De doel-emmer hoeft niet te bestaan: laadMV5 geeft [] terug op een ontbrekende
+// sleutel, dus samenvoegen met een nog lege richting en met een bestaande lopen
+// door exact dezelfde regels.
+function verplaatsAlgemeenNaarRichting(nodeId, doel) {
+  const paarKey = doel.aanrij + '_' + doel.afrij;
+  let verplaatst = 0, overgeslagen = 0, alGestempeld = 0;
   for (const d of Object.keys(DD)) {
-    const bk = v5Sleutel(nodeId, bron.aanrij, bron.afrij, d);
-    sleutels[bk] = localStorage.getItem(bk);
-    if (doel !== 'ALGEMEEN') {
-      const dk = v5Sleutel(nodeId, doel.aanrij, doel.afrij, d);
-      sleutels[dk] = localStorage.getItem(dk);
+    const v4Sleutel = `${LS_PREFIX}${nodeId}_${d}`;
+    let arr;
+    try { arr = JSON.parse(localStorage.getItem(v4Sleutel)); } catch (e) { continue; }
+    if (!Array.isArray(arr) || !arr.length) continue;
+
+    const kopieen = [];
+    let raak = 0;
+    for (const rec of arr) {
+      if (!rec) continue;
+      if (rec.rv === 1) { alGestempeld++; continue; }       // hoort bij een andere richting
+      const duur = Math.round(rec.duur);
+      if (!(duur >= 4 && duur <= 180)) { overgeslagen++; continue; }   // zie slaOpV5 r2662
+      rec.rv = 1;
+      rec.rvK = paarKey;
+      raak++;
+      // Zelfde vorm als slaOpV5 (r2674). `bron` maakt achteraf zichtbaar dat
+      // deze meting via een samenvoeging bij deze richting terecht is gekomen
+      // en niet via een tik — dezelfde forensische reden waarom V11.17.70 dat
+      // veld ooit heeft ingevoerd.
+      const kopie = { duur, tijd: rec.tijd, gewicht: rec.gewicht ?? 1.0, bron: 'merge_alg' };
+      if (rec.zo === 1 || rec.zo === 0) kopie.zo = rec.zo;
+      kopieen.push(kopie);
+    }
+    if (!raak) continue;
+
+    // Zelfde samenvoeging en cap als het bestaande richting-naar-richting-pad
+    // (r11866): recentheid-gewogen sorteren, oudste eruit boven MAX_METINGEN.
+    const doelSleutel = v5Sleutel(nodeId, doel.aanrij, doel.afrij, d);
+    let samen = laadMV5(nodeId, doel.aanrij, doel.afrij, d).concat(kopieen);
+    samen.sort((a, b) => gew(b.tijd) - gew(a.tijd));
+    if (samen.length > MAX_METINGEN) samen = samen.slice(0, MAX_METINGEN);
+    // Beide schrijfacties of geen van beide: gooit de tweede, dan vangt de
+    // try/catch in mergeRichtingen hem op en zet de snapshot terug.
+    localStorage.setItem(doelSleutel, JSON.stringify(samen));
+    localStorage.setItem(v4Sleutel, JSON.stringify(arr));
+    verplaatst += raak;
+  }
+  return { verplaatst, overgeslagen, alGestempeld };
+}
+
+// Hoeveel metingen zou verplaatsAlgemeenNaarRichting meenemen? Dezelfde toets,
+// zonder iets te schrijven — de dialoog gebruikt hem om het aantal te noemen en
+// om de knop weg te laten als er niets te verplaatsen valt.
+function telAlgemeenVerplaatsbaar(nodeId) {
+  let n = 0;
+  for (const d of Object.keys(DD)) {
+    let arr;
+    try { arr = JSON.parse(localStorage.getItem(`${LS_PREFIX}${nodeId}_${d}`)); } catch (e) { continue; }
+    if (!Array.isArray(arr)) continue;
+    for (const rec of arr) {
+      if (!rec || rec.rv === 1) continue;
+      const duur = Math.round(rec.duur);
+      if (duur >= 4 && duur <= 180) n++;
     }
   }
-  // V11.17.91: bij een merge met Algemeen wordt ook het rv-stempel op de
-  // V4-records weggehaald. Die emmers horen dus in de undo-snapshot, anders
-  // draait 'Ongedaan maken' de V5-bron wel terug maar het stempel niet — en
-  // dan telt de meting daarna in beide categorieën mee.
-  if (doel === 'ALGEMEEN') {
+  return n;
+}
+
+function mergeRichtingen(nodeId, bron, doel) {
+  // 1. undo-snapshot van alle betrokken sleutels
+  //
+  // V11.17.91: bij een merge MET Algemeen wordt ook het rv-stempel op de
+  // V4-records weggehaald. Die emmers horen dus in de snapshot, anders draait
+  // 'Ongedaan maken' de V5-bron wel terug maar het stempel niet — en dan telt
+  // de meting daarna in beide categorieën mee.
+  //
+  // V11.17.95: hier stond dat als een losse nabrander ná de lus, die
+  // onvoorwaardelijk de BRON-emmer opnam. Sinds Algemeen ook bron kan zijn
+  // bestaat die bron-emmer niet altijd, en moet de V4-kant ook bij de
+  // omgekeerde beweging mee. Daarom nu drie expliciete vragen in plaats van
+  // één lus met een uitzondering: welke V5-emmers raakt deze operatie, en
+  // raakt hij V4? Elke combinatie van bron en doel beantwoordt ze zelf.
+  const sleutels = {};
+  const bewaarV5 = (richting) => {
     for (const d of Object.keys(DD)) {
-      const vk = `${LS_PREFIX}${nodeId}_${d}`;
-      if (!(vk in sleutels)) sleutels[vk] = localStorage.getItem(vk);
+      const k = v5Sleutel(nodeId, richting.aanrij, richting.afrij, d);
+      if (!(k in sleutels)) sleutels[k] = localStorage.getItem(k);
     }
-  }
+  };
+  const bewaarV4 = () => {
+    for (const d of Object.keys(DD)) {
+      const k = `${LS_PREFIX}${nodeId}_${d}`;
+      if (!(k in sleutels)) sleutels[k] = localStorage.getItem(k);
+    }
+  };
+  if (bron !== 'ALGEMEEN') bewaarV5(bron);
+  if (doel !== 'ALGEMEEN') bewaarV5(doel);
+  if (bron === 'ALGEMEEN' || doel === 'ALGEMEEN') bewaarV4();
   mergeUndoBuffer = { nodeId, sleutels };
   console.log('[merge] snapshot', Object.keys(sleutels).map(k =>
     k + '=' + (sleutels[k] ? (JSON.parse(sleutels[k]).length + 'm') : '∅')).join(' '));
@@ -11851,8 +12000,17 @@ function mergeRichtingen(nodeId, bron, doel) {
     for (const d of Object.keys(DD)) alleBron.push(...laadMV5(nodeId, bron.aanrij, bron.afrij, d));
     rvHerstel = herstelRvVoorMerge(nodeId, bron, alleBron);
   }
+  let algVerhuizing = null;
   try {
+    // V11.17.95: de omgekeerde beweging. Er is geen V5-bronemmer om leeg te
+    // halen, dus de lus hieronder heeft hier niets te doen — al het werk zit in
+    // verplaatsAlgemeenNaarRichting, en die staat BINNEN de try zodat een vol
+    // quotum dezelfde rollback krijgt als elk ander merge-pad.
+    if (bron === 'ALGEMEEN') {
+      algVerhuizing = verplaatsAlgemeenNaarRichting(nodeId, doel);
+    }
     for (const d of Object.keys(DD)) {
+      if (bron === 'ALGEMEEN') break;
       const bronKey = v5Sleutel(nodeId, bron.aanrij, bron.afrij, d);
       const bronArr = laadMV5(nodeId, bron.aanrij, bron.afrij, d);
       if (!bronArr.length) continue;
@@ -11897,12 +12055,36 @@ function mergeRichtingen(nodeId, bron, doel) {
       rvOnb: rvHerstel.onbeslist
     });
   }
+  // V11.17.95: het meetpunt van de omgekeerde beweging. rvHer telt wat er
+  // verhuisd is, rvOnb wat er bij Algemeen ACHTERGEBLEVEN is omdat het geen
+  // geldige V5-tweeling kon krijgen — dat laatste hoort zichtbaar te zijn,
+  // want die records blijven het Algemeen-percentage voeden.
+  if (algVerhuizing && (algVerhuizing.verplaatst > 0 || algVerhuizing.overgeslagen > 0)) {
+    logOpslagMis('merge_alg_verplaatst', {
+      node: nodeId,
+      nieuw: doel.aanrij + '_' + doel.afrij,
+      rvHer: algVerhuizing.verplaatst,
+      rvOnb: algVerhuizing.overgeslagen,
+      rvExact: algVerhuizing.alGestempeld
+    });
+  }
+
   // 4. afgeleiden invalideren + her-render
   nodeInfoChipLaatsteNode = null;
   mergeModusAan = false; mergeSelectie = [];
   renderNodeInfo(nodeId);
   updateNodeInfoChip(nodeId);
+
   // 5. toast met undo (6s)
+  // Heeft de verhuizing niets gevonden — alles droeg al een stempel van een
+  // andere richting — dan is er ook niets veranderd. Dan geen '✅ Samengevoegd'
+  // met een ongedaan-knop die niets ongedaan maakt, maar het eerlijke antwoord.
+  // Dit is meteen de idempotentie: een tweede keer dezelfde actie landt hier.
+  if (algVerhuizing && algVerhuizing.verplaatst === 0) {
+    mergeUndoBuffer = null;
+    toonToast('Niets te verplaatsen — deze metingen horen al bij een richting');
+    return;
+  }
   toonToast('✅ Samengevoegd', { label: 'Ongedaan maken', duurMs: 6000, fn: mergeUndoUitvoeren });
 }
 
