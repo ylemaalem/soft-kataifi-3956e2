@@ -694,7 +694,7 @@
 <div id="startscherm">
   <div id="s-icoon">🚦</div>
   <div id="s-titel">Stoplicht<span>IQ</span></div>
-  <div id="s-versie">V11.17.98 — nieuwe rode fase begint opnieuw</div>
+  <div id="s-versie">V11.17.99 — gekoppeld kruispunt telt beide kanten</div>
   <div id="s-model-wrap">
     <div id="s-model-rij">
       <div id="s-model-label">🤖 YOLOv8 model laden…</div>
@@ -919,7 +919,7 @@
 
 <script>
 // ═══════════════════════════════════════════════════════════════
-//  StoplichtIQ V11.17.98
+//  StoplichtIQ V11.17.99
 //  V11.10: Zelfkalibratie + vergrendeling + crop smoothing
 //  — S1+S2 bevestiging (kruispunt-level confidence)
 //  — Route-herkenning basis (sequentie-opslag)
@@ -1644,12 +1644,83 @@ function zonderRichtingVerwant(m) {
   return m.filter(x => !x || x.rv !== 1);
 }
 
+// ── V11.17.99: DE METINGEN VAN DE RONDE CATEGORIE ─────────────
+// © 2026 StoplichtIQ — Y. Lemaalem
+//
+// Zonder koppeling is dit letterlijk wat er op vier plekken los stond: de
+// V4-records die NIET bij een richting horen. Die vier plekken lezen hem nu
+// allemaal, zodat ze niet meer uiteen kunnen lopen zoals tussen D2 en
+// V11.17.94 gebeurde.
+//
+// Mét koppeling (sl_enkelricht_) zegt de gebruiker dat dit kruispunt geen
+// apart rond licht heeft en dat één richting het licht is dat voor iedereen
+// geldt. Dan meten beide helften DEZELFDE lamp en horen hun metingen bij
+// elkaar. De koppeling voegt dus geen vijfde categorie toe — ze zegt dat twee
+// van de vier namen naar hetzelfde wijzen.
+//
+// VALKUIL: EEN V5-RECORD WEEGT RAUW TWEE KEER ZO ZWAAR.
+// vlakGewichtVoor (r1573) eist `typeof obs === 'number'` en bron 's1'. Een
+// V5-record heeft geen obs en bron 'tik', dus die geeft null terug en
+// berekenObsScore valt terug op het rauwe gewicht — 1,0, waar een V4-record via
+// vlakGewichtVoor op 0,50 uitkomt. Simpelweg twee arrays plakken telt de
+// richtingkant dus dubbel. Gemeten met dezelfde duur in beide helften, zodat
+// alleen de weging verschilt:
+//
+//   1 alg + 1 richting   correct 48%   naief 61%
+//   1 alg + 2 richting   correct 61%   naief 80%
+//   2 alg + 2 richting   correct 75%   naief 90%
+//   3 alg + 2 richting   correct 86%   naief 95%
+//
+// Dertien tot negentien procentpunt te hoog, en juist bij de kleine aantallen
+// waar een nieuw kruispunt zit. De normalisatie hieronder is exact dezelfde die
+// richtingLeerPct (r3078) al toepast; `obs` en `tier` gaan bewust NIET mee,
+// zodat vlakGewichtVoor gegarandeerd null geeft en het meegegeven gewicht telt.
+//
+// laadMV5 en NIET laadMV5Geclusterd: die laatste leest ook de buuremmers, en
+// dan zou een record dat in twee naburige windrichtingen valt twee keer in de
+// pool belanden. Per sleutel één keer inlezen is hier het enige juiste.
+//
+// 'Terug' telt niet mee. Een 180-graden-groep is vrijwel altijd GPS-jitter —
+// dezelfde reden waarom de rijenbouwer hem uit `aanwezig` houdt (r9001).
+function algemeenMetingen(nodeId, dd = null) {
+  const dagdelen = dd ? [dd] : Object.keys(DD);
+  let m = [];
+  for (const d of dagdelen) m = m.concat(zonderRichtingVerwant(laadM(nodeId, d)));
+  const mark = nodeId != null ? laadEnkelRicht(nodeId) : null;
+  if (!mark) return m;   // geen koppeling: byte-identiek aan wat er stond
+
+  const naarRicht = (aanrij, afrij) => {
+    const t = rijdersPijlLabel(aanrij, afrij).tekst.toLowerCase();
+    if (t.startsWith('terug')) return null;
+    return t.startsWith('linksaf') ? 'links'
+         : t.startsWith('rechtsaf') ? 'rechts'
+         : 'rechtdoor';
+  };
+  const norm = (x) => ({
+    duur: x.duur, tijd: x.tijd, s2: x.s2, bron: x.bron,
+    gewicht: OBS_VLAK * ((x.gewicht ?? V9_GEWICHT_DICHTBIJ) / V9_GEWICHT_DICHTBIJ)
+  });
+  const voorvoegsel = `${LS_PREFIX_V5}${nodeId}_`;
+  for (const k of Object.keys(localStorage)) {
+    if (!k.startsWith(voorvoegsel)) continue;
+    const delen = k.slice(voorvoegsel.length).split('_');
+    if (delen.length < 3) continue;
+    const [aanrij, afrij, sleutelDd] = delen;
+    if (!dagdelen.includes(sleutelDd)) continue;
+    if (naarRicht(aanrij, afrij) !== mark) continue;
+    m = m.concat(laadMV5(nodeId, aanrij, afrij, sleutelDd).map(norm));
+  }
+  return m;
+}
+
 function berekenLeerPct(osmId) {
-  const alleM = [];
   // V11.17.85: het één na laatste woord over het Algemeen-percentage. Filteren
   // in de INLEESREGEL en niet in berekenObsScore, want die wordt ook door de
   // richtingkant gebruikt (richtingLeerPct r2777) en door de dagdeeltegels.
-  for (const d of Object.keys(DD)) alleM.push(...zonderRichtingVerwant(laadM(osmId, d)));
+  // V11.17.99: die inleesregel woont nu in algemeenMetingen, zodat een gekoppeld
+  // kruispunt hier automatisch de metingen van beide helften ziet. Zonder
+  // koppeling levert hij exact dezelfde verzameling als de regel die hier stond.
+  const alleM = algemeenMetingen(osmId);
   if (!alleM.length) return 0;
   const obsPct = berekenObsScore(alleM);
   const gem = gewGem(alleM);
@@ -1984,6 +2055,16 @@ function logOpslagMis(reden, extra) {
       // hoe ver de klok ernaast zou hebben gezeten: cdVerstr >= cdDoel betekent
       // dat de pill meteen '+0s te laat' had getoond, daaronder dat hij vanaf
       // (cdDoel - cdVerstr) had afgeteld in plaats van vanaf cdDoel.
+      // ── V11.17.99: de twee helften van een koppeling ──────
+      // Alleen gevuld op een 'koppeling_gezet'-regel; overal elders null. De
+      // twee medianen naast elkaar laten zien of de koppeling aannemelijk is:
+      // liggen ze dicht bij elkaar, dan meten beide helften plausibel dezelfde
+      // lamp. De aantallen staan erbij omdat een mediaan uit één meting weinig
+      // zegt. `afrij` draagt de gekoppelde richting — dat veld bestond al.
+      algMediaan:   (e.algMediaan   != null) ? e.algMediaan   : null,
+      algN:         (e.algN         != null) ? e.algN         : null,
+      richtMediaan: (e.richtMediaan != null) ? e.richtMediaan : null,
+      richtN:       (e.richtN       != null) ? e.richtN       : null,
       cdVerstr:  (e.cdVerstr  != null) ? e.cdVerstr  : null,
       cdDoel:    (e.cdDoel    != null) ? e.cdDoel    : null,
       cdVenster: (e.cdVenster != null) ? e.cdVenster : null
@@ -8889,7 +8970,10 @@ function renderRichtingBlok(osm) {
     // zonderRichtingVerwant (die toetst op === 1, niet op afwezigheid). Een node
     // met alleen oude data verandert daardoor geen procent. Het effect groeit
     // mee met nieuwe, getikte metingen — net als bij D2 zelf.
-    const m = zonderRichtingVerwant(laadM(nodeId, d));
+    // V11.17.99: via algemeenMetingen. De REGEL blijft in deze stap gewoon naast
+    // de losse richting-regel staan — het samenvoegen van die twee is stap 2.
+    // Deze stap gaat alleen over de vraag of de cijfers kloppen.
+    const m = algemeenMetingen(nodeId, d);
     if (!m.length) continue;
     // V11.17.66: zie r6890 — de bodem telt alleen records met een gemeten duur.
     const pctD = Math.min(95, Math.max(m.filter(heeftGemetenDuur).length * 4, berekenObsScore(m)));
@@ -9272,7 +9356,9 @@ function laagDagdeelCijfers(nodeId, laag, dd) {
     // twee weergaven van dezelfde emmer met een ander antwoord. Het commentaar
     // bij de aanroeper (r8618) beweerde al dat deze twee identieke formules
     // draaien; sinds D2 was dat niet meer waar. Nu weer wel.
-    const m = zonderRichtingVerwant(laadM(nodeId, dd));
+    // V11.17.99: via algemeenMetingen, zodat ook de dagdeelstrip op een
+    // gekoppeld kruispunt beide helften telt.
+    const m = algemeenMetingen(nodeId, dd);
     return { gem: gewGem(m), n: m.length, m };
   }
   const m = laagMetingen(nodeId, laag, dd);
@@ -9288,7 +9374,9 @@ function laagDagdeelPct(nodeId, laag, dd) {
     // V11.17.85: zelfde filter als berekenLeerPct. Zonder dit toonde een
     // vastgezet dagdeel het opgeblazen getal terwijl de balk bovenaan het
     // eerlijke toonde — twee weergaven van hetzelfde, met een ander antwoord.
-    const m = zonderRichtingVerwant(laadM(nodeId, dd));
+    // V11.17.99: zie laagDagdeelCijfers hierboven — dezelfde bron, zodat het
+    // percentage en het aantal in dezelfde chip niet uiteen kunnen lopen.
+    const m = algemeenMetingen(nodeId, dd);
     if (!m.length) return null;
     return Math.min(95, Math.max(m.filter(heeftGemetenDuur).length * 4, berekenObsScore(m)));
   }
@@ -11537,8 +11625,50 @@ function laadEnkelRicht(nodeId) {
   const v = localStorage.getItem('sl_enkelricht_' + nodeId);
   return (v === 'links' || v === 'rechtdoor' || v === 'rechts') ? v : null;
 }
+// ── V11.17.99: MEET DE KOPPELING OP HET MOMENT DAT HIJ GEZET WORDT ──
+// © 2026 StoplichtIQ — Y. Lemaalem
+//
+// Een koppeling zegt dat het ronde licht en deze richting dezelfde lamp zijn.
+// Klopt dat, dan horen hun cyclustijden dicht bij elkaar te liggen; liggen ze
+// ver uiteen, dan is de koppeling waarschijnlijk niet juist en beschrijft het
+// gepoolde getal geen van beide helften.
+//
+// Dat is nu niet vast te stellen — op de export van 28 augustus heeft geen
+// enkele van de 1719 nodes een koppeling. Deze regel legt daarom per koppeling
+// beide medianen en beide aantallen vast, ZOALS ZE VLAK VOOR HET POOLEN WAREN.
+// Bewust vóór de setItem gemeten: daarna telt algemeenMetingen de twee al bij
+// elkaar en is de scheiding weg.
+//
+// PUUR OBSERVEREND. Geen drempel, geen blokkade, geen waarschuwing — precies
+// zoals V11.17.87, 88, 90 en 98. Pas als er data is valt te beslissen of een
+// ver uiteenlopende koppeling een melding verdient.
 function zetEnkelRicht(nodeId, richting) {
   if (!nodeId || !(richting === 'links' || richting === 'rechtdoor' || richting === 'rechts')) return;
+  try {
+    const algKant = algemeenMetingen(nodeId);            // nog zonder koppeling
+    const richtKant = [];
+    const voorvoegsel = `${LS_PREFIX_V5}${nodeId}_`;
+    for (const k of Object.keys(localStorage)) {
+      if (!k.startsWith(voorvoegsel)) continue;
+      const delen = k.slice(voorvoegsel.length).split('_');
+      if (delen.length < 3) continue;
+      const t = rijdersPijlLabel(delen[0], delen[1]).tekst.toLowerCase();
+      if (t.startsWith('terug')) continue;
+      const r = t.startsWith('linksaf') ? 'links'
+              : t.startsWith('rechtsaf') ? 'rechts' : 'rechtdoor';
+      if (r !== richting) continue;
+      richtKant.push(...laadMV5(nodeId, delen[0], delen[1], delen[2]));
+    }
+    const med = (m) => { const g = gewGem(m); return g != null ? Math.round(g) : null; };
+    logOpslagMis('koppeling_gezet', {
+      node: nodeId,
+      afrij: richting,
+      algMediaan:   med(algKant),
+      algN:         algKant.length,
+      richtMediaan: med(richtKant),
+      richtN:       richtKant.length
+    });
+  } catch (e) { /* meten mag de koppeling nooit tegenhouden */ }
   try { localStorage.setItem('sl_enkelricht_' + nodeId, richting); } catch(e) {}
 }
 function wisEnkelRicht(nodeId) {

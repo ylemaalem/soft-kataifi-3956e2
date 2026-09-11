@@ -300,13 +300,36 @@ function testV4Markering() {
     // de weergavekant moet filteren en de countdownketen niet.
     const kaal = (f) => String(f).replace(/\/\*[\s\S]*?\*\//g, ' ').replace(/\/\/.*/g, ' ');
     const telt = (f) => (kaal(f).match(/zonderRichtingVerwant\(/g) || []).length;
+    // V11.17.99: de vier weergaveplekken filteren niet meer zelf — ze lezen
+    // allemaal algemeenMetingen, en DAAR zit het filter. De eis is dus
+    // tweeledig geworden: elke plek moet via de gedeelde verzamelaar lopen, en
+    // die verzamelaar moet filteren. Zou een van de vier het filter opnieuw
+    // zelf gaan doen, dan telt hij dubbel; zou hij de verzamelaar omzeilen,
+    // dan filtert hij niet meer. T8d bewaakt het eerste, T8d2 het tweede.
+    const leestVerzamelaar = (f) => kaal(f).indexOf('algemeenMetingen(') >= 0;
     const weergave = { berekenLeerPct, laagDagdeelPct, laagDagdeelCijfers, renderRichtingBlok };
     const keten    = { kiesCountdownBron, gewGem, haalMetingenVoorBron, berekenSchaduwWaarden };
-    const zonderFilter = Object.keys(weergave).filter(n => telt(weergave[n]) === 0);
+    const zonderFilter = Object.keys(weergave).filter(n => !leestVerzamelaar(weergave[n]));
     const metFilter    = Object.keys(keten).filter(n => telt(keten[n]) > 0);
-    eis('T8d elke plek die een Algemeen-getal TOONT filtert op rv',
-        zonderFilter.length === 0, 'alle vier filteren',
-        zonderFilter.length ? 'filtert niet: ' + zonderFilter.join(', ') : 'alle vier filteren');
+    eis('T8d elke plek die een Algemeen-getal TOONT leest de gedeelde verzamelaar',
+        zonderFilter.length === 0, 'alle vier',
+        zonderFilter.length ? 'leest hem niet: ' + zonderFilter.join(', ') : 'alle vier');
+    eis('T8d2 en die verzamelaar filtert op rv',
+        telt(algemeenMetingen) > 0, 'zonderRichtingVerwant aanwezig',
+        telt(algemeenMetingen) + ' aanroepen');
+    // Gedrag, niet alleen vorm: een gemarkeerd record mag nergens meetellen.
+    const _bakM = localStorage.getItem('sl_v4_' + NODE + '_' + DD_NU);
+    zetLS('sl_v4_' + NODE + '_' + DD_NU, JSON.stringify([
+      { duur: 60, tijd: nu - 3 * 3600000, richting: 0, obs: 60, gewicht: 1, bron: 's1' },
+      { duur: 20, tijd: nu - 4 * 3600000, richting: 0, obs: 20, gewicht: 1, bron: 's1', rv: 1 }
+    ]));
+    eis('T8d3 een rv-gemarkeerd record valt uit de Algemeen-verzameling',
+        algemeenMetingen(NODE, DD_NU).length === 1
+        && algemeenMetingen(NODE, DD_NU)[0].duur === 60,
+        '1 record van 60s',
+        algemeenMetingen(NODE, DD_NU).map(x => x.duur).join(','));
+    if (_bakM === null) localStorage.removeItem('sl_v4_' + NODE + '_' + DD_NU);
+    else localStorage.setItem('sl_v4_' + NODE + '_' + DD_NU, _bakM);
     eis('T8e en geen enkele schakel van de countdownketen doet dat',
         metFilter.length === 0, 'geen van de vier filtert',
         metFilter.length ? 'filtert wel: ' + metFilter.join(', ') : 'geen van de vier filtert');

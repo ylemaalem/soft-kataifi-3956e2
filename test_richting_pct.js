@@ -192,10 +192,26 @@ function testRichtingPct() {
     // toets sloeg terecht aan. Wat D1 wilde bewaken is niet de tekst maar de
     // VORM: het node-percentage blijft over alle vier de dagdelen lezen en
     // blijft de drie bonussen optellen. Dat is wat hier nu staat.
+    // V11.17.99: de inleesregel is verhuisd naar algemeenMetingen, zodat vier
+    // plekken dezelfde bron delen. De VORM die D1 wilde bewaken is daarmee niet
+    // veranderd — het node-percentage leest nog steeds alle vier de dagdelen —
+    // maar een letterlijke toets op de lus kijkt nu naar de verkeerde functie.
+    // Daarom hier het gedrag: vier dagdelen met elk één meting moeten samen
+    // meer opleveren dan één dagdeel met één meting, en de aanroep moet via de
+    // gedeelde verzamelaar lopen.
     const bl = String(berekenLeerPct).replace(/\s+/g, ' ');
-    eis('T8 berekenLeerPct leest laadM over ALLE dagdelen',
-        /for \(const d of Object\.keys\(DD\)\) alleM\.push\(.*laadM\(osmId, d\)/.test(bl),
-        'lus over Object.keys(DD) met laadM(osmId, d)', bl.slice(0, 120));
+    eis('T8 berekenLeerPct leest via de gedeelde verzamelaar',
+        /algemeenMetingen\(osmId\)/.test(bl),
+        'algemeenMetingen(osmId)', bl.slice(0, 120));
+    wisNode();
+    for (const d of Object.keys(DD)) zetLS('sl_v4_' + NODE + '_' + d, JSON.stringify(v4rec(1)));
+    const vierDd = berekenLeerPct(NODE);
+    wisNode();
+    zetLS('sl_v4_' + NODE + '_' + DD_NU, JSON.stringify(v4rec(1)));
+    const eenDd = berekenLeerPct(NODE);
+    eis('T8a2 en telt daarbij ALLE vier de dagdelen mee',
+        vierDd > eenDd && eenDd > 0,
+        'vier dagdelen hoger dan een', eenDd + '% -> ' + vierDd + '%');
     eis('T8b en telt nog steeds de drie bonussen op bij obsPct',
         /Math\.min\(95, obsPct \+ s2Bonus \+ gpsTikBonus \+ bevestigBonus\)/.test(bl),
         'slotregel ongewijzigd',
