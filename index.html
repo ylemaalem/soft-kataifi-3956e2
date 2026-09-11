@@ -694,7 +694,7 @@
 <div id="startscherm">
   <div id="s-icoon">🚦</div>
   <div id="s-titel">Stoplicht<span>IQ</span></div>
-  <div id="s-versie">V11.17.95 — samenvoegen kan beide kanten op</div>
+  <div id="s-versie">V11.17.96 — keuze hoort bij één kruispunt</div>
   <div id="s-model-wrap">
     <div id="s-model-rij">
       <div id="s-model-label">🤖 YOLOv8 model laden…</div>
@@ -919,7 +919,7 @@
 
 <script>
 // ═══════════════════════════════════════════════════════════════
-//  StoplichtIQ V11.17.95
+//  StoplichtIQ V11.17.96
 //  V11.10: Zelfkalibratie + vergrendeling + crop smoothing
 //  — S1+S2 bevestiging (kruispunt-level confidence)
 //  — Route-herkenning basis (sequentie-opslag)
@@ -4319,20 +4319,59 @@ function resetV9Staat() {
 // richtingtekort van de node die je VERLAAT. Je verlaat de node niet, je kiest
 // een andere categorie. Dit is de kleinste ingreep die het principe volgt: de
 // functie die de pijl zet, zet hem ook uit.
-function updateAfrijRichtingUI(tikrichting) {
+// ── V11.17.96: DE INDICATOR VOLGT DE KEUZE VAN DÉZE NODE ──
+// © 2026 StoplichtIQ — Y. Lemaalem
+//
+// Drie dingen veranderen hier, en ze horen bij elkaar.
+//
+// 1. null VERBERGT. Tot nu toe viel een onbekende waarde door de `|| '↑'`-
+//    terugval heen en toonde de indicator '↑ voor rechtdoor' — een richting die
+//    niemand gekozen had. Nu is null een echte uitkomst: geen keuze, geen pijl.
+//
+// 2. 'algemeen' KRIJGT EEN EIGEN TEKEN in plaats van te verdwijnen. V11.17.93
+//    zette hem hier op display:none, en dat was te weinig: Algemeen is een van
+//    de vier gelijkwaardige categorieën en hoort dus net zo goed zichtbaar te
+//    zijn als de andere drie. Het ronde teken is hetzelfde dat de Algemeen-rij
+//    in het rijblok draagt, zodat de twee elkaar bevestigen.
+//
+// 3. HET LABEL KOMT UIT algemeenLabel. Is op dit kruispunt gemarkeerd dat het
+//    ronde licht dezelfde lichtmast is als een richting, dan staat die richting
+//    er — niet het woord Algemeen. Zie algemeenLabel.
+//
+// De HERKOMST telt hier bewust NIET mee. Een richting die de app zelf terugzette
+// blijft gewoon zichtbaar: dat is precies waarvoor V11.17.17 hem invoerde, en
+// het scheelt de gebruiker een tik op een kruispunt waar hij altijd dezelfde
+// kant op gaat. Alleen de CHIP eist 'tik' — zie de koppel-chip in renderRichtingBlok.
+function updateAfrijRichtingUI(keuze, nodeId = null) {
   const el = document.getElementById('v9-richting-indicator');
   if (!el) return;
-  if (tikrichting === 'algemeen') { el.style.display = 'none'; return; }
+  if (keuze == null) { el.style.display = 'none'; return; }
   const pijlen = { links:'↖', rechtdoor:'↑', rechts:'↗' };
   const labels = { links:'voor linksaf', rechtdoor:'voor rechtdoor', rechts:'voor rechtsaf' };
-  const pijl = pijlen[tikrichting] || '↑';
-  const label = labels[tikrichting] || 'voor rechtdoor';
+  let pijl, label;
+  if (keuze === 'algemeen') {
+    const al = algemeenLabel(nodeId);
+    pijl  = al.pijl;
+    label = al.gekoppeld ? ('voor ' + al.tekst.toLowerCase()) : 'het ronde licht';
+  } else {
+    pijl  = pijlen[keuze]  || '↑';
+    label = labels[keuze]  || 'voor rechtdoor';
+  }
   el.innerHTML = `<span style="font-size:16px">${pijl}</span><span style="font-size:9px;color:var(--dim);letter-spacing:0.06em">${label} ✎</span>`;
   el.style.display = 'flex';
   // V11.17.17 W1: badge tikbaar voor bewuste correctie. stopPropagation zodat
   // de node-correctielijst (#kruispunt-blok onclick) niet meekomt.
   el.style.cursor = 'pointer';
   el.onclick = (e) => { e.stopPropagation(); heropenRichtingKeuze(); };
+}
+
+// De indicator afleiden uit de lock in plaats van hem te onthouden. Zo kan hij
+// per constructie niet iets anders beweren dan de keuze zelf, en verdwijnt een
+// lock van een VORIG kruispunt vanzelf zodra deze node getekend wordt — het
+// beeld op 158 m. Aangeroepen vanuit bijwerkLeerkaart, die bij elke
+// node-verversing draait, en vanuit de drie plekken die de keuze zetten.
+function verversAfrijIndicator(nodeId) {
+  updateAfrijRichtingUI(lockGeldigVoor(nodeId), nodeId);
 }
 
 function haalAlleOsmIds() {
@@ -4974,6 +5013,68 @@ let richtingLockKeuze = null;   // 'links' | 'rechtdoor' | 'rechts' | 'algemeen'
 function rijrichting() {
   return (richtingLockKeuze === 'links' || richtingLockKeuze === 'rechtdoor'
        || richtingLockKeuze === 'rechts') ? richtingLockKeuze : null;
+}
+
+// ── V11.17.96: DE KEUZE HOORT BIJ ÉÉN KRUISPUNT, EN KENT HAAR HERKOMST ──
+// © 2026 StoplichtIQ — Y. Lemaalem
+//
+// De koppel-chip 'zelfde als →?' bleef verschijnen na V11.17.93. Die release
+// gaf Algemeen zijn eigen waarde en repareerde daarmee het geval "de gebruiker
+// heeft net op Algemeen gedrukt". Twee andere gevallen bleven staan, en die
+// veroorzaken samen álle gemelde beelden:
+//
+// 1. DE KEUZE IS NIET NODE-GEBONDEN GELEZEN. richtingLockNodeId bestaat al,
+//    maar de drie plekken die de keuze TONEN — de chip, de afstandsindicator
+//    en de pijl in de countdown-pill — lazen de kale global zonder te toetsen
+//    of hij bij het kruispunt op het scherm hoort. En de wisregel bij een
+//    node-wissel (r13513) eist `lockAf > 60 && snelheidKmh > 5`: sta je stil
+//    voor rood, dan wordt de lock nooit gewist en reist de richting van het
+//    vórige kruispunt mee. Dat verklaart het beeld op 158 m, waar
+//    checkOsmVoorspelling (poort: <= 50 m) onmogelijk gevuurd kan hebben.
+//
+//    lockGeldigVoor lost dat op zonder die wisregel aan te raken — die dient
+//    de countdown-continuïteit en hoort niet korter te worden omdat de WEERGAVE
+//    een fout maakte. Zelfde vorm als laagGeldigVoor (r9042), dat deze toets
+//    voor de getoonde laag al doet.
+//
+// 2. "DE APP VULDE HET IN" WAS NIET TE ONDERSCHEIDEN VAN "IK KOOS DIT".
+//    activeerPersistenteRichting zet de lock zonder tik, uit een eerder
+//    opgeslagen sl_richting_. De chip vroeg vervolgens of Algemeen hetzelfde
+//    licht is als "de richting die je koos" — over een richting die de
+//    gebruiker deze sessie niet aanraakte. richtingLockBron maakt dat verschil
+//    expliciet.
+//
+// WAT ELK VAN DE TWEE STUURT, want ze zijn níét inwisselbaar:
+//   de CHIP      alleen bij bron 'tik'. Het is een vraag over een keuze, en
+//                over een ingevulde keuze is die vraag zinloos.
+//   de INDICATOR bij BEIDE bronnen. Dat is een bewuste keuze van de gebruiker:
+//                de app hoort te onthouden waar hij meestal heen gaat, en dat
+//                zichtbaar te maken scheelt hem tikken. Alleen de node-toets
+//                geldt hier, niet de herkomst-toets.
+let richtingLockBron = null;    // 'tik' | 'hersteld' | null
+
+function lockGeldigVoor(nodeId) {
+  return (richtingLockNodeId && nodeId != null
+          && String(richtingLockNodeId) === String(nodeId))
+    ? richtingLockKeuze : null;
+}
+
+// De rijrichting-projectie van lockGeldigVoor: dezelfde as als rijrichting(),
+// maar node-gebonden. Alleen voor WEERGAVE — de gedragsplekken die rijrichting()
+// lezen blijven ongemoeid, want die draaien op de node waar de auto nu is en
+// hun poorten zijn elders al node-gebonden.
+function rijrichtingVoor(nodeId) {
+  const k = lockGeldigVoor(nodeId);
+  return (k === 'links' || k === 'rechtdoor' || k === 'rechts') ? k : null;
+}
+
+// Eén plek om de lock te wissen, zodat de herkomst niet kan achterblijven bij
+// een van de zeven plekken die hem opruimen. Een achtergebleven 'tik' zou de
+// chip laten terugkomen op de volgende keuze.
+function wisRichtingLock() {
+  richtingLockNodeId = null;
+  richtingLockKeuze  = null;
+  richtingLockBron   = null;
 }
 
 // V11.2.3: Vingertap bbox selectie — V11.4.5: persistent bboxOverride
@@ -7333,7 +7434,7 @@ function resetNeutraal() {
   richtingBlokVerborgen = false;  // V11.17.4 W3: reset ✕-status bij volledige reset
   // V11.17.5 W3: richtingLock ontbrak in resetNeutraal — vroege keuze bleef
   // plakken. Nu opgeruimd samen met de andere node-gebonden state.
-  richtingLockKeuze = null; richtingLockNodeId = null;
+  wisRichtingLock();   // V11.17.96: inclusief de herkomst
   // V11.17.83: de getoonde laag hoort bij ÉÉN node. laagGeldigVoor toetst dat
   // ook op node-id, dus dit is een tweede slot en geen enkele beveiliging;
   // hij staat hier zodat de staat niet meereist naar het volgende kruispunt.
@@ -7875,7 +7976,10 @@ function tickCd() {
   const rs = (huidigCdBron
               && String(huidigCdBron).startsWith('V5')
               && huidigCdBron !== 'V5 alle')
-    ? richtingSymbool(rijrichting()) : '';
+    // V11.17.96: node-gebonden, net als de chip en de indicator. Dit is de derde
+    // WEERGAVEplek die de kale global las; een lock van het vorige kruispunt zette
+    // hier een pijl voor een getal dat over dit kruispunt gaat.
+    ? richtingSymbool(rijrichtingVoor(dichtstbijOSM ? dichtstbijOSM.id : null)) : '';
   let schattingOp = false;   // V11.17.50: stuurt de kleurregel onderaan
 
   // ── V11.17.57: wat staat er WERKELIJK op het scherm? ─────────
@@ -8575,6 +8679,9 @@ function bijwerkLeerkaart(osm) {
   // RV4: naam en id horen bij de PLEK en veranderen nooit mee met de laag.
   leerNaam.textContent = osm.naam || `Stoplicht ${osm.id}`;
   updateNodeInfoChip(String(osm.id)); // V11.16.1: chip-teller bij node-wissel
+  // V11.17.96: de indicator hoort bij DEZE node. Hier afgeleid, zodat een lock
+  // van een vorig kruispunt verdwijnt zodra dit kruispunt getekend wordt.
+  verversAfrijIndicator(String(osm.id));
   const totM = Object.keys(DD).reduce((s,d)=>s+laadM(osm.id,d).length, 0);
   // V9: ook V5 metingen tellen
   const totV5 = haalAlleV5MetingenVoorNode(osm.id, dd).length;
@@ -8870,19 +8977,30 @@ function renderRichtingBlok(osm) {
       const p = richtingSymbool(erMark).trim() || '•';
       // V11.17.75: de gekoppelde staat is nu de opvallende (oranje), niet de
       // dimste. Hij was dimmer dan het aanbod, precies omgekeerd aan wat hij zegt.
-      erChip = ` <span onclick="event.stopPropagation();verwijderEnkelRicht('${nodeId}')" title="Algemeen is hetzelfde licht als ${erMark} — tik om los te maken" class="rb-koppel gekoppeld">= ${p} ✕</span>`;
-    } else if (richtingLockKeuze === 'algemeen') {
-      // V11.17.93: een eigen tak, geen uitzondering. Algemeen is zelf de gekozen
-      // categorie, dus er is geen richting om hem aan te koppelen — het aanbod
-      // 'zelfde als →?' zou naar een keuze wijzen die de gebruiker net losliet.
-      // Een bestaande koppeling (erMark hierboven) blijft wél staan en blijft
-      // opzegbaar; die is opgeslagen in sl_enkelricht_ en staat los van deze keuze.
-      erChip = '';
-    } else if (richtingLockKeuze === 'links' || richtingLockKeuze === 'rechtdoor' || richtingLockKeuze === 'rechts') {
-      // V11.17.75: '⧉ koppel' zei niet wat het deed. 'zelfde als ↑?' is een vraag
-      // met een leesbaar antwoord, en past nog binnen de nowrap-labelbreedte.
-      const p = richtingSymbool(richtingLockKeuze).trim() || '•';
-      erChip = ` <span onclick="event.stopPropagation();koppelEnkelRicht('${nodeId}')" title="Markeer Algemeen als hetzelfde licht als ${richtingLockKeuze}" class="rb-koppel">zelfde als ${p}?</span>`;
+      // V11.17.96: de chip zegt niet meer WAT het is — dat staat nu in het label
+      // zelf. Wat overblijft is de losmaak-knop, en die moet bereikbaar blijven:
+      // zonder hem is de markering vanaf het rijscherm onomkeerbaar.
+      erChip = ` <span onclick="event.stopPropagation();verwijderEnkelRicht('${nodeId}')" title="Dit kruispunt is gemarkeerd als één licht voor ${KOPPEL_NAAM[erMark] || erMark} — tik om los te maken" class="rb-koppel gekoppeld">✕</span>`;
+    } else if (rijrichtingVoor(nodeId) && richtingLockBron === 'tik') {
+      // ── V11.17.96: TWEE EISEN, ALLEBEI NODIG ────────────────
+      // © 2026 StoplichtIQ — Y. Lemaalem
+      //
+      // rijrichtingVoor(nodeId): de keuze moet bij DIT kruispunt horen. De kale
+      // global kon van het vorige kruispunt komen — de wisregel bij een
+      // node-wissel eist stilstand-uitsluitend `snelheidKmh > 5`, dus wie voor
+      // rood staat te wachten houdt de oude lock. Dat is het beeld op 158 m.
+      //
+      // richtingLockBron === 'tik': de chip stelt een VRAAG over een keuze
+      // ("is Algemeen hetzelfde licht als de richting die je koos?"). Over een
+      // richting die activeerPersistenteRichting zelf heeft ingevuld is die
+      // vraag zinloos — en het antwoord schrijft een permanente markering weg.
+      //
+      // De 'algemeen'-tak van V11.17.93 is hierin opgegaan: rijrichtingVoor
+      // projecteert 'algemeen' weg, dus die valt hier vanzelf buiten. Eén
+      // voorwaarde in plaats van twee takken die hetzelfde zeggen.
+      const _rr = rijrichtingVoor(nodeId);
+      const p = richtingSymbool(_rr).trim() || '•';
+      erChip = ` <span onclick="event.stopPropagation();koppelEnkelRicht('${nodeId}')" title="Markeer ${algemeenLabel(nodeId).tekst} als hetzelfde licht als ${_rr}" class="rb-koppel">zelfde als ${p}?</span>`;
     }
     // V11.17.83: de ALG-rij riep tikRichting('rechtdoor') aan en selecteerde dus
     // stilletjes een RIJRICHTING terwijl de gebruiker alleen de algemene cijfers
@@ -8890,8 +9008,8 @@ function renderRichtingBlok(osm) {
     // Nu een eigen handler die alleen de getoonde laag omzet.
     const algActief = laagGeldigVoor(nodeId) ? '' : ' actief';
     html += `<div class="rb-rij${algActief}" onclick="kiesLaagAlgemeen()" data-key="ALG">`
-         + `<div class="rb-pijl">⬤</div>`
-         + `<div class="rb-label">Algemeen${erChip}</div>`
+         + `<div class="rb-pijl">${algemeenLabel(nodeId).pijl}</div>`
+         + `<div class="rb-label">${algemeenLabel(nodeId).tekst}${erChip}</div>`
          + `<div class="rb-pct" style="color:${kleur}">${algPct}%</div>`
          + `<div class="rb-cyc">${cycTxt(algCyc)}</div></div>`;
   }
@@ -9140,8 +9258,9 @@ function kiesLaagAlgemeen() {
   if (dichtstbijOSM) {
     richtingLockNodeId = String(dichtstbijOSM.id);
     richtingLockKeuze  = 'algemeen';
+    richtingLockBron   = 'tik';   // V11.17.96: Algemeen indrukken IS een tik
   }
-  updateAfrijRichtingUI('algemeen');
+  if (dichtstbijOSM) verversAfrijIndicator(String(dichtstbijOSM.id));   // V11.17.96
   // bijwerkLeerkaart roept renderRichtingBlok zelf aan (r8679), dus één aanroep
   // hertekent zowel de cijfers als de markering van de rijen.
   if (dichtstbijOSM) bijwerkLeerkaart(dichtstbijOSM);
@@ -10676,11 +10795,12 @@ function verbergRichtingKnoppen() {
 function activeerPersistenteRichting(nodeId, tikrichting) {
   richtingLockNodeId = nodeId;
   richtingLockKeuze = tikrichting;
+  richtingLockBron = 'hersteld';   // V11.17.96: de app vult in, de gebruiker koos niet
   richtingGedruktVoorNode = nodeId;
   const h = v9AanrijSnelheidHeading ?? v9AanrijHeading;
   v9PreSelectieAfrij = (h != null) ? berekenAfrijRichtingViaTik(h, tikrichting) : tikrichting;
   markeerPreZet(nodeId, v9PreSelectieAfrij);   // V11.17.56
-  updateAfrijRichtingUI(tikrichting);
+  verversAfrijIndicator(nodeId);   // V11.17.96: afgeleid, niet onthouden
 }
 
 // V11.17.17 W1: bewuste correctie via de badge — hef de suppressors op en toon
@@ -10691,8 +10811,7 @@ function heropenRichtingKeuze() {
     || (dichtstbijOSM ? String(dichtstbijOSM.id) : null);
   if (!nodeId) return;
   richtingGedruktVoorNode = null;
-  richtingLockNodeId = null;
-  richtingLockKeuze = null;
+  wisRichtingLock();   // V11.17.96
   toonRichtingKnoppen(nodeId, true);
 }
 
@@ -10716,6 +10835,7 @@ function tikRichting(richting) {
   // V10.0.3: Richtingkeuze lock — voorkom overschrijving bij GPS-drift
   richtingLockNodeId = nodeId;
   richtingLockKeuze = richting;
+  richtingLockBron = 'tik';   // V11.17.96
 
   // V9.0: Pre-selectie afrijrichting berekenen voor countdown
   if (v9AanrijHeading != null || v9AanrijSnelheidHeading != null) {
@@ -10748,7 +10868,7 @@ function tikRichting(richting) {
     markeerPreZet(nodeId, v9PreSelectieAfrij);   // V11.17.56
   }
 
-  updateAfrijRichtingUI(richting);
+  verversAfrijIndicator(nodeId);   // V11.17.96
 
   // Visuele bevestiging
   const knoppen = document.querySelectorAll('.richting-btn');
@@ -11373,7 +11493,7 @@ function koppelEnkelRicht(nodeId) {
   const r = rijrichting();
   if (!r) return;
   zetEnkelRicht(nodeId, r);
-  toonToast('Algemeen telt hier als ' + KOPPEL_NAAM[r]);
+  toonToast('Dit kruispunt telt nu als ' + KOPPEL_NAAM[r]);
   if (dichtstbijOSM) renderRichtingBlok(dichtstbijOSM);
   if (String(nodeInfoNodeId) === String(nodeId)) renderNodeInfo(nodeId);
 }
@@ -11392,10 +11512,37 @@ function verwijderEnkelRicht(nodeId) {
 // rijden te zetten was, en daardoor vrijwel nooit gezet werd (0 nodes).
 const KOPPEL_NAAM = { links: 'linksaf', rechtdoor: 'rechtdoor', rechts: 'rechtsaf' };
 const KOPPEL_PIJL = { links: '←', rechtdoor: '↑', rechts: '→' };
+
+// ── V11.17.96: HOE HEET DE RONDE CATEGORIE OP DIT KRUISPUNT ──
+// © 2026 StoplichtIQ — Y. Lemaalem
+//
+// Is er gemarkeerd dat het ronde licht dezelfde lichtmast is als een richting,
+// dan bestaat 'Algemeen' daar niet als apart begrip. Tot nu toe bleef het woord
+// staan met een voetnoot ernaast — 'Algemeen  = → ✕', en in het paneel
+// 'Algemeen is hier hetzelfde licht als → rechtsaf'. Dat is de helft van de
+// mededeling: de gebruiker heeft gezegd dat dit kruispunt géén rond licht
+// heeft, en dan hoort het woord te verdwijnen in plaats van gerelativeerd te
+// worden. Er staat dan gewoon 'Rechtsaf', zoals je het ook zou zeggen.
+//
+// Eén helper voor alle plekken die de naam tonen, zodat ze niet uiteen kunnen
+// lopen: het rijblok, de rij in het node-info-paneel, rijdersPijlLabel (dat de
+// merge-dialoog en de correctielijst voedt) en de indicator.
+//
+// `gekoppeld` staat erbij omdat sommige aanroepers er iets anders mee doen dan
+// alleen de naam — de koppelstrip schrijft een andere zin, de indicator een
+// ander label.
+function algemeenLabel(nodeId) {
+  const mark = nodeId != null ? laadEnkelRicht(nodeId) : null;
+  if (!mark || !KOPPEL_NAAM[mark]) return { pijl: '⬤', tekst: 'Algemeen', gekoppeld: false };
+  const n = KOPPEL_NAAM[mark];
+  return { pijl: KOPPEL_PIJL[mark],
+           tekst: n.charAt(0).toUpperCase() + n.slice(1),
+           gekoppeld: true, richting: mark };
+}
 function koppelVanuitPaneel(nodeId, richting) {
   if (!nodeId || !KOPPEL_NAAM[richting]) return;
   zetEnkelRicht(nodeId, richting);
-  toonToast('Algemeen telt hier als ' + KOPPEL_NAAM[richting]);
+  toonToast('Dit kruispunt telt nu als ' + KOPPEL_NAAM[richting]);
   renderNodeInfo(nodeId);
   if (dichtstbijOSM) renderRichtingBlok(dichtstbijOSM);
 }
@@ -11426,17 +11573,20 @@ function renderKoppelStrip(nodeId) {
   // 28-08-2026: 105 van de 112 nodes met V5-data zitten in die situatie.
   const inert = aantalAanrijRichtingen(nodeId) <= 1;
   const noot = inert
-    ? `<div class="ni-koppel-inert">Dit kruispunt is tot nu toe maar vanaf één kant gemeten. Algemeen telt daar al als richting-specifiek, dus de koppeling verandert voorlopig niets aan de countdown — pas als je hier ooit vanaf een andere kant aankomt.</div>`
+    ? `<div class="ni-koppel-inert">Dit kruispunt is tot nu toe maar vanaf één kant gemeten. Het ronde licht telt daar al als richting-specifiek, dus de koppeling verandert voorlopig niets aan de countdown — pas als je hier ooit vanaf een andere kant aankomt.</div>`
     : '';
   if (mark) {
+    // V11.17.96: geen zin meer die met 'Algemeen' begint. De rij heet hierboven
+    // al 'Rechtsaf'; deze tekst legt uit wat dat betekent en biedt de weg terug.
     return `<div class="ni-koppel gekoppeld">`
-         + `<div class="ni-koppel-tekst">Algemeen is hier hetzelfde licht als `
-         + `<b>${KOPPEL_PIJL[mark]} ${KOPPEL_NAAM[mark]}</b>. De andere richtingen blijven apart.</div>`
+         + `<div class="ni-koppel-tekst">Dit kruispunt heeft geen apart rond licht: `
+         + `<b>${KOPPEL_PIJL[mark]} ${KOPPEL_NAAM[mark]}</b> is hier het licht dat voor iedereen geldt. `
+         + `De andere richtingen blijven apart.</div>`
          + `<button class="ni-koppel-los" onclick="ontkoppelVanuitPaneel('${nodeId}')">✕ Losmaken</button>`
          + noot + `</div>`;
   }
   return `<div class="ni-koppel">`
-       + `<div class="ni-koppel-tekst">Geen rond licht, alleen pijlen? Kies welke richting hetzelfde licht is als Algemeen — de andere richtingen blijven apart.</div>`
+       + `<div class="ni-koppel-tekst">Geen rond licht, alleen pijlen? Kies welke richting hier het licht voor iedereen is — de andere richtingen blijven apart.</div>`
        + `<div class="ni-koppel-knoppen">`
        + ['links', 'rechtdoor', 'rechts'].map(r =>
            `<button class="ni-koppel-btn" onclick="koppelVanuitPaneel('${nodeId}','${r}')">${KOPPEL_PIJL[r]} ${KOPPEL_NAAM[r]}</button>`).join('')
@@ -11452,8 +11602,14 @@ function renderKoppelStrip(nodeId) {
 // Vensters van 90° breed rondom elke categorie; 135°/225° randen tellen als
 // rechtdoor (meest frequente scenario, ook meest verwachte fallback).
 // U-turn (aanrij===afrij, diff<45° of >315°) → '↶ Terug' als edge case.
-function rijdersPijlLabel(aanrij, afrij) {
-  if (aanrij === 'ALG' || afrij === 'ALG') return { pijl: '⬤', tekst: 'Algemeen' };
+// V11.17.96: de ALG-tak leest nu algemeenLabel, zodat de merge-dialoog en elke
+// andere aanroeper dezelfde naam tonen als het rijblok. nodeId is optioneel —
+// aanroepers die hem niet hebben krijgen de onveranderde 'Algemeen'.
+function rijdersPijlLabel(aanrij, afrij, nodeId = null) {
+  if (aanrij === 'ALG' || afrij === 'ALG') {
+    const al = algemeenLabel(nodeId);
+    return { pijl: al.pijl, tekst: al.tekst };
+  }
   const graden = { N:0, NO:45, O:90, ZO:135, Z:180, ZW:225, W:270, NW:315 };
   const a = graden[aanrij];
   const b = graden[afrij];
@@ -11581,8 +11737,8 @@ function renderNodeInfo(nodeId) {
     dd4.push(`${DD[d].ic} <span style="color:${ni_kleur(pct)}">${pct}%</span> (${m.length}×)`);
   }
   if (dd4.length || heeftV4) {
-    html += `<div class="ni-rij ni-rij-algemeen${selCls('ALG')}" data-key="ALG"${klik('ALG')}>${vink('ALG')}<div class="ni-rij-pijl">⬤</div>`
-         +  `<div class="ni-rij-label">Algemeen</div><div class="ni-rij-dds">`
+    html += `<div class="ni-rij ni-rij-algemeen${selCls('ALG')}" data-key="ALG"${klik('ALG')}>${vink('ALG')}<div class="ni-rij-pijl">${algemeenLabel(nodeId).pijl}</div>`
+         +  `<div class="ni-rij-label">${algemeenLabel(nodeId).tekst}</div><div class="ni-rij-dds">`
          +  (dd4.length ? dd4.join(' ')
               : `<span style="color:var(--dim)">nog geen eigen metingen</span>`)
          +  `</div></div>`;
@@ -11694,7 +11850,11 @@ function toonMergeDialoog() {
   };
   // V11.16.12: rijderspijl + label via rijdersPijlLabel — consistent met renderNodeInfo richting-rijen.
   const label = (sel) => {
-    if (sel === 'ALG') return `⬤ Algemeen (${totaal('ALG')}×)`;
+    // V11.17.96: ook hier de echte naam van de ronde categorie op deze node.
+    if (sel === 'ALG') {
+      const al = algemeenLabel(nodeInfoNodeId);
+      return `${al.pijl} ${al.tekst} (${totaal('ALG')}×)`;
+    }
     const r = rijdersPijlLabel(sel.aanrij, sel.afrij);
     return `${r.pijl} ${r.tekst} (${totaal(sel)}×)`;
   };
@@ -12139,8 +12299,7 @@ function selecteerNodeHandmatig(nodeId) {
   invalideerPassiefSnapshot(); // V11.17.13 W3
   // V10.0.3: Richtingkeuze lock resetten bij handmatige node-wissel
   if (richtingLockNodeId && richtingLockNodeId !== String(nodeId)) {
-    richtingLockNodeId = null;
-    richtingLockKeuze = null;
+    wisRichtingLock();   // V11.17.96
   }
 }
 
@@ -13506,8 +13665,7 @@ function updateDichtbij(lat, lon) {
       const lockNode = osmCache.find(s => String(s.id) === richtingLockNodeId);
       const lockAf = lockNode ? afstand(lat, lon, lockNode.lat, lockNode.lon) : 999;
       if (lockAf > 60 && snelheidKmh > 5) {
-        richtingLockNodeId = null;
-        richtingLockKeuze = null;
+        wisRichtingLock();   // V11.17.96 — de regel zelf blijft ongewijzigd
       }
     }
   } else {
@@ -13780,7 +13938,7 @@ function corrigeerNodeAutomatisch(nieuweNode, reden) {
   tapSeedDetectie = null;
 
   // richting-lock hoort bij oude node
-  richtingLockNodeId = null; richtingLockKeuze = null;
+  wisRichtingLock();   // V11.17.96
 
   // Verplaats de stilstand-auto-lock naar de nieuwe node zodat score-
   // hysterese in vindDichtbij ons niet terugdraait naar het foute idee.
@@ -13901,7 +14059,7 @@ async function onGPS(pos) {
     correctieMultiframe = null; wachtGroenIntentie = null; // V11.16.3
     richtingBlokVerborgen = false;  // V11.17.4 W3: kruispunt voorbij = blok weer zichtbaar bij volgende node
     // V11.17.5 W3: keuze mag niet doorwerken naar het volgende kruispunt.
-    richtingLockKeuze = null; richtingLockNodeId = null;
+    wisRichtingLock();   // V11.17.96
     tekenOverlay(null);
   }
   // V8.8.1: Tikinterface verbergen als kruispunt voorbij of snelheid >30 na passeren

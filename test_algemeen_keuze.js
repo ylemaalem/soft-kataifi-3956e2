@@ -75,7 +75,8 @@ function testAlgemeenKeuze() {
   const indic  = () => document.getElementById('v9-richting-indicator');
   const zicht  = () => indic().style.display !== 'none';
   const rijen  = () => [...document.querySelectorAll('#richting-blok-body .rb-rij')];
-  const algRij = () => rijen().find(r => r.querySelector('.rb-label').textContent.trim().startsWith('Algemeen'));
+  const algRij = () => rijen().find(r => r.getAttribute('data-key') === 'ALG');
+  const algTxt = () => { const r = algRij(); return r ? r.querySelector('.rb-label').textContent.trim() : null; };
   const chip   = () => { const r = algRij(); return r ? r.querySelector('.rb-koppel') : null; };
   const chipTxt = () => { const c = chip(); return c ? c.textContent.trim() : null; };
 
@@ -97,9 +98,13 @@ function testAlgemeenKeuze() {
     v9AanrijHeading = 0; v9AanrijSnelheidHeading = 0;
     huidigCdBron = null;
 
-    const opnieuw = (keuze) => {
+    // V11.17.96: de herkomst hoort bij de keuze. Een opzet die hem niet zet
+    // zou de chip nooit meer laten verschijnen en elke chip-toets vals-positief
+    // groen maken.
+    const opnieuw = (keuze, bron = 'tik') => {
       getoondeLaag = null;
       richtingLockKeuze = keuze;
+      richtingLockBron = (keuze === null) ? null : bron;
       richtingLockNodeId = (keuze === null) ? null : String(NODE);
       richtingGedruktVoorNode = null;
       bijwerkLeerkaart(dichtstbijOSM);
@@ -124,40 +129,62 @@ function testAlgemeenKeuze() {
     eis('T2b na Algemeen verdwijnt dat aanbod',
         chip() === null, 'geen chip', String(chipTxt()));
 
-    // De ECHTE aanleiding: de lock die zonder tik werd teruggezet.
+    // ── V11.17.96: DEZE TOETS STOND OM ─────────────────────
+    // Hier eiste T2c dat het aanbod ER NOG STOND na activeerPersistenteRichting.
+    // Dat legde precies het gemelde probleem vast als correct gedrag: de app
+    // stelde een koppelvraag over een richting die zij zelf had ingevuld, en
+    // een groene test hield die situatie in stand. Nu eist hij het omgekeerde.
     opnieuw(null);
     activeerPersistenteRichting(String(NODE), 'rechts');
     bijwerkLeerkaart(dichtstbijOSM);
-    eis('T2c ook een lock uit activeerPersistenteRichting toont het aanbod nog',
-        chipTxt() !== null && chipTxt().indexOf('zelfde als') === 0,
-        "'zelfde als →?'", String(chipTxt()));
+    eis('T2c een lock die de app zelf terugzette krijgt GEEN koppelvraag',
+        chip() === null, 'geen chip', String(chipTxt()));
+    eis('T2c2 de herkomst staat op hersteld, de keuze zelf is gewoon gezet',
+        richtingLockBron === 'hersteld' && richtingLockKeuze === 'rechts',
+        "'hersteld' / 'rechts'", richtingLockBron + ' / ' + richtingLockKeuze);
+    eis('T2c3 maar de indicator blijft wél staan — de app mag dit onthouden',
+        zicht() && indic().textContent.indexOf('rechtsaf') >= 0,
+        'zichtbaar, rechtsaf', zicht() ? indic().textContent : 'verborgen');
     kiesLaagAlgemeen();
-    eis('T2d en verdwijnt zodra de gebruiker Algemeen kiest',
+    eis('T2d en na Algemeen is er nog steeds geen chip',
         chip() === null && richtingLockKeuze === 'algemeen',
         'geen chip, keuze algemeen',
         (chip() ? 'chip: ' + chipTxt() : 'geen chip') + ', keuze ' + richtingLockKeuze);
 
     // ══ T3 — DE AFSTANDSINDICATOR ═════════════════════════════
-    // Precies het scenario van de gebruiker: rechtsaf-pijl staat in beeld,
-    // Algemeen indrukken, pijl weg.
+    // V11.17.96: de pijl verdwijnt niet meer bij Algemeen — hij WISSELT. Algemeen
+    // is een van de vier gelijkwaardige categorieën en hoort dus net zo zichtbaar
+    // te zijn als de andere drie; een lege indicator zou hem weer tot restwaarde
+    // maken. Wat weg moet is de RICHTING-tekst, niet de indicator zelf.
     opnieuw(null);
     activeerPersistenteRichting(String(NODE), 'rechts');
     eis('T3 de pijl staat in beeld na een richting',
         zicht() && indic().textContent.indexOf('rechtsaf') >= 0,
         'zichtbaar, rechtsaf', zicht() ? indic().textContent : 'verborgen');
     kiesLaagAlgemeen();
-    eis('T3b en verdwijnt zodra Algemeen wordt ingedrukt',
-        !zicht(), 'verborgen', indic().style.display);
+    eis('T3b bij Algemeen verdwijnt de richting-tekst volledig',
+        indic().textContent.indexOf('rechtsaf') < 0
+        && indic().textContent.indexOf('linksaf') < 0
+        && indic().textContent.indexOf('rechtdoor') < 0,
+        'geen richting meer', indic().textContent);
+    eis('T3b2 en Algemeen toont zijn eigen teken in plaats van niets',
+        zicht() && indic().textContent.indexOf('⬤') >= 0
+        && indic().textContent.indexOf('ronde licht') >= 0,
+        'zichtbaar, ⬤ het ronde licht',
+        zicht() ? indic().textContent : 'VERBORGEN');
 
     // Ook vanuit een echte tik, niet alleen de persistente route.
     opnieuw(null);
     richtingKnoppenNodeId = String(NODE);
     tikRichting('links');
     eis('T3c ook een getikte richting zet de pijl aan',
-        zicht(), 'zichtbaar', indic().style.display);
+        zicht() && indic().textContent.indexOf('linksaf') >= 0,
+        'zichtbaar, linksaf', zicht() ? indic().textContent : 'verborgen');
     kiesLaagAlgemeen();
-    eis('T3d en Algemeen zet hem weer uit',
-        !zicht(), 'verborgen', indic().style.display);
+    eis('T3d en Algemeen vervangt hem door het ronde teken',
+        zicht() && indic().textContent.indexOf('linksaf') < 0
+        && indic().textContent.indexOf('⬤') >= 0,
+        '⬤ zonder linksaf', indic().textContent);
 
     // ══ T4 — HEEN EN WEER ═════════════════════════════════════
     opnieuw('rechts');
@@ -202,6 +229,9 @@ function testAlgemeenKeuze() {
         richtingLockKeuze === null, 'null', String(richtingLockKeuze));
     eis('T6b en de pijl staat dan ook niet aan',
         !zicht(), 'verborgen', indic().style.display);
+    eis('T6c een onbekende waarde valt niet terug op een verzonnen rechtdoor',
+        (updateAfrijRichtingUI(null, String(NODE)), !zicht()),
+        'verborgen', indic().textContent);
 
     // ══ T7 — DE PROJECTIE OP DE RIJRICHTING-AS ════════════════
     const proj = {};
@@ -253,9 +283,12 @@ function testAlgemeenKeuze() {
     eis('T9b de koppeling overleeft een Algemeen-keuze',
         laadEnkelRicht(String(NODE)) === 'rechts', "'rechts'", String(laadEnkelRicht(String(NODE))));
     opnieuw('algemeen');
-    eis('T9c en blijft zichtbaar én opzegbaar in de Algemeen-regel',
-        chipTxt() !== null && chipTxt().indexOf('=') === 0,
-        "'= → ✕'", String(chipTxt()));
+    eis('T9c de rij draagt nu de RICHTING als naam, niet het woord Algemeen',
+        algTxt() !== null && algTxt().indexOf('Rechtsaf') === 0
+        && algTxt().indexOf('Algemeen') < 0,
+        "'Rechtsaf ✕'", String(algTxt()));
+    eis('T9c2 en de losmaak-knop blijft bereikbaar',
+        chipTxt() === '✕', "'✕'", String(chipTxt()));
     wisEnkelRicht(String(NODE));
     eis('T9d wisEnkelRicht haalt hem weg zoals voorheen',
         laadEnkelRicht(String(NODE)) === null, 'null', String(laadEnkelRicht(String(NODE))));
@@ -287,6 +320,127 @@ function testAlgemeenKeuze() {
         matchRechts === true, 'true', String(matchRechts));
     eis('T11b en matcht niet onder Algemeen — geen ongegronde ontkapping',
         matchAlg === false, 'false', String(matchAlg));
+
+    // ══ T11 — DE KEUZE IS NODE-GEBONDEN (het 158 m-beeld) ═════
+    // De wisregel bij een node-wissel eist `lockAf > 60 && snelheidKmh > 5`.
+    // Sta je stil voor rood, dan wordt de lock NIET gewist en reist de richting
+    // van het vorige kruispunt mee. De weergave moet dat zelf opvangen.
+    const NODE_B = 991202;
+    // T10b liet een koppeling op NODE achter; die zou hier de erMark-tak laten
+    // vuren en elke chip-toets een losmaak-kruisje geven in plaats van het aanbod.
+    zetLS('sl_enkelricht_' + NODE, null);
+    zetLS('sl_v4_' + NODE_B + '_' + DD_NU, JSON.stringify(recs(8, 60)));
+    zetLS('sl_richting_' + NODE_B, JSON.stringify({
+      headings: [0, 2, 1, 3, 0, 1, 2, 1], laatste_update: nu, bevestigingen: 8 }));
+    zetLS('sl_neutraal_' + NODE_B, null);
+    zetLS('sl_enkelricht_' + NODE_B, null);
+
+    richtingLockNodeId = String(NODE);
+    richtingLockKeuze = 'rechts';
+    richtingLockBron = 'tik';
+    eis('T11 lockGeldigVoor geeft de keuze voor de eigen node',
+        lockGeldigVoor(String(NODE)) === 'rechts', "'rechts'",
+        String(lockGeldigVoor(String(NODE))));
+    eis('T11b en niets voor een ANDERE node',
+        lockGeldigVoor(String(NODE_B)) === null, 'null',
+        String(lockGeldigVoor(String(NODE_B))));
+    eis('T11c ook de rijrichting-projectie is node-gebonden',
+        rijrichtingVoor(String(NODE)) === 'rechts' && rijrichtingVoor(String(NODE_B)) === null,
+        "'rechts' / null",
+        rijrichtingVoor(String(NODE)) + ' / ' + rijrichtingVoor(String(NODE_B)));
+    eis('T11d en een ontbrekende node geeft nooit een keuze terug',
+        lockGeldigVoor(null) === null && lockGeldigVoor(undefined) === null,
+        'null', lockGeldigVoor(null) + ' / ' + lockGeldigVoor(undefined));
+
+    // Renderplek 1 — de chip: staat op node A, niet op node B.
+    dichtstbijOSM = { id: NODE, lat: 52.0, lon: 4.7, afstand: 25, naam: 'A' };
+    getoondeLaag = null; bijwerkLeerkaart(dichtstbijOSM);
+    const chipOpA = chipTxt();
+    dichtstbijOSM = { id: NODE_B, lat: 52.0, lon: 4.7, afstand: 158, naam: 'B' };
+    getoondeLaag = null; bijwerkLeerkaart(dichtstbijOSM);
+    eis('T11e de koppelvraag van kruispunt A verschijnt niet op kruispunt B',
+        chipOpA !== null && chip() === null,
+        'wel op A, niet op B',
+        'A: ' + chipOpA + ' | B: ' + chipTxt());
+    // Renderplek 2 — de indicator: hetzelfde.
+    eis('T11f en de pijl van A staat niet bij B in beeld',
+        !zicht(), 'verborgen', indic().textContent);
+    dichtstbijOSM = { id: NODE, lat: 52.0, lon: 4.7, afstand: 25, naam: 'A' };
+    bijwerkLeerkaart(dichtstbijOSM);
+    eis('T11g terug bij A staat hij er weer — de lock is niet gewist, alleen niet getoond',
+        zicht() && richtingLockKeuze === 'rechts',
+        'zichtbaar, lock intact',
+        (zicht() ? 'zichtbaar' : 'verborgen') + ', lock ' + richtingLockKeuze);
+
+    // ══ T12 — DE CHIP EIST EEN ECHTE TIK ══════════════════════
+    opnieuw('rechts', 'tik');
+    const chipTik = chipTxt();
+    opnieuw('rechts', 'hersteld');
+    eis('T12 dezelfde keuze geeft wel een chip bij een tik en geen bij een herstel',
+        chipTik !== null && chipTik.indexOf('zelfde als') === 0 && chip() === null,
+        'tik: chip, hersteld: geen',
+        'tik: ' + chipTik + ' | hersteld: ' + chipTxt());
+    eis('T12b de indicator maakt dat onderscheid juist NIET',
+        zicht() && indic().textContent.indexOf('rechtsaf') >= 0,
+        'zichtbaar bij hersteld', zicht() ? indic().textContent : 'verborgen');
+    wisRichtingLock();
+    eis('T12c wisRichtingLock laat geen herkomst achter',
+        richtingLockKeuze === null && richtingLockNodeId === null && richtingLockBron === null,
+        'alle drie null',
+        [richtingLockKeuze, richtingLockNodeId, richtingLockBron].join(' / '));
+
+    // ══ T13 — HET WOORD ALGEMEEN VERDWIJNT VOLLEDIG ═══════════
+    zetLS('sl_enkelricht_' + NODE, null);
+    eis('T13 zonder koppeling heet de ronde categorie gewoon Algemeen',
+        algemeenLabel(String(NODE)).tekst === 'Algemeen'
+        && algemeenLabel(String(NODE)).pijl === '⬤'
+        && algemeenLabel(String(NODE)).gekoppeld === false,
+        'Algemeen, niet gekoppeld',
+        JSON.stringify(algemeenLabel(String(NODE))));
+    zetEnkelRicht(String(NODE), 'rechts');
+    eis('T13b met koppeling heet hij naar de richting',
+        algemeenLabel(String(NODE)).tekst === 'Rechtsaf'
+        && algemeenLabel(String(NODE)).pijl === '→'
+        && algemeenLabel(String(NODE)).gekoppeld === true,
+        'Rechtsaf, gekoppeld',
+        JSON.stringify(algemeenLabel(String(NODE))));
+
+    dichtstbijOSM = { id: NODE, lat: 52.0, lon: 4.7, afstand: 25, naam: 'A' };
+    opnieuw('algemeen');
+    eis('T13c in het rijblok staat het woord Algemeen nergens meer',
+        document.getElementById('richting-blok-body').textContent.indexOf('Algemeen') < 0,
+        'geen Algemeen',
+        document.getElementById('richting-blok-body').textContent.slice(0, 80));
+    nodeInfoNodeId = String(NODE);
+    renderNodeInfo(String(NODE));
+    const infoTxt = document.getElementById('node-info-body').textContent;
+    eis('T13d ook in het node-info-paneel niet — rij noch koppelstrip',
+        infoTxt.indexOf('Algemeen') < 0 && infoTxt.indexOf('Rechtsaf') >= 0,
+        'geen Algemeen, wel Rechtsaf', infoTxt.slice(0, 120));
+    eis('T13e en de gedeelde labelhelper geeft de richting door aan elke aanroeper',
+        rijdersPijlLabel('ALG', 'ALG', String(NODE)).tekst === 'Rechtsaf'
+        && rijdersPijlLabel('ALG', 'ALG').tekst === 'Algemeen',
+        'met node Rechtsaf, zonder node Algemeen',
+        rijdersPijlLabel('ALG', 'ALG', String(NODE)).tekst + ' / ' + rijdersPijlLabel('ALG', 'ALG').tekst);
+    eis('T13f de indicator toont bij Algemeen de richting in plaats van het ronde teken',
+        zicht() && indic().textContent.indexOf('rechtsaf') >= 0,
+        'voor rechtsaf', indic().textContent);
+    wisEnkelRicht(String(NODE));
+    opnieuw('algemeen');
+    eis('T13g losmaken brengt het woord Algemeen terug',
+        document.getElementById('richting-blok-body').textContent.indexOf('Algemeen') >= 0
+        && algemeenLabel(String(NODE)).gekoppeld === false,
+        'Algemeen terug',
+        document.getElementById('richting-blok-body').textContent.slice(0, 60));
+
+    // ══ T14 — DE WISREGEL ZELF IS NIET AANGERAAKT ═════════════
+    // De node-wisselregel dient de countdown-continuiteit. A2 repareert de
+    // WEERGAVE en mag die regel niet verkorten.
+    const bronNW = String(updateDichtbij).replace(/\/\*[\s\S]*?\*\//g, ' ').replace(/\/\/.*/g, ' ');
+    eis('T14 de wisvoorwaarde bij een node-wissel staat er ongewijzigd',
+        /lockAf > 60 && snelheidKmh > 5/.test(bronNW),
+        'lockAf > 60 && snelheidKmh > 5',
+        /lockAf > 60/.test(bronNW) ? 'aanwezig' : 'NIET GEVONDEN');
 
   } finally {
     for (const [k, v] of bewaardLS) {

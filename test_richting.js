@@ -218,6 +218,7 @@ function testRichting() {
   // rechtdoor op een getal dat het gemiddelde van alle richtingen is. De pijl
   // hoort alleen te verschijnen als de BRON richting-specifiek is.
   const pBron = huidigCdBron, pLock = richtingLockKeuze;
+  const pLockNode = richtingLockNodeId, pLockBron = richtingLockBron;   // V11.17.96
   const pFase = fase, pStart = cdStart, pDoel = activeCdDoel;
   const pModus = activeCdModus, pMin = activeCdMin;
   const pNode = dichtstbijOSM, pPre = v9PreSelectieAfrij;
@@ -235,7 +236,15 @@ function testRichting() {
       herzTel = null; cdBereikteNul = false; countdownNulTijd = null;
       richtingTekort = null;                 // suffix uit beeld houden
       v9PreSelectieAfrij = 'Z';              // voorkomt de '· richting?'-tak
+      // V11.17.96: de lock is node-gebonden geworden, en de pijl in de pill leest
+      // hem via rijrichtingVoor(dichtstbijOSM.id). Alleen de keuze zetten maakte
+      // een toestand die in de app niet kan bestaan: tikRichting,
+      // activeerPersistenteRichting en kiesLaagAlgemeen zetten alle drie de node
+      // erbij. Zonder die regel toetste dit een lock die bij geen enkel
+      // kruispunt hoorde.
       richtingLockKeuze = 'rechtdoor';       // de tik IS gedaan
+      richtingLockNodeId = '970001';         // ...en wel op DEZE node
+      richtingLockBron = 'tik';
       huidigCdBron = bron;
       cdStart = performance.now() - 15000;
       tickCd();
@@ -272,6 +281,7 @@ function testRichting() {
         heeftPijl(getal()), 'begint met een pijl', getal());
   } finally {
     huidigCdBron = pBron; richtingLockKeuze = pLock;
+    richtingLockNodeId = pLockNode; richtingLockBron = pLockBron;   // V11.17.96
     fase = pFase; cdStart = pStart; activeCdDoel = pDoel;
     activeCdModus = pModus; activeCdMin = pMin;
     dichtstbijOSM = pNode; v9PreSelectieAfrij = pPre;

@@ -136,11 +136,17 @@ function testLijst() {
     eis('T5 koppelen lukt zonder dat er een richting actief is',
         laadEnkelRicht(MULTI) === 'rechtdoor',
         "'rechtdoor'", String(laadEnkelRicht(MULTI)));
-    eis('T5b de strip toont nu de zin, niet meer de knoppen',
-        naKoppel.includes('hetzelfde licht als') && !naKoppel.includes('ni-koppel-btn')
+    // V11.17.96: toetst de TOESTAND, niet de zin. De tekst veranderde toen het
+    // woord Algemeen uit de gekoppelde weergave verdween ('Algemeen is hier
+    // hetzelfde licht als X' werd 'Dit kruispunt heeft geen apart rond licht:
+    // X is hier het licht dat voor iedereen geldt'). Waar het om gaat is dat de
+    // strip de gekoppelde richting noemt, de keuzeknoppen weg zijn en de weg
+    // terug er is.
+    eis('T5b de strip toont nu de gekoppelde richting, niet meer de knoppen',
+        naKoppel.includes('rechtdoor') && !naKoppel.includes('ni-koppel-btn')
         && naKoppel.includes('Losmaken'),
-        'zin + Losmaken, geen keuzeknoppen',
-        'zin=' + naKoppel.includes('hetzelfde licht als')
+        'richting + Losmaken, geen keuzeknoppen',
+        'richting=' + naKoppel.includes('rechtdoor')
         + ' knoppen=' + naKoppel.includes('ni-koppel-btn')
         + ' losmaken=' + naKoppel.includes('Losmaken'));
     ontkoppelVanuitPaneel(MULTI);
