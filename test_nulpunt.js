@@ -106,10 +106,17 @@ function testNulpunt() {
     cdBereikteNul = false;                     // deze fase haalde nul niet
     countdownNulTijd = Date.now() - 5000;      // nulpunt van een VORIGE fase
     groenStart = performance.now() - 1000;
-    eis('T4 groen-voor-nul: BIJNA blijft bedienbaar',
-        bijnaIsNoOp() === false && meetBevestigMoment().toestand === 'groen-voor-nul',
-        'false, toestand groen-voor-nul',
-        String(bijnaIsNoOp()) + ', ' + meetBevestigMoment().toestand);
+    // V11.18.0: de blanco-uitzondering is weg. Deze opzet zet geen cdWallStart,
+    // dus verwachtNulWand kan het nulmoment niet vaststellen en blijft
+    // vensterAfwMs null — de app weet niet hoe vroeg groen viel. Dan is grijs de
+    // eerlijke uitkomst en blijft FOUT over. Dat is strenger dan het oude gedrag,
+    // waar BIJNA hier onvoorwaardelijk fel stond zonder enig getal eronder.
+    eis('T4 groen-voor-nul zonder bruikbare afwijking: BIJNA is grijs',
+        bijnaIsNoOp() === true && meetBevestigMoment().toestand === 'groen-voor-nul'
+        && meetBevestigMoment().vensterAfwMs === null,
+        'true, groen-voor-nul, afwijking onbekend',
+        String(bijnaIsNoOp()) + ', ' + meetBevestigMoment().toestand
+          + ', afw=' + meetBevestigMoment().vensterAfwMs);
 
     // groen viel 5s NA het nulpunt — dat valt in de BIJNA-band (2-10s)
     cdBereikteNul = true;
@@ -133,10 +140,21 @@ function testNulpunt() {
     bevestigCountdown('bijna');
     let rec = null;
     try { rec = (JSON.parse(localStorage.getItem(sleutel)) || []).slice(-1)[0] || null; } catch (e) {}
-    eis('T5 autoVerschilMs blijft null bij een stale nulpunt',
-        rec !== null && rec.autoVerschilMs === null,
-        'record met autoVerschilMs=null',
-        rec ? ('autoVerschilMs=' + rec.autoVerschilMs) : 'geen record geschreven');
+    // V11.18.0: de garantie is sterker geworden. Het stale nulpunt leverde
+    // vroeger nog een record met autoVerschilMs null; nu is de afwijking niet
+    // vast te stellen, staat BIJNA grijs, en weigert de schrijfpoort van release
+    // F de tik volledig. Er lekt dus niets — ook geen leeg record dat
+    // berekenBevestigScore zou voeden.
+    let correcties = [];
+    try {
+      correcties = (JSON.parse(localStorage.getItem('sl_v4_111111_' + huidigDDActief())) || [])
+        .filter(x => x && x.bron === 'bevestig_bijna');
+    } catch (e) {}
+    eis('T5 een stale nulpunt levert helemaal geen record en geen correctie',
+        rec === null && correcties.length === 0,
+        'geen record, geen correctie',
+        (rec ? 'record: autoVerschilMs=' + rec.autoVerschilMs : 'geen record')
+          + ', ' + correcties.length + ' correcties');
     localStorage.removeItem(sleutel);
     if (bewaard !== null) localStorage.setItem(sleutel, bewaard);
 

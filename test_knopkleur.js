@@ -113,14 +113,18 @@ async function testKnopkleur() {
   try {
     // ══ T1-T5 — de matrix ═════════════════════════════════════
     zet('rood-voor-nul');
-    eis('T1 rood vóór nul: BIJNA aan, KLOPTE grijs',
-        inert(bevKlopteBtn) && !inert(bevBijnaBtn) && !inert(bevFoutBtn),
-        'grijs / AAN / AAN', beeld());
+    // V11.18.0: ver voor het nulpunt is ook BIJNA grijs — het venster is ±10s.
+    eis('T1 rood ver vóór nul: beide grijs',
+        inert(bevKlopteBtn) && inert(bevBijnaBtn) && !inert(bevFoutBtn),
+        'grijs / grijs / AAN', beeld());
 
+    // Idem voor groen dat ver voor de voorspelling viel, of waarvan de afwijking
+    // niet vast te stellen is: dan weet de app niet hoe ver ze ernaast zat, en
+    // blijft alleen FOUT over. Het venster zelf staat in test_bandmeting.
     zet('groen-voor-nul');
-    eis('T2 groen vóór nul: BIJNA aan, KLOPTE grijs',
-        inert(bevKlopteBtn) && !inert(bevBijnaBtn) && !inert(bevFoutBtn),
-        'grijs / AAN / AAN', beeld());
+    eis('T2 groen ver vóór nul: beide grijs',
+        inert(bevKlopteBtn) && inert(bevBijnaBtn) && !inert(bevFoutBtn),
+        'grijs / grijs / AAN', beeld());
 
     zet('groen-na-nul', 1000);
     eis('T3 groen, 1s na nul: KLOPTE aan, BIJNA grijs',

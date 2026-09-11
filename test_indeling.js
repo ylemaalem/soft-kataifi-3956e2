@@ -83,12 +83,27 @@ function testIndeling() {
       'groen-moment goed, tikmoment bijna',
       'groen=' + opGroen + ', tik=' + opTik);
 
-  // ══ T7 — vóór nul: BIJNA bedienbaar, KLOPTE niet ═════════════
-  roodVoorNul(40, 25);
-  eis('T7 vóór nul: BIJNA bedienbaar, KLOPTE gedempt, indeling null',
-      bijnaIsNoOp() === false && klopteIsNoOp() === true && bevestigIndeling() === null,
-      'bijna actief, klopte gedempt, indeling null',
+  // ══ T7 — vóór nul beslist nu de AFSTAND tot nul ══════════════
+  // Hier stond dat BIJNA vóór het nulpunt altijd bedienbaar was en de indeling
+  // null. Sinds V11.18.0 geldt ook voor het nulpunt een venster: vijftien
+  // seconden te vroeg is geen 'bijna' maar 'fout', en dan zijn beide knoppen
+  // grijs. Binnen het venster draaien de rollen wel gewoon om.
+  roodVoorNul(40, 25);                       // nog 15s op de klok
+  eis('T7 vijftien seconden voor nul: beide grijs, indeling fout',
+      bijnaIsNoOp() === true && klopteIsNoOp() === true && bevestigIndeling() === 'fout',
+      'beide gedempt, fout',
       'bijna=' + !bijnaIsNoOp() + ', klopte=' + !klopteIsNoOp() + ', ind=' + bevestigIndeling());
+  roodVoorNul(40, 35);                       // nog 5s op de klok
+  eis('T7a2 vijf seconden voor nul: BIJNA fel, KLOPTE grijs',
+      bijnaIsNoOp() === false && klopteIsNoOp() === true && bevestigIndeling() === 'bijna',
+      'bijna actief, klopte gedempt, bijna',
+      'bijna=' + !bijnaIsNoOp() + ', klopte=' + !klopteIsNoOp() + ', ind=' + bevestigIndeling());
+  roodVoorNul(40, 39);                       // nog 1s op de klok
+  eis('T7a3 een seconde voor nul: KLOPTE fel, BIJNA grijs',
+      klopteIsNoOp() === false && bijnaIsNoOp() === true && bevestigIndeling() === 'goed',
+      'klopte actief, bijna gedempt, goed',
+      'bijna=' + !bijnaIsNoOp() + ', klopte=' + !klopteIsNoOp() + ', ind=' + bevestigIndeling());
+  roodVoorNul(40, 25);                       // terug voor T7b
   eis('T7b restMs legt vast hoeveel er nog op de klok stond',
       meetBevestigMoment().restMs === 15000, '15000', String(meetBevestigMoment().restMs));
 
@@ -174,8 +189,14 @@ function testIndeling() {
   eis('T9b correctie is gem + overschrijding, niet gem + tikafstand',
       g1 && Math.abs(g1.duur - 45) <= 1, '45s (40 + 5)', g1 ? (g1.duur + 's') : '-');
 
-  schrijfTest('T10 vóór nul: tik gelogd, GEEN correctie',
-    () => roodVoorNul(40, 25), false);
+  // V11.18.0: vijftien seconden voor nul is de indeling 'fout', dus BIJNA is
+  // gedempt en de schrijfpoort van release F weigert de tik — geen record, geen
+  // correctie. Binnen het venster wordt hij wel geregistreerd, maar corrigeert
+  // hij nog steeds niet: groen is nog niet gevallen, dus er is niets bewezen.
+  schrijfTestGeblokkeerd('T10 ver vóór nul: tik geweigerd, GEEN correctie',
+    () => roodVoorNul(40, 25));
+  schrijfTest('T10b vlak vóór nul: tik gelogd, nog steeds GEEN correctie',
+    () => roodVoorNul(40, 35), false);
   schrijfTest('T11 zandloper (rood na nul): GEEN correctie, waarde nog niet definitief',
     () => { fase = 'rood'; cdBereikteNul = true; countdownNulTijd = Date.now() - 5000;
             groenStart = null; cdStart = null; activeCdDoel = 40; }, false);

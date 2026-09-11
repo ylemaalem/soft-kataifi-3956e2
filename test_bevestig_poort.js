@@ -272,28 +272,41 @@ function testBevestigPoort() {
     eis('T9c en op beide grenzen plus vijf gewone waarden ook niet',
         beideFel2 === 0, '0 van 210', beideFel2 + ' van 210');
 
-    // ══ T10 — DE VOOR-NUL-TOESTANDEN (RV3) ════════════════════
-    // bijnaIsNoOp geeft daar onvoorwaardelijk false, dus de poort vuurt niet
-    // en de aiKleur-uitzondering hoeft niet aan te komen.
+    // ══ T10 — DE VOOR-NUL-TOESTANDEN, NA V11.18.0 ═════════════
+    // Hier stond dat bijnaIsNoOp vóór het nulpunt ONVOORWAARDELIJK false gaf —
+    // de blanco-uitzondering. Die is in V11.18.0 weg: ook voor het nulpunt
+    // beslist nu de afstand tot nul. De oorspronkelijke bedoeling van dit blok
+    // (de aiKleur-uitzondering hoeft niet aan te komen als de knop legitiem fel
+    // staat) blijft overeind, alleen moet de opzet nu binnen het venster liggen.
     zetLS('sl_opslaglog', null);
-    opzet(A, null, 'rood');                 // rood-voor-nul
-    eis('T10a rood-voor-nul: BIJNA is fel, de blanco-uitzondering doet zijn werk',
-        meetBevestigMoment().toestand === 'rood-voor-nul' && bijnaIsNoOp() === false,
-        'toestand rood-voor-nul, niet gedempt',
+    opzet(A, null, 'rood');                 // rood-voor-nul, 40s van nul
+    eis('T10a ver voor het nulpunt is BIJNA nu GRIJS',
+        meetBevestigMoment().toestand === 'rood-voor-nul' && bijnaIsNoOp() === true,
+        'toestand rood-voor-nul, gedempt',
         meetBevestigMoment().toestand + ', gedempt=' + bijnaIsNoOp());
     bevestigCountdown('bijna');
-    eis('T10 een BIJNA-tik vóór nul komt er door zonder dat aiKleur hoeft te helpen',
+    eis('T10a2 en zo ver van nul wordt een BIJNA-tik geweigerd',
+        store(A).length === 0 && logRegels('bevestig_bijna_inert').length === 1,
+        '0 records, 1 inert-regel',
+        store(A).length + ' records, ' + logRegels('bevestig_bijna_inert').length + ' inert');
+    // Binnen het venster: fel, en de tik komt er door zonder aiKleur-hulp.
+    zetLS('sl_opslaglog', null);
+    opzet(A, null, 'rood');
+    cdStart = performance.now() - (activeCdDoel - 5) * 1000;   // nog 5s tot nul
+    eis('T10 vijf seconden voor nul is BIJNA fel',
+        bijnaIsNoOp() === false, 'niet gedempt', 'gedempt=' + bijnaIsNoOp());
+    bevestigCountdown('bijna');
+    eis('T10b en die tik komt er door zonder dat aiKleur hoeft te helpen',
         store(A).length === 1
         && logRegels('bevestig_bijna_vroeg').length === 0
         && logRegels('bevestig_bijna_inert').length === 0,
         '1 record, geen poortregel',
         store(A).length + ' records, poortregels: '
           + (logRegels('bevestig_bijna_vroeg').length + logRegels('bevestig_bijna_inert').length));
-    // En de uitzondering zelf is niet aangeraakt (RV3).
-    eis('T10b de blanco-uitzondering in bijnaIsNoOp staat er onveranderd',
-        /toestand === 'rood-voor-nul' \|\| m\.toestand === 'groen-voor-nul'\) return false/
-          .test(zc(bijnaIsNoOp)),
-        'uitzondering ongewijzigd', 'ongewijzigd');
+    eis('T10c de blanco-uitzondering is weg — de afstand tot nul beslist overal',
+        !/rood-voor-nul/.test(zc(bijnaIsNoOp)) && !/groen-voor-nul/.test(zc(bijnaIsNoOp)),
+        'geen toestandsuitzondering meer',
+        /voor-nul/.test(zc(bijnaIsNoOp)) ? 'STAAT ER NOG' : 'weg');
 
   } finally {
     for (const [k, v] of bewaardLS) {

@@ -190,31 +190,53 @@ function testMetingGesigneerd() {
         m.overschrMs === null && typeof m.afwijkingMs === 'number',
         'overschrMs null, afwijkingMs getal',
         'overschrMs=' + m.overschrMs + ', afwijkingMs=' + m.afwijkingMs);
-    eis('T9b bevestigIndeling geeft nog steeds null, NIET goed',
-        bevestigIndeling(m) === null, 'null',
+    // ── V11.18.0: DEZE DRIE STONDEN OM ────────────────────
+    // T9b t/m T9d bewaakten dat V11.17.80 PUUR OBSERVEREND was: afwijkingMs
+    // bestond wel, maar stuurde niets. Hun eigen toelichting noemde de release
+    // die dat zou omdraaien met zoveel woorden ("dat is release 2"). Dit is die
+    // release. De indeling draait nu op vensterAfwMs, en bij -3000 is dat
+    // 'bijna' — drie seconden te vroeg is bijna goed, niet onbekend.
+    eis('T9b bevestigIndeling leest de gesigneerde afwijking en zegt bijna',
+        bevestigIndeling(m) === 'bijna', "'bijna'",
         String(bevestigIndeling(m)));
-    // De wacht tegen de vergissing die dit bestand moet voorkomen: zou iemand
-    // de gesigneerde waarde alsnog in overschrMs zetten, dan zegt de
-    // ONGEWIJZIGDE bevestigIndeling 'goed' bij -3000. Dat is exact de reden
-    // voor het aparte veld, en dit legt het vast.
-    eis('T9c bewijs: dezelfde waarde IN overschrMs zou wel goed opleveren',
-        bevestigIndeling({ overschrMs: -3000 }) === 'goed',
-        "'goed' (daarom een apart veld)",
+    // De scheiding tussen de velden blijft het punt, alleen andersom: een kaal
+    // overschrMs stuurt de indeling NIET meer. Zou iemand vensterAfwMs weer
+    // vervangen door overschrMs, dan zou een negatieve waarde als 'goed' gelden
+    // en zou groen dat veertig seconden te vroeg viel KLOPTE laten oplichten.
+    eis('T9c een kaal overschrMs stuurt de indeling niet meer',
+        bevestigIndeling({ overschrMs: -3000 }) === null,
+        'null (alleen vensterAfwMs telt)',
         String(bevestigIndeling({ overschrMs: -3000 })));
-    eis('T9d bevestigIndeling gebruikt de absolute waarde nog NIET (dat is release 2)',
-        bevestigIndeling({ overschrMs: -40000 }) === 'goed',
-        "'goed' — ondertekend, ongewijzigd",
-        String(bevestigIndeling({ overschrMs: -40000 })));
+    eis('T9d en de indeling gebruikt nu de ABSOLUTE waarde',
+        bevestigIndeling({ vensterAfwMs: -40000 }) === 'fout'
+        && bevestigIndeling({ vensterAfwMs: -1000 }) === 'goed'
+        && bevestigIndeling({ vensterAfwMs: 1000 }) === 'goed',
+        'fout / goed / goed',
+        [bevestigIndeling({ vensterAfwMs: -40000 }),
+         bevestigIndeling({ vensterAfwMs: -1000 }),
+         bevestigIndeling({ vensterAfwMs: 1000 })].join(' / '));
 
-    // ══ T10 — GEEN GEDRAGSWIJZIGING, deel 2 ═══════════════════
+    // ══ T10 — DE GEDRAGSWIJZIGING VAN V11.18.0 ════════════════
+    // Dit blok heette "GEEN GEDRAGSWIJZIGING" en legde vast dat V11.17.80 de
+    // knoppen met rust liet. Nu stuurt de gesigneerde afwijking ze wel: groen
+    // dat een seconde te vroeg viel ligt binnen het KLOPTE-venster, dus KLOPTE
+    // licht op, BIJNA gaat uit, en de meting geldt als bewezen — groen is
+    // immers gevallen.
     zetGroenVoorNul(-1000);
-    eis('T10 klopteIsNoOp blijft true in groen-voor-nul: KLOPTE blijft grijs',
-        klopteIsNoOp() === true, 'true', String(klopteIsNoOp()));
-    eis('T10b bijnaIsNoOp blijft false in groen-voor-nul: BIJNA blijft actief',
-        bijnaIsNoOp() === false, 'false', String(bijnaIsNoOp()));
-    eis('T10c bevestigMomentDefinitief blijft false in groen-voor-nul',
-        bevestigMomentDefinitief(meetBevestigMoment()) === false, 'false',
+    eis('T10 klopteIsNoOp is nu false: een seconde te vroeg valt binnen ±2s',
+        klopteIsNoOp() === false, 'false', String(klopteIsNoOp()));
+    eis('T10b bijnaIsNoOp is true — de twee banden sluiten elkaar uit',
+        bijnaIsNoOp() === true, 'true', String(bijnaIsNoOp()));
+    eis('T10c bevestigMomentDefinitief is true: groen is gevallen',
+        bevestigMomentDefinitief(meetBevestigMoment()) === true, 'true',
         String(bevestigMomentDefinitief(meetBevestigMoment())));
+    // En ver buiten het venster gaan ze allebei uit.
+    zetGroenVoorNul(-30000);
+    eis('T10c2 dertig seconden te vroeg: beide knoppen grijs, indeling fout',
+        klopteIsNoOp() === true && bijnaIsNoOp() === true
+        && bevestigIndeling(meetBevestigMoment()) === 'fout',
+        'beide grijs, fout',
+        klopteIsNoOp() + '/' + bijnaIsNoOp() + '/' + bevestigIndeling(meetBevestigMoment()));
 
     // En de knopstaat zelf, langs de echte weg.
     zetGroenVoorNul(-1000);
@@ -223,8 +245,8 @@ function testMetingGesigneerd() {
     const beeld = (bevKlopteBtn.classList.contains('inert') ? 'grijs' : 'AAN') + ' / '
                 + (bevBijnaBtn.classList.contains('inert')  ? 'grijs' : 'AAN') + ' / '
                 + (bevFoutBtn.classList.contains('inert')   ? 'grijs' : 'AAN');
-    eis('T10d de knoppenrij ziet er onveranderd uit: grijs / AAN / AAN',
-        beeld === 'grijs / AAN / AAN', 'grijs / AAN / AAN', beeld);
+    eis('T10d de knoppenrij toont nu KLOPTE: AAN / grijs / AAN',
+        beeld === 'AAN / grijs / AAN', 'AAN / grijs / AAN', beeld);
 
     // ══ T11-T13 — de twee geldigheidstoetsen ══════════════════
     zetGroenVoorNul(-3000);
@@ -292,22 +314,40 @@ function testMetingGesigneerd() {
     eis('T16 bevestigIndeling leest afwijkingMs niet',
         !/afwijkingMs/.test(ind), 'geen afwijkingMs',
         /afwijkingMs/.test(ind) ? 'LEEST AFWIJKINGMS' : 'geen afwijkingMs');
-    const def = zonderCommentaar(String(bevestigMomentDefinitief));
-    eis('T16b bevestigMomentDefinitief eist nog steeds groen-na-nul',
-        /groen-na-nul/.test(def) && !/afwijkingMs/.test(def),
-        "toestand groen-na-nul, geen afwijkingMs",
-        def.replace(/\s+/g, ' ').slice(0, 90));
+    // V11.18.0: de eis is verbreed van 'groen-na-nul' naar 'groen is gevallen',
+    // zodat ook de vroege helft corrigeert. De rode toestanden blijven buiten —
+    // daar is niets bewezen. Gedrag, niet tekst, want de vorm mag veranderen.
+    eis('T16b bevestigMomentDefinitief laat beide groen-toestanden door',
+        bevestigMomentDefinitief({ toestand: 'groen-na-nul',  vensterAfwMs: 1000 }) === true
+        && bevestigMomentDefinitief({ toestand: 'groen-voor-nul', vensterAfwMs: -1000 }) === true,
+        'beide true',
+        bevestigMomentDefinitief({ toestand: 'groen-na-nul', vensterAfwMs: 1000 })
+        + '/' + bevestigMomentDefinitief({ toestand: 'groen-voor-nul', vensterAfwMs: -1000 }));
+    eis('T16b2 en houdt de twee rode toestanden buiten',
+        bevestigMomentDefinitief({ toestand: 'rood-voor-nul', vensterAfwMs: -1000 }) === false
+        && bevestigMomentDefinitief({ toestand: 'rood-na-nul', vensterAfwMs: 1000 }) === false,
+        'beide false',
+        bevestigMomentDefinitief({ toestand: 'rood-voor-nul', vensterAfwMs: -1000 })
+        + '/' + bevestigMomentDefinitief({ toestand: 'rood-na-nul', vensterAfwMs: 1000 }));
     const vbl = zonderCommentaar(String(verwerkBevestigLeren));
     eis('T16c verwerkBevestigLeren leest afwijkingMs niet',
         !/afwijkingMs/.test(vbl), 'geen afwijkingMs',
         /afwijkingMs/.test(vbl) ? 'LEEST AFWIJKINGMS' : 'geen afwijkingMs');
-    eis('T16d de drie schrijftakken staan er ongewijzigd in',
-        /gem \* 1\.6/.test(vbl) && /gem \+ correctieSec/.test(vbl)
-          && /0\.4, dd, 'bevestig_klopte'/.test(vbl),
-        'fout 1.6, bijna gem+correctie, klopte 0.4',
-        [/gem \* 1\.6/.test(vbl) ? 'fout ok' : 'FOUT GEWIJZIGD',
-         /gem \+ correctieSec/.test(vbl) ? 'bijna ok' : 'BIJNA GEWIJZIGD',
-         /0\.4, dd, 'bevestig_klopte'/.test(vbl) ? 'klopte ok' : 'KLOPTE GEWIJZIGD'].join(', '));
+    // V11.18.0: de FOUT-tak kent nu twee richtingen en de KLOPTE-tak een
+    // bandafhankelijk gewicht. De vorm die nog vaststaat is dat alledrie de
+    // takken bestaan en met hun eigen bronlabel schrijven.
+    eis('T16d de drie schrijftakken bestaan nog, elk met hun eigen bronlabel',
+        /'bevestig_fout'/.test(vbl) && /'bevestig_bijna'/.test(vbl)
+          && /'bevestig_klopte'/.test(vbl),
+        'drie bronlabels',
+        [/'bevestig_fout'/.test(vbl) ? 'fout' : 'FOUT WEG',
+         /'bevestig_bijna'/.test(vbl) ? 'bijna' : 'BIJNA WEG',
+         /'bevestig_klopte'/.test(vbl) ? 'klopte' : 'KLOPTE WEG'].join(', '));
+    eis('T16e de FOUT-tak kan nu beide kanten op',
+        /gem \* 1\.6/.test(vbl) && /gem \/ 1\.6/.test(vbl),
+        'x1.6 en /1.6',
+        [/gem \* 1\.6/.test(vbl) ? 'x1.6' : 'ONTBREEKT',
+         /gem \/ 1\.6/.test(vbl) ? '/1.6' : 'ONTBREEKT'].join(' + '));
 
   } finally {
     fase = bewaard.fase; cdBereikteNul = bewaard.cdBereikteNul;

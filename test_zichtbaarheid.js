@@ -263,8 +263,11 @@ function testZichtbaarheid() {
       return { bij0, bij50 };
     }
 
-    paar('T10 rood vóór nul',            'rood-voor-nul',  null,  'grijs / AAN / AAN');
-    paar('T11 groen vóór nul',           'groen-voor-nul', null,  'grijs / AAN / AAN');
+    // V11.18.0: de blanco-uitzondering is weg. Deze twee opzetten staan ver van
+    // het nulpunt, en daar is 'fout' de waarheid — dus beide knoppen grijs en
+    // alleen FOUT over. Het venster zelf wordt in test_bandmeting uitgemeten.
+    paar('T10 rood ver vóór nul',        'rood-voor-nul',  null,  'grijs / grijs / AAN');
+    paar('T11 groen ver vóór nul',       'groen-voor-nul', null,  'grijs / grijs / AAN');
     paar('T12 groen, 1s na nul',         'groen-na-nul',   1000,  'AAN / grijs / AAN');
     paar('T13 groen, 5s na nul',         'groen-na-nul',   5000,  'grijs / AAN / AAN');
     paar('T14 groen, 15s na nul',        'groen-na-nul',   15000, 'grijs / grijs / AAN');

@@ -694,7 +694,7 @@
 <div id="startscherm">
   <div id="s-icoon">🚦</div>
   <div id="s-titel">Stoplicht<span>IQ</span></div>
-  <div id="s-versie">V11.17.99 — gekoppeld kruispunt telt beide kanten</div>
+  <div id="s-versie">V11.18.0 — vast venster rond het nulpunt</div>
   <div id="s-model-wrap">
     <div id="s-model-rij">
       <div id="s-model-label">🤖 YOLOv8 model laden…</div>
@@ -919,7 +919,7 @@
 
 <script>
 // ═══════════════════════════════════════════════════════════════
-//  StoplichtIQ V11.17.99
+//  StoplichtIQ V11.18.0
 //  V11.10: Zelfkalibratie + vergrendeling + crop smoothing
 //  — S1+S2 bevestiging (kruispunt-level confidence)
 //  — Route-herkenning basis (sequentie-opslag)
@@ -3379,11 +3379,20 @@ function verwerkBevestigLeren(osmId, categorie, mom) {
   // schrijft dus niets, precies zoals bedoeld.
   // Dezelfde grenzen als bevestigIndeling en als de demping van de knop, zodat
   // beeld en gedrag niet uiteen kunnen lopen.
+  // V11.18.0: leest vensterAfwMs in plaats van overschrMs, en toetst de
+  // ABSOLUTE waarde — dezelfde band als bevestigIndeling en als de demping van
+  // de knop, zodat beeld en gedrag niet uiteen kunnen lopen. Daarmee corrigeert
+  // een BIJNA nu ook naar BENEDEN: viel groen zes seconden te vroeg, dan is
+  // vensterAfwMs -6000 en wordt nieuwGem gem - 6. Dat was de kant die V11.17.68
+  // als ontbrekend beschreef ("nieuwGem = gem + correctie kan het rekenkundig
+  // wel, maar er wordt nooit een negatief getal aangeboden").
+  const _bijnaAfw = (mom && typeof mom.vensterAfwMs === 'number') ? mom.vensterAfwMs : null;
   if (categorie === 'bijna'
       && bevestigMomentDefinitief(mom)
-      && mom.overschrMs > BEV_GOED_MAX_MS
-      && mom.overschrMs <= BEV_BIJNA_MAX_MS) {
-    const correctieSec = mom.overschrMs / 1000;
+      && _bijnaAfw != null
+      && Math.abs(_bijnaAfw) > BEV_GOED_MAX_MS
+      && Math.abs(_bijnaAfw) <= BEV_BIJNA_MAX_MS) {
+    const correctieSec = _bijnaAfw / 1000;
     const nieuwGem = gem + correctieSec;
     if (nieuwGem > 5 && nieuwGem < 300) {
       slaOpIntern(osmId, null, nieuwGem,
@@ -3395,7 +3404,22 @@ function verwerkBevestigLeren(osmId, categorie, mom) {
   }
 
   if (categorie === 'fout') {
-    const extremeWaarde = gem * 1.6;
+    // ── V11.18.0 (WIJZIGING 5): FOUT KENT NU TWEE RICHTINGEN ──
+    // (c) 2026 StoplichtIQ — Y. Lemaalem
+    //
+    // Hier stond onvoorwaardelijk gem * 1,6: de schatting was te KORT, dus rek
+    // hem op. Dat is maar de helft van de gevallen. Valt groen ruim voor de
+    // voorspelling, dan was de schatting te LANG en moet hij juist krimpen —
+    // oprekken maakt hem dan nog verder fout, en omdat deze tak met gewicht 0,2
+    // schrijft trekt hij de pool actief de verkeerde kant op.
+    //
+    // Het teken komt uit vensterAfwMs. Is dat onbekend, dan blijft het oude
+    // gedrag staan (x1,6): bij twijfel niets nieuws doen. De klem (>5 && <300)
+    // werkt aan beide kanten en blijft ongewijzigd — hij is de rem die
+    // V11.17.55 op de zelfversterkende lus zette.
+    const _foutAfw = (mom && typeof mom.vensterAfwMs === 'number') ? mom.vensterAfwMs : null;
+    const _teVroeg = _foutAfw != null && _foutAfw < 0;
+    const extremeWaarde = _teVroeg ? gem / 1.6 : gem * 1.6;
     // V11.17.55: grens, symmetrisch met de bijna-tak hierboven. Die had er al
     // een (nieuwGem > 5 && nieuwGem < 300), deze tak had er GEEN — en omdat hij
     // slaOpIntern rechtstreeks aanroept, omzeilde hij ook de 180s-controle van
@@ -3409,16 +3433,55 @@ function verwerkBevestigLeren(osmId, categorie, mom) {
     if (extremeWaarde > 5 && extremeWaarde < 300) {
       slaOpIntern(osmId, null, extremeWaarde,
         0.2, dd, 'bevestig_fout');
-      leerLog('bevestig fout: spreiding vergroot');
+      leerLog('bevestig fout: ' + (_teVroeg ? 'schatting te lang, ingekort'
+                                            : 'spreiding vergroot'));
     } else {
       logOpslagMis('bevestig_fout_grens', { node: osmId, dur: Math.round(extremeWaarde) });
     }
   }
 
   if (categorie === 'klopte') {
+    // ── V11.18.0 (WIJZIGING 7): EEN POORT OP DE ZWAARSTE SCHRIJVING ──
+    // (c) 2026 StoplichtIQ — Y. Lemaalem
+    //
+    // Deze tak had geen enkele poort en schrijft met het zwaarste gewicht van de
+    // drie. Dat was onschadelijk zolang KLOPTE nooit voor het nulpunt oplichtte.
+    // Sinds wijziging 1 en 2 kan dat wel, en dan zou een tik op -1,5s `gem`
+    // bekrachtigen terwijl er nog niets gebeurd is — precies het mechanisme dat
+    // V11.17.60 en V11.17.62 beschreven, alleen op de andere knop.
+    //
+    // DE POORT IS "GROEN IS GEVALLEN", niet "groen-na-nul". Dat is optie (a) uit
+    // de opdracht, maar dan correct getrokken: bewezen is een KLOPTE zodra groen
+    // er DAADWERKELIJK is en binnen het venster viel — en dat kan aan beide
+    // kanten van het nulpunt. Zou de poort letterlijk 'groen-na-nul' eisen, dan
+    // zou juist de vroege helft die wijziging 4 mogelijk maakt er weer buiten
+    // vallen. bevestigMomentDefinitief zegt precies dit, en de bijna-tak
+    // hierboven gebruikt hem al.
+    //
+    // WAAROM NIET OPTIE (b), schrijven met een lager gewicht voor nul. Een tik
+    // op -1,5s zegt niet "het klopte" maar "het gaat kloppen" — een voorspelling
+    // over een voorspelling. Er is op dat moment geen enkele waarneming om hem
+    // aan te toetsen, dus elk gewicht is een gok. Wachten kost bijna niets: valt
+    // groen binnen twee seconden alsnog, dan is de toestand groen-voor-nul of
+    // groen-na-nul en schrijft een tik daar wel. Wat verdwijnt is uitsluitend de
+    // tik die te vroeg kwam EN waarvan groen daarna nooit binnen het venster
+    // viel — en dat is nu juist de tik die niets mag bekrachtigen.
+    //
+    // De tik zelf gaat NIET verloren: hij belandt gewoon in sl_bevestig_ en de
+    // knop kleurt. Alleen de leerschrijving wacht op bewijs.
+    if (!bevestigMomentDefinitief(mom)) {
+      logOpslagMis('klopte_onbewezen', {
+        node: osmId, dur: (mom && typeof mom.vensterAfwMs === 'number')
+          ? Math.round(mom.vensterAfwMs / 1000) : null });
+      return;
+    }
+    // WIJZIGING 6: het gewicht zakt met de breedte van de band. Zie klopteGewicht.
+    const _bandS = cdBandBreedteS();
+    const _gew = klopteGewicht(_bandS);
     slaOpIntern(osmId, null, gem,
-      0.4, dd, 'bevestig_klopte');
-    leerLog('bevestig klopte: vertrouwen +');
+      _gew, dd, 'bevestig_klopte');
+    leerLog('bevestig klopte: vertrouwen + (gewicht ' + _gew.toFixed(2)
+      + (_bandS > 0 ? ', band ' + Math.round(_bandS) + 's' : '') + ')');
   }
 }
 
@@ -4624,21 +4687,103 @@ const BEVESTIG_DEDUP_MS = 2000;
 const BEV_GOED_MAX_MS  = 2000;
 const BEV_BIJNA_MAX_MS = 10000;
 
-// Welke categorie is op DIT moment de waarheid? null = niet vast te stellen,
-// wat hier altijd betekent: de klok is nog niet op nul geweest, of groen viel
-// eerder dan dat.
+// ── V11.18.0 (WIJZIGING 6): EEN KLOPTE OP EEN VAGE BAND WEEGT MINDER ──
+// (c) 2026 StoplichtIQ — Y. Lemaalem
+//
+// Het venster is vast (wijziging 1/2) — op elk kruispunt dezelfde twee seconden.
+// Maar een KLOPTE is niet overal even knap. Zegt de app "22s" en is het 22s, dan
+// is dat een rake voorspelling. Zegt ze "~22s plus of min 21" en valt groen
+// binnen twee seconden van 22, dan is dat voor een flink deel geluk: de band was
+// 42 seconden breed. Die twee horen niet met hetzelfde gewicht in het
+// leergeheugen te belanden, want de KLOPTE-tak schrijft `gem` ongewijzigd terug
+// en verdicht dus gewicht rond precies die waarde.
+//
+// DE FORMULE en waarom deze:
+//
+//     gewicht = max(KLOPTE_GEWICHT_MIN, KLOPTE_GEWICHT_BASIS / (1 + band / 10))
+//
+// - bij band 0 exact 0,40 — dat is CD_ZEKER en CD_GESCHAT, waar cdMin/cdMax
+//   null zijn. Daar verandert er dus niets, en dat is het overgrote deel van de
+//   kruispunten (65% op de export van 28 augustus).
+// - monotoon dalend, en nooit nul: een KLOPTE blijft altijd iets zeggen.
+// - de deler 10 is geen gestemde constante maar een anker dat de app al kent:
+//   BEV_BIJNA_MAX_MS is 10 seconden, de buitenrand van wat hier "dichtbij" heet.
+//   Tien seconden onzekerheid halveert het gewicht. Dat is in een zin uit te
+//   leggen, en het ligt op de gemeten verdeling goed: mediane band 5s -> 0,27,
+//   p75 10s -> 0,20, p90 21s -> 0,13.
+// - de ondergrens 0,10 bijt vanaf een band van 30s (p90+). Daaronder zou een
+//   KLOPTE minder gaan wegen dan de ruis waar hij tegen moet opboksen.
+//
+// De band wordt gereconstrueerd als cdMax - gem, exact zoals de pill hem toont
+// (V11.17.82). Alleen de bovenkant is zuiver: cdMin draagt de klem Math.max(1,...)
+// uit bepaalCdModus en zou bij 8% van de vage emmers een te kleine band geven.
+const KLOPTE_GEWICHT_BASIS = 0.4;
+const KLOPTE_GEWICHT_MIN   = 0.10;
+const KLOPTE_BAND_HALVEER_S = 10;
+
+// De halve bandbreedte in seconden, of 0 als er geen band is. Buiten CD_VAAG
+// zijn activeCdMin/activeCdMax null — niet gem — en null als getal behandelen
+// levert NaN op. Vandaar de expliciete typetoets.
+function cdBandBreedteS() {
+  if (typeof activeCdMax !== 'number' || typeof activeCdDoel !== 'number') return 0;
+  const band = activeCdMax - activeCdDoel;
+  return (isFinite(band) && band > 0) ? band : 0;
+}
+
+function klopteGewicht(bandS) {
+  const b = (typeof bandS === 'number' && isFinite(bandS) && bandS > 0) ? bandS : 0;
+  return Math.max(KLOPTE_GEWICHT_MIN,
+                  KLOPTE_GEWICHT_BASIS / (1 + b / KLOPTE_BAND_HALVEER_S));
+}
+
+// Welke categorie is op DIT moment de waarheid? null = niet vast te stellen.
+//
+// ── V11.18.0 (WIJZIGING 2): SYMMETRISCH ROND HET NULPUNT ──
+// (c) 2026 StoplichtIQ — Y. Lemaalem
+//
+// Hier stond `m.overschrMs`, en die bestaat alleen NA het nulpunt. Het venster
+// liep daardoor van 0 tot +2s en van +2s tot +10s — eenzijdig, terwijl een
+// voorspelling er even goed te vroeg naast kan zitten. Nu op de absolute waarde
+// van vensterAfwMs, dus:
+//
+//   |afw| <= 2000    -2s .. +2s     GOED   (KLOPTE)
+//   |afw| <= 10000   -10s .. +10s   BIJNA  (met een gat van -2..+2, waar KLOPTE
+//                                    het overneemt — de banden zijn disjunct)
+//   daarbuiten                      FOUT
+//
+// De grenzen 2000 en 10000 zijn ONGEWIJZIGD; alleen de kant erbij is nieuw.
+// Dat de twee banden elkaar per constructie uitsluiten is wat de invariant
+// "KLOPTE en BIJNA nooit tegelijk fel" nu wiskundig garandeert in plaats van
+// via de volgorde van twee losse poorten (zie updateBevestigKnopStaat, dat
+// sinds V11.17.89 al een klokmeting deelt).
 function bevestigIndeling(mom) {
   const m = mom || meetBevestigMoment();
-  if (m.overschrMs == null) return null;
-  if (m.overschrMs <= BEV_GOED_MAX_MS)  return 'goed';
-  if (m.overschrMs <= BEV_BIJNA_MAX_MS) return 'bijna';
+  if (typeof m.vensterAfwMs !== 'number' || isNaN(m.vensterAfwMs)) return null;
+  const afw = Math.abs(m.vensterAfwMs);
+  if (afw <= BEV_GOED_MAX_MS)  return 'goed';
+  if (afw <= BEV_BIJNA_MAX_MS) return 'bijna';
   return 'fout';
 }
 
-// Is de overschrijding uitgemeten, of loopt hij nog? Alleen een definitieve
-// waarde mag het leergeheugen in.
+// Is de afwijking uitgemeten, of loopt hij nog? Alleen een definitieve waarde
+// mag het leergeheugen in.
+//
+// ── V11.18.0 (WIJZIGING 4): OOK GROEN DAT TE VROEG VIEL ──
+// (c) 2026 StoplichtIQ — Y. Lemaalem
+//
+// Hier stond alleen 'groen-na-nul'. De andere helft — groen dat VOOR de
+// voorspelling viel — werd geregistreerd maar corrigeerde nooit, want die kant
+// bestond niet als getal. V11.17.80 gaf hem met afwijkingMs, en vensterAfwMs
+// maakt hem nu bruikbaar. Een te lange schatting stelt zich dus voortaan net zo
+// goed bij als een te korte.
+//
+// De eis blijft dat GROEN GEVALLEN IS. In de twee rode toestanden is er niets
+// bewezen: rood-voor-nul is een lopende klok, en rood-na-nul is een
+// overschrijding die nog groeit — daarop corrigeren zou stelselmatig te weinig
+// bijstellen, precies wat V11.17.68 hier vastlegde.
 function bevestigMomentDefinitief(m) {
-  return !!m && m.toestand === 'groen-na-nul' && typeof m.overschrMs === 'number';
+  return !!m && typeof m.toestand === 'string' && m.toestand.indexOf('groen') === 0
+      && typeof m.vensterAfwMs === 'number' && !isNaN(m.vensterAfwMs);
 }
 
 // Het nulpunt waartegen de overschrijding gemeten wordt.
@@ -4683,10 +4828,21 @@ function overschrNulRef() {
 // altijd; mét argument rekent hij op een moment dat de aanroeper al gemeten
 // heeft. Dat tweede is nodig omdat updateBevestigKnopStaat beide poorten
 // raadpleegt en ze anders elk hun eigen milliseconde lezen — zie daar.
+// ── V11.18.0 (WIJZIGING 3): DE BLANCO-UITZONDERING IS WEG ──
+// (c) 2026 StoplichtIQ — Y. Lemaalem
+//
+// Hier stond `if (toestand === 'rood-voor-nul' || 'groen-voor-nul') return false`
+// — BIJNA was voor het nulpunt onvoorwaardelijk fel, de hele rode fase lang.
+// Dat kon niet anders: er bestond toen geen getal voor "hoe ver zit ik van nul"
+// voor het nulpunt, dus was elke tik daar even plausibel.
+//
+// Met vensterAfwMs bestaat dat getal wel, en dan is de uitzondering niet alleen
+// overbodig maar schadelijk: hij zou BIJNA fel laten staan in het venster
+// -2s..0 waar KLOPTE de juiste knop is, en de invariant "nooit tegelijk fel"
+// breken. Release F liet hem bewust liggen en noemde deze release bij naam
+// (zie bevestigCountdown, "dat is Countdown Release B (RV3)").
 function bijnaIsNoOp(mom) {
-  const m = mom || meetBevestigMoment();
-  if (m.toestand === 'rood-voor-nul' || m.toestand === 'groen-voor-nul') return false;
-  return bevestigIndeling(m) !== 'bijna';
+  return bevestigIndeling(mom) !== 'bijna';
 }
 
 // W3: is een KLOPTE-tik op dit moment een no-op?
@@ -4828,7 +4984,39 @@ function meetBevestigMoment() {
   // de drie takken in verwerkBevestigLeren) letterlijk ongewijzigd: die lezen
   // allemaal alleen overschrMs. Het samenvoegen van de twee grootheden is de
   // release waarin gedrag WEL mag veranderen.
-  const uit = { toestand: null, overschrMs: null, restMs: null, afwijkingMs: null };
+  // ── V11.18.0 (WIJZIGING 1): EEN ONDERTEKENDE AFWIJKING VOOR HET VENSTER ──
+  // (c) 2026 StoplichtIQ — Y. Lemaalem
+  //
+  // vensterAfwMs is het getal waarop de knoppen beslissen: hoeveel milliseconden
+  // zit dit moment NAAST het verwachte nulpunt, met teken. Negatief = we zijn er
+  // nog niet, positief = het is al voorbij.
+  //
+  // GEMETEN TEGEN gem (activeCdDoel), NIET TEGEN [cdMin, cdMax]. Dat is het
+  // verschil tussen variant A en B, en het is een bewuste keuze: het venster
+  // hoort op elk kruispunt even breed te zijn. Zou de band meetellen, dan stond
+  // KLOPTE op een vage node twintig seconden lang fel — gemeten op de export van
+  // 28 augustus is de mediane band 5s en de p90 21s, dus dat venster zou per
+  // kruispunt van 4 tot 46 seconden varieren zonder dat de gebruiker ziet
+  // waarom. De onzekerheid van een vage voorspelling telt in deze release mee in
+  // het GEWICHT van een KLOPTE (zie klopteGewicht), niet in wanneer hij oplicht.
+  //
+  // cdMin/cdMax komen hier dus niet voor. Let op de valkuil die daarbij hoort:
+  // buiten CD_VAAG zijn ze null (bepaalCdModus r3175/3204), niet gem. Wie ze als
+  // getal behandelt krijgt NaN, en `NaN <= 2000` is false — een knop die
+  // stilzwijgend nooit meer oplicht.
+  //
+  // PER TOESTAND EEN EIGEN BRON, want er is geen enkele grootheid die in alle
+  // vier bestaat:
+  //   rood-voor-nul  -restMs        de klok loopt nog; zoveel ms te vroeg
+  //   rood-na-nul    +overschrMs    groen is nog niet gevallen, dit loopt op
+  //   groen-na-nul   +overschrMs    eindwaarde: groen viel zoveel ms te laat
+  //   groen-voor-nul  afwijkingMs   negatief: groen viel zoveel ms te vroeg
+  //
+  // Bij twijfel null. Dan geeft bevestigIndeling null terug, staan KLOPTE en
+  // BIJNA allebei grijs en blijft alleen FOUT over — dat is de eerlijke uitkomst
+  // als de app niet weet hoe ver ze ernaast zit.
+  const uit = { toestand: null, overschrMs: null, restMs: null,
+                afwijkingMs: null, vensterAfwMs: null };
 
   if (fase === 'groen') {
     // De gesigneerde afwijking van het groen-moment ten opzichte van het
@@ -4845,12 +5033,18 @@ function meetBevestigMoment() {
       // staat nu in afwijkingMs; dat is wat V11.17.68 (r3907-3912) als
       // ontbrekend beschreef.
       uit.toestand = 'groen-voor-nul';
+      // V11.18.0: hier is afwijkingMs de enige bron — cdStart is bij groen al
+      // genuld door stopCd, dus restMs bestaat niet meer. Blijft hij null (de
+      // export van 11 september laat 6 van 12 gevuld zien), dan weet de app niet
+      // hoe vroeg groen viel en blijven beide knoppen grijs.
+      uit.vensterAfwMs = uit.afwijkingMs;
       return uit;
     }
     uit.toestand = 'groen-na-nul';
     if (groenStart != null) {
       const groenWand = nuWand - (performance.now() - groenStart);
       uit.overschrMs = Math.round(groenWand - countdownNulTijd);
+      uit.vensterAfwMs = uit.overschrMs;
     }
     return uit;
   }
@@ -4859,11 +5053,15 @@ function meetBevestigMoment() {
     if (nulGezet) {
       uit.toestand = 'rood-na-nul';
       uit.overschrMs = Math.round(nuWand - countdownNulTijd);
+      uit.vensterAfwMs = uit.overschrMs;
       return uit;
     }
     uit.toestand = 'rood-voor-nul';
     if (cdStart != null && activeCdDoel > 0) {
       uit.restMs = Math.round(Math.max(0, activeCdDoel * 1000 - (performance.now() - cdStart)));
+      // V11.18.0: nog niet bij nul, dus negatief. Dit is de tak die KLOPTE in de
+      // twee seconden VOOR het nulpunt laat oplichten — precies wat er ontbrak.
+      uit.vensterAfwMs = -uit.restMs;
     }
     return uit;
   }
@@ -8621,6 +8819,12 @@ function bevestigCountdown(categorie) {
     autoVerschilMs: autoVerschil,
     toestand:   _mom.toestand,     // V11.17.67
     overschrMs: _mom.overschrMs,   // V11.17.67
+    // V11.18.0: het getal waarop de knoppen beslisten. In de groen-toestanden
+    // valt hij samen met overschrMs resp. afwijkingMs en dient hij als ijking;
+    // in rood-voor-nul is hij de enige die de nieuwe, vroege helft van het
+    // venster vastlegt. Zonder dit veld is achteraf niet na te rekenen waarom
+    // een knop op dat moment fel of grijs stond.
+    vensterAfwMs: _mom.vensterAfwMs,
     restMs:     _mom.restMs,       // V11.17.67
     // V11.17.78: de snelheid op het tikmoment. Tot deze release stond de
     // knoppenrij alleen bij stilstand in beeld, dus was dit getal per definitie

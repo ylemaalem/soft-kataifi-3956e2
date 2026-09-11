@@ -230,26 +230,39 @@ function testCountdownWeergave() {
     eis('T11 BEV_GOED_MAX_MS / BEV_BIJNA_MAX_MS ongewijzigd',
         BEV_GOED_MAX_MS === 2000 && BEV_BIJNA_MAX_MS === 10000,
         '2000 / 10000', BEV_GOED_MAX_MS + ' / ' + BEV_BIJNA_MAX_MS);
-    eis('T11b bevestigIndeling toetst nog ondertekend op overschrMs',
-        /m\.overschrMs <= BEV_GOED_MAX_MS/.test(zc(String(bevestigIndeling))),
-        'ongewijzigd', zc(String(bevestigIndeling)).replace(/\s+/g, ' ').slice(0, 80));
-    eis('T11c bijnaIsNoOp houdt de blanco-uitzondering (Release B raakt hem)',
-        /rood-voor-nul/.test(zc(String(bijnaIsNoOp))) && /groen-voor-nul/.test(zc(String(bijnaIsNoOp))),
-        'uitzondering aanwezig',
-        /rood-voor-nul/.test(zc(String(bijnaIsNoOp))) ? 'aanwezig' : 'WEG');
+    // V11.18.0 (Release B) heeft deze twee omgezet, zoals de naam hier al
+    // aankondigde. De indeling toetst nu de ABSOLUTE afstand tot nul, en de
+    // blanco-uitzondering is weg. Gedrag in plaats van tekst, want de vorm mag
+    // veranderen zolang het venster klopt.
+    eis('T11b bevestigIndeling toetst symmetrisch rond nul',
+        bevestigIndeling({ vensterAfwMs: -1000 }) === 'goed'
+        && bevestigIndeling({ vensterAfwMs: 1000 }) === 'goed'
+        && bevestigIndeling({ vensterAfwMs: -5000 }) === 'bijna'
+        && bevestigIndeling({ vensterAfwMs: 5000 }) === 'bijna',
+        'goed/goed/bijna/bijna',
+        [bevestigIndeling({ vensterAfwMs: -1000 }), bevestigIndeling({ vensterAfwMs: 1000 }),
+         bevestigIndeling({ vensterAfwMs: -5000 }), bevestigIndeling({ vensterAfwMs: 5000 })].join('/'));
+    eis('T11c bijnaIsNoOp kent geen toestandsuitzondering meer',
+        !/rood-voor-nul/.test(zc(String(bijnaIsNoOp))) && !/groen-voor-nul/.test(zc(String(bijnaIsNoOp))),
+        'uitzondering weg',
+        /voor-nul/.test(zc(String(bijnaIsNoOp))) ? 'STAAT ER NOG' : 'weg');
     eis('T11d bepaalCdModus berekent cdMin/cdMax nog steeds (Release B heeft ze nodig)',
         /cdMin = Math\.max\(1, Math\.round\(gem - band\)\)/.test(zc(String(bepaalCdModus)))
           && /cdMax = Math\.round\(gem \+ band\)/.test(zc(String(bepaalCdModus))),
         'beide aanwezig',
         /cdMin = Math\.max/.test(zc(String(bepaalCdModus))) ? 'aanwezig' : 'WEG');
     const vbl = zc(String(verwerkBevestigLeren));
-    eis('T11e de drie schrijftakken in verwerkBevestigLeren ongewijzigd',
-        /gem \* 1\.6/.test(vbl) && /gem \+ correctieSec/.test(vbl)
-          && /0\.4, dd, 'bevestig_klopte'/.test(vbl),
-        'fout 1.6, bijna gem+correctie, klopte 0.4',
-        [/gem \* 1\.6/.test(vbl) ? 'fout ok' : 'FOUT GEWIJZIGD',
-         /gem \+ correctieSec/.test(vbl) ? 'bijna ok' : 'BIJNA GEWIJZIGD',
-         /0\.4, dd, 'bevestig_klopte'/.test(vbl) ? 'klopte ok' : 'KLOPTE GEWIJZIGD'].join(', '));
+    // V11.18.0: de FOUT-tak kent twee richtingen en de KLOPTE-tak een
+    // bandafhankelijk gewicht. Wat vaststaat is dat de drie takken bestaan en
+    // dat de BIJNA-correctie nog steeds gem + de afwijking is.
+    eis('T11e de drie schrijftakken bestaan nog, met beide FOUT-richtingen',
+        /gem \* 1\.6/.test(vbl) && /gem \/ 1\.6/.test(vbl)
+          && /gem \+ correctieSec/.test(vbl) && /'bevestig_klopte'/.test(vbl),
+        'fout x1.6 en /1.6, bijna gem+correctie, klopte aanwezig',
+        [/gem \* 1\.6/.test(vbl) ? 'fout-op ok' : 'ONTBREEKT',
+         /gem \/ 1\.6/.test(vbl) ? 'fout-neer ok' : 'ONTBREEKT',
+         /gem \+ correctieSec/.test(vbl) ? 'bijna ok' : 'ONTBREEKT',
+         /'bevestig_klopte'/.test(vbl) ? 'klopte ok' : 'ONTBREEKT'].join(', '));
 
     // ══ T12 — de poort is voorwaardelijk, niet geschrapt ══════
     const bc = zc(String(bevestigCountdown));
