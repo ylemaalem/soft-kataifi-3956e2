@@ -426,10 +426,19 @@ function testNodescore() {
         && !/corrigeerNodeAutomatisch/.test(mBron)
         && !/puurDichtsteNodeCache =/.test(mBron),
         'alleen logOpslagMis', 'alleen logOpslagMis');
-    eis('T26b de drempels zijn onaangeroerd',
-        NODE_CHK_CORRECTIE_MARGE_M === 20 && NODE_HOEK_GELIJK_M === 5
+    // V11.18.7: de marge staat niet meer op 20 maar op 8. Deze toets luidde
+    // 'de drempels zijn onaangeroerd' en hoorde bij V11.17.90, die bewust
+    // alleen MAT en niets verzette — met de aantekening dat de meting moest
+    // uitwijzen waar de marge zou moeten liggen. Dat getal is er nu: op de
+    // twintig gemeten afwijkingen dekte 20 m er één, en 8 m dekt er tien.
+    //
+    // De bewaking zelf blijft nuttig en blijft dus staan, nu op de nieuwe
+    // waarde. De drie andere drempels zíjn onaangeroerd, en juist daarom
+    // horen ze hier nog bij: de marge is bewust verzet, de rest niet.
+    eis('T26b de marge staat op 8, de overige drempels zijn onaangeroerd',
+        NODE_CHK_CORRECTIE_MARGE_M === 8 && NODE_HOEK_GELIJK_M === 5
         && NODE_HOEK_MIN_AFSTAND_M === 12 && NODE_CHK_STANDSTILL_KMH === 3,
-        'marge 20, gelijk 5, minafstand 12, stilstand 3',
+        'marge 8, gelijk 5, minafstand 12, stilstand 3',
         [NODE_CHK_CORRECTIE_MARGE_M, NODE_HOEK_GELIJK_M,
          NODE_HOEK_MIN_AFSTAND_M, NODE_CHK_STANDSTILL_KMH].join(', '));
     eis('T26c de scoreformule is ongewijzigd: stilstandtak zonder hoekterm',

@@ -694,7 +694,7 @@
 <div id="startscherm">
   <div id="s-icoon">🚦</div>
   <div id="s-titel">Stoplicht<span>IQ</span></div>
-  <div id="s-versie">V11.18.6 — geweigerde correctie gemeten</div>
+  <div id="s-versie">V11.18.7 — marge 8m, tap mag verlopen</div>
   <div id="s-model-wrap">
     <div id="s-model-rij">
       <div id="s-model-label">🤖 YOLOv8 model laden…</div>
@@ -919,7 +919,7 @@
 
 <script>
 // ═══════════════════════════════════════════════════════════════
-//  StoplichtIQ V11.18.6
+//  StoplichtIQ V11.18.7
 //  V11.10: Zelfkalibratie + vergrendeling + crop smoothing
 //  — S1+S2 bevestiging (kruispunt-level confidence)
 //  — Route-herkenning basis (sequentie-opslag)
@@ -6122,7 +6122,29 @@ const NODE_CHK_DELTA_M            = 25;    // W1a: verschil gekozen–closest vo
 const NODE_CHK_STANDSTILL_MAX_M   = 40;    // W1b: max afstand bij stilstand voor twijfel
 const NODE_CHK_STANDSTILL_KMH     = 3;     // W1b+W3: stilstand-drempel (km/u)
 const NODE_CHK_STANDSTILL_DUUR_MS = 3000;  // W3: minimum stilstand-duur voor hercontrole
-const NODE_CHK_CORRECTIE_MARGE_M  = 20;    // W3: alternatief moet zoveel dichterbij zijn
+// ── V11.18.7: VAN 20 NAAR 8 METER ──────────────────
+// © 2026 StoplichtIQ — Y. Lemaalem
+//
+// Deze drempel stond sinds V11.17.9 op 20 en dekte op de meting van
+// 12 september 1 van de 20 afwijkingen — de route was feitelijk dood. De
+// verdeling van die twintig: 0 0 0 2 3 4 4 4 6 7 8 8 8 9 11 13 14 15 15 38,
+// mediaan 7,5 m.
+//
+// WAAROM 8 EN NIET LAGER. Het natuurlijke gat in de verdeling ligt tussen 4 en
+// 6. Alles daaronder is GPS-ruis of een buurlamp van dezelfde kruising, en daar
+// corrigeren is schadelijk: corrigeerNodeAutomatisch roept beeindigFase aan en
+// gooit de lopende countdown weg. Je zou ruis inruilen voor een countdown die
+// steeds opnieuw begint.
+//
+// WAAROM 8 EN NIET HOGER. Bij 8 valt het dichte cluster 8-9-11-13-14-15 binnen
+// bereik, plus de 38 van het Eendrachtsplein. Dekking op de elf gemeten
+// episodes: 5 stuks, tegen 1 bij de oude waarde.
+//
+// EEN WAARSCHUWING BIJ HET LEZEN VAN DE RUIS-GRENS. De afwijking is een
+// VERSCHIL van twee afstanden uit dezelfde GPS-fix, maar de fout valt niet weg:
+// de twee nodes liggen in verschillende richtingen, dus een positiefout delta
+// verandert het verschil met maximaal ongeveer 2x delta. Daarom 8 en niet 6.
+const NODE_CHK_CORRECTIE_MARGE_M  = 8;     // W3: alternatief moet zoveel dichterbij zijn
 const NODE_CHK_HEADING_MAX_GRAD   = 60;    // W3: heading-match tolerantie (indien beschikbaar)
 const NODE_CHK_LOG_INTERVAL_MS    = 1000;  // W5: [NODE-CHK] throttle voor twijfel-events
 
@@ -14794,6 +14816,85 @@ function meetStilstandNodeAfwijking() {
 // 'stabiliteit' onzichtbaar maken.
 let nodeCorrWeiger = null;   // { poort, afstReden, hoekReden, hoekN, voordeel }
 
+// ── V11.18.7: EEN HANDMATIGE KEUZE MAG VERLOPEN ──────────────
+// © 2026 StoplichtIQ — Y. Lemaalem
+//
+// WAT ER MIS WAS. Een echte tap zette handmatigLockActief, en die vlag doet
+// twee dingen tegelijk: updateDichtbij stapt er meteen op uit (r14398, dus
+// vindDichtbij wordt niet eens aangeroepen) en poort 5 van
+// checkNodeCorrectieStilstand weigert elke correctie. De enige uitweg was
+// >100 m voorbij EN geometrisch gepasseerd EN >5 km/u — drie eisen tegelijk,
+// en juist bij stilstaan voor een verkeerd licht faalt de eerste en de derde.
+// Op een stadsplein kom je zelden 100 m van de node die je ooit aantikte.
+//
+// Gemeten op 12 september, episode 9 en 10: om 19:02 was node 5501272904 nog
+// de dichtstbijzijnde en dus een volkomen terechte keuze. Ergens in de 57
+// seconden daarna is erop getikt. Om 19:03:55 lag hij 46 m achter de
+// bestuurder (peiling 178 graden) met een ander licht op 8 m ernaast — en de
+// app hield onverkort vast. De tijdstempel die dit had kunnen oplossen bestaat
+// wel (handmatigGeselecteerdTimestamp) maar wordt nergens gelezen.
+//
+// WAAROM VERVALLEN OP BEWIJS EN NIET OP TIJD. Een tijdslimiet is willekeurig:
+// sta je zes minuten voor een lang rood op de node die je net bewust koos, dan
+// verlies je precies de bescherming waarvoor de lock bedoeld is. De tap moet
+// beschermen tegen DRIFT, niet tegen BEWIJS. Deze voorwaarde kan per
+// constructie alleen vuren als er een aantoonbaar betere kandidaat is: tik je
+// een licht aan waar je vervolgens voor staat, dan is dat licht zelf de
+// dichtstbijzijnde en gebeurt er nooit iets.
+//
+// DEZELFDE MARGE ALS DE CORRECTIEROUTE. NODE_CHK_CORRECTIE_MARGE_M, en met
+// `>=` net als r14893 — anders zou de lock kunnen vervallen bij een verschil
+// waar de correctie daarna niets mee doet, en sta je met een losgelaten lock
+// nog steeds op dezelfde node. De vier hand-lock-episodes van 2 en 4 meter
+// (buurlampen van dezelfde kruising) blijven daardoor onaangeroerd.
+//
+// DE AUTO-LOCK BLIJFT BUITEN SCHOT. De guard `!stilstandAutoLock` staat er nog
+// precies zo; die groep wacht op het poortReden-getal uit V11.18.6.
+//
+// `puurDichtsteNodeCache` komt uit de VORIGE tick — updateDichtbij draait pas
+// verderop in onGPS (r15148). De identiteit is dus een GPS-interval oud, wat
+// bij stilstand niets uitmaakt en zelfs meehelpt: de afwijking moet dan al een
+// tick bestaan hebben. De AFSTAND wordt hieronder wel vers berekend, zodat de
+// vergelijking twee actuele getallen betreft.
+function checkHandLockVerval(lat, lon) {
+  if (!(handmatigLockActief && handmatigGeselecteerdNodeId && !stilstandAutoLock)) return;
+  const lockedNode = osmCache.find(s => String(s.id) === handmatigGeselecteerdNodeId);
+  if (!lockedNode) return;
+  const lockAfstand = afstand(lat, lon, lockedNode.lat, lockedNode.lon);
+
+  // Route 1 (V10.0.3, ongewijzigd): je bent er voorbij en rijdt door.
+  const wegGereden = lockAfstand > 100
+    && isStoplichtVoorbij({ lat: lockedNode.lat, lon: lockedNode.lon }, { lat, lon }, getSmoothedHeading())
+    && snelheidKmh > 5;
+
+  // Route 2 (V11.18.7): je staat stil en een ander licht ligt aantoonbaar
+  // dichterbij. Zelfde stilstandseisen als de rest van dit mechanisme.
+  let achterhaald = false;
+  if (puurDichtsteNodeCache
+      && String(puurDichtsteNodeCache.id) !== String(handmatigGeselecteerdNodeId)
+      && snelheidKmh < NODE_CHK_STANDSTILL_KMH
+      && stilstandSinds !== 0
+      && (Date.now() - stilstandSinds) >= NODE_CHK_STANDSTILL_DUUR_MS) {
+    const closestAf = afstand(lat, lon, puurDichtsteNodeCache.lat, puurDichtsteNodeCache.lon);
+    achterhaald = (lockAfstand - closestAf) >= NODE_CHK_CORRECTIE_MARGE_M;
+    if (achterhaald) {
+      logOpslagMis('handlock_vervallen', {
+        node: String(handmatigGeselecteerdNodeId),
+        afst: lockAfstand,
+        afwM: Math.round(lockAfstand - closestAf)
+      });
+    }
+  }
+
+  if (wegGereden || achterhaald) {
+    // Dezelfde drie velden als de auto-unlock (r15086-15088), zodat er geen
+    // halve toestand achterblijft waarin de vlag weg is maar de node-id niet.
+    handmatigLockActief = false;
+    handmatigGeselecteerdNodeId = null;
+    stilstandAutoLock = false;
+  }
+}
+
 // ── V11.18.6: DE WEIGERING VASTLEGGEN, ALLEEN BIJ AUTO-LOCK ──
 // (c) 2026 StoplichtIQ - Y. Lemaalem
 //
@@ -15089,17 +15190,8 @@ async function onGPS(pos) {
     handmatigGeselecteerdNodeId = null;
     stilstandAutoLock = false;
   }
-  // V10.0.3: Handmatig lock — vervalt ALLEEN bij >100m voorbij + snelheid >5
-  if (handmatigLockActief && handmatigGeselecteerdNodeId && !stilstandAutoLock) {
-    const lockedNode = osmCache.find(s => String(s.id) === handmatigGeselecteerdNodeId);
-    if (lockedNode) {
-      const lockAfstand = afstand(lat, lon, lockedNode.lat, lockedNode.lon);
-      const isVoorbij = isStoplichtVoorbij({ lat: lockedNode.lat, lon: lockedNode.lon }, {lat, lon}, getSmoothedHeading());
-      if (lockAfstand > 100 && isVoorbij && snelheidKmh > 5) {
-        handmatigLockActief = false; handmatigGeselecteerdNodeId = null;
-      }
-    }
-  }
+  // V10.0.3 / V11.18.7: handmatig lock — twee onafhankelijke vervalroutes.
+  checkHandLockVerval(lat, lon);
   // Zoom unlock via GPS-voorbij
   if (zoomVergrendeld && huidigActiefStoplichtPositie &&
       isStoplichtVoorbij(huidigActiefStoplichtPositie, {lat,lon}, getSmoothedHeading()) &&

@@ -13,6 +13,11 @@
 //  marge) en de hoek heeft er in zichzelf nog eens vijf. Zonder meting is dat
 //  gokken tussen acht mogelijkheden.
 //
+//  V11.18.7 bracht NODE_CHK_CORRECTIE_MARGE_M van 20 naar 8. De fixtures die
+//  'marge' moeten uitlokken zijn daarop bijgesteld: het strookje waar zowel de
+//  hoekroute (>5 m uiteen) als de afstandsroute (<8 m verschil) nee zegt, is nu
+//  5 tot 8 meter breed in plaats van 5 tot 20.
+//
 //  T1 IS DE AFBAKENING
 //  De regel mag uitsluitend bij hand=1 && autoLock=1 vuren. Bij een echte tap
 //  weigert poort 5 per ontwerp — daar valt niets te leren. Zonder lock is het
@@ -107,8 +112,9 @@ function testAutolockWeiger() {
     handmatigLockActief = opt.hand !== undefined ? opt.hand : true;
     stilstandAutoLock   = opt.autoLock !== undefined ? opt.autoLock : true;
     handmatigGeselecteerdNodeId = String(GEKOZEN);
+    // headingBuffer bevat KALE GRADEN, geen objecten (r10736).
     headingBuffer.length = 0;
-    if (opt.headingBuffer === undefined) headingBuffer.push({ heading: 0, tijd: Date.now() });
+    if (opt.headingBuffer === undefined) headingBuffer.push(0);
     else for (const h of opt.headingBuffer) headingBuffer.push(h);
     hoekStabielSleutel = opt.hoekSleutel !== undefined ? opt.hoekSleutel : null;
     hoekStabielTeller  = opt.hoekTeller  != null ? opt.hoekTeller : 0;
@@ -187,7 +193,10 @@ function testAutolockWeiger() {
 
     // Ongelijke afstanden: dan is dit de afstandsroute-zaak, niet de hoek.
     zetLS('sl_opslaglog', '[]');
-    opzet({ gekozenAf: 40, closestAf: 32, closestHoek: 60 });
+    // 7 m: te ver uiteen voor de hoekroute (NODE_HOEK_GELIJK_M = 5), maar net
+    // te weinig voor de afstandsroute (NODE_CHK_CORRECTIE_MARGE_M = 8 sinds
+    // V11.18.7). Precies het smalle strookje waar beide routes nee zeggen.
+    opzet({ gekozenAf: 40, closestAf: 33, closestHoek: 60 });
     tick();
     r = laatste('autolock_correctie_geweigerd');
     eis('T2d bij ongelijke afstanden meldt de hoekroute "afst_ongelijk"',
@@ -218,15 +227,16 @@ function testAutolockWeiger() {
         '1 tot ' + (NODE_HOEK_STABIEL_N - 1), r ? String(r.hoekN) : 'geen regel');
 
     // ═══ T4 — KANDIDAAT 3: DE MARGE ══════════════════════════
-    // Afstanden te ver uit elkaar voor de hoekroute, maar niet ver genoeg voor
-    // NODE_CHK_CORRECTIE_MARGE_M (20). Dit is het bekende gat van 5 tot 20 m.
+    // Afstanden te ver uit elkaar voor de hoekroute (>5), maar niet ver genoeg
+    // voor NODE_CHK_CORRECTIE_MARGE_M. V11.18.7 bracht die van 20 naar 8, dus
+    // het strookje waar beide routes nee zeggen loopt nu van 5 tot 8 meter.
     zetLS('sl_opslaglog', '[]');
-    opzet({ gekozenAf: 40, closestAf: 28, closestHoek: 60 });
+    opzet({ gekozenAf: 40, closestAf: 33, closestHoek: 60 });
     tick();
     r = laatste('autolock_correctie_geweigerd');
-    eis('T4 een verschil in het 5-20m-gat meldt afstReden "marge"',
-        r && r.afstReden === 'marge' && r.afwM === 12,
-        "marge, afwM 12", r ? (r.afstReden + ', afwM ' + r.afwM) : 'geen regel');
+    eis('T4 een verschil tussen de twee routes in meldt afstReden "marge"',
+        r && r.afstReden === 'marge' && r.afwM === 7,
+        'marge, afwM 7', r ? (r.afstReden + ', afwM ' + r.afwM) : 'geen regel');
 
     // Te kort stilgestaan: de afstandsroute eist NODE_CHK_STANDSTILL_DUUR_MS.
     zetLS('sl_opslaglog', '[]');
