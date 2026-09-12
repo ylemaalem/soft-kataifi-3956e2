@@ -190,16 +190,31 @@ function testRichting() {
     v9AanrijHeading = 0; v9AanrijSnelheidHeading = 0;      // N
     v9PreSelectieAfrij = berekenAfrijRichtingViaTik(0, 'rechtdoor');   // Z
     bepaalRichtingTekort('990003');
-    eis('T10 bij n=2 meldt de app dat er nog 3 nodig zijn',
-        richtingTekort && richtingTekort.nog === V9_MIN_METINGEN - 2,
-        'nog ' + (V9_MIN_METINGEN - 2),
-        richtingTekort ? ('nog ' + richtingTekort.nog) : 'geen tekort gemeld');
+    // V11.18.3: stond hier 'bij n=2 meldt de app dat er nog 3 nodig zijn'.
+    // Die 3 telde naar de drempel van 5 in stap 1 van kiesCountdownBron, en die
+    // is er sinds V11.18.2 niet meer — bij n=2 stuurt deze richting haar eigen
+    // countdown al. De melding beweerde dus dat de tik nog geen effect had op
+    // het moment dat hij dat wel had, en hoort hier niet meer te staan. Het
+    // voorbehoud zit in de modus (CD_GESCHAT), niet in een suffix.
+    eis('T10 bij n=2 stuurt de richting zelf en meldt de app niets meer',
+        richtingTekort === null, 'null',
+        richtingTekort ? ('nog ' + richtingTekort.nog) : 'null');
 
     const vol = []; for (let i = 0; i < V9_MIN_METINGEN; i++) vol.push({ duur: 40, tijd: Date.now() - i, gewicht: 1 });
     localStorage.setItem(tk, JSON.stringify(vol));
     bepaalRichtingTekort('990003');
     eis('T10b bij n>=V9_MIN_METINGEN meldt de app niets meer',
         richtingTekort === null, 'null', String(richtingTekort && richtingTekort.nog));
+
+    // DE ENIGE TAK DIE OVERBLIJFT: nul eigen metingen. Dan leent de countdown
+    // nog uit Algemeen (stap 4) en heeft de tik inderdaad nog geen invloed op
+    // het getal, dus daar hoort het signaal wel. Ongewijzigd door V11.18.3.
+    localStorage.removeItem(tk);
+    bepaalRichtingTekort('990003');
+    eis('T10d bij n=0 leent de countdown nog en meldt de app dat wel',
+        richtingTekort !== null && richtingTekort.node === '990003',
+        'een melding voor node 990003',
+        richtingTekort ? ('melding, nog ' + richtingTekort.nog) : 'geen melding');
 
     richtingLockKeuze = null;
     bepaalRichtingTekort('990003');

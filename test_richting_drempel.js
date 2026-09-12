@@ -25,6 +25,10 @@
 //  een richting. T3 legt het vast zodat het niet ongemerkt verschuift — het
 //  repareren hoort bij de modusklasse en raakt dan alle bronnen tegelijk.
 //
+//  T8 HOORT BIJ V11.18.3: het 'nog N×'-tekstje achter het pill-label telde
+//  naar dezelfde drempel van 5 en klopte daardoor niet meer. Het verdwijnt nu
+//  zodra de richting zelf stuurt, en blijft staan bij nul eigen metingen.
+//
 //  T5 IS DE REGRESSIEWACHT op stap 2, 3 en 4, die ongemoeid blijven.
 //  T6 legt vast wat er WEL verschuift als neveneffect: een richting met eigen
 //  data wint voortaan van 'V5 alle' en van de rechtdoor-default. Dat is de
@@ -58,7 +62,11 @@ function testRichtingDrempel() {
   const NU = Date.now();
 
   const bewaard = {
-    v9AanrijHeading, v9AanrijSnelheidHeading, v9PreSelectieAfrij, osmCache, huidigePos
+    v9AanrijHeading, v9AanrijSnelheidHeading, v9PreSelectieAfrij, osmCache, huidigePos,
+    // T8 roept bepaalRichtingTekort aan en die schrijft in een global die de
+    // pill per frame leest. Zonder herstel blijft een suffix van deze fixture
+    // achter op het scherm van de volgende suite.
+    richtingTekort, richtingLockKeuze, richtingLockNodeId
   };
 
   // Alle V5-emmers die deze suite ooit aanraakt — ook de buren, want
@@ -315,17 +323,48 @@ function testRichtingDrempel() {
         'm1.length > 0 aanwezig',
         bronKcb.includes('m1.length > 0') ? 'aanwezig' : 'ONTBREEKT');
 
-    // ─── T8 — de melding "nog N×" is NIET meegedraaid ──────────
-    // bepaalRichtingTekort (r11588) houdt bewust V9_MIN_METINGEN aan: dat
-    // omzetten is een eigen release, niet deze. Deze test legt de huidige
-    // toestand vast én maakt zichtbaar dat er nu een tegenstrijdigheid op het
-    // scherm kan staan: de countdown komt al van de richting, terwijl het label
-    // er nog bij meldt hoeveel metingen er ontbreken. Valt deze test om, dan is
-    // die vervolgstap gezet — en dan hoort T8 mee te veranderen.
-    eis('T8 bepaalRichtingTekort houdt nog de oude drempel (bekend, apart)',
-        zc(bepaalRichtingTekort).includes('n >= V9_MIN_METINGEN'),
-        'drempel van 5 nog aanwezig',
-        zc(bepaalRichtingTekort).includes('n >= V9_MIN_METINGEN') ? 'aanwezig' : 'weg');
+    // ─── T8 — de melding "nog N×" is meegedraaid (V11.18.3) ────
+    // Deze test legde bij V11.18.2 nog het gat vast: bepaalRichtingTekort hield
+    // de drempel van 5 aan, waardoor er bij 1-4 metingen '~26s · geschat ·
+    // nog 4×' op het scherm kon staan terwijl die 26s al uit de eigen emmer
+    // kwam. V11.18.3 heeft die poort meegenomen, dus de test draait mee: de
+    // suffix verdwijnt zodra de richting zelf stuurt.
+    eis('T8 bepaalRichtingTekort gebruikt dezelfde grens als stap 1',
+        zc(bepaalRichtingTekort).includes('if (n > 0) return;')
+          && !zc(bepaalRichtingTekort).includes('n >= V9_MIN_METINGEN'),
+        'n > 0, geen drempel van 5 meer',
+        zc(bepaalRichtingTekort).includes('n >= V9_MIN_METINGEN')
+          ? 'oude drempel staat er nog' : 'n > 0');
+
+    // GEDRAG, NIET ALLEEN DE BRON. Dezelfde emmer als T1: één eigen meting.
+    // De countdown komt dan van de richting zelf, dus er mag geen 'nog N×'
+    // meer achter het label komen.
+    opzet();
+    zetV5('N', 'W', [32]);
+    zetV4([60, 60, 60, 60, 60]);
+    v9AanrijSnelheidHeading = 0;
+    v9AanrijHeading = 0;
+    v9PreSelectieAfrij = 'W';
+    const bewaardLock = richtingLockKeuze, bewaardLockNode = richtingLockNodeId;
+    richtingLockKeuze = 'rechts'; richtingLockNodeId = String(NODE);
+    bepaalRichtingTekort(NODE);
+    const tekortBijEen = richtingTekort;
+    // en met een LEGE emmer hoort het signaal er nog wel te staan: dan leent de
+    // countdown uit Algemeen en heeft de tik echt nog geen effect op het getal.
+    wisAlleV5();
+    bepaalRichtingTekort(NODE);
+    const tekortBijNul = richtingTekort;
+    richtingTekort = null;
+    richtingLockKeuze = bewaardLock; richtingLockNodeId = bewaardLockNode;
+
+    eis('T8a bij 1 eigen meting verschijnt er geen "nog N×" meer',
+        tekortBijEen === null, 'null',
+        tekortBijEen ? ('nog ' + tekortBijEen.nog + '\u00d7') : 'null');
+    eis('T8b bij 0 eigen metingen blijft het signaal staan (ongewijzigd)',
+        tekortBijNul !== null && tekortBijNul.node === String(NODE)
+          && tekortBijNul.nog === V9_MIN_METINGEN,
+        'een melding, nog ' + V9_MIN_METINGEN + '\u00d7',
+        tekortBijNul ? ('nog ' + tekortBijNul.nog + '\u00d7') : 'geen melding');
 
   } finally {
     for (const [k, v] of bewaardLS) {
@@ -336,6 +375,9 @@ function testRichtingDrempel() {
     v9PreSelectieAfrij = bewaard.v9PreSelectieAfrij;
     osmCache = bewaard.osmCache;
     huidigePos = bewaard.huidigePos;
+    richtingTekort = bewaard.richtingTekort;
+    richtingLockKeuze = bewaard.richtingLockKeuze;
+    richtingLockNodeId = bewaard.richtingLockNodeId;
   }
 
   const gefaald = regels.filter(r => r.uitslag === 'GEFAALD');

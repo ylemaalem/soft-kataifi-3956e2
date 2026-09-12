@@ -694,7 +694,7 @@
 <div id="startscherm">
   <div id="s-icoon">🚦</div>
   <div id="s-titel">Stoplicht<span>IQ</span></div>
-  <div id="s-versie">V11.18.2 — richting telt vanaf de eerste meting</div>
+  <div id="s-versie">V11.18.3 — eerlijk label bij de richting-countdown</div>
   <div id="s-model-wrap">
     <div id="s-model-rij">
       <div id="s-model-label">🤖 YOLOv8 model laden…</div>
@@ -919,7 +919,7 @@
 
 <script>
 // ═══════════════════════════════════════════════════════════════
-//  StoplichtIQ V11.18.2
+//  StoplichtIQ V11.18.3
 //  V11.10: Zelfkalibratie + vergrendeling + crop smoothing
 //  — S1+S2 bevestiging (kruispunt-level confidence)
 //  — Route-herkenning basis (sequentie-opslag)
@@ -11614,17 +11614,49 @@ function renderV9Lijst() {
 // (r3075) eist een tekstlabel, en dat is hier al null geworden.
 // ── V11.17.70: LAAT ZIEN DAT DE TIK IS AANGEKOMEN ─────────────
 // De klacht: "als ik op de richtingknop druk verandert de countdown niet".
-// Dat klopt, en het is terecht. Een V5-emmer mag pas voorspellen vanaf
-// V9_MIN_METINGEN, en gemeten op 15 vergelijkbare gevallen is dat gerechtvaardigd:
-// de eerste V5-meting zit er mediaan 15s naast tegen 6s voor de V4-basis waar
-// de app nu op terugvalt. Overschakelen bij n=1 zou de schatting meetbaar
-// verslechteren.
+// Dat klopte destijds: een V5-emmer mocht pas voorspellen vanaf
+// V9_MIN_METINGEN, en de gebruiker kreeg daar geen enkel signaal over — de tik
+// kwam aan, de bron werd bijgewerkt, en er veranderde zichtbaar niets.
+// Verdedigbaar gedrag met onverdedigbare terugkoppeling. Dit veld maakte
+// zichtbaar wat er ontbrak zonder de voorspelling zelf aan te raken.
 //
-// Maar de gebruiker kreeg daar geen enkel signaal over: de tik komt aan, de
-// bron wordt bijgewerkt, en er verandert zichtbaar niets. Verdedigbaar gedrag
-// met onverdedigbare terugkoppeling. Dit veld maakt zichtbaar wat er ontbreekt
-// zonder de voorspelling zelf aan te raken — kiesCountdownBron blijft
-// ongewijzigd.
+// ── V11.18.3: DE TEKST TELDE NAAR EEN GRENS DIE NIET MEER BESTAAT ──
+// © 2026 StoplichtIQ — Y. Lemaalem
+//
+// De poort hieronder luidde `n >= V9_MIN_METINGEN`, en het getal in de tekst
+// `V9_MIN_METINGEN - n`. Beide wezen naar de drempel van 5 in stap 1 van
+// kiesCountdownBron — en die is er sinds V11.18.2 niet meer: een richting telt
+// vanaf haar EERSTE eigen meting zelfstandig af, als CD_GESCHAT.
+//
+// Daardoor stond er bij 1 tot 4 metingen iets als '~26s · geschat · nog 4×',
+// terwijl die 26s al wel degelijk uit de eigen richting-emmer kwam. De tekst
+// beweerde dat de tik nog geen effect had, precies op het moment dat hij dat
+// wél had. Gemeten op de export van 28 augustus raakte dat 139 van de 140
+// richting-emmers — bijna alles wat er is.
+//
+// WAAROM WEGHALEN EN NIET HERFORMULEREN. Deze functie rekent één ding uit: het
+// aantal metingen in dezelfde emmer die stap 1 leest, met dezelfde functie en
+// dezelfde argumenten. Ze heeft één afnemer (de pill-suffix op r8656) en één
+// betekenis: 'zoveel metingen voordat deze richting zelf mag voorspellen'. Er
+// is geen tweede doel om de tekst naar om te buigen — het getal 5 sloeg
+// uitsluitend op die ene, inmiddels verdwenen drempel. Het voorbehoud dat
+// overblijft zit al in de MODUS: CD_GESCHAT zegt 'dit is een schatting', en
+// dat is nu de juiste en enige boodschap.
+//
+// WAT BLIJFT STAAN. Bij NUL eigen metingen leent de countdown nog steeds uit
+// Algemeen (stap 4) en heeft de tik inderdaad nog geen invloed op het getal.
+// Daar hoort het signaal dus wel degelijk thuis, en het blijft ongewijzigd.
+// Dat is ook precies het geval dat stap 2 van het loskoppel-plan later
+// aanpakt. Het GETAL in die ene overgebleven tak is daarmee wel bevroren op 5
+// (n is er altijd 0) terwijl één meting nu al genoeg is — bewust niet
+// meeveranderd, want dat raakt de tekst voor een geval dat deze release
+// expliciet ongemoeid laat. test_richting_drempel T8b legt het vast.
+//
+// WAT DEZE POORT NIET WEET: stap 1 slaat ook een NEUTRALE node over, dus daar
+// stuurt de richting niet zelf terwijl n > 0 kan zijn en het signaal nu
+// verdwijnt. Dat was hiervoor net zo scheef (het meldde dan 'nog N×' naar een
+// drempel die voor een neutrale node nooit gold), dus deze release maakt het
+// niet erger — maar het is geen van beide keren juist.
 //
 // Eén keer berekend bij de tik, niet per frame: laadMV5Geclusterd leest
 // localStorage en de pill wordt vanuit de rAF-lus getekend.
@@ -11637,7 +11669,7 @@ function bepaalRichtingTekort(nodeId) {
       ? gpsHeadingNaarWindrichting(v9AanrijSnelheidHeading ?? v9AanrijHeading) : null;
     if (!aanrij) return;
     const n = laadMV5Geclusterd(String(nodeId), aanrij, v9PreSelectieAfrij, huidigDDActief()).length;
-    if (n >= V9_MIN_METINGEN) return;   // deze richting stuurt al, niets te melden
+    if (n > 0) return;   // V11.18.2: vanaf de eerste eigen meting stuurt deze richting zelf
     richtingTekort = { node: String(nodeId), richting: rijrichting(), nog: V9_MIN_METINGEN - n };
   } catch(e) { richtingTekort = null; }
 }
