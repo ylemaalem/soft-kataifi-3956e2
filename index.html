@@ -694,7 +694,7 @@
 <div id="startscherm">
   <div id="s-icoon">🚦</div>
   <div id="s-titel">Stoplicht<span>IQ</span></div>
-  <div id="s-versie">V11.18.5 — getikte richting direct opgeslagen</div>
+  <div id="s-versie">V11.18.6 — geweigerde correctie gemeten</div>
   <div id="s-model-wrap">
     <div id="s-model-rij">
       <div id="s-model-label">🤖 YOLOv8 model laden…</div>
@@ -919,7 +919,7 @@
 
 <script>
 // ═══════════════════════════════════════════════════════════════
-//  StoplichtIQ V11.18.5
+//  StoplichtIQ V11.18.6
 //  V11.10: Zelfkalibratie + vergrendeling + crop smoothing
 //  — S1+S2 bevestiging (kruispunt-level confidence)
 //  — Route-herkenning basis (sequentie-opslag)
@@ -2025,6 +2025,25 @@ function logOpslagMis(reden, extra) {
       // geven is.
       msGedekt: (e.msGedekt != null) ? e.msGedekt : null,
       msTotaal: (e.msTotaal != null) ? e.msTotaal : null,
+      // ── V11.18.6: welke poort de correctie tegenhield ────────
+      // Alleen gevuld op een 'autolock_correctie_geweigerd'-regel; overal elders
+      // null, dus geen enkele bestaande logregel verandert.
+      //   poortReden  waar checkNodeCorrectieStilstand uitstapte
+      //   afstReden   welke voorwaarde de AFSTANDSroute velde
+      //   hoekReden   welke voorwaarde de HOEKroute velde (vijf mogelijke
+      //               redenen uit peilingDuidelijkBeter, plus 'stabiliteit'
+      //               als de peiling ja zei maar de teller te laag stond)
+      //   hoekN       stand van de stabiliteitsteller op dat moment; de eis is
+      //               NODE_HOEK_STABIEL_N (3). 2 tegen 3 vraagt om een andere
+      //               reparatie dan 0 tegen 3.
+      //   hoekVoordeel het gemeten hoekvoordeel in graden (drempel
+      //               NODE_HOEK_VOORDEEL_GRAD = 25), of bij poortReden
+      //               'heading' het headingverschil (drempel 60).
+      poortReden:   e.poortReden   || null,
+      afstReden:    e.afstReden    || null,
+      hoekReden:    e.hoekReden    || null,
+      hoekN:        (e.hoekN        != null) ? e.hoekN : null,
+      hoekVoordeel: (e.hoekVoordeel != null) ? e.hoekVoordeel : null,
       // V11.17.90: gekozenAf min closestAf, in meters. Alleen gevuld op een
       // 'stilstand_node_afwijking'-regel; overal elders null, dus geen enkele
       // bestaande logregel verandert. Afleidbaar uit afst en closestAf, maar
@@ -10543,17 +10562,60 @@ function vindDichtbijScore(lat, lon, heading, sl) {
 // nooit een heading zag alle peilingen tegen het NOORDEN meten en op grond
 // daarvan nodes gaan omwisselen. headingBuffer krijgt alleen geldige waarden
 // (voegHeadingToe r8588, aangeroepen achter de guard op r12067).
+// ── V11.18.6: WAAROM ZEI DE HOEKROUTE NEE? ───────────────────
+// (c) 2026 StoplichtIQ - Y. Lemaalem
+//
+// Deze functie heeft VIJF verschillende redenen om false te geven, en de
+// episode-analyse van 12 september kan er geen van onderscheiden. Twee van de
+// drie auto-lock-episodes hadden een afwijking van exact 0 meter - precies waar
+// deze route voor gebouwd is (V11.17.79) - en toch vuurde ze niet. Loggen dat
+// 'de hoek' blokkeerde laat vijf kandidaten open; dan is de meting het meten
+// niet waard.
+//
+// WAAROM IN DEZE FUNCTIE EN NIET IN EEN KOPIE ERNAAST. Een tweede beoordeling
+// naast deze kan uit de pas gaan lopen, en dan meet de release stilzwijgend
+// iets anders dan ze belooft - dezelfde valkuil die V11.18.1 met v5ZouLukken
+// had en die daar met een equivalentietest is afgedekt. Hier is het simpeler op
+// te lossen: de functie noteert haar eigen reden, dus er is maar een
+// beoordeling en drift is onmogelijk.
+//
+// PUUR OBSERVEREND. De toegevoegde regels zijn uitsluitend toewijzingen aan een
+// diagnosevariabele; elke return geeft exact dezelfde waarde als voorheen.
+let peilingWeigerReden = null;
+
 function peilingDuidelijkBeter(pos, huidige, huidigeAf, alt, altAf) {
-  if (!pos || !huidige || !alt) return false;
-  if (!headingBuffer.length) return false;
-  if (typeof huidigeAf !== 'number' || typeof altAf !== 'number') return false;
-  if (huidigeAf < NODE_HOEK_MIN_AFSTAND_M || altAf < NODE_HOEK_MIN_AFSTAND_M) return false;
-  if (Math.abs(altAf - huidigeAf) > NODE_HOEK_GELIJK_M) return false;
+  peilingWeigerReden = null;
+  if (!pos || !huidige || !alt) { peilingWeigerReden = 'geen_node'; return false; }
+  if (!headingBuffer.length) { peilingWeigerReden = 'geen_buffer'; return false; }
+  if (typeof huidigeAf !== 'number' || typeof altAf !== 'number') {
+    peilingWeigerReden = 'geen_afstand'; return false;
+  }
+  // De ondergrens van NODE_HOEK_MIN_AFSTAND_M (12) is de meest verdachte van de
+  // vijf: sta je vlak voor twee even ver weg staande lampen, dan is de peiling
+  // ruis en weigert deze regel - terwijl dat juist het geval is waarvoor de
+  // route bedoeld was. Als deze reden straks bovenaan staat, is dat het antwoord.
+  if (huidigeAf < NODE_HOEK_MIN_AFSTAND_M || altAf < NODE_HOEK_MIN_AFSTAND_M) {
+    peilingWeigerReden = 'te_dichtbij'; return false;
+  }
+  if (Math.abs(altAf - huidigeAf) > NODE_HOEK_GELIJK_M) {
+    peilingWeigerReden = 'afst_ongelijk'; return false;
+  }
   const pH = peilingTovRijrichting(pos, huidige, huidigeRichting);
   const pA = peilingTovRijrichting(pos, alt,     huidigeRichting);
-  if (pH == null || pA == null) return false;
-  return (Math.abs(pH) - Math.abs(pA)) >= NODE_HOEK_VOORDEEL_GRAD;
+  if (pH == null || pA == null) { peilingWeigerReden = 'geen_peiling'; return false; }
+  const voordeel = Math.abs(pH) - Math.abs(pA);
+  if (!(voordeel >= NODE_HOEK_VOORDEEL_GRAD)) {
+    peilingWeigerReden = 'te_klein_voordeel';
+    peilingLaatsteVoordeel = Math.round(voordeel);
+    return false;
+  }
+  peilingLaatsteVoordeel = Math.round(voordeel);
+  return true;
 }
+// Het gemeten hoekvoordeel in graden bij de laatste beoordeling. Zonder dit
+// getal is 'te_klein_voordeel' niet te wegen: 24 graden tegen de drempel van 25
+// vraagt om een andere reparatie dan 3 graden.
+let peilingLaatsteVoordeel = null;
 
 function vindDichtbij(lat, lon, heading) {
   if (!osmCache.length) return null;
@@ -14709,23 +14771,118 @@ function meetStilstandNodeAfwijking() {
   });
 }
 
+// ── V11.18.6: BIJ WELKE POORT STAPT DE CORRECTIE UIT? ────────
+// (c) 2026 StoplichtIQ - Y. Lemaalem
+//
+// De episode-analyse van 12 september vond drie auto-lock-episodes: de app
+// stond op de verkeerde node, de stilstand-auto-lock hield hem vast, en de
+// correctie greep niet in. Twee van die drie hadden een afwijking van exact
+// 0 meter - het gebied waar de hoekroute (V11.17.79) juist voor gebouwd is.
+//
+// Waarom ze niet vuurde is met de huidige logvelden niet vast te stellen. Er
+// zijn drie kandidaten (de hoek, de stabiliteitsteller, de marge) en de hoek
+// heeft er in zichzelf nog eens vijf. Gokken tussen acht mogelijkheden en dan
+// bouwen is precies wat dit project niet doet.
+//
+// DEZE FUNCTIE BESLIST NIETS ANDERS. Elke toevoeging is een toewijzing aan
+// nodeCorrWeiger vlak voor een bestaande return; geen enkele voorwaarde,
+// volgorde of returnwaarde verandert. De meting leest die variabele daarna in
+// meetAutolockWeigering en schrijft er hooguit een logregel over.
+//
+// De teller wordt MEEGENOMEN ZOALS HIJ OP DAT MOMENT IS. hoekStabielReset()
+// nult hem in meerdere takken, dus achteraf uitlezen zou altijd 0 geven en
+// 'stabiliteit' onzichtbaar maken.
+let nodeCorrWeiger = null;   // { poort, afstReden, hoekReden, hoekN, voordeel }
+
+// ── V11.18.6: DE WEIGERING VASTLEGGEN, ALLEEN BIJ AUTO-LOCK ──
+// (c) 2026 StoplichtIQ - Y. Lemaalem
+//
+// Waarom ALLEEN het auto-lock-scenario. De drie lock-toestanden hebben elk hun
+// eigen verhaal en mogen niet op een hoop:
+//   hand=1, autoLock=0  een echte tap. Poort 5 weigert dan per ontwerp; daar
+//                       valt niets te meten wat we niet al weten.
+//   hand=1, autoLock=1  de stilstand-auto-lock. DIT is het open raadsel:
+//                       3 van de 11 episodes, waarvan 2 met afwijking 0.
+//   hand=0, autoLock=0  geen lock; dan houdt de hysterese hem vast, een ander
+//                       mechanisme met een eigen reparatie (de marge).
+//
+// NA checkNodeCorrectieStilstand, net als meetStilstandNodeAfwijking: heeft een
+// van de routes gevuurd, dan is dichtstbijOSM al gecorrigeerd en is er geen
+// weigering om te melden. nodeCorrWeiger is dan null en deze functie zwijgt.
+//
+// PER EPISODE, NIET PER TICK. Zelfde reden en zelfde termijn als de teller van
+// V11.17.90: bij 1 Hz zou een minuut stilstaan 60 regels schrijven en precies
+// de records wegduwen die de meting nodig heeft. De sleutel is hetzelfde paar
+// (gekozen>closest), zodat een afwijking die blijft staan zichtbaar blijft
+// zonder de rest te verdringen.
+let autolockWeigerSleutel = null;
+let autolockWeigerTijd    = 0;
+
+function meetAutolockWeigering() {
+  if (!nodeCorrWeiger) { autolockWeigerSleutel = null; return; }
+  // uitsluitend de auto-lock
+  if (!(handmatigLockActief && stilstandAutoLock)) { autolockWeigerSleutel = null; return; }
+  if (!dichtstbijOSM || !puurDichtsteNodeCache) { autolockWeigerSleutel = null; return; }
+  if (String(puurDichtsteNodeCache.id) === String(dichtstbijOSM.id)) {
+    autolockWeigerSleutel = null; return;    // de goede node staat actief
+  }
+  const gekozenAf = dichtstbijOSM.afstand, closestAf = puurDichtsteNodeCache.afstand;
+  if (typeof gekozenAf !== 'number' || typeof closestAf !== 'number') return;
+  const verschil = gekozenAf - closestAf;
+  // Geen drempel op het verschil, net als bij V11.17.90: juist de 0-meter-
+  // gevallen zijn de vraag. Wel > 0, want anders staat de app niet fout.
+  if (!(verschil > 0)) { autolockWeigerSleutel = null; return; }
+  const sleutel = String(dichtstbijOSM.id) + '>' + String(puurDichtsteNodeCache.id);
+  const nu = Date.now();
+  if (sleutel === autolockWeigerSleutel
+      && (nu - autolockWeigerTijd) < STILSTAND_AFWIJKING_HERHAAL_MS) return;
+  autolockWeigerSleutel = sleutel;
+  autolockWeigerTijd = nu;
+  logOpslagMis('autolock_correctie_geweigerd', {
+    node: String(dichtstbijOSM.id),
+    afst: gekozenAf,
+    afwM: Math.round(verschil),
+    poortReden: nodeCorrWeiger.poort,
+    afstReden:  nodeCorrWeiger.afstReden  || null,
+    hoekReden:  nodeCorrWeiger.hoekReden  || null,
+    hoekN:      (nodeCorrWeiger.hoekN     != null) ? nodeCorrWeiger.hoekN : null,
+    hoekVoordeel: (nodeCorrWeiger.voordeel != null) ? nodeCorrWeiger.voordeel : null
+  });
+}
+
 function checkNodeCorrectieStilstand(lat, lon) {
+  nodeCorrWeiger = null;
   // 1. snelheidsdrempel — V11.17.79: twee routes, twee grenzen. De bestaande
   //    afstandsroute blijft op NODE_CHK_STANDSTILL_KMH (3); de hoekroute mag tot
   //    NODE_HOEK_KMH (5), gelijk aan de scoretak die zij repareert. Daartussen
   //    lag een dode zone: onder 5 valt de hoek uit de score weg, maar pas onder
   //    3 zet enig correctiemechanisme aan. Het gemeten geval (kmh 4) viel daarin.
-  if (snelheidKmh >= NODE_HOEK_KMH) { hoekStabielReset(); return; }
+  if (snelheidKmh >= NODE_HOEK_KMH) {
+    nodeCorrWeiger = { poort: 'snelheid' };
+    hoekStabielReset(); return;
+  }
   // 3. bounce-guard — geen correctie kort na een vorige
-  if ((Date.now() - laatsteNodeCorrectieTijd) < NODE_WISSEL_MIN_INTERVAL_MS) return;
+  if ((Date.now() - laatsteNodeCorrectieTijd) < NODE_WISSEL_MIN_INTERVAL_MS) {
+    nodeCorrWeiger = { poort: 'bounce' };
+    return;
+  }
   // 4. er moet een gekozen node én een closest zijn
-  if (!dichtstbijOSM || !puurDichtsteNodeCache) { hoekStabielReset(); return; }
+  if (!dichtstbijOSM || !puurDichtsteNodeCache) {
+    nodeCorrWeiger = { poort: 'geen_node' };
+    hoekStabielReset(); return;
+  }
   // 5. VEILIGHEID: handmatige tap NOOIT overschrijven.
   //    handmatigLockActief && !stilstandAutoLock  =  echte tap.
-  if (handmatigLockActief && !stilstandAutoLock) { hoekStabielReset(); return; }
+  if (handmatigLockActief && !stilstandAutoLock) {
+    nodeCorrWeiger = { poort: 'handtap' };
+    hoekStabielReset(); return;
+  }
   const closest = puurDichtsteNodeCache;
   // 6. closest moet anders zijn dan gekozen
-  if (String(closest.id) === String(dichtstbijOSM.id)) { hoekStabielReset(); return; }
+  if (String(closest.id) === String(dichtstbijOSM.id)) {
+    nodeCorrWeiger = { poort: 'zelfde_node' };
+    hoekStabielReset(); return;
+  }
   const gekozenAf = dichtstbijOSM.afstand ?? 999;
   const closestAf = closest.afstand ?? 999;
   // 7a. AFSTANDSROUTE (V11.17.9, ongewijzigd): closest moet duidelijk dichterbij
@@ -14748,7 +14905,24 @@ function checkNodeCorrectieStilstand(lat, lon) {
   } else {
     hoekStabielReset();
   }
-  if (!afstandRoute && !hoekRoute) return;
+  if (!afstandRoute && !hoekRoute) {
+    // Beide routes dicht. Welke voorwaarde het eerst faalde, per route apart -
+    // de twee zijn onafhankelijk en een enkele reden zou de helft weglaten.
+    let afstReden = null;
+    if (snelheidKmh >= NODE_CHK_STANDSTILL_KMH) afstReden = 'kmh';
+    else if (stilstandSinds === 0) afstReden = 'geen_stilstand';
+    else if ((Date.now() - stilstandSinds) < NODE_CHK_STANDSTILL_DUUR_MS) afstReden = 'te_kort';
+    else afstReden = 'marge';
+    // peilingWeigerReden is zojuist door peilingDuidelijkBeter gezet. Is die
+    // null, dan zei de peiling JA en hield alleen de stabiliteitsteller hem
+    // tegen - de derde kandidaat uit de analyse.
+    const hoekReden = peilingWeigerReden || 'stabiliteit';
+    nodeCorrWeiger = {
+      poort: 'route', afstReden, hoekReden,
+      hoekN: hoekStabielTeller, voordeel: peilingLaatsteVoordeel
+    };
+    return;
+  }
   // 8. heading moet passen bij closest — alleen als heading bekend is.
   //    Bij standstill kan getSmoothedHeading nog een geldige oude waarde
   //    uit de aanrij bevatten; als er niets is, sla check over (marge
@@ -14757,7 +14931,10 @@ function checkNodeCorrectieStilstand(lat, lon) {
   if (heading != null) {
     const bearing = peilingNaar({ lat, lon }, closest);   // V11.17.86: was een losse kopie
     let rv = Math.abs(heading - bearing); if (rv > 180) rv = 360 - rv;
-    if (rv > NODE_CHK_HEADING_MAX_GRAD) return;
+    if (rv > NODE_CHK_HEADING_MAX_GRAD) {
+      nodeCorrWeiger = { poort: 'heading', voordeel: Math.round(rv) };
+      return;
+    }
   }
   // alle gates open — corrigeer
   // V11.17.79: eigen reden voor de hoekroute, zodat in sl_opslaglog te scheiden
@@ -14974,6 +15151,7 @@ async function onGPS(pos) {
   // veiligheidsregel — draait vaak leeg maar is goedkoop.
   if (cacheGeladen) checkNodeCorrectieStilstand(lat, lon);
   if (cacheGeladen) meetStilstandNodeAfwijking();   // V11.17.90: zie daar
+  if (cacheGeladen) meetAutolockWeigering();        // V11.18.6: zie daar
   refreshStadIndienNodig(lat, lon);
 
   // V9.0: Nadering detectie + delayed write
