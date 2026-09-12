@@ -255,10 +255,33 @@ function testMergeRv() {
     eis('T10 stempelV4Richtingverwant legt de richting vast in rvK',
         /paarKey/.test(zc(stempelV4Richtingverwant)) && /rec\.rvK = paarKey/.test(zc(stempelV4Richtingverwant)),
         'rvK wordt gezet', 'gezet');
-    eis('T10b en de aanroeper geeft aanrij_afrij mee',
-        /stempelV4Richtingverwant\(v9KandidaatNode, teStempelen,\s*aanrijRichting \+ '_' \+ afrijRichting\)/
-          .test(zc(voerV9DelayedWriteUit)),
-        'aanrijRichting + _ + afrijRichting', 'meegegeven');
+    // V11.18.5: deze toets pinde de letterlijke aanroeptekst
+    //   stempelV4Richtingverwant(v9KandidaatNode, teStempelen,
+    //                            aanrijRichting + '_' + afrijRichting)
+    // Sinds V11.18.5 zijn er TWEE schrijvers: de vroege poort bij groen
+    // (schrijfV5DirectBijGroen) en deze late keten. De late geeft nu
+    // `v9KandidaatV5Paar || (aanrijRichting + '_' + afrijRichting)` mee, zodat
+    // het stempel naar de emmer wijst die WERKELIJK geschreven is — valt
+    // v9PreSelectieAfrij tussen groen en de passage weg, dan zou de oude tekst
+    // een rvK van de GPS-richting stempelen en wijst herstelRvVoorMerge later
+    // naar een emmer die niet bestaat.
+    //
+    // Wat bewaakt moet blijven is de EIS, niet de formulering: elke schrijver
+    // geeft een paarsleutel mee, en die is van de vorm aanrij_afrij. Dat de
+    // vroege poort dat ook werkelijk doet, toetst test_tik_direct T7b op data.
+    const stempelAanroepen = (f) =>
+      (zc(f).match(/stempelV4Richtingverwant\([^)]*\)/g) || []);
+    const laat = stempelAanroepen(voerV9DelayedWriteUit);
+    const vroeg = stempelAanroepen(schrijfV5DirectBijGroen);
+    eis('T10b beide schrijvers geven een paarsleutel mee aan het stempel',
+        laat.length === 1 && vroeg.length === 1
+          && /aanrijRichting \+ '_' \+ afrijRichting/.test(laat[0])
+          && /paar/.test(vroeg[0]),
+        'late keten en vroege poort allebei met paarKey',
+        'laat: ' + laat.length + ', vroeg: ' + vroeg.length);
+    eis('T10d de late keten geeft voorrang aan de sleutel van de vroege poort',
+        /v9KandidaatV5Paar \|\|/.test(laat[0]),
+        'v9KandidaatV5Paar eerst', laat[0] || 'geen aanroep');
     eis('T10c herstelRvVoorMerge gebruikt GEEN tijdsvenster als criterium',
         !/tijd/.test(zc(herstelRvVoorMerge).replace(/bronMetingen|v5\.tijd/g, '')),
         'geen venster op tijd', 'alleen rvK en duur');

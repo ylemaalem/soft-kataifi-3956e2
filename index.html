@@ -694,7 +694,7 @@
 <div id="startscherm">
   <div id="s-icoon">🚦</div>
   <div id="s-titel">Stoplicht<span>IQ</span></div>
-  <div id="s-versie">V11.18.4 — één rij op een gekoppeld kruispunt</div>
+  <div id="s-versie">V11.18.5 — getikte richting direct opgeslagen</div>
   <div id="s-model-wrap">
     <div id="s-model-rij">
       <div id="s-model-label">🤖 YOLOv8 model laden…</div>
@@ -919,7 +919,7 @@
 
 <script>
 // ═══════════════════════════════════════════════════════════════
-//  StoplichtIQ V11.18.4
+//  StoplichtIQ V11.18.5
 //  V11.10: Zelfkalibratie + vergrendeling + crop smoothing
 //  — S1+S2 bevestiging (kruispunt-level confidence)
 //  — Route-herkenning basis (sequentie-opslag)
@@ -4397,6 +4397,113 @@ function v5ZouLukken(nodeId, duur) {
   return { ok: true, reden: null, afst: afstandTot, aanrij: aanrijRichting, afrij: preAfrij };
 }
 
+// ── V11.18.5: DE TIK OPLOSSEN, OP ÉÉN PLEK ───────────────────
+// © 2026 StoplichtIQ — Y. Lemaalem
+//
+// Deze drie stappen stonden binnen voerV9DelayedWriteUit. V11.18.5 laat een
+// getikte richting AL bij het einde van de rode fase schrijven, en die vroege
+// poort moet exact dezelfde tik accepteren als de late — anders schrijft de ene
+// iets weg dat de andere geweigerd zou hebben, en is niet meer na te gaan welke
+// van de twee een record heeft gemaakt.
+//
+// De drie stappen, in de volgorde waarin ze altijd al liepen:
+//  1. de kale pre-selectie (v9PreSelectieAfrij)
+//  2. LATE CONVERSIE (V11.17.38 A3) — tikRichting bewaart de tik als tekstlabel
+//     zolang er nog geen aanrijheading was, en dat is bij stilstand voor rood de
+//     REGEL, niet de uitzondering: coords.heading is dan op vrijwel elk toestel
+//     null. Zonder deze omzetting zakt zo'n tik stil door naar de GPS-richting.
+//  3. TERUGVAL op sl_richting_ (V11.17.56 R5) — is de pre-selectie weggevallen
+//     bij een node-wissel, maar is er in DEZE sessie voor precies deze node
+//     getikt, haal de richting dan terug. De guard op preZet.node zorgt dat een
+//     tik van een ANDERE node hier nooit kan landen.
+//
+// Geeft de windrichting terug, of null als er geen bruikbare tik ligt. De
+// aanroeper logt zelf wat er gebeurde, want de twee paden loggen verschillend.
+function bepaalGetikteAfrij(nodeId, aanrijNum) {
+  if (aanrijNum == null) return null;
+  const TIKLABELS = ['links', 'rechtdoor', 'rechts'];
+  let preAfrij = v9PreSelectieAfrij;
+  let bron = 'pre';
+  if (preAfrij && TIKLABELS.includes(preAfrij)) {
+    const omgezet = berekenAfrijRichtingViaTik(aanrijNum, preAfrij);
+    if (omgezet) { preAfrij = omgezet; bron = 'laat_omgezet'; }
+  }
+  if (!preAfrij && preZet && preZet.node === String(nodeId)) {
+    const rdHerstel = laadRichtingData(nodeId);
+    if (rdHerstel && rdHerstel.tikrichting) {
+      const hersteld = berekenAfrijRichtingViaTik(aanrijNum, rdHerstel.tikrichting);
+      if (hersteld) { preAfrij = hersteld; bron = 'hersteld'; }
+    }
+  }
+  if (!(preAfrij && WINDRICHTINGEN_8.includes(preAfrij))) return null;
+  return { afrij: preAfrij, bron };
+}
+
+// ── V11.18.5: DE GETIKTE METING SCHRIJVEN ZODRA ROOD AFLOOPT ──
+// © 2026 StoplichtIQ — Y. Lemaalem
+//
+// WAAROM DIT BESTAAT. De V5-schrijving wachtte op de delayed write, en die
+// wacht op V9_AFRIJ_SETTLE_MS (4s) plus een passagepoort — om gpsAfrijRichting
+// te kunnen berekenen. Bij een TIK wordt die waarde nooit gebruikt: r4497 kiest
+// `viaTik ? preAfrij : gpsAfrijRichting`. De app wachtte dus vier seconden op
+// een getal dat ze daarna weggooide.
+//
+// WAT DAT KOSTTE. V11.18.1 telde in 2,9 dagen 41 kandidaten met een VOLTOOIDE
+// duurmeting die werden weggegooid doordat een volgend kruispunt de kandidaat
+// overnam voordat de delayed write kon vuren — tegenover 85 geslaagde
+// schrijvingen. Dat verklaart de scheve verhouding in de export: 493 getikte
+// kruispunten, maar slechts 112 met V5-data.
+//
+// ALLES WAT NODIG IS, LIGT HIER AL KLAAR. De aanrijheading is bevroren bij de
+// kandidaat-vastklik op 60m (V11.17.31 W1), de tik staat in v9PreSelectieAfrij,
+// de duur is zojuist gemeten, en verwerkFase heeft de 80m-poort al gepasseerd
+// (r8067) voordat deze regel bereikt wordt. berekenAfrijRichtingViaTik heeft
+// geen enkele GPS-waarde van ná de passage nodig.
+//
+// WAT ER VERVALT. De u-bochtcheck (r4496) leest de GPS-afrijheading en kan een
+// getikte meting vetoën bij >150 graden verschil. Die buffer bestaat op dit
+// moment nog niet, dus dat veto geldt hier niet. Gemeten over het logvenster
+// van 2,9 dagen vuurde 'u_bocht' 0 keer; bewust geaccepteerd, niet vergeten.
+//
+// WAT ER NIET VERVALT. slaOpV5 past zijn eigen duurgrenzen toe
+// (V5_MIN_DUUR_S/V5_MAX_DUUR_S), het afstandsgewicht wordt hier op dezelfde
+// drempel bepaald als in de delayed write (V9_DICHTBIJ_AFSTAND), en het
+// rv-stempel wordt meteen gezet — anders zou een kandidaat die daarna alsnog
+// wordt overgenomen een V5-record hebben met ONGESTEMPELDE V4-records ernaast,
+// precies de wezen die V11.17.92 met terugwerkende kracht moest repareren.
+//
+// Geeft true terug als er werkelijk geschreven is.
+function schrijfV5DirectBijGroen(nodeId, dur, dd, afstandM, stempels) {
+  const aanrijNum = v9AanrijSnelheidHeading ?? v9AanrijHeading;
+  if (aanrijNum == null) return false;
+  const aanrijRichting = gpsHeadingNaarWindrichting(aanrijNum);
+  if (!aanrijRichting) return false;
+  const tik = bepaalGetikteAfrij(nodeId, aanrijNum);
+  if (!tik) return false;
+
+  let gewicht = V9_GEWICHT_DICHTBIJ;
+  if (typeof afstandM === 'number' && !isNaN(afstandM) && afstandM > V9_DICHTBIJ_AFSTAND) {
+    gewicht = V9_GEWICHT_VER;
+  }
+  slaOpV5(nodeId, aanrijRichting, tik.afrij, dd, dur, gewicht, v9KandidaatZagOvergang);
+  const paar = aanrijRichting + '_' + tik.afrij;
+  logOpslagMis('v5_vroeg_geschreven', { node: nodeId, dur,
+    aanrij: aanrijRichting, afrij: tik.afrij, afst: afstandM, v5Reden: tik.bron });
+
+  // Het stempel hoort bij dezelfde gebeurtenis. Zijn er nog geen tijdstempels
+  // — verwerkFase kon de V4-schrijving niet doen omdat de delayed write al
+  // liep — dan stempelt de late keten straks alsnog, met dezelfde paarsleutel.
+  if (Array.isArray(stempels) && stempels.length) {
+    const gezet = stempelV4Richtingverwant(nodeId, stempels, paar);
+    if (gezet > 0) {
+      const t = telRichtingVerwant(nodeId);
+      logOpslagMis('v4_gemarkeerd', { node: nodeId, dur, rvGem: t.gem, rvTot: t.tot });
+    }
+  }
+  v9KandidaatV5Paar = paar;
+  return true;
+}
+
 function voerV9DelayedWriteUit(huidigeHeading, trigger = null, poort = null, onzeker = false) {
   leerLog('V9START duur:' + v9KandidaatDuur + ' node:' + v9KandidaatNode);
   if (!v9DelayedWriteActief || !v9KandidaatNode || !v9KandidaatDuur) {
@@ -4444,15 +4551,19 @@ function voerV9DelayedWriteUit(huidigeHeading, trigger = null, poort = null, onz
   // (guard r2766) en die door V11.17.31 W1 bevroren is op deze kandidaat
   // (r9560). Slaagt de omzetting niet, dan blijft het label staan en valt de
   // poort hieronder terug op de GPS-richting — precies het oude gedrag.
-  const TIKLABELS = ['links', 'rechtdoor', 'rechts'];
-  let preAfrij = v9PreSelectieAfrij;
-  if (preAfrij && TIKLABELS.includes(preAfrij)) {
-    const omgezet = berekenAfrijRichtingViaTik(aanrijNum, preAfrij);
-    if (omgezet) {
-      preAfrij = omgezet;
-      logOpslagMis('tik_laat_omgezet', { node: v9KandidaatNode, dur: v9KandidaatDuur,
-        aanrij: aanrijRichting, afrij: omgezet });
-    }
+  // V11.18.5: de drie stappen (pre-selectie, late conversie, sl_richting_-
+  // terugval) wonen nu in bepaalGetikteAfrij, zodat de vroege schrijving bij
+  // groen exact dezelfde tik accepteert als deze late keten. De logregels
+  // blijven hier staan — ze horen bij DIT pad en bij deze kandidaat.
+  const _tik = bepaalGetikteAfrij(v9KandidaatNode, aanrijNum);
+  const preAfrij = _tik ? _tik.afrij : null;
+  if (_tik && _tik.bron === 'laat_omgezet') {
+    logOpslagMis('tik_laat_omgezet', { node: v9KandidaatNode, dur: v9KandidaatDuur,
+      aanrij: aanrijRichting, afrij: preAfrij });
+  }
+  if (_tik && _tik.bron === 'hersteld') {
+    logOpslagMis('tik_hersteld', { node: v9KandidaatNode, dur: v9KandidaatDuur,
+      aanrij: aanrijRichting, afrij: preAfrij });
   }
   // V11.17.56 R5: TERUGVAL. Is de pre-selectie weg, maar is er in DEZE sessie
   // wel voor precies deze kandidaat-node getikt, haal de richting dan terug uit
@@ -4463,17 +4574,6 @@ function voerV9DelayedWriteUit(huidigeHeading, trigger = null, poort = null, onz
   // resetRijrichtingState bij de node-wissel wegnam.
   // De guard is preZet.node — daarom kan deze terugval geen tik van een ANDERE
   // node toepassen, en geen tik uit een sessie waarin hier niet getikt is.
-  if (!preAfrij && preZet && preZet.node === String(v9KandidaatNode)) {
-    const rdHerstel = laadRichtingData(v9KandidaatNode);
-    if (rdHerstel && rdHerstel.tikrichting) {
-      const hersteld = berekenAfrijRichtingViaTik(aanrijNum, rdHerstel.tikrichting);
-      if (hersteld) {
-        preAfrij = hersteld;
-        logOpslagMis('tik_hersteld', { node: v9KandidaatNode, dur: v9KandidaatDuur,
-          aanrij: aanrijRichting, afrij: hersteld });
-      }
-    }
-  }
   // V11.17.31 W3: onthoud of de gekozen richting van een TIK komt. Alleen die
   // mag nog naar V5 (zie r3152).
   const viaTik = !!(preAfrij && WINDRICHTINGEN.includes(preAfrij));
@@ -4527,7 +4627,17 @@ function voerV9DelayedWriteUit(huidigeHeading, trigger = null, poort = null, onz
   // mag het V4-record straks gestempeld worden — zonder V5-tweeling is de
   // V4-meting gewoon een gewone meting voor Algemeen.
   let v5Geschreven = false;
-  if (viaTik) {
+  if (v9KandidaatV5Geschreven) {
+    // ── V11.18.5: AL GESCHREVEN BIJ GROEN ──────────────────
+    // Zelfde vorm als v4_dubbel_voorkomen (r4545): de meting bestaat al, dus
+    // niet nog eens schrijven — maar wel zichtbaar houden in een export, zodat
+    // te tellen is hoe vaak de vroege poort het werk deed. v5Geschreven gaat op
+    // true zodat het stempelblok hieronder gewoon draait: is de V4-schrijving
+    // pas in DEZE keten gelukt, dan moeten die records alsnog gemarkeerd worden.
+    logOpslagMis('v5_dubbel_voorkomen', { node: v9KandidaatNode, dur: duur,
+      aanrij: aanrijRichting, afrij: afrijRichting });
+    v5Geschreven = true;
+  } else if (viaTik) {
     slaOpV5(v9KandidaatNode, aanrijRichting, afrijRichting, dd, duur, gewicht, v9KandidaatZagOvergang);
     v5Geschreven = true;
   } else {
@@ -4556,8 +4666,14 @@ function voerV9DelayedWriteUit(huidigeHeading, trigger = null, poort = null, onz
   // Hier, en nergens eerder: dit is het eerste punt waarop vaststaat dát er een
   // V5-record is. Zie stempelV4Richtingverwant (r2494) voor het waarom.
   if (v5Geschreven) {
+    // V11.18.5: schreef de vroege poort het record, gebruik dan HAAR paarsleutel.
+    // Valt v9PreSelectieAfrij tussen groen en de passage weg, dan zou deze keten
+    // op de GPS-richting uitkomen en een rvK stempelen die niet bij het
+    // geschreven V5-record hoort — en dan wijst herstelRvVoorMerge later naar
+    // een emmer die niet bestaat. Dubbel stempelen is onschadelijk:
+    // stempelV4Richtingverwant slaat records met rv === 1 over.
     const gezet = stempelV4Richtingverwant(v9KandidaatNode, teStempelen,
-                                           aanrijRichting + '_' + afrijRichting);   // V11.17.91
+                                           v9KandidaatV5Paar || (aanrijRichting + '_' + afrijRichting));   // V11.17.91
     if (gezet > 0) {
       const t = telRichtingVerwant(v9KandidaatNode);
       logOpslagMis('v4_gemarkeerd', { node: v9KandidaatNode, dur: duur,
@@ -4605,6 +4721,8 @@ function resetV9Staat() {
   v9KandidaatZagOvergang  = null;   // V11.17.26: null = onbekend, nooit false
   v9KandidaatV4Geschreven = false;  // V11.17.37
   v9KandidaatV4Stempels   = [];     // V11.17.85
+  v9KandidaatV5Geschreven = false;  // V11.18.5
+  v9KandidaatV5Paar       = null;   // V11.18.5
   v9PassageStartTijd      = null;
   v9PreSelectieAfrij      = null;
   v9DelayedWriteActief    = false;
@@ -5945,6 +6063,13 @@ let v9KandidaatV4Geschreven = false;
 // zodat het stempel na de passage precies die records terugvindt. Twee
 // elementen bij een dagdeelovergang, anders één.
 let v9KandidaatV4Stempels   = [];
+// V11.18.5: is het V5-record al bij het einde van de rode fase geschreven?
+// Zelfde rol als v9KandidaatV4Geschreven hierboven, en om dezelfde reden: twee
+// schrijfmomenten voor één meting, dus moet vastliggen of de eerste geslaagd is.
+// v9KandidaatV5Paar bewaart de aanrij_afrij-sleutel die toen gebruikt is, zodat
+// het rv-stempel naar diezelfde emmer wijst.
+let v9KandidaatV5Geschreven = false;
+let v9KandidaatV5Paar       = null;
 let v9PassageStartTijd      = null;   // timestamp bij passeren
 let v9PreSelectieAfrij      = null;   // afrij via richtingknop pre-selectie
 // V11.17.56: levensloop van v9PreSelectieAfrij, puur registrerend.
@@ -8091,6 +8216,21 @@ function verwerkFase(nieuw, horizontaal, conf=null) {
           // er ook echt geschreven is — anders staat er nog een lijst van een
           // eerdere aanroep in en zou het stempel op een vreemd record landen.
           v9KandidaatV4Stempels = v4GeschrevenNu ? laatsteV4Schrijvingen.slice() : [];
+          // ── V11.18.5: LIGT ER EEN TIK? DAN NU SCHRIJVEN ────────
+          // Alles wat een richting-record nodig heeft, staat op dit punt klaar:
+          // de duur is zojuist gemeten, het dagdeel en de overgang staan
+          // hierboven, de aanrijheading is bevroren op 60m en de tik ligt in
+          // v9PreSelectieAfrij. Wachten op de delayed write voegt voor een TIK
+          // niets toe (die gooit gpsAfrijRichting dan toch weg) en kost metingen
+          // zodra een volgend kruispunt de kandidaat overneemt.
+          //
+          // Ligt er GEEN bruikbare tik, dan gebeurt hier niets en loopt alles
+          // precies zoals voorheen via de delayed write — inclusief de
+          // GPS-vergelijking die gps_tik_score voedt.
+          if (!v9KandidaatV5Geschreven) {
+            v9KandidaatV5Geschreven = schrijfV5DirectBijGroen(
+              nodeId, dur, v9KandidaatDagdeel, afstandM, v9KandidaatV4Stempels);
+          }
         }
         bijwerkLeerkaart(dichtstbijOSM); bijwerkDashboardKnop();
       } else {
@@ -14918,6 +15058,8 @@ async function onGPS(pos) {
         v9AanrijHeading = smoothedH;
         v9KandidaatDuur = null;
         v9KandidaatDagdeel = null;
+        v9KandidaatV5Geschreven = false;  // V11.18.5: hoort bij dezelfde familie
+        v9KandidaatV5Paar       = null;   // V11.18.5
         v9KandidaatV4Geschreven = false;  // V11.17.37: vlag hoort bij de
         // kandidaat; deze tak vervangt de kandidaat zonder resetV9Staat, dus
         // moet hij hier mee gewist worden — net als v9KandidaatDuur hierboven.
