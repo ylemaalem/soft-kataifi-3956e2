@@ -694,7 +694,7 @@
 <div id="startscherm">
   <div id="s-icoon">🚦</div>
   <div id="s-titel">Stoplicht<span>IQ</span></div>
-  <div id="s-versie">V11.18.3 — eerlijk label bij de richting-countdown</div>
+  <div id="s-versie">V11.18.4 — één rij op een gekoppeld kruispunt</div>
   <div id="s-model-wrap">
     <div id="s-model-rij">
       <div id="s-model-label">🤖 YOLOv8 model laden…</div>
@@ -919,7 +919,7 @@
 
 <script>
 // ═══════════════════════════════════════════════════════════════
-//  StoplichtIQ V11.18.3
+//  StoplichtIQ V11.18.4
 //  V11.10: Zelfkalibratie + vergrendeling + crop smoothing
 //  — S1+S2 bevestiging (kruispunt-level confidence)
 //  — Route-herkenning basis (sequentie-opslag)
@@ -1682,6 +1682,30 @@ function zonderRichtingVerwant(m) {
 //
 // 'Terug' telt niet mee. Een 180-graden-groep is vrijwel altijd GPS-jitter —
 // dezelfde reden waarom de rijenbouwer hem uit `aanwezig` houdt (r9001).
+// ── V11.18.4: EEN LABEL TERUGVERTALEN NAAR EEN BOCHT ──────────
+// © 2026 StoplichtIQ — Y. Lemaalem
+//
+// Deze cascade stond op vier plekken los in de code: in algemeenMetingen, in
+// de `aanwezig`-lus van het rijblok, in de rij-renderlus en in het node-info-
+// paneel. Vier kopieën van dezelfde regel, en V11.18.4 heeft er twee nieuwe
+// lezers bij nodig — de filters die een gekoppelde richting uit de lijst halen.
+// Zes kopieën van een regel die moet blijven kloppen is er vijf te veel: liepen
+// ze uiteen, dan zou de ene plek een rij verbergen die de andere plek nog als
+// aanwezig telt, precies de tegenstrijdigheid die deze release wegneemt.
+//
+// 'Terug' geeft null en niet 'rechtdoor'. Een 180-graden-groep is vrijwel altijd
+// GPS-jitter; hem op rechtdoor mappen zou de rechtdoor-toevoegknop ten onrechte
+// laten verdwijnen (V11.17.8 W2) en — nieuw — een Terug-rij kunnen verbergen op
+// een node die aan rechtdoor gekoppeld is. De aanroepers die de oude fallback
+// nodig hebben vragen daar expliciet om.
+function bochtUitLabel(tekst, terugAlsRechtdoor = false) {
+  const t = String(tekst || '').toLowerCase();
+  if (t.startsWith('terug')) return terugAlsRechtdoor ? 'rechtdoor' : null;
+  return t.startsWith('linksaf') ? 'links'
+       : t.startsWith('rechtsaf') ? 'rechts'
+       : 'rechtdoor';
+}
+
 function algemeenMetingen(nodeId, dd = null) {
   const dagdelen = dd ? [dd] : Object.keys(DD);
   let m = [];
@@ -1689,13 +1713,7 @@ function algemeenMetingen(nodeId, dd = null) {
   const mark = nodeId != null ? laadEnkelRicht(nodeId) : null;
   if (!mark) return m;   // geen koppeling: byte-identiek aan wat er stond
 
-  const naarRicht = (aanrij, afrij) => {
-    const t = rijdersPijlLabel(aanrij, afrij).tekst.toLowerCase();
-    if (t.startsWith('terug')) return null;
-    return t.startsWith('linksaf') ? 'links'
-         : t.startsWith('rechtsaf') ? 'rechts'
-         : 'rechtdoor';
-  };
+  const naarRicht = (aanrij, afrij) => bochtUitLabel(rijdersPijlLabel(aanrij, afrij).tekst);
   const norm = (x) => ({
     duur: x.duur, tijd: x.tijd, s2: x.s2, bron: x.bron,
     gewicht: OBS_VLAK * ((x.gewicht ?? V9_GEWICHT_DICHTBIJ) / V9_GEWICHT_DICHTBIJ)
@@ -9383,6 +9401,34 @@ function renderRichtingBlok(osm) {
     .filter(r => !(r.label.tekst === 'Terug' && r.metingen < 5)) // V11.17.17 W3: was <3
     .sort((a, b) => b.metingen - a.metingen);
 
+  // ── V11.18.4: EEN GEKOPPELD KRUISPUNT TOONT NOG ÉÉN RIJ ───────
+  // © 2026 StoplichtIQ — Y. Lemaalem
+  //
+  // Een koppeling (sl_enkelricht_) zegt: dit kruispunt heeft geen apart rond
+  // licht, en één richting IS het licht dat voor iedereen geldt. Toch stonden
+  // er twee regels: 'Rechtsaf' als hernoemde Algemeen-rij (algemeenLabel) en
+  // 'Rechtsaf' als losse richting-regel. Twee keer dezelfde naam, met twee
+  // verschillende percentages en cyclustijden, voor één lamp.
+  //
+  // WAAROM DIT PAS NU KAN. V11.17.99 (stap 1) bracht de cijfers op orde:
+  // algemeenMetingen pooit de V5-records van de gekoppelde richting mee in de
+  // Algemeen-kant, genormaliseerd op OBS_VLAK zodat een V5-record niet rauw
+  // dubbel weegt. De overgebleven regel toont dus het GEPOOLDE getal en niet de
+  // helft ervan — precies de reden waarom stap 2 tot na stap 1 moest wachten.
+  //
+  // ALLEEN DE WEERGAVE. Er wordt geen enkele meting verplaatst, gewist of
+  // herschreven. Maak je de koppeling los (de ✕), dan staat de regel er direct
+  // weer, met dezelfde getallen als ervoor — er valt niets te herstellen.
+  //
+  // HET FILTER ZIT VÓÓR HET NADERINGSFILTER. De terugval op r9457 ('liever de
+  // volle lijst dan een leeg blok') moet vallen op wat er NA deze verwijdering
+  // over is; anders zou een node waar de gekoppelde richting de enige groep in
+  // de huidige nadering is, hem alsnog via de terugval tonen.
+  const koppelRicht = laadEnkelRicht(nodeId);
+  const alleRijenZichtbaar = koppelRicht
+    ? alleRijen.filter(r => bochtUitLabel(r.label.tekst) !== koppelRicht)
+    : alleRijen;
+
   // ── V11.17.81: toon alleen de nadering waarmee je NU aankomt ──
   // Groeperen op (nadering, bocht) haalt de rasterdubbels weg, maar niet de
   // ECHTE dubbels: 229 van de 834 nodes (27,5%) hebben een koerswolk breder dan
@@ -9401,11 +9447,11 @@ function renderRichtingBlok(osm) {
   const nuHoek = huidigeAanrijHoek();
   const nuNad = naderingVoorHoek(naderingen, nuHoek);
   const gefilterd = (nuNad != null)
-    ? alleRijen.filter(r => r.nadIdx === nuNad)
-    : alleRijen;
+    ? alleRijenZichtbaar.filter(r => r.nadIdx === nuNad)
+    : alleRijenZichtbaar;
   // Filteren mag nooit alles wegnemen: staat er wel data maar hoort die bij een
   // andere nadering, toon dan liever de volle lijst dan een leeg blok.
-  const rijen = gefilterd.length ? gefilterd : alleRijen;
+  const rijen = gefilterd.length ? gefilterd : alleRijenZichtbaar;
 
   // V11.17.94: algMetTot telt sinds deze release alleen nog metingen die NIET
   // richting-verwant zijn (r8701), dus dit is per constructie hetzelfde als
@@ -9422,16 +9468,25 @@ function renderRichtingBlok(osm) {
   // buiten de max valt telt ook als aanwezig. ALG is bewust geen richting.
   const aanwezig = new Set();
   for (const r of rijen) {
-    // V11.17.8 W2: sla "Terug" over — een 180°-groep mapt via de fallback naar
-    // 'rechtdoor' (r.startsWith(...)-cascade hieronder), waardoor de rechtdoor-
-    // toevoeg-knop ten onrechte zou verdwijnen. Terug is bijna altijd GPS-jitter.
-    if (r.label.tekst === 'Terug') continue;
-    const t = r.label.tekst.toLowerCase();
-    const richt = t.startsWith('linksaf') ? 'links'
-                : t.startsWith('rechtsaf') ? 'rechts'
-                : 'rechtdoor';
-    aanwezig.add(richt);
+    // V11.17.8 W2: sla "Terug" over — een 180°-groep zou via de fallback op
+    // 'rechtdoor' uitkomen, waardoor de rechtdoor-toevoegknop ten onrechte zou
+    // verdwijnen. Terug is bijna altijd GPS-jitter. bochtUitLabel geeft daarom
+    // null voor Terug, tenzij een aanroeper expliciet om de fallback vraagt.
+    const richt = bochtUitLabel(r.label.tekst);
+    if (richt) aanwezig.add(richt);
   }
+  // ── V11.18.4: DE VALSTRIK BIJ HET VERBERGEN VAN DE RIJ ────────
+  // `aanwezig` wordt hierboven uit `rijen` afgeleid, en daar zit de gekoppelde
+  // richting sinds deze release niet meer in. Zonder deze regel zou 'rechts'
+  // dus als ONTBREKEND gelden en verschijnt er onderaan een toevoegknop
+  // '→ Rechtsaf' voor precies de richting die de gebruiker zojuist als het
+  // hoofdlicht van dit kruispunt heeft aangewezen. Het scherm zou dan in één
+  // blok twee tegengestelde dingen beweren.
+  //
+  // Onvoorwaardelijk, ook als er (nog) geen V5-groep voor die richting bestaat:
+  // de koppeling zegt dat die richting HET licht is. Een knop die aanbiedt hem
+  // toe te voegen is dan sowieso misleidend, met of zonder metingen.
+  if (koppelRicht) aanwezig.add(koppelRicht);
   // V11.17.8 W2: whitelist bevat bewust GEEN 'terug' — een 180°-keuze zou bijna
   // altijd GPS-jitter zijn, niet een echte rijrichting. Toevoegen aan deze
   // lijst zou een Terug-knopje introduceren dat we niet willen.
@@ -9513,10 +9568,10 @@ function renderRichtingBlok(osm) {
     const kleur = ni_kleur(r.pct);
     // richting-parameter voor tikRichting: mapping via labeltekst
     // 'Linksaf'→links, 'Rechtdoor'→rechtdoor, 'Rechtsaf'→rechts, 'Terug'→rechtdoor (fallback)
-    const t = r.label.tekst.toLowerCase();
-    const richt = t.startsWith('linksaf') ? 'links'
-                : t.startsWith('rechtsaf') ? 'rechts'
-                : 'rechtdoor';
+    // Hier WEL de oude fallback: dit is de parameter voor tikRichting, en die
+    // kent alleen links/rechtdoor/rechts. Een Terug-rij moet aanklikbaar
+    // blijven, dus mapt hij zoals voorheen op rechtdoor.
+    const richt = bochtUitLabel(r.label.tekst, true);
     const idx = laatsteRichtingRijen.length;
     laatsteRichtingRijen.push({ key: r.key, paren: r.paren, richt });
     // V11.17.83: de markering volgt nu de GETOONDE LAAG in plaats van
@@ -12053,11 +12108,25 @@ function enkelRichtLog(nodeId, gemarkeerd, actief, modusVoor, modusNa) {
 }
 // V11.17.19 W2: chip-handlers. Koppel de huidige actieve rijrichting aan
 // Algemeen, of verwijder de markering. Beide re-renderen het richting-blok.
+// V11.18.4: de getoonde laag mag niet naar een rij blijven wijzen die door de
+// koppeling van het scherm verdwijnt. De leerkaart zou dan de ONGEPOOLDE
+// richtingcijfers tonen terwijl geen enkele rij nog oplicht — en de gebruiker
+// heeft net verteld dat deze richting het algemene licht IS. Terugvallen op
+// Algemeen laat precies zien wat hij bedoelde, met de gepoolde cijfers.
+function laagTerugNaarAlgemeenBijKoppeling(nodeId, richting) {
+  const lg = laagGeldigVoor(nodeId);
+  if (!lg || !richting) return;
+  const raaktKoppeling = Array.isArray(lg.paren) && lg.paren.some(
+    pr => bochtUitLabel(rijdersPijlLabel(pr.aanrij, pr.afrij).tekst) === richting);
+  if (raaktKoppeling) getoondeLaag = null;
+}
+
 function koppelEnkelRicht(nodeId) {
   if (!nodeId) return;
   const r = rijrichting();
   if (!r) return;
   zetEnkelRicht(nodeId, r);
+  laagTerugNaarAlgemeenBijKoppeling(nodeId, r);
   toonToast('Dit kruispunt telt nu als ' + KOPPEL_NAAM[r]);
   if (dichtstbijOSM) renderRichtingBlok(dichtstbijOSM);
   if (String(nodeInfoNodeId) === String(nodeId)) renderNodeInfo(nodeId);
@@ -12107,6 +12176,7 @@ function algemeenLabel(nodeId) {
 function koppelVanuitPaneel(nodeId, richting) {
   if (!nodeId || !KOPPEL_NAAM[richting]) return;
   zetEnkelRicht(nodeId, richting);
+  laagTerugNaarAlgemeenBijKoppeling(nodeId, richting);
   toonToast('Dit kruispunt telt nu als ' + KOPPEL_NAAM[richting]);
   renderNodeInfo(nodeId);
   if (dichtstbijOSM) renderRichtingBlok(dichtstbijOSM);
@@ -12356,12 +12426,32 @@ function renderNodeInfo(nodeId) {
   //
   // Het rijblok op het hoofdscherm mag de regel wél helemaal laten vallen: daar
   // is hij een leesregel zonder tweede functie.
+  // ── V11.18.4: OOK HIER DE GEPOOLDE BRON ──────────────────
+  // © 2026 StoplichtIQ — Y. Lemaalem
+  //
+  // Deze rij las `zonderRichtingVerwant(laadM(...))` rechtstreeks. V11.17.99
+  // bracht de pooling onder in algemeenMetingen, maar raakte alleen het rijblok
+  // en berekenLeerPct — dit paneel bleef op de ongepoolde helft staan. Zolang
+  // de richting er nog als eigen regel onder stond viel dat mee te lezen; nu die
+  // regel bij een koppeling verdwijnt, zou het paneel data van het scherm laten
+  // vallen: de gekoppelde metingen zaten dan in geen van beide regels.
+  //
+  // Zonder koppeling is algemeenMetingen per constructie byte-identiek aan wat
+  // hier stond (zie de vroege return op `!mark`), dus een niet-gekoppeld
+  // kruispunt toont exact hetzelfde als voorheen.
+  //
+  // `heeftV4` blijft op de RAUWE set kijken, want die vraag is 'bestaat deze
+  // node in V4' en niet 'houdt Algemeen na filtering iets over' — dat onderscheid
+  // is precies waar V11.17.94 de rij voor overeind hield. Wel telt een node die
+  // alleen dankzij de koppeling metingen heeft nu ook mee: anders zou juist een
+  // gekoppeld kruispunt zonder eigen V4 helemaal geen rij meer hebben, en dus
+  // ook geen merge-doel en geen losmaakknop.
   const dd4 = [];
   let heeftV4 = false;
   for (const d of Object.keys(DD)) {
     const mVol = laadM(nodeId, d);
-    if (mVol.length) heeftV4 = true;
-    const m = zonderRichtingVerwant(mVol);
+    const m = algemeenMetingen(nodeId, d);
+    if (mVol.length || m.length) heeftV4 = true;
     if (!m.length) continue;
     // V11.17.66: zie r6890 — de bodem telt alleen records met een gemeten duur.
     const pct = Math.min(95, Math.max(m.filter(heeftGemetenDuur).length * 4, berekenObsScore(m)));
@@ -12400,19 +12490,47 @@ function renderNodeInfo(nodeId) {
     g.dds.push(`${DD[r.dd]?.ic || r.dd} <span style="color:${ni_kleur(r.pct)}">${r.pct}%</span> (${r.metingen}×)`);
     g.totaal += r.metingen;
   }
+  // ── V11.18.4: DE GEKOPPELDE RICHTING KRIJGT GEEN EIGEN RIJ ───
+  // © 2026 StoplichtIQ — Y. Lemaalem
+  //
+  // Zelfde reden als in het rijblok: bij een koppeling is deze richting het
+  // ronde licht, en haar metingen staan hierboven al in de (hernoemde)
+  // Algemeen-rij. Twee regels met dezelfde naam en verschillende getallen is
+  // precies de dubbeling die deze release wegneemt.
+  //
+  // MAAR NIET IN MERGE-MODUS. Dit paneel is dan geen leeslijst maar gereedschap:
+  // elke rij is een selectievak, en renderKoppelStrip trekt zich in die modus al
+  // helemaal terug (r12129) omdat twee interactiemodellen op één rij er één te
+  // veel zijn. Een rij verbergen die je nog wél kunt aanvinken zou een selectie
+  // kunnen achterlaten zonder zichtbaar vakje. In merge-modus staat dus alles er
+  // gewoon, ongefilterd — en omdat het paneel merge-modus bij elke opening
+  // uitzet (r12282), is dat de uitzondering en niet de regel.
+  const koppelRichtNI = mergeModusAan ? null : laadEnkelRicht(nodeId);
   const gesorteerd = [...groepen.values()].sort((a, b) => b.totaal - a.totaal);
+  let verborgenDoorKoppeling = 0, getoondeRijen = 0;
   for (const g of gesorteerd) {
     // V11.16.12: rijderspijl + label vervangen AFRIJ_PIJL + tekst 'aanrij → afrij'.
     const r = rijdersPijlLabel(g.aanrij, g.afrij);
     if (r.tekst === 'Terug' && g.totaal < 3) continue;
+    if (koppelRichtNI && bochtUitLabel(r.tekst) === koppelRichtNI) {
+      verborgenDoorKoppeling++;
+      continue;
+    }
     const mkey = `${g.aanrij}>${g.afrij}`;
     html += `<div class="ni-rij${selCls(mkey)}" data-aanrij="${g.aanrij}" data-afrij="${g.afrij}" data-key="${mkey}"${klik(mkey)}>${vink(mkey)}`
          +  `<div class="ni-rij-pijl">${r.pijl}</div>`
          +  `<div class="ni-rij-label">${r.tekst}<span class="ni-rij-vanaf">${naderingLabel(naderingenNI, g)}</span></div>`
          +  `<div class="ni-rij-dds">${g.dds.join(' ')} <span style="color:rgba(255,255,255,0.35)">Σ${g.totaal}×</span></div></div>`;
+    getoondeRijen++;
   }
+  // De leegmelding mag niet verschijnen als er wél richtingen zijn maar ze
+  // allemaal in de Algemeen-rij zijn opgegaan — 'nog geen richtingen' zou dan
+  // pertinent onwaar zijn op een kruispunt waar juist een richting het licht IS.
   if (!gesorteerd.length) {
     html += `<div class="ni-leeg">Nog geen richtingen opgeslagen voor dit stoplicht.</div>`;
+  } else if (getoondeRijen === 0 && verborgenDoorKoppeling > 0) {
+    html += `<div class="ni-leeg">Alle metingen van dit stoplicht horen bij `
+         +  `${KOPPEL_NAAM[koppelRichtNI] || koppelRichtNI} — ze staan hierboven.</div>`;
   }
   bodyEl.innerHTML = html;
 

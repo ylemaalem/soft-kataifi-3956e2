@@ -243,14 +243,26 @@ function testAlgemeenGepoold() {
         met.leerPct + '%',
         algRij ? algRij.querySelector('.rb-pct').textContent.trim() : 'GEEN ALG-RIJ');
 
-    // ══ T5 — DE RIJEN STAAN IN DEZE STAP NOG DUBBEL ═══════════
-    // Bewust: stap 2 voegt ze samen, en dat is pas veilig als deze cijfers
-    // kloppen. Vastgelegd zodat de volgende release ziet wat hij verandert.
+    // ══ T5 — EN SINDS V11.18.4 STAAT ER NOG ÉÉN RIJ ═══════════
+    // Deze toets luidde 'er staan in deze stap nog twee rijen met dezelfde
+    // naam', met de aantekening: stap 2 voegt ze samen, en dat is pas veilig
+    // als deze cijfers kloppen. Die cijfers kloppen (T4a-T4g hierboven), dus
+    // V11.18.4 heeft ze samengevoegd en draait deze toets mee.
+    //
+    // Hij blijft hier staan en verhuist niet naar test_koppel_eenrij: op DEZE
+    // fixture is bewezen dat de overgebleven rij de gepoolde cijfers draagt
+    // (T4g), en dat maakt het samenvallen pas betekenisvol. Een rij die klopt
+    // EN uniek is — dat is het punt van de twee stappen samen.
     const labels = [...document.querySelectorAll('#richting-blok-body .rb-rij')]
       .map(r => r.querySelector('.rb-label').textContent.trim());
-    eis('T5 er staan in deze stap nog twee rijen met dezelfde naam',
-        labels.filter(l => l.indexOf('Rechtsaf') === 0).length === 2,
-        '2x Rechtsaf', labels.join(' | '));
+    eis('T5 er staat nog precies één rij met de naam van de gekoppelde richting',
+        labels.filter(l => l.indexOf('Rechtsaf') === 0).length === 1,
+        '1x Rechtsaf', labels.join(' | '));
+    eis('T5b en dat is de ALG-rij, dus de rij met de gepoolde cijfers uit T4g',
+        algRij !== undefined
+          && algRij.querySelector('.rb-label').textContent.trim().indexOf('Rechtsaf') === 0,
+        'de ALG-rij heet Rechtsaf',
+        algRij ? algRij.querySelector('.rb-label').textContent.trim() : 'GEEN ALG-RIJ');
 
     // ══ T6 — DE MEETREGEL ═════════════════════════════════════
     wis();
