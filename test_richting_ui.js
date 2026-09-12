@@ -18,11 +18,15 @@
 //  tests lezen daarom de DOM en niet de helper — een test op laagLeerPct alleen
 //  had die fout laten passeren.
 //
-//  RV5 IS EEN EIS, GEEN BIJVANGST
-//  Percentage en countdown mogen uit VERSCHILLENDE bronnen komen: een laag
+//  RV5, EN WAT V11.18.2 ERAAN VERANDERDE
+//  Percentage en countdown mochten uit VERSCHILLENDE bronnen komen: een laag
 //  percentage (de richting kent het licht nog niet) naast een geleend getal uit
-//  Algemeen. T3 en T6 leggen dat paar samen vast, want los gelezen ziet het
+//  Algemeen. T3 en T6 legden dat paar samen vast, want los gelezen ziet het
 //  eruit als een fout.
+//  Sinds V11.18.2 geldt dat nog maar voor één geval: een richting met NUL eigen
+//  metingen. Zodra er één meting staat, stuurt de richting zelf en zit het
+//  voorbehoud in de MODUS (CD_GESCHAT) in plaats van in een bronverschil. T6
+//  toetst nu die nieuwe situatie; T6f houdt de geleende tak zelf gedekt.
 //
 //  DE FIXTURE, EN WAAROM DE BUCKETS ZO GEKOZEN ZIJN
 //  laadMV5Geclusterd leest naast de gevraagde emmer ook de twee BUURBUCKETS
@@ -92,9 +96,9 @@ function testRichtingUi() {
   // en de leerkaart dezelfde emmer lezen zonder de klok te vervalsen.
   const DD_NU = huidigDDActief();
 
-  // NODE_EIGEN: de richting N>W heeft 6 eigen metingen (>= V9_MIN_METINGEN) en
-  //             stuurt dus zelf. NODE_LEEN: dezelfde richting heeft er 1 en
-  //             leent daarom uit Algemeen.
+  // NODE_EIGEN: de richting N>W heeft 6 eigen metingen en stuurt dus zelf.
+  // NODE_LEEN: dezelfde richting heeft er 1. Tot V11.18.1 leende die daarom uit
+  // Algemeen; sinds V11.18.2 stuurt ook die zelf (zie T6).
   const NODE_EIGEN = 990101;
   const NODE_LEEN  = 990102;
 
@@ -245,26 +249,41 @@ function testRichtingUi() {
     eis('T3d en de dagdeel-chip telt 1 eigen meting, niet de ' + v4n + ' van Algemeen',
         chip(DD_NU).cnt === '1x', '1x', chip(DD_NU).cnt);
 
-    // ══ T6 — DE GELEENDE COUNTDOWN ════════════════════════════
-    // Zelfde toestand: er IS getikt, de eigen emmer haalt de drempel niet, dus
-    // stap 4 leent uit Algemeen.
+    // ══ T6 — ÉÉN EIGEN METING STUURT NU ZELF ══════════════════
+    // V11.18.2 HEEFT DEZE DRIE OMGEDRAAID, EN DAT IS DE HELE RELEASE.
+    // NODE_LEEN is letterlijk het gemelde geval: rechtsaf is één keer gemeten
+    // op 24s, terwijl Algemeen op 60s staat omdat rechtdoor de lange cyclus
+    // heeft. Tot V11.18.1 viel deze richting door naar stap 4 en kreeg de
+    // gebruiker die 60s te zien — "rechtsaf krijgt dus eigenlijk verkeerde
+    // countdown, want die is op algemeen gebaseerd." Stap 1 telt nu vanaf de
+    // eerste eigen meting, dus hier staat voortaan 24s.
+    //
+    // De naam NODE_LEEN klopt daarmee niet meer helemaal: de emmer is niet
+    // leeg, hij haalde alleen de oude drempel niet. Bewust niet hernoemd —
+    // die naam loopt door de halve suite en de fixture zelf is ongewijzigd.
+    // T6f hieronder dekt het geval waar de naam wél op slaat.
     const v4LeenGem = Math.round(gewGem(laadM(NODE_LEEN, DD_NU)));
     const bronLeen  = kiesCountdownBron(NODE_LEEN, DD_NU, 'N', 'W');
-    eis('T6 richting zonder eigen data krijgt het geleende bronlabel',
-        bronLeen && bronLeen.bron === 'v4_geen_richtingdata',
-        'v4_geen_richtingdata', bronLeen ? bronLeen.bron : 'geen bron');
-    eis('T6b en er STAAT een countdown — het getal komt uit Algemeen (RV1)',
-        bronLeen && bronLeen.gem > 0 && Math.round(bronLeen.gem) === v4LeenGem,
-        v4LeenGem + 's uit V4',
+    eis('T6 richting met één eigen meting stuurt zelf (V11.18.2)',
+        bronLeen && bronLeen.bron === 'V5 W' && bronLeen.v5 === true,
+        'V5 W', bronLeen ? bronLeen.bron : 'geen bron');
+    eis('T6b en het getal is de eigen 24s, niet de ' + v4LeenGem + 's van Algemeen',
+        bronLeen && Math.round(bronLeen.gem) === 24
+          && Math.round(bronLeen.gem) !== v4LeenGem,
+        '24s (eigen), niet ' + v4LeenGem + 's',
         bronLeen ? Math.round(bronLeen.gem) + 's' : 'niets');
-    // RV5 als PAAR. Los gelezen ziet dit eruit als een bug; samen is het precies
-    // de bedoelde eerlijkheid: "ik weet nog niets van deze richting, maar ik
-    // toon je voorlopig het algemene getal."
-    eis('T6c percentage (richting) en countdown (Algemeen) komen bewust uit ' +
-        'verschillende bronnen',
-        leenLaag && bronLeen && bronLeen.bron === 'v4_geen_richtingdata',
-        'richting-eigen percentage naast een geleende countdown',
-        leenPctTxt + ' / ' + (bronLeen ? bronLeen.bron : '—'));
+    // RV5 IS HIER OPGEHEVEN. Percentage en countdown kwamen bewust uit
+    // verschillende bronnen zolang de countdown geleend was: "ik weet nog niets
+    // van deze richting, maar ik toon je voorlopig het algemene getal." Nu ze
+    // allebei uit de eigen emmer komen, hoort het voorbehoud in de MODUS te
+    // zitten en niet meer in een bronverschil — en dat doet het ook: één meting
+    // geeft CD_GESCHAT, precies zoals een gloednieuw kruispunt.
+    eis('T6c percentage en countdown komen nu uit dezelfde emmer, met het ' +
+        'voorbehoud in de modus',
+        leenLaag && bronLeen && bronLeen.modus === CD_GESCHAT
+          && bronLeen.cdMin === null && bronLeen.cdMax === null,
+        'laag richting-percentage naast een eigen ' + CD_GESCHAT + '-countdown',
+        leenPctTxt + ' / ' + (bronLeen ? bronLeen.bron + ' / ' + bronLeen.modus : '—'));
     // Het nieuwe label moet in ELKE bronschakelaar staan, anders vallen de
     // conditionele tabel en de schaduwmeting stil voor juist deze nodes.
     const hm = haalMetingenVoorBron(NODE_LEEN, DD_NU, 'N', 'W', 'v4_geen_richtingdata');
@@ -274,6 +293,36 @@ function testRichtingUi() {
     const sw = berekenSchaduwWaarden(NODE_LEEN, DD_NU, 'N', 'W', 'v4_geen_richtingdata');
     eis('T6e berekenSchaduwWaarden kent het geleende label ook',
         sw && sw.m1 != null, 'schaduwwaarden gevuld', sw ? JSON.stringify(sw) : 'null');
+
+    // ── T6f — HET GELEENDE LABEL BESTAAT NOG, MAAR PAS BIJ NUL ──
+    // V11.18.2 verplaatst de grens van 'minder dan vijf metingen' naar 'geen
+    // enkele meting'. Het label van V11.17.83 blijft dus bereikbaar en moet dat
+    // ook: een richting waar nog nóóit iets gemeten is moet zijn countdown niet
+    // verliezen (RV1). Dat is precies de toestand die stap 2 van dit plan later
+    // aanpakt; tot dan hoort deze tak gewoon te werken.
+    //
+    // DE TWEEDE AANRIJRICHTING MOET BLIJVEN STAAN. Het geleende label zit in de
+    // else van isEenRichtingNode: een node met maar één bekende aanrijrichting
+    // krijgt gewoon 'V4'. Haal je hier alleen de N_W-sleutel weg, dan houdt
+    // NODE_LEEN nog één bucket (Z) over, valt hij in de enkelrichting-tak en
+    // meet deze test het verkeerde label. Daarom komt er een derde bucket bij
+    // op aanrij O — vier posities van N vandaan, dus buiten het cluster dat
+    // laadMV5Geclusterd voor (N, W) leest, en met één meting te weinig om stap
+    // 3 te halen.
+    const bewaardNW = localStorage.getItem('sl_v5_' + NODE_LEEN + '_N_W_' + DD_NU);
+    localStorage.removeItem('sl_v5_' + NODE_LEEN + '_N_W_' + DD_NU);
+    zetLS('sl_v5_' + NODE_LEEN + '_O_Z_' + DD_NU, JSON.stringify(recs(1, 90)));
+    const bronNul = kiesCountdownBron(NODE_LEEN, DD_NU, 'N', 'W');
+    localStorage.setItem('sl_v5_' + NODE_LEEN + '_N_W_' + DD_NU, bewaardNW);
+    localStorage.removeItem('sl_v5_' + NODE_LEEN + '_O_Z_' + DD_NU);
+    eis('T6f een richting met NUL eigen metingen leent nog steeds uit Algemeen',
+        bronNul && bronNul.bron === 'v4_geen_richtingdata'
+          && Math.round(bronNul.gem) === v4LeenGem,
+        'v4_geen_richtingdata, ' + v4LeenGem + 's',
+        bronNul ? (bronNul.bron + ', ' + Math.round(bronNul.gem) + 's') : 'geen bron');
+    eis('T6g en die geleende bron draagt nog steeds geen V5-voorvoegsel (RV3)',
+        bronNul && !String(bronNul.bron).startsWith('V5') && bronNul.v5 === false,
+        'geen V5-label', bronNul ? bronNul.bron : 'geen bron');
 
     // ══ T8 — RICHTING DIE DE DREMPEL WEL HAALT ════════════════
     const bronEigen = kiesCountdownBron(NODE_EIGEN, DD_NU, 'N', 'W');
@@ -365,10 +414,15 @@ function testRichtingUi() {
     eis('T10b de volgorde stap 1 -> 2 -> 3 -> 4 is ongewijzigd',
         iS1 > 0 && iS1 < iS2 && iS2 < iS3 && iS3 < iS4,
         'oplopende posities', [iS1, iS2, iS3, iS4].join(' < '));
-    // Drie drempeltoetsen, één per V5-stap. Een vierde zou betekenen dat deze
-    // release stiekem een drempel heeft toegevoegd; twee dat er een weg is.
-    eis('T10c er zijn nog precies 3 toetsen op V9_MIN_METINGEN',
-        (kb.match(/V9_MIN_METINGEN/g) || []).length === 3, '3',
+    // Twee drempeltoetsen: stap 2 (rechtdoor-default) en stap 3 (alle V5
+    // samen). Dit stond op DRIE, één per V5-stap, met de opmerking "een vierde
+    // zou betekenen dat er stiekem een drempel bij is gekomen; twee dat er een
+    // weg is." Er IS er een weg, en bewust: V11.18.2 haalde de drempel uit stap
+    // 1 zodat een getikte richting vanaf haar eerste eigen meting zelf aftelt.
+    // De bewaking zelf blijft nuttig — nu op twee, zodat een volgende sluipende
+    // verschuiving nog steeds opvalt.
+    eis('T10c er zijn nog precies 2 toetsen op V9_MIN_METINGEN (stap 2 en 3)',
+        (kb.match(/V9_MIN_METINGEN/g) || []).length === 2, '2',
         String((kb.match(/V9_MIN_METINGEN/g) || []).length));
     const sc = zonderCommentaar(String(startCd));
     eis('T10d startCd telt de geleende countdowns (de teller die C2 stuurt)',

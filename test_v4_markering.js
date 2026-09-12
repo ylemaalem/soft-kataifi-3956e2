@@ -288,8 +288,12 @@ function testV4Markering() {
         !/rv/.test(kb) && !/zonderRichtingVerwant/.test(kb),
         'geen rv-filter in de countdownkeuze',
         /rv|zonderRichtingVerwant/.test(kb) ? 'FILTER AANWEZIG' : 'schoon');
-    eis('T8c de drie drempeltoetsen gaan nog over .length',
-        (kb.match(/\w+\.length >= V9_MIN_METINGEN/g) || []).length === 3, '3',
+    // V11.18.2: waren er drie, nu twee. De drempel in stap 1 is bewust weg -
+    // een getikte richting telt vanaf haar eerste eigen meting zelf af. Wat
+    // deze toets bewaakt blijft overeind: de resterende drempels tellen
+    // METINGEN, niet een afgeleid percentage of een rv-gefilterd aantal.
+    eis('T8c de twee resterende drempeltoetsen gaan nog over .length',
+        (kb.match(/\w+\.length >= V9_MIN_METINGEN/g) || []).length === 2, '2',
         String((kb.match(/\w+\.length >= V9_MIN_METINGEN/g) || []).length));
     // De scheidslijn, niet het aantal. Hier stond `tel === 3` over een samengeplakte
     // bron. Dat brak op V11.17.94 om twee redenen tegelijk: die release voegde

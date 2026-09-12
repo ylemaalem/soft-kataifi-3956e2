@@ -222,8 +222,16 @@ function testRichtingPct() {
     const kb = String(kiesCountdownBron)
       .replace(/\/\*[\s\S]*?\*\//g, ' ').replace(/\/\/[^\n]*/g, ' ');
     const toetsen = kb.match(/\w+\.length >= V9_MIN_METINGEN/g) || [];
-    eis('T9b alle drie de drempeltoetsen gaan over .length, niet over een percentage',
-        toetsen.length === 3, '3 lengte-toetsen', toetsen.join(' | ') || 'GEEN');
+    // RV2 GAAT OVER DE MAATSTAF, NIET OVER HET AANTAL. De eis is dat een
+    // drempel in kiesCountdownBron telt hoeveel metingen er ZIJN, en nooit
+    // hoeveel procent geleerd is - een percentage is afgeleid en zou de
+    // countdownkeuze aan de weergavekant knopen. Dat blijft ongewijzigd.
+    // Het AANTAL toetsen ging van drie naar twee: V11.18.2 haalde de drempel
+    // uit stap 1, zodat een getikte richting vanaf haar eerste eigen meting
+    // zelf aftelt in plaats van het Algemeen-gemiddelde te tonen. Stap 2 en 3
+    // houden hun drempel van 5.
+    eis('T9b de twee resterende drempeltoetsen gaan over .length, niet over een percentage',
+        toetsen.length === 2, '2 lengte-toetsen', toetsen.join(' | ') || 'GEEN');
     eis('T9c kiesCountdownBron raakt het richting-percentage niet aan',
         !/berekenRichtingPct|richtingLeerPct|laagLeerPct/.test(kb),
         'geen percentage-aanroep', 'schoon');

@@ -694,7 +694,7 @@
 <div id="startscherm">
   <div id="s-icoon">🚦</div>
   <div id="s-titel">Stoplicht<span>IQ</span></div>
-  <div id="s-versie">V11.18.1 — verloren metingen geteld</div>
+  <div id="s-versie">V11.18.2 — richting telt vanaf de eerste meting</div>
   <div id="s-model-wrap">
     <div id="s-model-rij">
       <div id="s-model-label">🤖 YOLOv8 model laden…</div>
@@ -919,7 +919,7 @@
 
 <script>
 // ═══════════════════════════════════════════════════════════════
-//  StoplichtIQ V11.18.1
+//  StoplichtIQ V11.18.2
 //  V11.10: Zelfkalibratie + vergrendeling + crop smoothing
 //  — S1+S2 bevestiging (kruispunt-level confidence)
 //  — Route-herkenning basis (sequentie-opslag)
@@ -3517,10 +3517,53 @@ function kiesCountdownBron(nodeId, dd, aanrijRichting, preSelectieAfrij) {
   // correcter dan een toevallige richting-subset.
   const neutraal = isNodeNeutraal(nodeId);
 
-  // Stap 1: pre-selectie via richtingknop (als >= V9_MIN_METINGEN)
+  // Stap 1: pre-selectie via richtingknop (vanaf de EERSTE eigen meting)
+  //
+  // ── V11.18.2: DE DREMPEL WEG ──────────────────
+  // © 2026 StoplichtIQ — Y. Lemaalem
+  //
+  // Stond hier `>= V9_MIN_METINGEN` (5). Een getikte richting met een eigen
+  // emmer van 1 tot 4 metingen viel daardoor door naar stap 4 en kreeg het
+  // ALGEMEEN-gemiddelde van de node te zien: het aggregaat over alle richtingen
+  // samen. Voor rechtsaf betekende dat in de praktijk de cyclus van rechtdoor.
+  //
+  // WAAROM DE DREMPEL ER STOND. V11.17.70 rechtvaardigde hem met een meting:
+  // de eerste V5-meting zat er mediaan 15s naast tegen 6s voor de V4-basis.
+  // Dat getal klopt, maar het vergelijkt twee ongelijksoortige dingen. De 15s
+  // is de afwijking ten opzichte van een LATER V5-GEMIDDELDE VAN DEZELFDE
+  // RICHTING — dus hoe onnauwkeurig een enkele meting is als schatter van haar
+  // eigen emmer. De 6s is de afwijking van V4 ten opzichte van het V4-
+  // aggregaat: hoe goed Algemeen ZICHZELF voorspelt. Een aggregaat voorspelt
+  // zichzelf altijd goed; dat zegt niets over hoe goed het EEN RICHTING
+  // voorspelt.
+  //
+  // De vraag is dus niet 'is 1 meting nauwkeurig' maar 'is 1 eigen meting
+  // beter dan het gemiddelde van de andere richtingen'. Waar een richting
+  // werkelijk van Algemeen afwijkt is het antwoord ja, en dat is precies het
+  // geval dat gemeld werd: rechtsaf kreeg de countdown van rechtdoor.
+  //
+  // DE ONZEKERHEID WORDT NIET WEGGEMOFFELD. Er komt geen nieuwe weergave bij.
+  // bepaalCdModus (r3269) geeft bij minder dan 2 bruikbare metingen
+  // onvoorwaardelijk CD_GESCHAT terug — de rem die V11.17.51 al plaatste en
+  // die een gloednieuw kruispunt met 1 meting ook krijgt. Een richting met 1
+  // meting is vanaf nu precies zo'n nieuw stoplicht: '~32s / geschat', niet
+  // '32s' hard.
+  //
+  // WAT HIER NIET VERANDERT. Een LEGE emmer valt nog steeds door naar stap 4
+  // en leent Algemeen. Dat is bewust: zonder ook maar een enkele eigen meting
+  // is er niets om op terug te vallen, en RV1 ('geen node verliest zijn
+  // countdown') weegt zwaarder. Dat loskoppelen is een aparte, latere release.
+  //
+  // BEKEND RANDJE, NIET GEREPAREERD. Bij PRECIES 2 identieke metingen is de
+  // spreiding 0, dus relSpr 0, dus CD_ZEKER — maximale stelligheid op twee
+  // samples. Dat is bestaand gedrag van bepaalCdModus (de rem zit op n < 2,
+  // niet op de kwaliteit van 2 gelijke waarden) en wordt door deze wijziging
+  // voor het eerst bereikbaar op richtingen. Bewust hier niet gerepareerd: het
+  // hoort bij de modusklasse zelf en raakt dan elke bron tegelijk.
+  // test_richting_drempel T3 legt het vast zodat het niet ongemerkt schuift.
   if (!resultaat && !neutraal && aanrijRichting && preSelectieAfrij) {
     const m1 = laadMV5Geclusterd(nodeId, aanrijRichting, preSelectieAfrij, dd);
-    if (m1.length >= V9_MIN_METINGEN) {
+    if (m1.length > 0) {
       const gem = gewGem(m1);
       if (gem) {
         const { modus, cdMin, cdMax } = bepaalCdModus(gem, m1);
