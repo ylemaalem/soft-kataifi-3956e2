@@ -180,6 +180,35 @@ function testMvTrigger() {
         && typeof startVglWorker === 'function',
         'alle drie aanwezig', 'aanwezig');
 
+    // ═══ T5 — HET VERSIELABEL KOMT UIT ÉÉN BRON ════════
+    // V11.18.9: het nummer stond in de HTML én in een commentaarkop, en liep
+    // daardoor twee releases achter. Nu vult APP_VERSIE het label. Deze toets
+    // bewaakt dat ze niet opnieuw uit elkaar lopen: zou iemand de HTML weer
+    // hardcoderen, of het vullen weghalen, dan valt hij om.
+    aanZetten(false);   // zonder TEST-merkteken, anders plakt dat aan de tekst
+    const verEl = document.getElementById('s-versie');
+    eis('T5 het zichtbare label is exact APP_VERSIE',
+        verEl.textContent === APP_VERSIE,
+        APP_VERSIE, verEl.textContent);
+    // startsWith en geen reguliere expressie: een versienummer zit vol punten
+    // die in een regex ontsnapt moeten worden, en juist dat ging bij het
+    // schrijven van dit bestand mis — er belandde een letterlijk
+    // backspace-teken in de expressie, waardoor de toets nooit kon slagen.
+    // Een kale stringvergelijking kan dat niet overkomen.
+    eis('T5b en APP_VERSIE draagt het huidige versienummer',
+        APP_VERSIE.startsWith('V11.18.9'),
+        'begint met V11.18.9', APP_VERSIE);
+
+    // De tekstwijziging mag de klik-handler niet geraakt hebben: vijf echte
+    // kliks op het bijgewerkte label moeten nog steeds schakelen.
+    aanZetten(false);
+    for (let i = 0; i < 4; i++) verEl.click();
+    const naVier = mvIsAan();
+    verEl.click();
+    eis('T5d vijf ECHTE kliks op het bijgewerkte label schakelen nog steeds',
+        naVier === false && mvIsAan() === true,
+        'pas bij de vijfde aan', 'na 4: ' + naVier + ', na 5: ' + mvIsAan());
+
   } finally {
     if (mvHerlaadTimer) { clearTimeout(mvHerlaadTimer); mvHerlaadTimer = null; }
     try { location.reload = echteReload; } catch (e) {}

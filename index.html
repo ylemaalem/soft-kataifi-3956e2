@@ -728,7 +728,10 @@
 <div id="startscherm">
   <div id="s-icoon">🚦</div>
   <div id="s-titel">Stoplicht<span>IQ</span></div>
-  <div id="s-versie">V11.18.7 — marge 8m, tap mag verlopen</div>
+  <!-- V11.18.9: leeg. De tekst komt uit APP_VERSIE (zie daar) — één bron,
+       zodat het zichtbare nummer niet meer achter kan lopen op de werkelijke
+       versie, zoals bij V11.18.8 en V11.18.9 gebeurde. -->
+  <div id="s-versie"></div>
   <div id="s-model-wrap">
     <div id="s-model-rij">
       <div id="s-model-label">🤖 YOLOv8 model laden…</div>
@@ -953,7 +956,7 @@
 
 <script>
 // ═══════════════════════════════════════════════════════════════
-//  StoplichtIQ V11.18.7
+//  StoplichtIQ — versie: zie APP_VERSIE, de enige plek waar het nummer staat
 //  V11.10: Zelfkalibratie + vergrendeling + crop smoothing
 //  — S1+S2 bevestiging (kruispunt-level confidence)
 //  — Route-herkenning basis (sequentie-opslag)
@@ -966,6 +969,22 @@
 if (typeof ort !== 'undefined') {
   ort.env.wasm.wasmPaths = 'https://cdn.jsdelivr.net/npm/onnxruntime-web@1.17.1/dist/';
 }
+
+// ── V11.18.9: ÉÉN BRON VOOR HET VERSIENUMMER ────────────────
+// © 2026 StoplichtIQ — Y. Lemaalem
+//
+// Het nummer stond op twee plekken: in de HTML van #s-versie en in de
+// commentaarkop hierboven. Geen van beide werd automatisch bijgewerkt, en dus
+// liepen ze achter — bij V11.18.8 en V11.18.9 bleef er zichtbaar V11.18.7
+// staan terwijl er wel degelijk twee releases overheen waren gegaan.
+//
+// Nu is dit de enige plek. De HTML is leeg en wordt hieruit gevuld
+// (r16202), de commentaarkop verwijst hiernaar. Bij een volgende release
+// hoeft alleen deze regel mee.
+//
+// De stijl volgt de eerdere labels: nummer, kastlijntje, korte omschrijving in
+// kleine letters. De CSS zet hem zelf in kapitalen (text-transform:uppercase).
+const APP_VERSIE = 'V11.18.9 — modelvergelijking via 5 tikken';
 
 // ── CONSTANTEN ────────────────────────────────────────────────
 const OSM_RADIUS       = 5000;
@@ -16177,7 +16196,12 @@ bijwerkDashboardKnop();
 // zodat hij na een herlaad direct zichtbaar is als de modus aanstaat.
 (function () {
   const ver = document.getElementById('s-versie');
-  if (ver) ver.addEventListener('click', mvTik);
+  if (ver) {
+    // V11.18.9: vóór mvWerkIndicatorBij, want die hangt het TEST-merkteken
+    // achter dit label aan en textContent zou dat er weer afvegen.
+    ver.textContent = APP_VERSIE;
+    ver.addEventListener('click', mvTik);
+  }
   mvWerkIndicatorBij();
 })();
 
