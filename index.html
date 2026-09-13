@@ -6303,6 +6303,15 @@ async function laadONNXModel() {
           const detecties = postprocessYOLO(msg.data, msg.dims);
           _verwerkWorkerResultaat(detecties);
           aiBezig = false;
+          // V11.18.8-TEST: pas NA de echte verwerking, en in een eigen try,
+          // zodat de meting het app-pad onmogelijk kan breken.
+          if (MODELVGL_AAN) {
+            try {
+              const _b = vglBeste(detecties);
+              vglOpenA.set(msg.frameId, { ms: inferentieTijd, kl: _b.kl, cf: _b.cf, n: _b.n });
+              vglKoppel(msg.frameId);
+            } catch (_) {}
+          }
         } else if (msg.type === 'fout') {
           workerFoutTeller++; aiBezig = false;
           if (workerFoutTeller >= WORKER_MAX_FOUTEN) {
@@ -6313,6 +6322,7 @@ async function laadONNXModel() {
       yoloWorker.onerror = function() { yoloWorker=null; workerKlaar=false; aiBezig=false; };
       yoloWorker.postMessage({ type:'initialiseer', modelBuffer:modelArrayBuffer }, [modelArrayBuffer]);
       URL.revokeObjectURL(workerUrl);
+      startVglWorker();   // V11.18.8-TEST: doet niets als de testmodus uit staat
     } catch(e) {
       yoloWorker = null; workerKlaar = false;
     }
@@ -7621,6 +7631,177 @@ function slaKanslozeRunOver() {
   detLogSchrijf();
 }
 
+// ══ V11.18.8-TEST: TWEE MODELLEN OP HETZELFDE FRAME ═════
+// © 2026 StoplichtIQ — Y. Lemaalem
+//
+// TIJDELIJKE MEETINFRASTRUCTUUR. Staat standaard UIT en verandert dan geen
+// byte aan het gedrag. Aanzetten:
+//     localStorage.setItem('sl_modelvgl_aan','1')   en herladen
+// Uitzetten:
+//     localStorage.removeItem('sl_modelvgl_aan')    en herladen
+// Uitlezen na een rit:
+//     JSON.parse(localStorage.getItem('sl_modelvgl'))
+//
+// WAT ER VERGELEKEN WORDT
+//   A = model.onnx        YOLOv8s, 11,2M parameters, dataset_fase8, 2026-08-07
+//   B = model/model.onnx  YOLOv8n,  3,0M parameters, dataset2,      2026-03-26
+// Allebei fp32, allebei 640x640, allebei dezelfde vier klassen
+// (rood/groen/uit/oranje) en dezelfde outputvorm (1,8,8400). De nabewerking
+// is daardoor letterlijk dezelfde functie — zie hieronder.
+//
+// WAT DEZE METING WEL EN NIET KAN BEANTWOORDEN
+//   SNELHEID   schoon. De inferentietijd hangt af van de architectuur, niet
+//              van de dataset waarop getraind is. Het gemeten verschil is dus
+//              een geldige schatting voor wat een op fase8 hertrainde nano
+//              zou opleveren.
+//   NAUWKEUR.  VERSTRENGELD. B is vijf maanden ouder en op een andere dataset
+//              getraind. Ziet B iets minder, dan kan dat de kleinere
+//              architectuur zijn of de oudere training — dat is uit deze
+//              meting niet te scheiden. Lees het verschil dus als een
+//              ONDERGRENS voor wat een hertrainde nano zou halen.
+//
+// KOSTEN TIJDENS DE TEST. De telefoon draait per frame BEIDE modellen. Dat
+// kost extra tijd en accu, en de detectiefrequentie kan zakken. Dat is
+// verwacht en tijdelijk; het is niet de eindsituatie.
+//
+// WAAROM DIT HET ECHTE APP-GEDRAG NIET RAAKT
+//   - de schaduw krijgt een EIGEN kopie van dezelfde pixels en een eigen worker
+//   - hij raakt aiBezig, gemiddeldeInferentieTijd en dynamischInterval niet aan
+//   - _verwerkWorkerResultaat wordt voor de schaduw NOOIT aangeroepen
+//   - faalt de schaduwworker, dan wordt hij stilgelegd en merkt de app niets
+const MODELVGL_AAN = (() => {
+  try { return localStorage.getItem('sl_modelvgl_aan') === '1'; } catch (e) { return false; }
+})();
+const MODELVGL_MAX_VOORBEELDEN = 40;
+let vglWorker = null, vglWorkerKlaar = false, vglBezig = false, vglStartTijd = 0;
+let vglFouten = 0;
+let vglOpenA = new Map();   // frameId -> { ms, kl, cf, n }
+let vglOpenB = new Map();
+let vglStat = null;
+
+function vglStatLaad() {
+  if (vglStat) return vglStat;
+  try { vglStat = JSON.parse(localStorage.getItem('sl_modelvgl')); } catch (e) { vglStat = null; }
+  if (!vglStat || typeof vglStat !== 'object') {
+    vglStat = {
+      start: Date.now(), n: 0,
+      somMsA: 0, somMsB: 0, maxMsA: 0, maxMsB: 0,
+      eens: 0, oneens: 0,
+      // matrix[klasseA + '>' + klasseB] = aantal; -1 = niets gedetecteerd
+      matrix: {},
+      // alleen de laatste N gevallen waarin ze het oneens waren
+      voorbeelden: []
+    };
+  }
+  return vglStat;
+}
+
+function vglStatBewaar() {
+  try { localStorage.setItem('sl_modelvgl', JSON.stringify(vglStat)); } catch (e) {}
+}
+
+// De beste detectie uit een lijst van postprocessYOLO. -1 = niets gezien.
+function vglBeste(dets) {
+  if (!dets || !dets.length) return { kl: -1, cf: 0, n: 0 };
+  let b = dets[0];
+  for (const d of dets) if (d.score > b.score) b = d;
+  return { kl: b.klasse, cf: Math.round(b.score * 1000) / 1000, n: dets.length };
+}
+
+// postprocessYOLO SCHRIJFT naar drie debug-globals (r6717-6721) die
+// logKlasseVerdelingIndienBeschikbaar uitleest voor sl_conflog. Zou de schaduw
+// die overschrijven, dan zou dat bestaande log stilletjes de cijfers van het
+// KLEINE model gaan bevatten — een meting die een andere meting vervuilt is
+// erger dan geen meting. Daarom hier bewaren en terugzetten.
+function vglPostprocessVeilig(data, dims) {
+  const bA = debugLaatsteAlle, bK = debugLaatsteTopKlasse, bS = debugLaatsteTopScore;
+  let dets;
+  try { dets = postprocessYOLO(data, dims); }
+  finally {
+    debugLaatsteAlle = bA; debugLaatsteTopKlasse = bK; debugLaatsteTopScore = bS;
+  }
+  return dets;
+}
+
+function vglKoppel(frameId) {
+  if (!vglOpenA.has(frameId) || !vglOpenB.has(frameId)) return;
+  const a = vglOpenA.get(frameId), b = vglOpenB.get(frameId);
+  vglOpenA.delete(frameId); vglOpenB.delete(frameId);
+  const st = vglStatLaad();
+  st.n++;
+  st.somMsA += a.ms; st.somMsB += b.ms;
+  if (a.ms > st.maxMsA) st.maxMsA = a.ms;
+  if (b.ms > st.maxMsB) st.maxMsB = b.ms;
+  const sleutel = a.kl + '>' + b.kl;
+  st.matrix[sleutel] = (st.matrix[sleutel] || 0) + 1;
+  if (a.kl === b.kl) st.eens++;
+  else {
+    st.oneens++;
+    st.voorbeelden.push({
+      t: Date.now(), f: frameId,
+      klA: a.kl, cfA: a.cf, nA: a.n, msA: a.ms,
+      klB: b.kl, cfB: b.cf, nB: b.n, msB: b.ms,
+      kmh: (typeof snelheidKmh === 'number') ? Math.round(snelheidKmh) : null,
+      node: dichtstbijOSM ? String(dichtstbijOSM.id) : null
+    });
+    if (st.voorbeelden.length > MODELVGL_MAX_VOORBEELDEN) {
+      st.voorbeelden = st.voorbeelden.slice(-MODELVGL_MAX_VOORBEELDEN);
+    }
+  }
+  // Niet elke frame naar localStorage — dat is de duurste stap in de lus.
+  if (st.n % 10 === 0) vglStatBewaar();
+}
+
+// Leesbare samenvatting voor in de console na een rit.
+function modelVergelijking() {
+  const st = vglStatLaad();
+  if (!st.n) return 'nog geen vergelijkingen — staat de testmodus aan?';
+  const r = (x) => Math.round(x * 10) / 10;
+  const regels = [
+    'frames vergeleken : ' + st.n,
+    'A (v8s, 42,7MB)   : gem ' + r(st.somMsA / st.n) + ' ms   piek ' + st.maxMsA + ' ms',
+    'B (v8n, 11,7MB)   : gem ' + r(st.somMsB / st.n) + ' ms   piek ' + st.maxMsB + ' ms',
+    'versnelling       : ' + r((st.somMsA / st.n) / Math.max(1, st.somMsB / st.n)) + 'x',
+    'zelfde klasse     : ' + st.eens + ' (' + Math.round(100 * st.eens / st.n) + '%)',
+    'verschillend      : ' + st.oneens + ' (' + Math.round(100 * st.oneens / st.n) + '%)',
+    'verdeling A>B     : ' + JSON.stringify(st.matrix)
+  ];
+  return regels.join('\n');
+}
+if (typeof window !== 'undefined') window.modelVergelijking = modelVergelijking;
+
+function startVglWorker() {
+  if (!MODELVGL_AAN) return;
+  try {
+    fetch('./model/model.onnx').then(r => r.arrayBuffer()).then(buf => {
+      const blob = new Blob([YOLO_WORKER_CODE], { type: 'application/javascript' });
+      const url = URL.createObjectURL(blob);
+      vglWorker = new Worker(url);
+      vglWorker.onmessage = function (e) {
+        const msg = e.data;
+        if (msg.type === 'klaar') { vglWorkerKlaar = true; return; }
+        if (msg.type === 'fout') {
+          vglBezig = false;
+          if (++vglFouten >= 5) { try { vglWorker.terminate(); } catch (_) {} vglWorker = null; vglWorkerKlaar = false; }
+          return;
+        }
+        if (msg.type === 'resultaat') {
+          const ms = Date.now() - vglStartTijd;
+          vglBezig = false;
+          try {
+            const best = vglBeste(vglPostprocessVeilig(msg.data, msg.dims));
+            vglOpenB.set(msg.frameId, { ms, kl: best.kl, cf: best.cf, n: best.n });
+            vglKoppel(msg.frameId);
+          } catch (_) {}
+        }
+      };
+      vglWorker.onerror = function () { vglWorker = null; vglWorkerKlaar = false; vglBezig = false; };
+      vglWorker.postMessage({ type: 'initialiseer', modelBuffer: buf }, [buf]);
+      URL.revokeObjectURL(url);
+    }).catch(() => { vglWorker = null; });
+  } catch (e) { vglWorker = null; }
+}
+
 async function voerAIUit() {
   if (!modelGeladen || !onnxSession || video.readyState < 2 || aiBezig) return;
   // V11.17.69: vóór aiBezig. Zou de gate in preprocessVoorYOLO zitten en null
@@ -7633,6 +7814,19 @@ async function voerAIUit() {
     const inputTensor = preprocessVoorYOLO();
     if (yoloWorker && workerKlaar) {
       const pixelKopie = new Float32Array(yoloFloat32);
+      // V11.18.8-TEST: eigen kopie van EXACT dezelfde pixels, gemaakt voor de
+      // transfer hieronder. Is de schaduw nog bezig, dan slaan we dit frame
+      // over — zo kan een traag tweede model nooit een wachtrij opbouwen.
+      if (MODELVGL_AAN && vglWorker && vglWorkerKlaar && !vglBezig) {
+        try {
+          const vglKopie = new Float32Array(yoloFloat32);
+          vglBezig = true; vglStartTijd = Date.now();
+          vglWorker.postMessage({
+            type:'inferentie', pixelData:vglKopie,
+            breedte:YOLO_SIZE, hoogte:YOLO_SIZE, frameId:frameT
+          }, [vglKopie.buffer]);
+        } catch (_) { vglBezig = false; }
+      }
       yoloWorker._startTijd = Date.now();
       yoloWorker.postMessage({
         type:'inferentie', pixelData:pixelKopie,
