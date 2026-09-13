@@ -408,7 +408,28 @@
     #s-titel{font-size:28px;font-weight:700;letter-spacing:0.08em;
       text-align:center;text-transform:uppercase;line-height:1.1}
     #s-titel span{color:var(--groen)}
-    #s-versie{font-size:10px;color:var(--groen);letter-spacing:0.16em;font-weight:600;text-transform:uppercase}
+    #s-versie{font-size:10px;color:var(--groen);letter-spacing:0.16em;font-weight:600;text-transform:uppercase;
+      cursor:pointer;-webkit-user-select:none;user-select:none}
+    /* V11.18.9: het TEST-merkteken. Bewust klein en oranje — het moet te zien
+       zijn dat de meetmodus aanstaat, zonder dat het op een foutmelding lijkt. */
+    .mv-test-badge{display:inline-block;margin-left:6px;padding:1px 5px;border-radius:4px;
+      background:rgba(255,159,10,0.20);color:var(--oranje);font-size:9px;letter-spacing:0.08em}
+    /* V11.18.9: de resultaat-overlay. z-index boven het startscherm (300) en
+       boven de toast (9999), want hij kan vanaf allebei geopend worden. */
+    #mv-overlay{position:fixed;inset:0;z-index:10000;background:rgba(6,8,10,0.94);
+      display:none;align-items:center;justify-content:center;padding:24px}
+    #mv-overlay.zichtbaar{display:flex}
+    #mv-kaart{width:100%;max-width:330px;background:#11151A;border:1px solid var(--border);
+      border-radius:14px;padding:18px 20px}
+    #mv-titel{font-size:12px;letter-spacing:0.14em;text-transform:uppercase;
+      color:var(--oranje);font-weight:700;margin-bottom:12px}
+    #mv-inhoud{font-family:'Share Tech Mono',monospace;font-size:12px;color:#fff;
+      line-height:1.75;white-space:pre-wrap;margin-bottom:16px}
+    #mv-knoppen{display:flex;gap:8px}
+    #mv-knoppen button{flex:1;padding:10px 8px;border-radius:9px;border:1px solid var(--border);
+      background:rgba(255,255,255,0.06);color:#fff;font-family:'Rajdhani',sans-serif;
+      font-size:12px;font-weight:600;letter-spacing:0.06em;cursor:pointer}
+    #mv-knoppen button.uit{background:rgba(255,59,48,0.16);border-color:rgba(255,59,48,0.35);color:#FF6B60}
     #s-model-wrap{width:100%;max-width:300px;display:flex;flex-direction:column;gap:5px}
     #s-model-rij{display:flex;justify-content:space-between;align-items:center}
     #s-model-label{font-size:11px;color:var(--dim)}
@@ -593,6 +614,19 @@
 <button id="focus-knop" aria-label="Refocus camera">📷</button>
 <div id="leer-toast"></div>
 
+<!-- V11.18.9: resultaat-overlay van de modelvergelijking. Alleen bereikbaar
+     via de verborgen 5-tikken-zone; komt in de normale app-flow nooit voor. -->
+<div id="mv-overlay">
+  <div id="mv-kaart">
+    <div id="mv-titel">Modelvergelijking</div>
+    <div id="mv-inhoud"></div>
+    <div id="mv-knoppen">
+      <button onclick="mvSluit()">Laat aan staan</button>
+      <button class="uit" onclick="mvZetUit()">Zet uit</button>
+    </div>
+  </div>
+</div>
+
 <video id="video-hidden" autoplay playsinline muted></video>
 <canvas id="camera-canvas"></canvas>
 <canvas id="overlay-canvas"></canvas>
@@ -679,7 +713,7 @@
 
 <div id="bodem-balk">
   <div id="debug" onclick="toggleLeerLog()" style="cursor:pointer">
-    <span id="d-ai">ai:—</span>
+    <span id="d-ai">ai:—</span><span id="d-test"></span>
     <span id="d-pct">leer:—</span>
     <span id="d-osm">osm:—</span>
     <span id="d-info">—</span>
@@ -7769,6 +7803,132 @@ function modelVergelijking() {
   return regels.join('\n');
 }
 if (typeof window !== 'undefined') window.modelVergelijking = modelVergelijking;
+
+// ══ V11.18.9: DE VERBORGEN 5-TIKKEN-ZONE ════════════════
+// © 2026 StoplichtIQ — Y. Lemaalem
+//
+// De meetmodus van V11.18.8 kon alleen via de Safari-console aan en uit, en
+// daar is een Mac voor nodig. Deze zone geeft dezelfde twee schakelaars op het
+// scherm zelf. De MEETLOGICA is ongewijzigd: dezelfde sleutels
+// (sl_modelvgl_aan, sl_modelvgl) en dezelfde modelVergelijking(). Dit is een
+// tweede toegangsweg, geen vervanging — de console blijft precies zo werken.
+//
+// WAAROM OP HET VERSIELABEL VAN HET STARTSCHERM. Drie redenen. Het is bij elke
+// start zichtbaar, dus je hoeft nergens naartoe te navigeren. Je staat op dat
+// moment per definitie stil. En het startscherm is tijdens het rijden weg
+// (krijgt .weg met pointer-events:none, r406), dus de zone is onderweg
+// onbereikbaar en kan onmogelijk per ongeluk afgaan achter het stuur.
+//
+// VIJF TIKKEN BINNEN TWEE SECONDEN. Twee of drie tikken zijn te makkelijk per
+// ongeluk: een dubbeltik op een label komt voor. Vijf binnen twee seconden is
+// een handeling die niemand toevallig uitvoert, en de teller loopt terug naar
+// nul zodra er meer dan twee seconden tussen twee tikken zit.
+const MV_TIK_AANTAL = 5;
+const MV_TIK_VENSTER_MS = 2000;
+let mvTikken = [];
+// De geplande herlaad, zodat hij te annuleren is. Zonder deze verwijzing zou
+// snel achter elkaar schakelen twee herlaadacties inplannen, en kan een
+// testopstelling de timer niet opruimen — die vuurt dan midden in de suite.
+let mvHerlaadTimer = null;
+function mvPlanHerlaad() {
+  if (mvHerlaadTimer) clearTimeout(mvHerlaadTimer);
+  mvHerlaadTimer = setTimeout(() => { mvHerlaadTimer = null; location.reload(); }, 1200);
+}
+
+function mvIsAan() {
+  try { return localStorage.getItem('sl_modelvgl_aan') === '1'; } catch (e) { return false; }
+}
+
+// Het TEST-merkteken, op twee plekken: naast het versienummer op het
+// startscherm en in de debugbalk die tijdens het rijden zichtbaar is. Wordt
+// bij het laden meteen gezet, dus na een herlaad staat hij er direct — niet
+// pas na een volgende handeling.
+function mvWerkIndicatorBij() {
+  const aan = mvIsAan();
+  const dbg = document.getElementById('d-test');
+  if (dbg) dbg.innerHTML = aan ? '<span class="mv-test-badge">TEST</span>' : '';
+  const ver = document.getElementById('s-versie');
+  if (ver) {
+    const oud = ver.querySelector('.mv-test-badge');
+    if (aan && !oud) {
+      const b = document.createElement('span');
+      b.className = 'mv-test-badge'; b.textContent = 'TEST';
+      ver.appendChild(b);
+    } else if (!aan && oud) {
+      oud.remove();
+    }
+  }
+}
+
+// De samenvatting zoals ze op het scherm komt. Leest dezelfde opslag als
+// modelVergelijking(), maar in een vorm die op een telefoon te lezen is.
+function mvSamenvattingTekst() {
+  let st = null;
+  try { st = JSON.parse(localStorage.getItem('sl_modelvgl')); } catch (e) { st = null; }
+  if (!st || !st.n) return 'Nog geen data — rijd eerst een rit';
+  const r1 = (x) => (Math.round(x * 10) / 10).toString().replace('.', ',');
+  const gemA = st.somMsA / st.n, gemB = st.somMsB / st.n;
+  return [
+    'Frames vergeleken: ' + st.n,
+    'Model A (groot, 42MB): gem ' + Math.round(gemA) + 'ms',
+    'Model B (klein, 12MB): gem ' + Math.round(gemB) + 'ms',
+    'Sneller: ' + r1(gemA / Math.max(1, gemB)) + '×',
+    'Zelfde uitkomst: ' + Math.round(100 * st.eens / st.n) + '%',
+    'Verschillend: ' + Math.round(100 * st.oneens / st.n) + '%'
+  ].join('\n');
+}
+
+function mvToonOverlay() {
+  const ov = document.getElementById('mv-overlay');
+  const inh = document.getElementById('mv-inhoud');
+  if (!ov || !inh) return;
+  inh.textContent = mvSamenvattingTekst();
+  ov.classList.add('zichtbaar');
+}
+
+function mvSluit() {
+  const ov = document.getElementById('mv-overlay');
+  if (ov) ov.classList.remove('zichtbaar');
+}
+
+function mvZetUit() {
+  try { localStorage.removeItem('sl_modelvgl_aan'); } catch (e) {}
+  mvSluit();
+  mvWerkIndicatorBij();
+  toonToast('Modelvergelijking: UIT');
+  mvPlanHerlaad();
+}
+
+// Het hele gedrag van de zone, in één functie zodat de test hem los kan
+// aanroepen zonder tikken na te bootsen.
+//   uit  -> aanzetten, melden, herladen
+//   aan  -> eerst de resultaten tonen; uitzetten gebeurt pas op de knop
+function mvTrigger() {
+  if (mvIsAan()) { mvToonOverlay(); return 'overlay'; }
+  try { localStorage.setItem('sl_modelvgl_aan', '1'); } catch (e) {}
+  mvWerkIndicatorBij();
+  toonToast('Modelvergelijking: AAN');
+  mvPlanHerlaad();
+  return 'aan';
+}
+
+function mvTik() {
+  const nu = Date.now();
+  mvTikken = mvTikken.filter(t => nu - t < MV_TIK_VENSTER_MS);
+  mvTikken.push(nu);
+  if (mvTikken.length < MV_TIK_AANTAL) return false;
+  mvTikken = [];
+  mvTrigger();
+  return true;
+}
+
+if (typeof window !== 'undefined') {
+  window.mvSluit = mvSluit;
+  window.mvZetUit = mvZetUit;
+  window.mvTrigger = mvTrigger;
+  window.mvTik = mvTik;
+  window.mvPlanHerlaad = mvPlanHerlaad;
+}
 
 function startVglWorker() {
   if (!MODELVGL_AAN) return;
@@ -16012,6 +16172,14 @@ async function startApp() {
 
 document.getElementById('geluid-toggle').classList.remove('uit');
 bijwerkDashboardKnop();
+
+// V11.18.9: de verborgen zone koppelen en het TEST-merkteken meteen zetten,
+// zodat hij na een herlaad direct zichtbaar is als de modus aanstaat.
+(function () {
+  const ver = document.getElementById('s-versie');
+  if (ver) ver.addEventListener('click', mvTik);
+  mvWerkIndicatorBij();
+})();
 
 // ── V11.4.2: RADAR BOTTOM SHEET + CAMERA TAP NODE SELECTIE ─
 function hexNaarRgba(hex, alpha) {
