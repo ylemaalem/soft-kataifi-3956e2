@@ -984,7 +984,7 @@ if (typeof ort !== 'undefined') {
 //
 // De stijl volgt de eerdere labels: nummer, kastlijntje, korte omschrijving in
 // kleine letters. De CSS zet hem zelf in kapitalen (text-transform:uppercase).
-const APP_VERSIE = 'V11.18.9 — modelvergelijking via 5 tikken';
+const APP_VERSIE = 'V11.18.10 — alleen een echte tik meet';
 
 // ── CONSTANTEN ────────────────────────────────────────────────
 const OSM_RADIUS       = 5000;
@@ -4442,11 +4442,18 @@ function v5ZouLukken(nodeId, duur) {
   if (preAfrij && ['links', 'rechtdoor', 'rechts'].includes(preAfrij)) {
     preAfrij = berekenAfrijRichtingViaTik(aanrijNum, preAfrij) || preAfrij;
   }
-  if (!preAfrij && preZet && preZet.node === String(nodeId)) {
+  if (!preAfrij && preZet && preZet.node === String(nodeId) && preZet.bron === 'tik') {
     const rd = laadRichtingData(nodeId);
     if (rd && rd.tikrichting) preAfrij = berekenAfrijRichtingViaTik(aanrijNum, rd.tikrichting);
   }
   if (!(preAfrij && WINDRICHTINGEN_8.includes(preAfrij))) {
+    return { ok: false, reden: 'v5_geen_tik' };
+  }
+  // V11.18.10: dezelfde herkomstpoort als het echte schrijfpad. Zonder deze
+  // regel zou deze meting 'bruikbaar' blijven tellen voor kandidaten die na de
+  // reparatie helemaal niet meer schrijven, en dan meet V11.18.1 iets anders
+  // dan ze belooft. test_kandidaat_verlies T4 bewaakt die gelijkheid.
+  if (!tikHerkomstEcht(nodeId)) {
     return { ok: false, reden: 'v5_geen_tik' };
   }
 
@@ -4491,6 +4498,47 @@ function v5ZouLukken(nodeId, duur) {
 //
 // Geeft de windrichting terug, of null als er geen bruikbare tik ligt. De
 // aanroeper logt zelf wat er gebeurde, want de twee paden loggen verschillend.
+// ── V11.18.10: KWAM DEZE RICHTING VAN EEN MENS? ──────────────
+// © 2026 StoplichtIQ — Y. Lemaalem
+//
+// WAT ER MIS WAS. v9PreSelectieAfrij wordt op twee manieren gevuld: door
+// tikRichting (de gebruiker duwt) en door activeerPersistenteRichting (de app
+// zet een eerder opgeslagen richting automatisch terug, V11.17.17 W1). Het
+// schrijfpad kende alleen de WAARDE, niet de herkomst, en behandelde beide als
+// een tik. Gevolg: bij elk bezoek aan een kruispunt met een opgeslagen richting
+// werd een nieuwe V5-meting weggeschreven zonder dat de gebruiker iets deed.
+// Gemeten op de export van 28 augustus: 493 kruispunten dragen zo'n opgeslagen
+// richting, en alle 493 zouden bij elk bezoek opnieuw 'meten'.
+//
+// Hetzelfde gat maakte een tik op ALGEMEEN zinloos: kiesLaagAlgemeen zette
+// richtingLockKeuze op 'algemeen' maar liet v9PreSelectieAfrij staan, waarna
+// de oude richting alsnog werd weggeschreven — precies het tegenovergestelde
+// van wat de gebruiker net had aangegeven.
+//
+// DIT IS NIET DOOR V11.18.5 ONTSTAAN. De late keten had dezelfde fout; die
+// release liet hem alleen eerder en betrouwbaarder vuren, waardoor hij opviel.
+//
+// TWEE ONAFHANKELIJKE BEWIJZEN VAN EEN ECHTE TIK, en één is genoeg:
+//   1. de LEVENDE lock — richtingLockBron 'tik', een echte rijrichting (dus
+//      niet 'algemeen', want rijrichting() geeft daar null) en dezelfde node.
+//      Dit is het patroon dat V11.17.96 al voor de chip en de indicator legde.
+//   2. preZet.bron — voor het geval de lock door afstand al gewist is
+//      (>60m en >5km/u, r15254) terwijl de tik wel degelijk op deze node
+//      gedaan is. Dat is precies waarvoor de terugval van V11.17.56 R5 bestaat.
+//
+// LEZEN MAG, SCHRIJVEN NIET. Deze poort zit uitsluitend in het SCHRIJFpad.
+// kiesCountdownBron en alles daaronder blijven ongemoeid: een automatisch
+// herstelde richting toont nog steeds haar eigen, eerder geleerde countdown.
+// Alleen het vastleggen van een NIEUWE meting vervalt.
+function tikHerkomstEcht(nodeId) {
+  if (nodeId == null) return false;
+  const n = String(nodeId);
+  if (richtingLockBron === 'tik' && rijrichting()
+      && richtingLockNodeId != null && String(richtingLockNodeId) === n) return true;
+  if (preZet && preZet.node === n && preZet.bron === 'tik') return true;
+  return false;
+}
+
 function bepaalGetikteAfrij(nodeId, aanrijNum) {
   if (aanrijNum == null) return null;
   const TIKLABELS = ['links', 'rechtdoor', 'rechts'];
@@ -4500,14 +4548,17 @@ function bepaalGetikteAfrij(nodeId, aanrijNum) {
     const omgezet = berekenAfrijRichtingViaTik(aanrijNum, preAfrij);
     if (omgezet) { preAfrij = omgezet; bron = 'laat_omgezet'; }
   }
-  if (!preAfrij && preZet && preZet.node === String(nodeId)) {
+  if (!preAfrij && preZet && preZet.node === String(nodeId) && preZet.bron === 'tik') {
     const rdHerstel = laadRichtingData(nodeId);
     if (rdHerstel && rdHerstel.tikrichting) {
       const hersteld = berekenAfrijRichtingViaTik(aanrijNum, rdHerstel.tikrichting);
-      if (hersteld) { preAfrij = hersteld; bron = 'hersteld'; }
+      if (hersteld) { preAfrij = hersteld; bron = 'teruggehaald'; }
     }
   }
   if (!(preAfrij && WINDRICHTINGEN_8.includes(preAfrij))) return null;
+  // V11.18.10: de waarde is bruikbaar — maar kwam ze van een mens, op DEZE node?
+  // Zo niet, dan is er niets getikt en mag er niets geschreven worden.
+  if (!tikHerkomstEcht(nodeId)) return null;
   return { afrij: preAfrij, bron };
 }
 
@@ -4633,7 +4684,10 @@ function voerV9DelayedWriteUit(huidigeHeading, trigger = null, poort = null, onz
     logOpslagMis('tik_laat_omgezet', { node: v9KandidaatNode, dur: v9KandidaatDuur,
       aanrij: aanrijRichting, afrij: preAfrij });
   }
-  if (_tik && _tik.bron === 'hersteld') {
+  // V11.18.10: de terugval heet in bepaalGetikteAfrij nu 'teruggehaald' — 'hersteld'
+  // betekent sindsdien overal 'door de app ingevuld, niet getikt'. De logreden
+  // blijft 'tik_hersteld', zodat oude en nieuwe exports op dezelfde naam tellen.
+  if (_tik && _tik.bron === 'teruggehaald') {
     logOpslagMis('tik_hersteld', { node: v9KandidaatNode, dur: v9KandidaatDuur,
       aanrij: aanrijRichting, afrij: preAfrij });
   }
@@ -6149,12 +6203,23 @@ let v9PreSelectieAfrij      = null;   // afrij via richtingknop pre-selectie
 // terwijl twee reparaties (V11.17.38, V11.17.42) daar niets aan veranderden.
 // De bestaande logging liet alleen zien DAT de tik weg was, niet wanneer of
 // door welk pad. Deze twee registers maken dat wel zichtbaar.
-let preZet = null;   // { node, tijd, vorm } — waarvoor en wanneer gezet
-let preWis = null;   // { reden, tijd }      — welk pad hem wiste
-function markeerPreZet(node, waarde) {
+let preZet = null;   // { node, tijd, vorm, bron } — waarvoor, wanneer, waardoor
+let preWis = null;   // { reden, tijd }              — welk pad hem wiste
+// V11.18.10: `bron` is nieuw en is het hart van de reparatie. preZet werd door
+// TWEE paden gezet — tikRichting (een mens duwt) en activeerPersistenteRichting
+// (de app vult zelf in) — en daarna kon niets die twee nog uit elkaar houden.
+// De sl_richting_-terugval in bepaalGetikteAfrij leunde op preZet.node en
+// accepteerde daardoor ook een automatisch herstel als 'tik'.
+//
+// Waarom hier en niet alleen op richtingLockBron: die lock wordt bij >60m en
+// >5km/u gewist (r15254), terwijl de terugval juist bestaat om een tik te
+// redden waarvan de pre-selectie al weg is (V11.17.56 R5). preZet overleeft dat
+// moment wel, dus de herkomst hoort hier thuis.
+function markeerPreZet(node, waarde, bron) {
   preZet = { node: node != null ? String(node) : null, tijd: Date.now(),
              vorm: (waarde === 'links' || waarde === 'rechtdoor' || waarde === 'rechts')
-                     ? 'label' : 'windrichting' };
+                     ? 'label' : 'windrichting',
+             bron: bron === 'tik' ? 'tik' : 'hersteld' };
   preWis = null;
 }
 // Aanroepen VOOR de nulling, anders valt er niets meer te zien.
@@ -10355,6 +10420,21 @@ function kiesLaagAlgemeen() {
     richtingLockNodeId = String(dichtstbijOSM.id);
     richtingLockKeuze  = 'algemeen';
     richtingLockBron   = 'tik';   // V11.17.96: Algemeen indrukken IS een tik
+    // ── V11.18.10: ALGEMEEN BETEKENT OOK VOOR HET SCHRIJFPAD 'GEEN RICHTING' ──
+    // © 2026 StoplichtIQ — Y. Lemaalem
+    //
+    // Deze functie zette alleen richtingLockKeuze en liet v9PreSelectieAfrij
+    // staan. Stond daar nog een eerder herstelde of getikte richting, dan
+    // schreef de rode fase die alsnog weg — de gebruiker gaf expliciet aan dat
+    // dit het RONDE licht is en kreeg een richting-meting terug.
+    //
+    // preZet gaat mee, anders redt de terugval in bepaalGetikteAfrij dezelfde
+    // richting een regel later alsnog uit sl_richting_.
+    //
+    // Een verse tik hierna werkt gewoon: tikRichting vult beide opnieuw.
+    markeerPreWis('algemeen-tik');
+    v9PreSelectieAfrij = null;
+    if (preZet && preZet.node === String(dichtstbijOSM.id)) preZet = null;
   }
   if (dichtstbijOSM) verversAfrijIndicator(String(dichtstbijOSM.id));   // V11.17.96
   // bijwerkLeerkaart roept renderRichtingBlok zelf aan (r8679), dus één aanroep
@@ -11938,7 +12018,9 @@ function activeerPersistenteRichting(nodeId, tikrichting) {
   richtingGedruktVoorNode = nodeId;
   const h = v9AanrijSnelheidHeading ?? v9AanrijHeading;
   v9PreSelectieAfrij = (h != null) ? berekenAfrijRichtingViaTik(h, tikrichting) : tikrichting;
-  markeerPreZet(nodeId, v9PreSelectieAfrij);   // V11.17.56
+  // V11.18.10: 'hersteld' — de app vult dit in, de gebruiker heeft niets gedaan.
+  // Deze richting mag de countdown sturen maar NOOIT een meting wegschrijven.
+  markeerPreZet(nodeId, v9PreSelectieAfrij, 'hersteld');   // V11.17.56
   verversAfrijIndicator(nodeId);   // V11.17.96: afgeleid, niet onthouden
 }
 
@@ -11980,7 +12062,7 @@ function tikRichting(richting) {
   if (v9AanrijHeading != null || v9AanrijSnelheidHeading != null) {
     const h = v9AanrijSnelheidHeading ?? v9AanrijHeading;
     v9PreSelectieAfrij = berekenAfrijRichtingViaTik(h, richting);
-    markeerPreZet(nodeId, v9PreSelectieAfrij);   // V11.17.56
+    markeerPreZet(nodeId, v9PreSelectieAfrij, 'tik');   // V11.17.56
     // V11.17.4 W8a: BINNEN lopende rode fase alleen bron bijwerken — NIET
     // startCd() aanroepen, want die kan door dropout-guard (r4161) op een
     // fresh-start-tak vallen en de verstreken tijd wissen. Guard: alleen
@@ -11996,7 +12078,7 @@ function tikRichting(richting) {
     // voerV9DelayedWriteUit r2795-2804, met de aanrijheading van het
     // schrijfmoment. Tot dan bleef de belofte hieronder onvervuld.
     v9PreSelectieAfrij = richting; // tijdelijk als tekstlabel, omgezet bij write (r3076)
-    markeerPreZet(nodeId, v9PreSelectieAfrij);   // V11.17.56
+    markeerPreZet(nodeId, v9PreSelectieAfrij, 'tik');   // V11.17.56
   }
 
   // V9: Na passeren — tik koppelen aan delayed write als zelfde node
@@ -12004,7 +12086,7 @@ function tikRichting(richting) {
     const h = v9AanrijSnelheidHeading ?? v9AanrijHeading;
     if (h != null) v9PreSelectieAfrij = berekenAfrijRichtingViaTik(h, richting);
     else v9PreSelectieAfrij = richting;
-    markeerPreZet(nodeId, v9PreSelectieAfrij);   // V11.17.56
+    markeerPreZet(nodeId, v9PreSelectieAfrij, 'tik');   // V11.17.56
   }
 
   verversAfrijIndicator(nodeId);   // V11.17.96

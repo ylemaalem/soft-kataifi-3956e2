@@ -222,13 +222,16 @@ function testTikDirect() {
         laat && laat.afrij === 'W' && laat.bron === 'laat_omgezet',
         'W via laat_omgezet', laat ? (laat.afrij + ' via ' + laat.bron) : 'null');
     // terugval op sl_richting_ (V11.17.56 R5)
-    opzet({ pre: null, tikOpslag: 'rechts', preZet: { node: String(NODE) } });
+    // V11.18.10: preZet draagt sindsdien zijn herkomst. Een echte tik zet
+    // bron 'tik'; zonder dat veld is de terugval juist bewust dicht, want dan
+    // kan het ook een automatisch herstel geweest zijn.
+    opzet({ pre: null, tikOpslag: 'rechts', preZet: { node: String(NODE), bron: 'tik' } });
     const herst = bepaalGetikteAfrij(String(NODE), 0);
     eis('T5c de sl_richting_-terugval werkt (V11.17.56 R5)',
-        herst && herst.afrij === 'W' && herst.bron === 'hersteld',
-        'W via hersteld', herst ? (herst.afrij + ' via ' + herst.bron) : 'null');
+        herst && herst.afrij === 'W' && herst.bron === 'teruggehaald',
+        'W via teruggehaald', herst ? (herst.afrij + ' via ' + herst.bron) : 'null');
     // en de guard: een tik van een ANDERE node mag hier nooit landen
-    opzet({ pre: null, tikOpslag: 'rechts', preZet: { node: String(NIEUW) } });
+    opzet({ pre: null, tikOpslag: 'rechts', preZet: { node: String(NIEUW), bron: 'tik' } });
     eis('T5d een tik van een andere node wordt niet overgenomen',
         bepaalGetikteAfrij(String(NODE), 0) === null, 'null',
         JSON.stringify(bepaalGetikteAfrij(String(NODE), 0)));

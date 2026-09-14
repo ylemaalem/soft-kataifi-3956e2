@@ -88,8 +88,22 @@ function testKandidaatVerlies() {
     v9PassageStartTijd = Date.now();
     afrijHeadingBuffer = [];
     huidigeRichting = 270;               // rijdt naar het westen na de bocht
-    preZet = null;
-    wisRichtingLock();
+    // V11.18.10: deze opzet stond op `preZet = null; wisRichtingLock();` naast
+    // een gevulde v9PreSelectieAfrij — een pre-selectie ZONDER herkomst. Tot
+    // V11.18.10 telde dat als tik, en dat was precies de datacorruptie: zo zag
+    // ook een automatisch herstelde richting eruit. Het schrijfpad weigert zo'n
+    // waarde nu terecht. De opzet bedoelde 'een kandidaat met een GETIKTE
+    // richting', dus bootst hij die voortaan werkelijk na: lock en preZet met
+    // bron 'tik' op deze node. Zonder pre-selectie blijft alles leeg.
+    if (v9PreSelectieAfrij) {
+      richtingLockKeuze = 'rechts';
+      richtingLockNodeId = String(NODE);
+      richtingLockBron = 'tik';
+      preZet = { node: String(NODE), tijd: Date.now(), vorm: 'windrichting', bron: 'tik' };
+    } else {
+      preZet = null;
+      wisRichtingLock();
+    }
     dichtstbijOSM = osmCache[1];
     zetLS('sl_opslaglog', null);
     for (const d of Object.keys(DD)) {
