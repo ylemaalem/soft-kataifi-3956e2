@@ -984,7 +984,7 @@ if (typeof ort !== 'undefined') {
 //
 // De stijl volgt de eerdere labels: nummer, kastlijntje, korte omschrijving in
 // kleine letters. De CSS zet hem zelf in kapitalen (text-transform:uppercase).
-const APP_VERSIE = 'V11.18.11 — rond licht, en elke tik getekend';
+const APP_VERSIE = 'V11.18.12 — de app zegt het als ze twijfelt';
 
 // ── CONSTANTEN ────────────────────────────────────────────────
 const OSM_RADIUS       = 5000;
@@ -2112,6 +2112,19 @@ function logOpslagMis(reden, extra) {
       // bestaande logregel verandert. Afleidbaar uit afst en closestAf, maar
       // expliciet zodat de verdeling in één filterstap te maken is.
       afwM: (e.afwM != null) ? e.afwM : null,
+      // ── V11.18.12: welke tak meldde, en stond het in een cluster ─
+      // Alleen gevuld op een 'node_vermoeden'-regel; overal elders null.
+      // vermRoute is 'afstand' of 'hoek' — de hoektak meldt bij een
+      // afstandsverschil van ongeveer nul, dus zonder dit veld zijn de twee
+      // groepen in een export niet betrouwbaar te scheiden.
+      // vermCluster zegt of de toast is ingehouden omdat de clustermelding er
+      // al staat; die groep moet apart te tellen zijn.
+      // Er komt BEWUST geen veld voor de lock-toestand bij: elke regel draagt
+      // `hand` en `autoLock` al (r2032/r2039), en daaruit volgt de toestand
+      // eenduidig — hand=0 vrij, hand=1+auto=0 een echte tap, allebei 1 de
+      // stilstand-auto-lock.
+      vermRoute:   e.vermRoute || null,
+      vermCluster: (e.vermCluster != null) ? e.vermCluster : null,
       // ── V11.17.91: het herstel bij samenvoegen met Algemeen ─────
       // Alleen gevuld op een 'merge_rv_hersteld'-regel; overal elders null.
       // rvHer is het aantal V4-records dat zijn stempel verloor en dus weer
@@ -6356,6 +6369,24 @@ let hoekStabielSleutel = null;         // "gekozenId>altId" van het lopende oord
 let hoekStabielTeller  = 0;            // hoe vaak dat oordeel al op rij gezien is
 
 let dichtstbijOSMTwijfel   = false;        // W1: huidige twijfel-vlag (edge-getriggerd log)
+// ── V11.18.12: DE MARKERING HEEFT NU TWEE BRONNEN ────────────
+// © 2026 StoplichtIQ — Y. Lemaalem
+//
+// De oranje ⚠-markering op #kruispunt-naam (r123-126) hing tot nu toe aan één
+// vlag. Er komt een tweede signaal bij met een lagere drempel, en die twee
+// mogen elkaar niet uitzetten: updateDichtbij draait eerder in dezelfde
+// GPS-tick dan meldNodeVermoeden, dus een kale toggle op de ene vlag zou de
+// andere elke tick weer wissen. Vandaar één helper die ALTIJD naar beide kijkt.
+//
+// dichtstbijOSMTwijfel blijft bewust ongemoeid: dat is het veld `twijfel` in
+// elke logregel (r2031) en in alle bestaande exports. Zou het nieuwe signaal
+// daarin meelopen, dan betekent hetzelfde veld voor en na deze release iets
+// anders en is geen enkele eerdere meting meer vergelijkbaar.
+let nodeVermoedenActief    = false;        // V11.18.12: tweede bron van de markering
+function pasTwijfelMarkeringToe() {
+  if (typeof kNaam === 'undefined' || !kNaam) return;
+  kNaam.classList.toggle('twijfel', dichtstbijOSMTwijfel || nodeVermoedenActief);
+}
 let laatsteNodeCorrectieTijd = 0;          // W3: bounce-guard (hergebruikt NODE_WISSEL_MIN_INTERVAL_MS)
 let nodeChkLaatsteLog      = 0;            // W5: throttle-timer voor twijfel-log
 let puurDichtsteNodeCache  = null;         // W1: pure closest — {..., afstand} uit laatste updateDichtbij
@@ -13757,6 +13788,18 @@ function selecteerNodeHandmatig(nodeId) {
   sluitCorrectielijst();
   const sl = osmCache.find(s => String(s.id) === String(nodeId));
   if (!sl || !huidigePos) return;
+  // V11.18.12: heeft de waarschuwing ook iets uitgehaald? Zonder dit veld zou
+  // een export wel laten zien hoe vaak de app meldt, maar niet of de gebruiker
+  // er iets mee doet — en dat is het enige waarop deze laag te beoordelen is.
+  // `dur` in seconden, zelfde eenheid als elders in het log.
+  if (vermoedenLaatste && vermoedenLaatste.node === String(nodeId)
+      && (Date.now() - vermoedenLaatste.tijd) <= NODE_VERMOEDEN_GEVOLGD_MS) {
+    logOpslagMis('vermoeden_gevolgd', {
+      node: String(nodeId),
+      dur: (Date.now() - vermoedenLaatste.tijd) / 1000
+    });
+    vermoedenLaatste = null;
+  }
   const af = afstand(huidigePos.lat, huidigePos.lon, sl.lat, sl.lon);
   const nieuweNode = { ...sl, afstand: af };
   vorigOsmId    = sl.id;
@@ -14975,7 +15018,8 @@ function updateDichtbij(lat, lon) {
     // V11.17.9 W1+W2: geen cache = geen twijfel + class wissen
     puurDichtsteNodeCache = null;
     dichtstbijOSMTwijfel = false;
-    kNaam.classList.remove('twijfel');
+    nodeVermoedenActief = false;          // V11.18.12: geen cache = geen vermoeden
+    pasTwijfelMarkeringToe();
     return;
   }
   // V11.17.9 W1: bereken pure-closest éénmalig — hergebruikt door twijfel-
@@ -15005,7 +15049,7 @@ function updateDichtbij(lat, lon) {
       nodeChkLog('twijfel-start', dichtstbijOSM, puurClosest, false);
     }
     dichtstbijOSMTwijfel = twijfelInLock;
-    kNaam.classList.toggle('twijfel', twijfelInLock);
+    pasTwijfelMarkeringToe();             // V11.18.12: het vermoeden telt mee
     return;
   }
   const nieuw = vindDichtbij(lat, lon, huidigeRichting);
@@ -15164,7 +15208,7 @@ function updateDichtbij(lat, lon) {
     nodeChkLog('twijfel-start', dichtstbijOSM, puurClosest, false);
   }
   dichtstbijOSMTwijfel = twijfelNu;
-  kNaam.classList.toggle('twijfel', twijfelNu);
+  pasTwijfelMarkeringToe();               // V11.18.12: het vermoeden telt mee
   // V11.17.47: proactieve clustermelding — "let op, hier is het lastig kiezen",
   // niet "de app kiest verkeerd". Staat bewust los van de twijfel-markering
   // hierboven: die eist dat de gekozen node meer dan NODE_CHK_DELTA_M (25m)
@@ -15463,6 +15507,148 @@ function meetAutolockWeigering() {
   });
 }
 
+// ── V11.18.12: ZEG HET, OOK ALS JE NIETS VERANDERT ───────────
+// © 2026 StoplichtIQ — Y. Lemaalem
+//
+// HET GAT DAT DIT DICHT. De app kijkt elke GPS-tick welke node werkelijk het
+// dichtstbij ligt (de lus op r14983, die draait ook tijdens elke lock). Ze deed
+// met die kennis twee dingen: corrigeren wanneer het bewijs sterk genoeg is, of
+// zwijgen. Zwijgen was de uitkomst in de meeste gemeten gevallen — de
+// bestaande twijfel-markering eist NODE_CHK_DELTA_M (25 m) verschil, terwijl de
+// elf gemeten episodes van 12 september een mediaan van 7,5 m hebben. Eén van
+// de twintig afwijkingen haalde die 25. Precies dezelfde constatering waarmee
+// V11.18.7 de correctiemarge van 20 naar 8 bracht; de meldingsdrempel bleef
+// toen staan.
+//
+// EEN MELDING MAG GEVOELIGER STAAN DAN EEN CORRECTIE, en dat is de hele grond
+// van deze laag. corrigeerNodeAutomatisch roept beeindigFase aan en gooit de
+// lopende countdown weg — daarom mag die pas vuren bij hard bewijs. Een zin op
+// het scherm kost niets en kan niets kapotmaken. De gebruiker beslist zelf; de
+// naam is al tikbaar naar de correctielijst (r815).
+//
+// OOK TIJDENS EEN ECHTE TAP, en dat is de bewuste beleidswijziging. De guard
+// `isEchteHandmatig` (r14991) zette het twijfel-signaal uit zodra de gebruiker
+// zelf een kruispunt had aangetikt: "hun keuze is de waarheid". V11.18.7 heeft
+// laten zien dat een terechte tap 57 seconden later achterhaald kan zijn — de
+// tap beschermt tegen DRIFT, niet tegen BEWIJS. Die regel blijft gelden voor
+// het GEDRAG: hier wordt niets gewisseld, niets gecorrigeerd, geen enkele
+// bestaande poort aangeraakt. Alleen het zwijgen vervalt.
+//
+// TWEE BEWIJZEN, ALLEBEI GELEEND VAN BESTAANDE, ONDERBOUWDE REGELS
+//   afstand  gelijk aan checkHandLockVerval route 2 (r15385-15391): stilstand
+//            en >= NODE_CHK_CORRECTIE_MARGE_M (8) dichterbij. Onder de 8 zitten
+//            de buurlampen van dezelfde kruising (2 en 4 m) die bewust met rust
+//            gelaten worden.
+//   hoek     gelijk aan de hoekroute van de correctie: peilingDuidelijkBeter
+//            met NODE_HOEK_STABIEL_N (3) bevestigingen. DEZE IS DE BELANGRIJKE.
+//            Twee van de drie open auto-lock-episodes hebben een afwijking van
+//            exact 0 m; geen enkele afstandsdrempel, hoe laag ook, kan die ooit
+//            zien. Zonder deze tak blijft precies het geval onzichtbaar waar
+//            deze release om begonnen is.
+//
+// DE SNELHEIDSPOORT IS DIE VAN DE CORRECTIE ZELF. NODE_HOEK_KMH (5) voor de
+// hele functie, NODE_CHK_STANDSTILL_KMH (3) plus de duur voor de afstandstak —
+// letterlijk de poorten 1 en 7a van checkNodeCorrectieStilstand. Zo zeggen de
+// waarschuwing en de reparatie hetzelfde. Rijdend heeft een melding ook geen
+// zin: de dichtstbijzijnde node wisselt dan continu en je kunt er niets mee.
+//
+// EIGEN STABILITEITSTELLER. hoekStabielTeller hoort bij de correctie en wordt
+// daar in meerdere takken genuld; meelezen zou de correctie beïnvloeden. Deze
+// laag telt apart, en raakt niets van de correctie aan.
+const NODE_VERMOEDEN_HERHAAL_MS = 60000;   // ruimer dan de 30s van de logmeting
+const NODE_VERMOEDEN_GEVOLGD_MS = 120000;  // binnen deze tijd telt een tap als gevolg
+let vermoedenSleutel     = null;   // "gekozenId>closestId" van de laatste melding
+let vermoedenTijd        = 0;
+let vermoedenHoekSleutel = null;   // eigen teller, los van hoekStabiel*
+let vermoedenHoekTeller  = 0;
+let vermoedenLaatste     = null;   // { node, tijd } — is de melding opgevolgd?
+function vermoedenHoekReset() { vermoedenHoekSleutel = null; vermoedenHoekTeller = 0; }
+
+function meldNodeVermoeden(lat, lon) {
+  const uit = () => {
+    nodeVermoedenActief = false;
+    vermoedenSleutel = null;
+    vermoedenHoekReset();
+    pasTwijfelMarkeringToe();
+  };
+  if (typeof snelheidKmh !== 'number' || snelheidKmh >= NODE_HOEK_KMH) return uit();
+  if (!dichtstbijOSM || !puurDichtsteNodeCache) return uit();
+  if (String(puurDichtsteNodeCache.id) === String(dichtstbijOSM.id)) return uit();
+  // Vers uitgerekend uit dezelfde fix, net als checkHandLockVerval (r15375):
+  // dichtstbijOSM.afstand kan tijdens een lock een tick oud zijn.
+  const gekozenAf = afstand(lat, lon, dichtstbijOSM.lat, dichtstbijOSM.lon);
+  const closestAf = afstand(lat, lon, puurDichtsteNodeCache.lat, puurDichtsteNodeCache.lon);
+  const verschil  = gekozenAf - closestAf;
+
+  // TRIGGER 1 — afstandsbewijs bij stilstand
+  const stil = snelheidKmh < NODE_CHK_STANDSTILL_KMH
+    && stilstandSinds !== 0
+    && (Date.now() - stilstandSinds) >= NODE_CHK_STANDSTILL_DUUR_MS;
+  const afstandBewijs = stil && verschil >= NODE_CHK_CORRECTIE_MARGE_M;
+
+  // TRIGGER 2 — hoekbewijs, ook (juist) bij verschil 0
+  // peilingWeigerReden wordt hersteld: die globale hoort bij de correctie en
+  // wordt daar direct na haar eigen aanroep gelezen (r15532). Deze laag mag
+  // geen enkele waarde achterlaten die een andere functie kan lezen.
+  const bewaardeWeigerReden = peilingWeigerReden;
+  let hoekBewijs = false;
+  if (peilingDuidelijkBeter({ lat, lon }, dichtstbijOSM, gekozenAf,
+                            puurDichtsteNodeCache, closestAf)) {
+    const hs = String(dichtstbijOSM.id) + '>' + String(puurDichtsteNodeCache.id);
+    if (hs !== vermoedenHoekSleutel) { vermoedenHoekSleutel = hs; vermoedenHoekTeller = 0; }
+    vermoedenHoekTeller++;
+    hoekBewijs = vermoedenHoekTeller >= NODE_HOEK_STABIEL_N;
+  } else {
+    vermoedenHoekReset();
+  }
+  peilingWeigerReden = bewaardeWeigerReden;
+
+  if (!afstandBewijs && !hoekBewijs) {
+    nodeVermoedenActief = false;
+    pasTwijfelMarkeringToe();
+    return;                       // de hoekteller NIET nullen: die telt door
+  }
+
+  // De markering staat aan zolang het bewijs staat — niet gethrottled, want ze
+  // beschrijft een toestand en herstart de puls niet (r120-122).
+  nodeVermoedenActief = true;
+  pasTwijfelMarkeringToe();
+
+  // De toast en de logregel wel: één per episode, hetzelfde sleutelpatroon als
+  // V11.17.90 en V11.18.6, maar met een ruimere termijn omdat een melding
+  // opdringeriger is dan een logregel.
+  const sleutel = String(dichtstbijOSM.id) + '>' + String(puurDichtsteNodeCache.id);
+  const nu = Date.now();
+  if (sleutel === vermoedenSleutel && (nu - vermoedenTijd) < NODE_VERMOEDEN_HERHAAL_MS) return;
+  vermoedenSleutel = sleutel;
+  vermoedenTijd = nu;
+
+  // De lock-toestand gaat niet apart mee: `hand` en `autoLock` staan al op elke
+  // logregel en zeggen precies hetzelfde (zie de toelichting bij vermRoute).
+  const route = afstandBewijs ? 'afstand' : 'hoek';
+  // Bij een cluster meldt de app al "meerdere stoplichten dicht bij elkaar"
+  // (r15184). Twee toasts over hetzelfde fysieke kruispunt maakt de melding
+  // goedkoop, dus de TOAST vervalt daar. De markering en de logregel blijven:
+  // de markering is dezelfde waarschuwing en geen tweede, en zonder logregel
+  // zou juist de cluster-groep uit de meting verdwijnen.
+  const cluster = clusterNodes.has(String(dichtstbijOSM.id))
+               || clusterNodes.has(String(puurDichtsteNodeCache.id));
+  vermoedenLaatste = { node: String(puurDichtsteNodeCache.id), tijd: nu };
+  if (!cluster) {
+    toonToast(route === 'afstand'
+      ? ('\u26a0 Ander stoplicht ligt ' + Math.round(verschil) + 'm dichterbij \u2014 tik op de naam')
+      : '\u26a0 Ander stoplicht staat rechter vooruit \u2014 tik op de naam',
+      null, 'waarschuwing');
+  }
+  logOpslagMis('node_vermoeden', {
+    node: String(dichtstbijOSM.id),
+    afst: gekozenAf,
+    afwM: Math.round(verschil),
+    vermRoute: route,
+    vermCluster: cluster ? 1 : 0
+  });
+}
+
 function checkNodeCorrectieStilstand(lat, lon) {
   nodeCorrWeiger = null;
   // 1. snelheidsdrempel — V11.17.79: twee routes, twee grenzen. De bestaande
@@ -15628,7 +15814,12 @@ function corrigeerNodeAutomatisch(nieuweNode, reden) {
 
   // twijfel-vlag opnieuw evalueren op de nieuwe keuze
   dichtstbijOSMTwijfel = false;
-  kNaam.classList.remove('twijfel');
+  // V11.18.12: ook het vermoeden. We staan nu OP de node die het vermoeden
+  // aanwees, dus de melding is per definitie afgehandeld; de eerstvolgende
+  // meldNodeVermoeden zou hem toch uitzetten, maar dan pas een tick later.
+  nodeVermoedenActief = false;
+  vermoedenHoekReset();
+  pasTwijfelMarkeringToe();
 
   // W5: correctie-log (niet gethrottled)
   nodeChkLog(reden, oude, nieuw, true);
@@ -15756,6 +15947,11 @@ async function onGPS(pos) {
   if (cacheGeladen) checkNodeCorrectieStilstand(lat, lon);
   if (cacheGeladen) meetStilstandNodeAfwijking();   // V11.17.90: zie daar
   if (cacheGeladen) meetAutolockWeigering();        // V11.18.6: zie daar
+  // V11.18.12: NA de twee metingen. meetAutolockWeigering leest nodeCorrWeiger,
+  // dat checkNodeCorrectieStilstand hierboven zet; deze melding mag daar niet
+  // tussen komen te staan. Ze leest alleen de al berekende caches en verandert
+  // niets aan de keuze.
+  if (cacheGeladen) meldNodeVermoeden(lat, lon);    // V11.18.12: zie daar
   refreshStadIndienNodig(lat, lon);
 
   // V9.0: Nadering detectie + delayed write
