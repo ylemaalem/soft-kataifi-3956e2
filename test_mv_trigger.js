@@ -195,9 +195,17 @@ function testMvTrigger() {
     // schrijven van dit bestand mis — er belandde een letterlijk
     // backspace-teken in de expressie, waardoor de toets nooit kon slagen.
     // Een kale stringvergelijking kan dat niet overkomen.
-    eis('T5b en APP_VERSIE draagt het huidige versienummer',
-        APP_VERSIE.startsWith('V11.18.9'),
-        'begint met V11.18.9', APP_VERSIE);
+    // V11.18.11: deze toets pinde 'V11.18.9' en viel daardoor bij ELKE volgende
+    // release om — bij V11.18.10 is dat ook gebeurd, en omdat het nummer pas
+    // na de laatste testrun werd opgehoogd ging die release er ongemerkt mee de
+    // deur uit. Of het nummer 'actueel' is kan een test niet weten; wat hij wel
+    // kan bewaken is de VORM: nummer, kastlijntje, omschrijving. Dat hoeft bij
+    // een nieuwe release niet mee te veranderen.
+    const deel = APP_VERSIE.split(' — ');
+    eis('T5b en APP_VERSIE heeft de vorm "V11.x.y — omschrijving"',
+        deel.length === 2 && deel[0].startsWith('V11.') && deel[0].split('.').length === 3
+          && deel[1].length > 0,
+        'V11.x.y — tekst', APP_VERSIE);
 
     // De tekstwijziging mag de klik-handler niet geraakt hebben: vijf echte
     // kliks op het bijgewerkte label moeten nog steeds schakelen.

@@ -285,7 +285,7 @@ function testAlgemeenKeuze() {
     opnieuw('algemeen');
     eis('T9c de rij draagt nu de RICHTING als naam, niet het woord Algemeen',
         algTxt() !== null && algTxt().indexOf('Rechtsaf') === 0
-        && algTxt().indexOf('Algemeen') < 0,
+        && algTxt().indexOf('Rond licht') < 0,
         "'Rechtsaf ✕'", String(algTxt()));
     eis('T9c2 en de losmaak-knop blijft bereikbaar',
         chipTxt() === '✕', "'✕'", String(chipTxt()));
@@ -391,11 +391,11 @@ function testAlgemeenKeuze() {
 
     // ══ T13 — HET WOORD ALGEMEEN VERDWIJNT VOLLEDIG ═══════════
     zetLS('sl_enkelricht_' + NODE, null);
-    eis('T13 zonder koppeling heet de ronde categorie gewoon Algemeen',
-        algemeenLabel(String(NODE)).tekst === 'Algemeen'
+    eis('T13 zonder koppeling heet de ronde categorie Rond licht (V11.18.11)',
+        algemeenLabel(String(NODE)).tekst === 'Rond licht'
         && algemeenLabel(String(NODE)).pijl === '⬤'
         && algemeenLabel(String(NODE)).gekoppeld === false,
-        'Algemeen, niet gekoppeld',
+        'Rond licht, niet gekoppeld',
         JSON.stringify(algemeenLabel(String(NODE))));
     zetEnkelRicht(String(NODE), 'rechts');
     eis('T13b met koppeling heet hij naar de richting',
@@ -407,30 +407,32 @@ function testAlgemeenKeuze() {
 
     dichtstbijOSM = { id: NODE, lat: 52.0, lon: 4.7, afstand: 25, naam: 'A' };
     opnieuw('algemeen');
-    eis('T13c in het rijblok staat het woord Algemeen nergens meer',
-        document.getElementById('richting-blok-body').textContent.indexOf('Algemeen') < 0,
-        'geen Algemeen',
+    eis('T13c in het rijblok staat Rond licht (of het oude Algemeen) nergens meer',
+        document.getElementById('richting-blok-body').textContent.indexOf('Rond licht') < 0
+        && document.getElementById('richting-blok-body').textContent.indexOf('Algemeen') < 0,
+        'geen Rond licht',
         document.getElementById('richting-blok-body').textContent.slice(0, 80));
     nodeInfoNodeId = String(NODE);
     renderNodeInfo(String(NODE));
     const infoTxt = document.getElementById('node-info-body').textContent;
     eis('T13d ook in het node-info-paneel niet — rij noch koppelstrip',
-        infoTxt.indexOf('Algemeen') < 0 && infoTxt.indexOf('Rechtsaf') >= 0,
-        'geen Algemeen, wel Rechtsaf', infoTxt.slice(0, 120));
+        infoTxt.indexOf('Rond licht') < 0 && infoTxt.indexOf('Algemeen') < 0
+        && infoTxt.indexOf('Rechtsaf') >= 0,
+        'geen Rond licht, wel Rechtsaf', infoTxt.slice(0, 120));
     eis('T13e en de gedeelde labelhelper geeft de richting door aan elke aanroeper',
         rijdersPijlLabel('ALG', 'ALG', String(NODE)).tekst === 'Rechtsaf'
-        && rijdersPijlLabel('ALG', 'ALG').tekst === 'Algemeen',
-        'met node Rechtsaf, zonder node Algemeen',
+        && rijdersPijlLabel('ALG', 'ALG').tekst === 'Rond licht',
+        'met node Rechtsaf, zonder node Rond licht',
         rijdersPijlLabel('ALG', 'ALG', String(NODE)).tekst + ' / ' + rijdersPijlLabel('ALG', 'ALG').tekst);
     eis('T13f de indicator toont bij Algemeen de richting in plaats van het ronde teken',
         zicht() && indic().textContent.indexOf('rechtsaf') >= 0,
         'voor rechtsaf', indic().textContent);
     wisEnkelRicht(String(NODE));
     opnieuw('algemeen');
-    eis('T13g losmaken brengt het woord Algemeen terug',
-        document.getElementById('richting-blok-body').textContent.indexOf('Algemeen') >= 0
+    eis('T13g losmaken brengt de naam Rond licht terug',
+        document.getElementById('richting-blok-body').textContent.indexOf('Rond licht') >= 0
         && algemeenLabel(String(NODE)).gekoppeld === false,
-        'Algemeen terug',
+        'Rond licht terug',
         document.getElementById('richting-blok-body').textContent.slice(0, 60));
 
     // ══ T14 — DE WISREGEL ZELF IS NIET AANGERAAKT ═════════════

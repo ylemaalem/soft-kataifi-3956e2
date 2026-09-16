@@ -149,7 +149,7 @@ function testNadering() {
     const body = document.getElementById('richting-blok-body');
     const labels = [...body.querySelectorAll('.rb-rij .rb-label')]
       .map(e => e.textContent.trim())
-      .filter(t => t !== 'Algemeen' && !t.startsWith('Algemeen'));
+      .filter(t => t !== 'Rond licht' && !t.startsWith('Rond licht'));
 
     eis('T8 de twee botsende sleutels leveren ÉÉN richtingregel',
         labels.length === 1, '1 regel', labels.length + ': [' + labels.join(' | ') + ']');
@@ -169,7 +169,7 @@ function testNadering() {
     renderRichtingBlok(dichtstbijOSM);
     const labels2 = [...document.getElementById('richting-blok-body')
       .querySelectorAll('.rb-rij .rb-label')].map(e => e.textContent.trim())
-      .filter(t => !t.startsWith('Algemeen'));
+      .filter(t => !t.startsWith('Rond licht'));
     eis('T11 nadering zonder eigen data laat het blok niet leeg achter',
         labels2.length >= 1, 'minstens 1 regel', String(labels2.length));
 
@@ -192,7 +192,7 @@ function testNadering() {
     renderRichtingBlok(dichtstbijOSM);
     const labels3 = [...document.getElementById('richting-blok-body')
       .querySelectorAll('.rb-rij .rb-label')].map(e => e.textContent.trim())
-      .filter(t => !t.startsWith('Algemeen'));
+      .filter(t => !t.startsWith('Rond licht'));
     eis('T15 zonder koersen valt hij terug op (aanrij, bocht): twee regels blijven',
         labels3.length === 2, '2 regels (bekende grens)',
         labels3.length + ': [' + labels3.join(' | ') + ']');
@@ -203,7 +203,7 @@ function testNadering() {
     renderRichtingBlok(dichtstbijOSM);
     const labels4 = [...document.getElementById('richting-blok-body')
       .querySelectorAll('.rb-rij .rb-label')].map(e => e.textContent.trim())
-      .filter(t => !t.startsWith('Algemeen'));
+      .filter(t => !t.startsWith('Rond licht'));
     eis('T15b met koersen worden dezelfde twee sleutels één regel',
         labels4.length === 1, '1 regel',
         labels4.length + ': [' + labels4.join(' | ') + ']');

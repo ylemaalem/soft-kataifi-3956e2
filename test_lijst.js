@@ -105,7 +105,7 @@ function testLijst() {
 
     // De kern: haal de labelteksten eruit en toets dat ze VERSCHILLEN.
     const labels = [...document.querySelectorAll('#node-info-body .ni-rij-label')]
-      .map(e => e.textContent.trim()).filter(t => t !== 'Algemeen');
+      .map(e => e.textContent.trim()).filter(t => t !== 'Rond licht');   // V11.18.11
     eis('T2b geen twee richtingregels lezen nog identiek',
         labels.length === new Set(labels).size && labels.length === 2,
         '2 regels, allebei uniek', JSON.stringify(labels));

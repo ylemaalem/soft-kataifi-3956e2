@@ -110,7 +110,7 @@ function testRichtingUi() {
   });
   const rijen    = () => [...document.querySelectorAll('#richting-blok-body .rb-rij')];
   const rijLabel = (r) => r.querySelector('.rb-label').textContent.trim();
-  const isAlg    = (r) => rijLabel(r).startsWith('Algemeen');
+  const isAlg    = (r) => rijLabel(r).startsWith('Rond licht');   // V11.18.11
 
   try {
     // ══ FIXTURE ═══════════════════════════════════════════════
@@ -207,7 +207,7 @@ function testRichtingUi() {
     rs[iAlg].onclick();                      // == kiesLaagAlgemeen()
     actief = rijen().filter(r => r.classList.contains('actief')).map(rijLabel);
     eis('T5d na terugkeer verspringt de markering naar Algemeen',
-        actief.length === 1 && actief[0].startsWith('Algemeen'),
+        actief.length === 1 && actief[0].startsWith('Rond licht'),
         '1x Algemeen gemarkeerd', actief.length + ': [' + actief.join(' | ') + ']');
     eis('T5e en het percentage staat weer op het V4-getal',
         pct0() === algPctTxt, algPctTxt, pct0());

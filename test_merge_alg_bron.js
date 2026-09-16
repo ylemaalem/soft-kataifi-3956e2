@@ -307,8 +307,8 @@ function testMergeAlgBron() {
         heeft("voerMergeUit('N>W','ALG')") && heeft("voerMergeUit('ALG','N>W')"),
         'twee knoppen, beide kanten op', acties().join(' | '));
     eis('T9c en noemt het aantal dat zou verhuizen',
-        dlg.innerHTML.indexOf('2 algemene metingen') >= 0,
-        "'2 algemene metingen'", dlg.textContent.slice(0, 120));
+        dlg.innerHTML.indexOf('2 metingen van het ronde licht') >= 0,
+        "'2 metingen van het ronde licht'", dlg.textContent.slice(0, 120));
     // Is er niets te verplaatsen, dan verdwijnt die knop en zegt de dialoog waarom.
     zetLS('sl_v4_' + NODE + '_' + DD_NU,
           JSON.stringify([v4(60, 3, { rv: 1, rvK: 'Z_O' })]));

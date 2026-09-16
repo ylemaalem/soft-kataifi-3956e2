@@ -218,9 +218,9 @@ function testKoppelEenrij() {
           && rs.some(r => rijKey(r) !== 'ALG' && rijLabel(r).startsWith('Rechtsaf')),
         'van 1 rij naar 2, met Rechtsaf terug',
         voorLos + ' -> ' + rs.length + ' rijen: ' + rs.map(rijLabel).join(' | '));
-    eis('T6b en de Algemeen-rij heet weer Algemeen',
-        rs.length === 2 && rijLabel(rs[0]).startsWith('Algemeen'),
-        'Algemeen', rs.length ? rijLabel(rs[0]) : 'geen rij');
+    eis('T6b en de ronde-lichtrij heet weer Rond licht',
+        rs.length === 2 && rijLabel(rs[0]).startsWith('Rond licht'),
+        'Rond licht', rs.length ? rijLabel(rs[0]) : 'geen rij');
     eis('T6c de richting-rij draagt weer haar eigen, ongepoolde cijfers',
         rs.length === 2 && rijCyc(rs[1]) === '24s',
         '24s (de eigen V5-cyclus)', rs.length === 2 ? rijCyc(rs[1]) : 'geen rij');

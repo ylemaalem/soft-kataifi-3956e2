@@ -74,7 +74,7 @@ function testAlgemeenEigenData() {
   const gemerkt = (duur, u) => v4(duur, u, { rv: 1 });
 
   const rijen  = () => [...document.querySelectorAll('#richting-blok-body .rb-rij')];
-  const algRij = () => rijen().find(r => r.querySelector('.rb-label').textContent.trim().startsWith('Algemeen'));
+  const algRij = () => rijen().find(r => r.querySelector('.rb-label').textContent.trim().startsWith('Rond licht'));   // V11.18.11
   const algPct = () => { const r = algRij(); return r ? r.querySelector('.rb-pct').textContent.trim() : null; };
   const algCyc = () => { const r = algRij(); return r ? r.querySelector('.rb-cyc').textContent.trim() : null; };
   const ddCnt  = (d) => document.getElementById('dc-' + d).textContent;
@@ -116,8 +116,8 @@ function testAlgemeenEigenData() {
         algRij() === undefined, 'geen ALG-rij',
         algRij() ? ('ALG-rij met ' + algPct() + ' / ' + algCyc()) : 'geen ALG-rij');
     eis('T1b en er blijft geen lege rest achter: geen "0 metingen", geen loze rij',
-        blokTxt().indexOf('Algemeen') < 0 && blokTxt().indexOf('0 meting') < 0,
-        'geen Algemeen-tekst', blokTxt().slice(0, 60));
+        blokTxt().indexOf('Rond licht') < 0 && blokTxt().indexOf('0 meting') < 0,
+        'geen Rond licht-tekst', blokTxt().slice(0, 60));
     eis('T1c de dagdeelstrip telt Algemeen ook op nul',
         ddCnt(DD_NU) === '0x' && ddVal(DD_NU) === '—',
         "'0x' en '—'", ddCnt(DD_NU) + ' / ' + ddVal(DD_NU));

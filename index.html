@@ -679,9 +679,9 @@
         <div id="node-info-naam">—</div>
         <div id="node-info-sub"></div>
       </div>
-      <button id="node-info-neutraal" onclick="toggleNodeNeutraal()">⬤ Eén licht</button>
+      <button id="node-info-neutraal" onclick="toggleNodeNeutraal()">Alles één licht</button>
     </div>
-    <div id="node-info-neutraal-uitleg"><b>Alle</b> richtingen zijn hier hetzelfde licht — de app splitst nooit op rijrichting. Geldt dat maar voor één richting? Zet deze markering dan uit en koppel Algemeen aan die ene richting.</div>
+    <div id="node-info-neutraal-uitleg"><b>Alle</b> richtingen zijn hier hetzelfde licht — de app splitst nooit op rijrichting. Geldt dat maar voor één richting? Zet deze markering dan uit en koppel het ronde licht aan die ene richting.</div>
     <div id="node-info-instructie"></div>
     <div id="node-info-body"></div>
     <div id="node-info-mergedialoog" style="display:none"></div>
@@ -696,9 +696,9 @@
 <div id="richting-knoppen">
   <div id="richting-label">Welke kant ga jij op?</div>
   <div id="richting-rij">
-    <button class="richting-btn links" onclick="tikRichting('links')"><span class="richting-pijl">↖</span>LINKS</button>
-    <button class="richting-btn rechtdoor" onclick="tikRichting('rechtdoor')"><span class="richting-pijl">↑</span>RECHTDOOR</button>
-    <button class="richting-btn rechts" onclick="tikRichting('rechts')"><span class="richting-pijl">↗</span>RECHTS</button>
+    <button class="richting-btn links" onclick="tikRichting('links','vraag')"><span class="richting-pijl">↖</span>LINKS</button>
+    <button class="richting-btn rechtdoor" onclick="tikRichting('rechtdoor','vraag')"><span class="richting-pijl">↑</span>RECHTDOOR</button>
+    <button class="richting-btn rechts" onclick="tikRichting('rechts','vraag')"><span class="richting-pijl">↗</span>RECHTS</button>
   </div>
 </div>
 
@@ -984,7 +984,7 @@ if (typeof ort !== 'undefined') {
 //
 // De stijl volgt de eerdere labels: nummer, kastlijntje, korte omschrijving in
 // kleine letters. De CSS zet hem zelf in kapitalen (text-transform:uppercase).
-const APP_VERSIE = 'V11.18.10 — alleen een echte tik meet';
+const APP_VERSIE = 'V11.18.11 — rond licht, en elke tik getekend';
 
 // ── CONSTANTEN ────────────────────────────────────────────────
 const OSM_RADIUS       = 5000;
@@ -2092,6 +2092,16 @@ function logOpslagMis(reden, extra) {
       //   hoekVoordeel het gemeten hoekvoordeel in graden (drempel
       //               NODE_HOEK_VOORDEEL_GRAD = 25), of bij poortReden
       //               'heading' het headingverschil (drempel 60).
+      // ── V11.18.11: de herkomst van de lock op DIT moment ──────
+      // Op elke regel, want juist bij een regel die NIETS met tikken te maken
+      // heeft moet achteraf te zien zijn of er een tik-lock stond. tikLeeft is
+      // de ouderdom van die tik in ms en alleen gevuld als de lock nu 'tik' is:
+      // een kleine waarde is een verse tik, een grote een lock die bleef hangen.
+      // element is alleen gevuld op 'richting_tik' en 'koppelchip_getoond'.
+      lockBron: (typeof richtingLockBron !== 'undefined') ? (richtingLockBron || null) : null,
+      tikLeeft: (typeof richtingLockBron !== 'undefined' && richtingLockBron === 'tik' && richtingTikTijd)
+        ? Date.now() - richtingTikTijd : null,
+      element: e.element || null,
       poortReden:   e.poortReden   || null,
       afstReden:    e.afstReden    || null,
       hoekReden:    e.hoekReden    || null,
@@ -3017,7 +3027,7 @@ function migratieRvWezen() {
       // node-aantal staat in leerLog en op de console.
       logOpslagMis('rv_wezen_hersteld', { rvHer: hersteld });
       leerLog('rv-wezen: ' + hersteld + ' metingen op ' + nodes.size
-        + ' kruispunt(en) tellen weer mee bij Algemeen');
+        + ' kruispunt(en) tellen weer mee bij het ronde licht');
     }
     console.log('[RV-WEZEN] hersteld=' + hersteld + ' van ' + teHerstellen.length
       + ' nodes=' + nodes.size);
@@ -5738,6 +5748,22 @@ function rijrichting() {
 //                zichtbaar te maken scheelt hem tikken. Alleen de node-toets
 //                geldt hier, niet de herkomst-toets.
 let richtingLockBron = null;    // 'tik' | 'hersteld' | null
+// ── V11.18.11: WANNEER EN WAARMEE ER GETIKT IS ───────────────
+// © 2026 StoplichtIQ — Y. Lemaalem
+//
+// De koppel-chip verschijnt alleen als richtingLockBron 'tik' is, en dat zet
+// uitsluitend tikRichting. Toch meldt de gebruiker de chip op momenten dat hij
+// zegt niet getikt te hebben. Twee verklaringen passen allebei op de code, en de
+// export kan ze niet uit elkaar houden: de bron werd nergens gelogd en
+// laatste_update heeft ook een tweede schrijver (slaRichtingOp).
+//   1. een verse tik, mogelijk per ongeluk — de toevoegknoppen staan direct
+//      onder de ronde-lichtregel
+//   2. een oude tik die bleef hangen — de lock wordt bij een node-wissel alleen
+//      gewist bij >60m en >5km/u op dat ene moment (r15095)
+// Deze twee registers beslissen dat: WANNEER de laatste tik was, en VIA WELK
+// element. PUUR OBSERVEREND — wisRichtingLock en de vervalregels lezen ze niet.
+let richtingTikTijd    = 0;       // Date.now() van de laatste tikRichting
+let richtingTikElement = null;    // 'vraag' | 'toevoeg' | 'rij' | 'onbekend'
 
 function lockGeldigVoor(nodeId) {
   return (richtingLockNodeId && nodeId != null
@@ -9908,6 +9934,7 @@ function bijwerkLeerkaart(osm) {
 // (per dagdeel), gewGem+laadMV5Geclusterd voor cyclustijd, ni_kleur voor kleur,
 // tikRichting voor keuze-actie. GEEN nieuwe scoring-logica — de aggregatie
 // over dagdelen is een gewogen gemiddelde op basis van bestaande outputs.
+let koppelChipLogSleutel = null;   // V11.18.11: node@tiktijd van de laatst gelogde chip
 function renderRichtingBlok(osm) {
   const blok = document.getElementById('richting-blok');
   const body = document.getElementById('richting-blok-body');
@@ -10115,7 +10142,7 @@ function renderRichtingBlok(osm) {
   const tvHtml = ontbrekend.length > 0
     ? '<div class="rb-toevoeg">'
       + ontbrekend.map(r =>
-          `<button class="rb-tv-btn" onclick="tikRichting('${r}')">`
+          `<button class="rb-tv-btn" onclick="tikRichting('${r}','toevoeg')">`
           + `<span class="rb-tv-pijl">${tvIcoon[r]}</span>${tvLabel[r]}</button>`
         ).join('')
       + '</div>'
@@ -10157,7 +10184,16 @@ function renderRichtingBlok(osm) {
       // voorwaarde in plaats van twee takken die hetzelfde zeggen.
       const _rr = rijrichtingVoor(nodeId);
       const p = richtingSymbool(_rr).trim() || '•';
-      erChip = ` <span onclick="event.stopPropagation();koppelEnkelRicht('${nodeId}')" title="Markeer ${algemeenLabel(nodeId).tekst} als hetzelfde licht als ${_rr}" class="rb-koppel">zelfde als ${p}?</span>`;
+      // V11.18.11: EEN regel per getoonde chip, niet per tekenronde. De sleutel
+      // is node + tijdstip van de tik: dezelfde chip die elke GPS-tick opnieuw
+      // getekend wordt telt één keer, een chip na een NIEUWE tik telt opnieuw.
+      // tikLeeft op deze regel is precies de vraag: vers of blijven hangen?
+      const _chipSleutel = String(nodeId) + '@' + richtingTikTijd;
+      if (_chipSleutel !== koppelChipLogSleutel) {
+        koppelChipLogSleutel = _chipSleutel;
+        logOpslagMis('koppelchip_getoond', { node: String(nodeId), element: richtingTikElement });
+      }
+      erChip = ` <span onclick="event.stopPropagation();koppelEnkelRicht('${nodeId}')" title="Is het ronde licht hier hetzelfde als ${KOPPEL_NAAM[_rr] || _rr}?" class="rb-koppel">zelfde als ${p}?</span>`;
     }
     // V11.17.83: de ALG-rij riep tikRichting('rechtdoor') aan en selecteerde dus
     // stilletjes een RIJRICHTING terwijl de gebruiker alleen de algemene cijfers
@@ -10458,7 +10494,7 @@ function kiesLaagRichting(idx) {
   if (dichtstbijOSM) getoondeLaag = {
     node: String(dichtstbijOSM.id), key: rij.key, paren: rij.paren, richt: rij.richt
   };
-  tikRichting(rij.richt);
+  tikRichting(rij.richt, 'rij');   // V11.18.11
   if (dichtstbijOSM) bijwerkLeerkaart(dichtstbijOSM);
 }
 
@@ -11833,7 +11869,7 @@ function berekenVRIScore(nodeId) {
 // staat, zodat de kop niet voller wordt dan nodig.
 function renderEenLichtBadge(nodeId) {
   if (!isNodeNeutraal(nodeId)) return '';
-  return `<span class="vri-badge eenlicht-badge" title="Eén rond stoplicht voor alle richtingen — de app splitst hier nooit op rijrichting">⬤ Eén licht</span>`;
+  return `<span class="vri-badge eenlicht-badge" title="Eén rond stoplicht voor alle richtingen — de app splitst hier nooit op rijrichting">Alles één licht</span>`;
 }
 
 function renderVRILabel(nodeId) {
@@ -12036,7 +12072,13 @@ function heropenRichtingKeuze() {
   toonRichtingKnoppen(nodeId, true);
 }
 
-function tikRichting(richting) {
+// V11.18.11: `element` zegt welk scherm-element deze tik gaf. De drie ingangen:
+//   'vraag'   de knoppen "Welke kant ga jij op?" (r699-701)
+//   'toevoeg' de toevoegknoppen in het rijblok, onder de ronde-lichtregel
+//   'rij'     een tik op een bestaande richting-rij (kiesLaagRichting)
+// Een aanroep zonder element logt 'onbekend', zodat een nieuwe, niet-gelabelde
+// ingang in een export meteen opvalt in plaats van weg te vallen.
+function tikRichting(richting, element) {
   const nodeId = richtingKnoppenNodeId || huidigBevestigdOsmNodeId;
   if (!nodeId) return;
   const sleutel = `sl_richting_${nodeId}`;
@@ -12057,6 +12099,12 @@ function tikRichting(richting) {
   richtingLockNodeId = nodeId;
   richtingLockKeuze = richting;
   richtingLockBron = 'tik';   // V11.17.96
+  // V11.18.11: meten, na het zetten van de lock zodat `tik` en `lockBron` in de
+  // logregel al de nieuwe waarde dragen. tikLeeft is hier per definitie ~0.
+  richtingTikTijd = Date.now();
+  richtingTikElement = (element === 'vraag' || element === 'toevoeg' || element === 'rij')
+    ? element : 'onbekend';
+  logOpslagMis('richting_tik', { node: String(nodeId), element: richtingTikElement });
 
   // V9.0: Pre-selectie afrijrichting berekenen voor countdown
   if (v9AanrijHeading != null || v9AanrijSnelheidHeading != null) {
@@ -12844,9 +12892,18 @@ const KOPPEL_PIJL = { links: '←', rechtdoor: '↑', rechts: '→' };
 // `gekoppeld` staat erbij omdat sommige aanroepers er iets anders mee doen dan
 // alleen de naam — de koppelstrip schrijft een andere zin, de indicator een
 // ander label.
+// ── V11.18.11: 'ALGEMEEN' HEET VOOR DE GEBRUIKER 'ROND LICHT' ──
+// © 2026 StoplichtIQ — Y. Lemaalem
+//
+// 'Algemeen' was een woord uit de code dat op het scherm terechtkwam. Voor de
+// gebruiker is het geen categorie maar een ding dat hij ziet hangen: het ronde
+// licht, zonder pijl. Alleen de TEKST verandert. De interne waarde 'algemeen',
+// de sleutel 'ALG', de klasse ni-rij-algemeen, de logreden 'algemeen-tik' en
+// alle functienamen blijven zoals ze zijn — daar leunen opgeslagen data en
+// exports op.
 function algemeenLabel(nodeId) {
   const mark = nodeId != null ? laadEnkelRicht(nodeId) : null;
-  if (!mark || !KOPPEL_NAAM[mark]) return { pijl: '⬤', tekst: 'Algemeen', gekoppeld: false };
+  if (!mark || !KOPPEL_NAAM[mark]) return { pijl: '⬤', tekst: 'Rond licht', gekoppeld: false };
   const n = KOPPEL_NAAM[mark];
   return { pijl: KOPPEL_PIJL[mark],
            tekst: n.charAt(0).toUpperCase() + n.slice(1),
@@ -13217,7 +13274,7 @@ function renderNodeInfo(nodeId) {
   const instr = document.getElementById('node-info-instructie');
   if (instr) {
     instr.classList.toggle('zichtbaar', mergeModusAan);
-    instr.textContent = 'Kies twee richtingen om samen te voegen (of een richting + Algemeen)';
+    instr.textContent = 'Kies twee richtingen om samen te voegen (of een richting + het ronde licht)';
   }
   const mergeBtn = document.getElementById('node-info-merge');
   if (mergeBtn) {
@@ -13307,13 +13364,13 @@ function toonMergeDialoog() {
     const algN = totaal('ALG');
     html = `<div class="md-titel">${label(richting)} en ${label('ALG')} samenvoegen — welke kant op?</div>`
          + `<button onclick="voerMergeUit('${rKey}','ALG')">`
-         + `Naar Algemeen — richting-label vervalt, ${totaal(richting)} metingen blijven behouden</button>`;
+         + `Naar het ronde licht — richting-label vervalt, ${totaal(richting)} metingen blijven behouden</button>`;
     if (algN > 0) {
       html += `<button onclick="voerMergeUit('ALG','${rKey}')">`
-            + `Naar ${rl.pijl} ${rl.tekst} — ${algN} algemene metingen gaan voortaan bij deze richting horen</button>`;
+            + `Naar ${rl.pijl} ${rl.tekst} — ${algN} metingen van het ronde licht gaan voortaan bij deze richting horen</button>`;
     } else {
       html += `<div class="md-titel" style="opacity:.6;font-weight:400">`
-            + `Andersom kan hier niet: er zijn geen algemene metingen meer — ze horen al bij een richting.</div>`;
+            + `Andersom kan hier niet: het ronde licht heeft geen eigen metingen meer — ze horen al bij een richting.</div>`;
     }
     html += `<button class="md-annuleer" onclick="sluitMergeDialoog()">Annuleren</button>`;
   } else {

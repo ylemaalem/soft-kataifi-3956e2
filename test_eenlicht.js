@@ -116,7 +116,7 @@ function testEenLicht() {
     localStorage.removeItem(vlagKey);
     const badgeUit = renderEenLichtBadge(NODE);
     eis('T5 badge verschijnt met de markering en verdwijnt zonder',
-        badgeAan.includes('Eén licht') && badgeUit === '',
+        badgeAan.includes('Alles één licht') && badgeUit === '',   // V11.18.11
         'badge aan, leeg uit',
         'aan=' + (badgeAan ? 'badge' : 'leeg') + ', uit=' + (badgeUit ? 'badge' : 'leeg'));
 

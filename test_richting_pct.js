@@ -263,7 +263,7 @@ function testRichtingPct() {
     getoondeLaag = null;
     bijwerkLeerkaart(dichtstbijOSM);
     const rijen = [...document.querySelectorAll('#richting-blok-body .rb-rij')];
-    const richtRij = rijen.find(r => !r.querySelector('.rb-label').textContent.trim().startsWith('Algemeen'));
+    const richtRij = rijen.find(r => !r.querySelector('.rb-label').textContent.trim().startsWith('Rond licht'));   // V11.18.11
     eis('T11 er staat een samengevatte richtingregel', !!richtRij, 'een richtingregel',
         rijen.map(r => r.querySelector('.rb-label').textContent.trim()).join(' | '));
     if (richtRij) {
