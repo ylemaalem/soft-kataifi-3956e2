@@ -217,6 +217,13 @@
     #leer-pct-balk{height:100%;width:0%;border-radius:3px;transition:width .8s ease,background .4s}
     #leer-pct-getal{font-family:'Share Tech Mono',monospace;font-size:14px;
       font-weight:700;color:#fff;min-width:36px;text-align:right;transition:color .4s}
+    /* V11.18.13: het aantal metingen van het HUIDIGE dagdeel, naast het
+       percentage. Bewust de maatvoering van .dd-cnt (r229) en niet die van
+       het percentage: het is bijschrift, geen tweede hoofdgetal. Het staat er
+       omdat de balk over ALLE dagdelen rekent en dus zelfverzekerder kan
+       lezen dan de basis onder de countdown van dit moment. */
+    #leer-pct-dd{font-family:'Share Tech Mono',monospace;font-size:9px;
+      color:rgba(255,255,255,0.35);line-height:1;white-space:nowrap;min-width:28px}
     /* V11.17.4 W1: dagdeel-strip compact — één regel, chips i.p.v. tegels */
     #dd-rij{display:flex;gap:4px;align-items:center}
     .dd{display:flex;flex-direction:row;align-items:center;gap:3px;flex:1;
@@ -840,6 +847,7 @@
         <div id="leer-pct-label">Geleerd</div>
         <div id="leer-pct-balk-bg"><div id="leer-pct-balk"></div></div>
         <div id="leer-pct-getal">0%</div>
+        <div id="leer-pct-dd"></div>
       </div>
       <!-- V11.17.4 W2: richting-blok — rijen zijn zelf de keuze-knoppen.
            W7 bekend gedrag: als user ✕ tikt en dan FOUT drukt, blijft het blok
@@ -984,7 +992,7 @@ if (typeof ort !== 'undefined') {
 //
 // De stijl volgt de eerdere labels: nummer, kastlijntje, korte omschrijving in
 // kleine letters. De CSS zet hem zelf in kapitalen (text-transform:uppercase).
-const APP_VERSIE = 'V11.18.12 — de app zegt het als ze twijfelt';
+const APP_VERSIE = 'V11.18.13 — een dun dagdeel leent van zichzelf';
 
 // ── CONSTANTEN ────────────────────────────────────────────────
 const OSM_RADIUS       = 5000;
@@ -3619,6 +3627,66 @@ function verwerkBevestigLeren(osmId, categorie, mom) {
 }
 
 // 5-stap leeslogica: welke data gebruiken voor countdown?
+// ── V11.18.13: EEN DAGDEEL MAG LENEN VAN ZICHZELF ────────────
+// © 2026 StoplichtIQ — Y. Lemaalem
+//
+// WAT ER VERANDERT. Tot nu toe was een dagdeel volledig op zichzelf aangewezen:
+// kiesCountdownBron krijgt één dagdeel mee en geeft dat door aan alle vier de
+// stappen. Twee nachtmetingen op een kruispunt waar overdag twaalf metingen
+// staan gaven dus een countdown op twee samples — of, bij nul nachtmetingen,
+// helemaal niets. Vanaf nu vult een dun dagdeel zich aan met de metingen van
+// DEZELFDE categorie uit de andere dagdelen, tot het er zelf DD_LEEN_MIN heeft.
+//
+// DE GRENS DIE NOOIT OVERSCHREDEN WORDT: DE CATEGORIE. Rechtsaf leent van
+// Rechtsaf, Rond licht van Rond licht. Deze helper krijgt daarom een lader mee
+// die ALLEEN het dagdeel varieert — welke emmer gelezen wordt ligt bij de
+// aanroeper vast en kan hier niet verschuiven. Rechtsaf kan langs deze weg per
+// constructie geen linksaf-meting zien.
+//
+// NIET TE VERWARREN MET V11.17.83. Dat is de andere as: een richting zonder
+// eigen data valt terug op Algemeen, BINNEN hetzelfde dagdeel (stap 3 en 4,
+// label 'V5 alle' / 'v4_geen_richtingdata'). Die cascade blijft ongewijzigd en
+// staat los van deze helper. Wel gaan ze samenwerken, en in die volgorde: eerst
+// probeert een categorie zichzelf over de dagdelen heen (stap 1), en pas als
+// dat ook niets oplevert valt de keten door naar het aggregaat. Dat is de
+// gewenste rangorde — eigen data van een ander moment gaat vóór andermans data
+// van dit moment.
+//
+// WAAROM POOLEN EN NIET 'HET DAGDEEL MET DE MEESTE METINGEN'. Drie redenen.
+// (1) Een winnaar-kiest-alles bindt de nacht aan precies één ander programma;
+//     poolen gebruikt alles wat de categorie weet en heeft de kleinste variantie.
+// (2) gewGem weegt zelf al op recentheid (r1403), dus een oud dagdeel dringt
+//     zich niet op.
+// (3) De spreiding doet het werk dat een vaste regel niet kan: lopen de
+//     dagdelen echt uiteen — het spitsprogramma dat het rapport als risico
+//     noemde — dan groeit de range in de gepoolde set en zakt bepaalCdModus
+//     vanzelf naar 'geschat' of 'onzeker'. De waarschuwing zit dus in de data
+//     zelf en niet in een aanname over kruispunten.
+// De eigen metingen gaan MEE in de pool: het zijn metingen van dezelfde
+// categorie, en ze weglaten zou de meest relevante data weggooien.
+//
+// DE DREMPEL IS EEN EIGEN CONSTANTE. Toevallig hetzelfde getal als
+// V9_MIN_METINGEN, maar een andere vraag: die gaat over 'telt deze richting
+// zelfstandig ten opzichte van Algemeen' (V11.18.2 haalde hem daar juist weg),
+// deze over 'telt dit dagdeel zelfstandig ten opzichte van de andere dagdelen
+// van dezelfde categorie'. Ze mogen los van elkaar verschuiven.
+const DD_LEEN_MIN_METINGEN = 5;
+
+function metDagdeelLening(eigenM, laadVoorDagdeel, dd) {
+  const eigen = Array.isArray(eigenM) ? eigenM : [];
+  if (eigen.length >= DD_LEEN_MIN_METINGEN) {
+    return { m: eigen, geleend: false, eigenN: eigen.length };
+  }
+  let m = eigen.slice();
+  let extra = 0;
+  for (const d of Object.keys(DD)) {
+    if (d === dd) continue;
+    const ander = laadVoorDagdeel(d);
+    if (ander && ander.length) { m = m.concat(ander); extra += ander.length; }
+  }
+  return { m, geleend: extra > 0, eigenN: eigen.length };
+}
+
 function kiesCountdownBron(nodeId, dd, aanrijRichting, preSelectieAfrij) {
   if (!nodeId || !dd) return null;
 
@@ -3675,12 +3743,18 @@ function kiesCountdownBron(nodeId, dd, aanrijRichting, preSelectieAfrij) {
   // hoort bij de modusklasse zelf en raakt dan elke bron tegelijk.
   // test_richting_drempel T3 legt het vast zodat het niet ongemerkt schuift.
   if (!resultaat && !neutraal && aanrijRichting && preSelectieAfrij) {
-    const m1 = laadMV5Geclusterd(nodeId, aanrijRichting, preSelectieAfrij, dd);
+    // V11.18.13: dezelfde emmer, andere dagdelen. `preSelectieAfrij` en
+    // `aanrijRichting` liggen buiten de lus vast, dus dit blijft één richting.
+    const l1 = metDagdeelLening(
+      laadMV5Geclusterd(nodeId, aanrijRichting, preSelectieAfrij, dd),
+      (d) => laadMV5Geclusterd(nodeId, aanrijRichting, preSelectieAfrij, d), dd);
+    const m1 = l1.m;
     if (m1.length > 0) {
       const gem = gewGem(m1);
       if (gem) {
         const { modus, cdMin, cdMax } = bepaalCdModus(gem, m1);
-        resultaat = { gem, bron: `V5 ${preSelectieAfrij}`, metingen: m1.length, v5: true, modus, cdMin, cdMax };
+        resultaat = { gem, bron: `V5 ${preSelectieAfrij}`, metingen: m1.length, v5: true, modus, cdMin, cdMax,
+                      ddGeleend: l1.geleend, eigenMetingen: l1.eigenN };
       }
     }
   }
@@ -3692,12 +3766,21 @@ function kiesCountdownBron(nodeId, dd, aanrijRichting, preSelectieAfrij) {
       // V11.17.70: was een inline kopie van de rechtdoor-tak. Nu de centrale
       // functie, zodat de conventie op één plek staat en niet kan uiteenlopen.
       const afrijRechtdoor = berekenAfrijRichtingViaTik(h, 'rechtdoor');
-      const m2 = laadMV5Geclusterd(nodeId, aanrijRichting, afrijRechtdoor, dd);
+      // V11.18.13: ook hier één vaste emmer (aanrij + rechtdoor), alleen het
+      // dagdeel varieert. De poort blijft V9_MIN_METINGEN — die staat er om te
+      // bepalen of deze AANNAME (de bestuurder gaat rechtdoor) genoeg grond
+      // heeft, en dat is een andere vraag dan de leendrempel. Wat verandert is
+      // uitsluitend waaruit die vijf mogen komen.
+      const l2 = metDagdeelLening(
+        laadMV5Geclusterd(nodeId, aanrijRichting, afrijRechtdoor, dd),
+        (d) => laadMV5Geclusterd(nodeId, aanrijRichting, afrijRechtdoor, d), dd);
+      const m2 = l2.m;
       if (m2.length >= V9_MIN_METINGEN) {
         const gem = gewGem(m2);
         if (gem) {
           const { modus, cdMin, cdMax } = bepaalCdModus(gem, m2);
-          resultaat = { gem, bron: `V5 ↑`, metingen: m2.length, v5: true, modus, cdMin, cdMax };
+          resultaat = { gem, bron: `V5 ↑`, metingen: m2.length, v5: true, modus, cdMin, cdMax,
+                        ddGeleend: l2.geleend, eigenMetingen: l2.eigenN };
         }
       }
     }
@@ -3717,14 +3800,21 @@ function kiesCountdownBron(nodeId, dd, aanrijRichting, preSelectieAfrij) {
 
   // Stap 4: val terug op V4 — alleen als node één aanrijrichting heeft
   if (!resultaat) {
-    const m4 = laadM(nodeId, dd);
+    // V11.18.13: de ronde categorie leent van zichzelf. laadM leest de
+    // V4-emmer van deze node; alleen het dagdeel varieert, dus hier komt geen
+    // richting-emmer binnen. Dat stap 4 daarna nog kan besluiten dat dit getal
+    // een RICHTING voorstelt (de 'v4_geen_richtingdata'-tak hieronder) is de
+    // andere as en staat hier los van.
+    const l4 = metDagdeelLening(laadM(nodeId, dd), (d) => laadM(nodeId, d), dd);
+    const m4 = l4.m;
     const gem4 = gewGem(m4);
     if (gem4) {
       if (isEenRichtingNode(nodeId)) {
         const s2c = zoekS2BevestigingScore(nodeId, gem4);
         const bronLabel = s2c >= 1 ? 'v4_s2bevestigd' : 'V4';
         const { modus, cdMin, cdMax } = bepaalCdModus(gem4, m4);
-        resultaat = { gem: gem4, bron: bronLabel, metingen: m4.length, v5: false, s2bevestigd: s2c >= 1, modus, cdMin, cdMax };
+        resultaat = { gem: gem4, bron: bronLabel, metingen: m4.length, v5: false, s2bevestigd: s2c >= 1, modus, cdMin, cdMax,
+                      ddGeleend: l4.geleend, eigenMetingen: l4.eigenN };
       } else {
         // V11.14.0: multi-richting node met V4-data — toon countdown maar
         // cap op CD_GESCHAT. Zonder rijrichting-splitsing is CD_ZEKER via
@@ -3774,7 +3864,8 @@ function kiesCountdownBron(nodeId, dd, aanrijRichting, preSelectieAfrij) {
           // ik toon je voorlopig het algemene getal."
           bronLabel4 = 'v4_geen_richtingdata';
         }
-        resultaat = { gem: gem4, bron: bronLabel4, metingen: m4.length, v5: false, modus: modusFinaal, cdMin: md4multi.cdMin ?? null, cdMax: md4multi.cdMax ?? null };
+        resultaat = { gem: gem4, bron: bronLabel4, metingen: m4.length, v5: false, modus: modusFinaal, cdMin: md4multi.cdMin ?? null, cdMax: md4multi.cdMax ?? null,
+                      ddGeleend: l4.geleend, eigenMetingen: l4.eigenN };
       }
     } else if (!isEenRichtingNode(nodeId)) {
       // V11.14.0: multi-richting node zonder V4-data — UI-signaal 'lerend'
@@ -3801,6 +3892,15 @@ function kiesCountdownBron(nodeId, dd, aanrijRichting, preSelectieAfrij) {
         leerLog('bevestig downgrade: '+resultaat.modus);
       }
     }
+  }
+
+  // ── V11.18.13: GELEEND IS NOOIT ZEKER ────────────────────────
+  // Dezelfde doctrine als V11.14.0 op de v4_multi-tak: een getal dat niet uit
+  // de eigen emmer komt mag geen 'zeker' heten. NA de bevestig-upgrade, zodat
+  // een hoge KLOPTE-score die hierboven CD_ZEKER zet dit niet alsnog omzeilt.
+  // Alleen de klasse; de seconden blijven exact wat de metingen zeggen.
+  if (resultaat && resultaat.ddGeleend && resultaat.modus === CD_ZEKER) {
+    resultaat.modus = CD_GESCHAT;
   }
 
   return resultaat;
@@ -4994,6 +5094,7 @@ const leerNaam    = document.getElementById('leer-naam');
 const leerBadge   = document.getElementById('leer-nieuw-badge');
 const leerPctBalk = document.getElementById('leer-pct-balk');
 const leerPctGetal= document.getElementById('leer-pct-getal');
+const leerPctDd   = document.getElementById('leer-pct-dd');   // V11.18.13
 const dashKnopCnt = document.getElementById('dashboard-knop-cnt');
 const pGeluid=document.getElementById('p-geluid'), pGeluidT=document.getElementById('p-geluid-t');
 const pNacht=document.getElementById('p-nacht'),   pNachtT=document.getElementById('p-nacht-t');
@@ -5524,6 +5625,7 @@ function updateBevestigKnopStaat() {
   if (bevFoutBtn)   bevFoutBtn.classList.remove('inert');
 }
 let huidigCdBron=null, huidigCdWaarde=null;
+let huidigCdDdGeleend = false;   // V11.18.13: draagt de actieve countdown geleende dagdeeldata?
 // V11.17.0 Release 1: schaduw-voorspellingen — per methode de voorspelde
 // cyclusduur (sec) resp. het voorspelde nul-moment (ms epoch). Gevuld door
 // berekenSchaduwWaarden() bij countdown-start en updateSchaduwCountdownNul()
@@ -8992,6 +9094,7 @@ function startCd() {
       activeCdMin = v9bron.cdMin;
       activeCdMax = v9bron.cdMax;
       huidigCdBron = v9bron.bron;
+      huidigCdDdGeleend = !!v9bron.ddGeleend;   // V11.18.13
       huidigCdWaarde = v9bron.gem;
       // V11.17.83: de teller die C2 stuurt. Eén regel per countdown-start, niet
       // per frame — kiesCountdownBron draait ook vanuit bijwerkLeerkaart (r8000)
@@ -9024,6 +9127,7 @@ function startCd() {
         activeCdMin = cdMin;
         activeCdMax = cdMax;
         huidigCdBron = 'V4_fallback';
+        huidigCdDdGeleend = false;   // V11.18.13: deze tak leest alleen dit dagdeel
         huidigCdWaarde = gem;
         schaduwWaarden = berekenSchaduwWaarden(dichtstbijOSM.id, dd, aanrij, v9PreSelectieAfrij, 'V4_fallback');
         schaduwCountdownNul = { m1: null, m2: null, m3: null, m4: null };
@@ -9348,6 +9452,22 @@ function tickCd() {
   else if (richtingTekort && dichtstbijOSM
            && richtingTekort.node === String(dichtstbijOSM.id)) {
     cdPillLabel.textContent = cdPillLabel.textContent + ' · nog ' + richtingTekort.nog + '×';
+  }
+  // ── V11.18.13: ZEG HET ALS HET GETAL VAN EEN ANDER MOMENT KOMT ──
+  // © 2026 StoplichtIQ — Y. Lemaalem
+  //
+  // Zelfde suffix-patroon als ' · richting?' en ' · nog N×' hierboven, en net
+  // als die twee puur visueel: de countdown-waarde verandert er niet door.
+  //
+  // In dezelfde else-if-keten en dus NA die twee, zodat er nooit drie suffixen
+  // achter elkaar op één regel van 9px komen te staan. Dat kost iets: draagt de
+  // countdown al ' · richting?', dan blijft de dagdeellening ongenoemd. Dat is
+  // de juiste volgorde — 'dit is niet jouw richting' is het zwaardere
+  // voorbehoud dan 'dit is niet dit tijdstip', en de eerste impliceert al dat
+  // het getal niet van de eigen emmer komt.
+  else if (huidigCdDdGeleend) {
+    cdPillLabel.textContent = cdPillLabel.textContent + ' · ander dagdeel';
+    cdPillGetal.style.color = 'rgba(255,255,255,0.55)';
   }
 
   // V11.17.64 FIX A — de vroege CD_VAAG-trigger van V11.13.3 is hier weg.
@@ -9808,10 +9928,12 @@ function checkOsmVoorspelling() {
       activeCdMin = v9bron.cdMin;
       activeCdMax = v9bron.cdMax;
       huidigCdBron = v9bron.bron;
+      huidigCdDdGeleend = !!v9bron.ddGeleend;   // V11.18.13
     } else {
       const md = bepaalCdModus(activeCdDoel, m);
       activeCdModus = md.modus; activeCdMin = md.cdMin; activeCdMax = md.cdMax;
       huidigCdBron = 'osm_voorspelling';
+      huidigCdDdGeleend = false;   // V11.18.13
     }
     huidigCdWaarde = activeCdDoel;
     schaduwWaarden = berekenSchaduwWaarden(dichtstbijOSM.id, dd, aanrij, v9PreSelectieAfrij, huidigCdBron);
@@ -9886,6 +10008,33 @@ function bijwerkLeerkaart(osm) {
     document.getElementById(`dc-${d}`).textContent = c.n+'x';
     document.getElementById(`dd-${d}`).classList.toggle('actief', d===dd);
   });
+
+  // ── V11.18.13: HOEVEEL WEET DE APP OVER DÍT MOMENT? ──────────
+  // © 2026 StoplichtIQ — Y. Lemaalem
+  //
+  // Het percentage naast deze balk komt van berekenLeerPct, en dat telt ALLE
+  // dagdelen bij elkaar op (algemeenMetingen zonder dagdeelfilter, r1763). Een
+  // kruispunt waar je twintig keer overdag stond leest daardoor ook 's nachts
+  // 95%, terwijl de countdown die je op dat moment ziet uit twee nachtmetingen
+  // komt — kiesCountdownBron is namelijk wél per dagdeel (r3720). Het getal en
+  // de countdown vertellen dan twee verschillende verhalen, en het getal klinkt
+  // het stelligst.
+  //
+  // Dit bijschrift zet het aantal van het huidige dagdeel ernaast, zodat die
+  // twee niet meer los van elkaar te lezen zijn. GEEN nieuwe berekening: het
+  // komt uit laagDagdeelCijfers, precies de functie die de strip eronder al
+  // vult, dus '🌙 2x' hier en '2x' onder de maan kunnen per constructie niet
+  // uiteenlopen.
+  //
+  // Bij een vastgezet dagdeel volgt de teller dat dagdeel, want dan toont de
+  // balk ook diens percentage (r9963) — anders zou het bijschrift bij het ene
+  // getal horen en de balk bij het andere.
+  if (leerPctDd) {
+    const ddTeller = getoondDagdeel || dd;
+    const cTeller = laagDagdeelCijfers(osm.id, _laag, ddTeller);
+    leerPctDd.textContent = `${DD[ddTeller].ic} ${cTeller.n}x`;
+    leerPctDd.title = `${cTeller.n} meting(en) in dit dagdeel — het percentage links telt alle dagdelen samen`;
+  }
 
   // ── V11.17.83: OOK DIT BLOK VOLGT DE LAAG ──────────────
   // © 2026 StoplichtIQ — Y. Lemaalem
@@ -10314,6 +10463,7 @@ function pasBronAanBinnenLopendeCd() {
     activeCdMin = v9bron.cdMin;
     activeCdMax = v9bron.cdMax;
     huidigCdBron = v9bron.bron;
+    huidigCdDdGeleend = !!v9bron.ddGeleend;   // V11.18.13
     huidigCdWaarde = v9bron.gem;
     schaduwWaarden = berekenSchaduwWaarden(dichtstbijOSM.id, dd, aanrij, v9PreSelectieAfrij, v9bron.bron);
     schaduwCountdownNul = { m1: null, m2: null, m3: null, m4: null };
@@ -10322,6 +10472,7 @@ function pasBronAanBinnenLopendeCd() {
     // activeCdDoel staan. Countdown breekt NIET; user krijgt geen '?' meer
     // op een richting-tik. Bron-label wel bijwerken zodat het duidelijk is.
     huidigCdBron = 'V4_fallback_na_richting';
+    huidigCdDdGeleend = false;   // V11.18.13
   } else {
     // Geen v9bron uberhaupt — probeer V4 als noodgreep, anders bestaande houden.
     const m = laadM(dichtstbijOSM.id, dd);
