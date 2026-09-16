@@ -629,6 +629,8 @@
     <div id="mv-inhoud"></div>
     <div id="mv-knoppen">
       <button onclick="mvSluit()">Laat aan staan</button>
+      <!-- V11.18.14: wisselt het TWEEDE model. Label wordt bij het openen gezet. -->
+      <button id="mv-model-knop" onclick="mvWisselModel()">Meet D-FINE-N</button>
       <button class="uit" onclick="mvZetUit()">Zet uit</button>
     </div>
   </div>
@@ -992,7 +994,7 @@ if (typeof ort !== 'undefined') {
 //
 // De stijl volgt de eerdere labels: nummer, kastlijntje, korte omschrijving in
 // kleine letters. De CSS zet hem zelf in kapitalen (text-transform:uppercase).
-const APP_VERSIE = 'V11.18.13 — een dun dagdeel leent van zichzelf';
+const APP_VERSIE = 'V11.18.14 — D-FINE-N meet mee op snelheid';
 
 // ── CONSTANTEN ────────────────────────────────────────────────
 const OSM_RADIUS       = 5000;
@@ -6584,9 +6586,17 @@ async function laadONNXModel() {
           // zodat de meting het app-pad onmogelijk kan breken.
           if (MODELVGL_AAN) {
             try {
-              const _b = vglBeste(detecties);
-              vglOpenA.set(msg.frameId, { ms: inferentieTijd, kl: _b.kl, cf: _b.cf, n: _b.n });
-              vglKoppel(msg.frameId);
+              // V11.18.14: in de D-FINE-modus komt er nooit een B-resultaat om
+              // aan te koppelen. vglOpenA zou dan elke frame een regel erbij
+              // krijgen en nooit een terug - een lek dat een uur rijden niet
+              // overleeft. Daarom in die modus alleen de tijd, geen paring.
+              if (MODELVGL_MODEL === 'dfine') {
+                vglNoteerHoofdInDfine(inferentieTijd);
+              } else {
+                const _b = vglBeste(detecties);
+                vglOpenA.set(msg.frameId, { ms: inferentieTijd, kl: _b.kl, cf: _b.cf, n: _b.n });
+                vglKoppel(msg.frameId);
+              }
             } catch (_) {}
           }
         } else if (msg.type === 'fout') {
@@ -7949,6 +7959,34 @@ function slaKanslozeRunOver() {
 const MODELVGL_AAN = (() => {
   try { return localStorage.getItem('sl_modelvgl_aan') === '1'; } catch (e) { return false; }
 })();
+// ── V11.18.14: HET DERDE MODEL, EN WAAROM HET WISSELT ────────
+// © 2026 StoplichtIQ — Y. Lemaalem
+//
+// De vraag die deze uitbreiding beantwoordt is er precies EEN: hoeveel
+// milliseconden kost een D-FINE-N-frame op DEZE telefoon? D-FINE is Apache-2.0
+// en zou het AGPL-vraagstuk oplossen, maar alleen als de snelheid haalbaar is.
+// Lokaal gemeten op een Windows-CPU (onnxruntime 1.24, 640x640, mediaan van 6):
+//   YOLOv8s 42,7MB  429 ms
+//   YOLOv8n 11,7MB  136 ms
+//   D-FINE-N 15,3MB 227 ms
+// D-FINE-N zit daar dus tussenin. Of die verhouding op WASM/ARM standhoudt is
+// precies wat niet uit een tabel te halen is - vandaar deze meting.
+//
+// WISSELEN, NIET STAPELEN. Een derde worker naast de twee bestaande zou drie
+// modellen per frame draaien op een toestel dat er nu al twee doet. Dan meet je
+// niet de snelheid van D-FINE maar de verzadiging van de telefoon. De schaduw
+// draait daarom OF YOLOv8n OF D-FINE-N; de sleutel sl_modelvgl_model onthoudt
+// welke. De cijfers stapelen wel op in DEZELFDE opslag, dus na twee ritten
+// staan alle drie de modellen onder elkaar in de samenvatting.
+//
+// WAT DEZE MODUS NIET MEET: NAUWKEURIGHEID. Dit D-FINE-model is getraind op
+// COCO (80 algemene klassen) en kent rood/groen/uit/oranje niet. Een
+// 'zelfde uitkomst'-percentage zou hier een getal zijn dat niets betekent, en
+// daarom wordt het in deze modus niet berekend en niet getoond.
+const MODELVGL_MODEL = (() => {
+  try { return localStorage.getItem('sl_modelvgl_model') === 'dfine' ? 'dfine' : 'v8n'; }
+  catch (e) { return 'v8n'; }
+})();
 const MODELVGL_MAX_VOORBEELDEN = 40;
 let vglWorker = null, vglWorkerKlaar = false, vglBezig = false, vglStartTijd = 0;
 let vglFouten = 0;
@@ -7970,7 +8008,117 @@ function vglStatLaad() {
       voorbeelden: []
     };
   }
+  // V11.18.14: velden van het derde model. Apart bijgehouden en apart geteld,
+  // want ze horen bij een andere rit dan de A/B-paren hierboven. nAC/somMsAC is
+  // het HOOFDmodel gemeten in diezelfde D-FINE-rit: zonder die referentie uit
+  // dezelfde sessie zou C vergeleken worden met een gemiddelde van een andere
+  // dag, ander weer en een andere accustand.
+  if (vglStat.nC == null) {
+    vglStat.nC = 0;  vglStat.somMsC = 0;  vglStat.maxMsC = 0;  vglStat.detC = 0;
+    vglStat.nAC = 0; vglStat.somMsAC = 0; vglStat.maxMsAC = 0;
+  }
   return vglStat;
+}
+
+// ── V11.18.14: DE UITKOMST VAN D-FINE NAAR HET GEDEELDE FORMAAT ──
+// © 2026 StoplichtIQ — Y. Lemaalem
+//
+// D-FINE geeft twee tensors in plaats van de ene van YOLO, en ze zijn anders
+// van vorm (gecontroleerd op het daadwerkelijke bestand, opset 16):
+//   logits      [1, 300, 80]  RAUWE logits, nog geen kans - sigmoid per klasse,
+//                             meerdere klassen tegelijk mogelijk, GEEN
+//                             achtergrondslot (anders dan bij RF-DETR)
+//   pred_boxes  [1, 300, 4]   cx,cy,w,h GENORMALISEERD op 0..1
+// YOLO levert daarentegen een enkele [1,8,8400] met scores die al kansen zijn
+// en coordinaten in pixels.
+//
+// DRIE VERSCHILLEN DIE ERTOE DOEN
+//  1. sigmoid, geen softmax. Een som over klassen is hier dus zinloos - de
+//     familie-som van postprocessYOLO hoort hier niet thuis.
+//  2. geen NMS. D-FINE is end-to-end: 300 queries die elk hoogstens een object
+//     claimen. nmsFilter draaien zou goed werk weggooien.
+//  3. de coordinaten worden hier vermenigvuldigd met YOLO_SIZE, zodat x1/y1/
+//     x2/y2 in DEZELFDE eenheid staan als bij postprocessYOLO. Alles wat de
+//     vergelijkingslogica daarna doet, werkt daardoor ongewijzigd.
+//
+// `klasse` is een COCO-index (0-79), GEEN stoplichtklasse. bron:'dfine' staat
+// erbij zodat een toekomstige lezer dat niet per ongeluk door elkaar haalt.
+// Deze detecties gaan nooit naar _verwerkWorkerResultaat; ze worden alleen
+// geteld, als bewijs dat het model daadwerkelijk iets doet.
+function postprocessDfine(logits, logitsDims, boxes, drempel = CONF_DREMPEL) {
+  const dets = [];
+  if (!logits || !boxes || !logitsDims || logitsDims.length < 3) return dets;
+  const Q = logitsDims[1], C = logitsDims[2];
+  for (let q = 0; q < Q; q++) {
+    let besteLogit = -Infinity, besteKlasse = -1;
+    for (let c = 0; c < C; c++) {
+      const v = logits[q * C + c];
+      if (v > besteLogit) { besteLogit = v; besteKlasse = c; }
+    }
+    const score = 1 / (1 + Math.exp(-besteLogit));
+    if (!(score >= drempel) || besteKlasse < 0) continue;
+    const cx = boxes[q * 4 + 0] * YOLO_SIZE, cy = boxes[q * 4 + 1] * YOLO_SIZE;
+    const w  = boxes[q * 4 + 2] * YOLO_SIZE, h  = boxes[q * 4 + 3] * YOLO_SIZE;
+    dets.push({
+      klasse: besteKlasse, score, bron: 'dfine',
+      x1: cx - w / 2, y1: cy - h / 2, x2: cx + w / 2, y2: cy + h / 2,
+      w, h, cx, cy
+    });
+  }
+  dets.sort((a, b) => b.score - a.score);
+  return dets;
+}
+
+// De worker voor het derde model. Bewust een EIGEN kopie en niet een uitbreiding
+// van YOLO_WORKER_CODE: die draait in het echte app-pad, en daar hoort geen
+// letter aan te veranderen voor een tijdelijke meting. Verschillen met de YOLO-
+// worker: de invoer heet 'pixel_values' (uit inputNames gelezen, niet geraden)
+// en er komen twee tensors terug in plaats van een.
+const DFINE_WORKER_CODE=`
+importScripts('https://cdn.jsdelivr.net/npm/onnxruntime-web@1.17.1/dist/ort.min.js');
+let sessie=null,klaar=false,invoerNaam='pixel_values';
+async function initialiseer(modelBuffer){
+  try{
+    ort.env.wasm.wasmPaths='https://cdn.jsdelivr.net/npm/onnxruntime-web@1.17.1/dist/';
+    sessie=await ort.InferenceSession.create(modelBuffer,{executionProviders:['wasm'],graphOptimizationLevel:'all'});
+    if(sessie.inputNames&&sessie.inputNames.length)invoerNaam=sessie.inputNames[0];
+    klaar=true;self.postMessage({type:'klaar'});
+  }catch(e){self.postMessage({type:'fout',bericht:e.message});}
+}
+async function voerUit(pixelData,breedte,hoogte,frameId){
+  if(!klaar||!sessie){self.postMessage({type:'fout',bericht:'sessie niet klaar',frameId});return;}
+  try{
+    const feeds={};feeds[invoerNaam]=new ort.Tensor('float32',pixelData,[1,3,breedte,hoogte]);
+    const output=await sessie.run(feeds);
+    const lg=output['logits']||output[sessie.outputNames[0]];
+    const bx=output['pred_boxes']||output[sessie.outputNames[1]];
+    self.postMessage({type:'resultaat',frameId,logits:lg.data,logitsDims:lg.dims,boxes:bx.data},
+                     [lg.data.buffer,bx.data.buffer]);
+  }catch(e){self.postMessage({type:'fout',bericht:e.message,frameId});}
+}
+self.onmessage=function(e){
+  const msg=e.data;
+  if(msg.type==='initialiseer')initialiseer(msg.modelBuffer);
+  else if(msg.type==='inferentie')voerUit(msg.pixelData,msg.breedte,msg.hoogte,msg.frameId);
+};`;
+
+// Een D-FINE-frame is klaar. Geen koppeling aan A zoals bij B: er valt niets te
+// vergelijken, alleen te tellen.
+function vglNoteerC(ms, aantalDetecties) {
+  const st = vglStatLaad();
+  st.nC++;
+  st.somMsC += ms;
+  if (ms > st.maxMsC) st.maxMsC = ms;
+  st.detC += aantalDetecties;
+  if (st.nC % 10 === 0) vglStatBewaar();
+}
+
+// Het hoofdmodel, gemeten in dezelfde D-FINE-rit.
+function vglNoteerHoofdInDfine(ms) {
+  const st = vglStatLaad();
+  st.nAC++;
+  st.somMsAC += ms;
+  if (ms > st.maxMsAC) st.maxMsAC = ms;
 }
 
 function vglStatBewaar() {
@@ -8105,20 +8253,52 @@ function mvWerkIndicatorBij() {
 
 // De samenvatting zoals ze op het scherm komt. Leest dezelfde opslag als
 // modelVergelijking(), maar in een vorm die op een telefoon te lezen is.
+// V11.18.14: drie modellen, twee soorten meting. De A/B-blokken tellen alleen
+// als er paren zijn; het C-blok alleen als D-FINE ooit gedraaid heeft. Zo staat
+// er na een enkele rit precies wat gemeten is en niets meer.
 function mvSamenvattingTekst() {
   let st = null;
   try { st = JSON.parse(localStorage.getItem('sl_modelvgl')); } catch (e) { st = null; }
-  if (!st || !st.n) return 'Nog geen data — rijd eerst een rit';
+  if (!st || (!st.n && !st.nC)) return 'Nog geen data — rijd eerst een rit';
   const r1 = (x) => (Math.round(x * 10) / 10).toString().replace('.', ',');
-  const gemA = st.somMsA / st.n, gemB = st.somMsB / st.n;
-  return [
-    'Frames vergeleken: ' + st.n,
-    'Model A (groot, 42MB): gem ' + Math.round(gemA) + 'ms',
-    'Model B (klein, 12MB): gem ' + Math.round(gemB) + 'ms',
-    'Sneller: ' + r1(gemA / Math.max(1, gemB)) + '×',
-    'Zelfde uitkomst: ' + Math.round(100 * st.eens / st.n) + '%',
-    'Verschillend: ' + Math.round(100 * st.oneens / st.n) + '%'
-  ].join('\n');
+  const uit = [];
+  uit.push('Nu aan het meten: ' + (MODELVGL_MODEL === 'dfine' ? 'D-FINE-N' : 'YOLOv8n'));
+  if (st.n) {
+    const gemA = st.somMsA / st.n, gemB = st.somMsB / st.n;
+    uit.push('');
+    uit.push('Frames vergeleken: ' + st.n);
+    uit.push('Model A (groot, 42MB): gem ' + Math.round(gemA) + 'ms');
+    uit.push('Model B (klein, 12MB): gem ' + Math.round(gemB) + 'ms');
+    uit.push('Sneller: ' + r1(gemA / Math.max(1, gemB)) + '×');
+    uit.push('Zelfde uitkomst: ' + Math.round(100 * st.eens / st.n) + '%');
+    uit.push('Verschillend: ' + Math.round(100 * st.oneens / st.n) + '%');
+  }
+  if (st.nC) {
+    const gemC = st.somMsC / st.nC;
+    uit.push('');
+    uit.push('Frames met D-FINE: ' + st.nC);
+    if (st.nAC) uit.push('Model A (groot, 42MB): gem ' + Math.round(st.somMsAC / st.nAC) + 'ms');
+    uit.push('Model C (D-FINE-N, 15MB): gem ' + Math.round(gemC) + 'ms   piek ' + st.maxMsC + 'ms');
+    if (st.nAC) {
+      uit.push('C is ' + r1((st.somMsAC / st.nAC) / Math.max(1, gemC)) + '× sneller dan A');
+    }
+    uit.push('Alleen SNELHEID — dit model is op COCO getraind');
+    uit.push('en kent rood/groen/uit/oranje niet. Een');
+    uit.push('uitkomst-percentage zou hier niets betekenen.');
+  }
+  return uit.join('\n');
+}
+
+// V11.18.14: wisselen tussen het tweede en het derde model. Zelfde patroon als
+// mvZetUit: sleutel zetten, melden, herladen — want de worker en het model
+// worden bij het laden gekozen.
+function mvWisselModel() {
+  const nieuw = (MODELVGL_MODEL === 'dfine') ? 'v8n' : 'dfine';
+  try { localStorage.setItem('sl_modelvgl_model', nieuw); } catch (e) {}
+  mvSluit();
+  toonToast('Tweede model: ' + (nieuw === 'dfine' ? 'D-FINE-N' : 'YOLOv8n'));
+  mvPlanHerlaad();
+  return nieuw;
 }
 
 function mvToonOverlay() {
@@ -8126,6 +8306,10 @@ function mvToonOverlay() {
   const inh = document.getElementById('mv-inhoud');
   if (!ov || !inh) return;
   inh.textContent = mvSamenvattingTekst();
+  // V11.18.14: de knop noemt wat je KRIJGT als je hem indrukt, niet wat er nu
+  // staat — anders leest hij als een toestandsmelding en drukt niemand erop.
+  const mk = document.getElementById('mv-model-knop');
+  if (mk) mk.textContent = (MODELVGL_MODEL === 'dfine') ? 'Meet YOLOv8n' : 'Meet D-FINE-N';
   ov.classList.add('zichtbaar');
 }
 
@@ -8169,15 +8353,21 @@ if (typeof window !== 'undefined') {
   window.mvSluit = mvSluit;
   window.mvZetUit = mvZetUit;
   window.mvTrigger = mvTrigger;
+  window.mvWisselModel = mvWisselModel;   // V11.18.14
   window.mvTik = mvTik;
   window.mvPlanHerlaad = mvPlanHerlaad;
 }
 
 function startVglWorker() {
   if (!MODELVGL_AAN) return;
+  // V11.18.14: welk tweede model deze rit draait. De rest van deze functie is
+  // ongewijzigd; alleen het pad, de workercode en de verwerking van het
+  // resultaat hangen van de modus af.
+  const dfine = (MODELVGL_MODEL === 'dfine');
+  const modelPad = dfine ? './model/dfine-n.onnx' : './model/model.onnx';
   try {
-    fetch('./model/model.onnx').then(r => r.arrayBuffer()).then(buf => {
-      const blob = new Blob([YOLO_WORKER_CODE], { type: 'application/javascript' });
+    fetch(modelPad).then(r => r.arrayBuffer()).then(buf => {
+      const blob = new Blob([dfine ? DFINE_WORKER_CODE : YOLO_WORKER_CODE], { type: 'application/javascript' });
       const url = URL.createObjectURL(blob);
       vglWorker = new Worker(url);
       vglWorker.onmessage = function (e) {
@@ -8192,9 +8382,16 @@ function startVglWorker() {
           const ms = Date.now() - vglStartTijd;
           vglBezig = false;
           try {
-            const best = vglBeste(vglPostprocessVeilig(msg.data, msg.dims));
-            vglOpenB.set(msg.frameId, { ms, kl: best.kl, cf: best.cf, n: best.n });
-            vglKoppel(msg.frameId);
+            if (dfine) {
+              // Alleen tellen. De klassen van dit model zijn COCO-klassen en
+              // zeggen niets over stoplichten; de tijd zegt alles.
+              const d = postprocessDfine(msg.logits, msg.logitsDims, msg.boxes);
+              vglNoteerC(ms, d.length);
+            } else {
+              const best = vglBeste(vglPostprocessVeilig(msg.data, msg.dims));
+              vglOpenB.set(msg.frameId, { ms, kl: best.kl, cf: best.cf, n: best.n });
+              vglKoppel(msg.frameId);
+            }
           } catch (_) {}
         }
       };
