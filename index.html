@@ -994,7 +994,7 @@ if (typeof ort !== 'undefined') {
 //
 // De stijl volgt de eerdere labels: nummer, kastlijntje, korte omschrijving in
 // kleine letters. De CSS zet hem zelf in kapitalen (text-transform:uppercase).
-const APP_VERSIE = 'V11.18.14 — D-FINE-N meet mee op snelheid';
+const APP_VERSIE = 'V11.18.15 — de backup neemt alles mee';
 
 // ── CONSTANTEN ────────────────────────────────────────────────
 const OSM_RADIUS       = 5000;
@@ -11191,6 +11191,52 @@ function tijdGeleden(ts) {
 }
 
 // ── DATA EXPORT/IMPORT ────────────────────────────────────────
+
+// ── V11.18.15: DE BACKUP NEEMT ELKE sl_-SLEUTEL MEE ──────────
+// © 2026 StoplichtIQ — Y. Lemaalem
+//
+// WAT ER MIS WAS. De export liep over een VASTE lijst van 24 prefixen en
+// sleutelnamen. Elke store die na het opstellen van die lijst bijkwam, viel er
+// stil buiten — er kwam geen fout, geen melding, de sleutel stond gewoon niet
+// in het bestand. sl_modelvgl (V11.18.8) is zo twee exports lang weggevallen,
+// terwijl hij op het toestel stond. Hetzelfde gold voor sl_modelvgl_aan,
+// sl_modelvgl_model en de drie migratievlaggen (sl_s2mig_v1, sl_rvwees_v1,
+// sl_afrijmig_v1). En het is de tweede keer: V11.15.4 repareerde al eens
+// sleutels die in de ene lijst stonden en in de andere niet.
+//
+// WAAROM EEN PREFIX EN GEEN LANGERE LIJST. Een lijst die bij elke nieuwe store
+// bijgewerkt moet worden, wordt vroeg of laat vergeten; dat is precies wat hier
+// gebeurde. Elke sleutel van deze app begint met 'sl_', dus dat is de regel.
+// Hij is per constructie een SUPERSET van de oude lijst — elk item daarin
+// begint met 'sl_' — zodat geen enkele sleutel die vroeger meeging nu wegvalt.
+//
+// WAAROM DAT VEILIG IS. De vaste lijst bewaakte geen omvang: de enige echt
+// grote store, de trainframes, staat in IndexedDB (StoplichtIQ_Trainframes)
+// en niet in localStorage, en komt langs deze weg dus nooit mee. Wat er vandaag
+// extra bijkomt is ~5,5 KB. Export is bovendien alleen lezen; een sleutel te
+// veel maakt het bestand iets groter en verandert niets op het toestel.
+//
+// IMPORT BLIJFT BEWUST EEN LIJST. Terugzetten schrijft WEL naar het toestel,
+// en daar is niet elke sleutel onschuldig: sl_modelvgl_aan zou op een nieuwe
+// telefoon ongevraagd de testmodus aanzetten. De importlijst is daarom geen
+// spiegel van deze export meer, maar de lijst van wat veilig terug mag.
+function exportSleutelMee(key) {
+  return typeof key === 'string' && key.startsWith('sl_');
+}
+
+// Het data-deel van de backup. Losgetrokken uit exporteerData zodat de selectie
+// zonder share-dialoog, alert en download te toetsen is. De parse-terugval is
+// ongewijzigd: een waarde die geen JSON is gaat als ruwe tekst mee, nooit weg.
+function verzamelBackupData() {
+  const data = {};
+  for (const key of Object.keys(localStorage)) {
+    if (!exportSleutelMee(key)) continue;
+    try { data[key] = JSON.parse(localStorage.getItem(key)); }
+    catch(e) { data[key] = localStorage.getItem(key); }
+  }
+  return data;
+}
+
 function exporteerData() {
   // V11.15.4 Fix 3: loading-indicator direct zichtbaar, zwaar werk in
   // volgende tick zodat UI eerst kan renderen.
@@ -11209,12 +11255,7 @@ function exporteerData() {
   setTimeout(() => {
     try {
       const exportData = { versie:'11.4.4', exportDatum:new Date().toISOString(), app:'StoplichtIQ', data:{}, scores:{} };
-      for (const key of Object.keys(localStorage)) {
-        if (key.startsWith('sl_v10_')||key.startsWith('sl_v5_')||key.startsWith('sl_v4_')||key.startsWith('sl_v3_')||key.startsWith('sl_s2_')||key.startsWith('sl_klok_')||key==='sl_opslaglog'||key==='sl_richtinglog'||key==='sl_schaduwlog'||key==='sl_herzieninglog'||key.startsWith('sl_passief_')||key==='sl_conflog'||key==='sl_zichtlog'||key==='sl_detlog'||key.startsWith('sl_tag_')||key.startsWith('sl_naam_')||key.startsWith('sl_richting_')||key.startsWith('sl_route_')||key.startsWith('sl_bevestig_')||key.startsWith('sl_pos_')||key.startsWith('sl_neutraal_')||key.startsWith('sl_enkelricht_')||key==='sl_cam_stats'||key==='sl_stad_cache') {
-          try { exportData.data[key] = JSON.parse(localStorage.getItem(key)); }
-          catch(e) { exportData.data[key] = localStorage.getItem(key); }
-        }
-      }
+      exportData.data = verzamelBackupData();   // V11.18.15: elke sl_-sleutel, zie daar
       const aantalItems = Object.keys(exportData.data).length;
       if (!aantalItems) { alert('Geen data om te exporteren.'); herstelBtn(); return; }
       for (const id of haalAlleOsmIds()) { exportData.scores[id] = berekenDrieScores(id); }
@@ -11259,6 +11300,10 @@ function importeerData(bestand) {
         // V11.15.4 Fix 4: whitelist gesynchroniseerd met exporteerData —
         // sl_bevestig_, sl_pos_ en sl_cam_stats zaten wél in de export
         // maar werden bij import stil overgeslagen.
+        // V11.18.15: NIET MEER gesynchroniseerd, en dat is bewust. De export
+        // neemt nu elke sl_-sleutel mee (exportSleutelMee); deze lijst is wat
+        // veilig TERUG mag. sl_modelvgl* staat er niet in: een backup mag op
+        // een ander toestel geen testmodus aanzetten.
         if (!key.startsWith('sl_v10_')&&!key.startsWith('sl_v5_')&&!key.startsWith('sl_v4_')&&!key.startsWith('sl_v3_')&&!key.startsWith('sl_s2_')&&!key.startsWith('sl_klok_')&&key!=='sl_opslaglog'&&key!=='sl_richtinglog'&&key!=='sl_schaduwlog'&&key!=='sl_herzieninglog'&&!key.startsWith('sl_passief_')&&key!=='sl_conflog'&&key!=='sl_zichtlog'&&key!=='sl_detlog'&&!key.startsWith('sl_tag_')&&!key.startsWith('sl_naam_')&&!key.startsWith('sl_richting_')&&!key.startsWith('sl_route_')&&!key.startsWith('sl_bevestig_')&&!key.startsWith('sl_pos_')&&!key.startsWith('sl_neutraal_')&&!key.startsWith('sl_enkelricht_')&&key!=='sl_cam_stats'&&key!=='sl_stad_cache') { overgeslagen++; continue; }
         if (localStorage.getItem(key) !== null) { overgeslagen++; continue; }
         try { localStorage.setItem(key, JSON.stringify(waarde)); toegevoegd++; } catch(e) { overgeslagen++; }
