@@ -994,7 +994,7 @@ if (typeof ort !== 'undefined') {
 //
 // De stijl volgt de eerdere labels: nummer, kastlijntje, korte omschrijving in
 // kleine letters. De CSS zet hem zelf in kapitalen (text-transform:uppercase).
-const APP_VERSIE = 'V11.18.18 — rond licht is de basis';
+const APP_VERSIE = 'V11.18.19 — richting telt even zwaar';
 
 // ── CONSTANTEN ────────────────────────────────────────────────
 const OSM_RADIUS       = 5000;
@@ -1806,6 +1806,56 @@ function bochtUitLabel(tekst, terugAlsRechtdoor = false) {
        : 'rechtdoor';
 }
 
+// ── V11.18.19: EEN V5-RECORD OP DE V4-SCHAAL ──────────────
+// © 2026 StoplichtIQ — Y. Lemaalem
+//
+// Deze omrekening stond twee keer letterlijk hetzelfde: in algemeenMetingen
+// (de gekoppelde helft die in het ronde licht meetelt) en in richtingLeerPct.
+// Beide moeten vanaf deze release hetzelfde DERDE geval kennen — de tap-bonus
+// — en twee kopieen die dat allebei moeten leren zijn er een te veel.
+//
+// WAT HIJ DOET. Een V5-record draagt geen `obs` en geen `tier`, dus
+// vlakGewichtVoor valt uit en berekenObsScore zou het rauwe `gewicht` pakken.
+// Maar dat V5-gewicht is een AFSTANDSgewicht (V9_GEWICHT_DICHTBIJ 1,0 onder
+// 40 m, V9_GEWICHT_VER 0,6 daarboven), geen observatiegewicht. Zonder
+// omrekening telt een richting-record systematisch te zwaar — gemeten 42% bij
+// n=1 waar de V4-kant 25% geeft.
+//
+// ── V11.18.19 STAP A: DE TAP-BONUS VALT VOORTAAN AAN BEIDE KANTEN ─
+//
+// WAT ER MIS WAS. Een passage waarbij de gebruiker zelf tikte levert twee
+// records: een V4-record en — alleen dankzij die tik — een V5-record. Het
+// V4-record loopt langs berekenObsGewicht (r2530), krijgt daar
+// +OBS_TAP_BONUS, en vlakGewichtVoor (r1656) herkent dat later als
+// OBS_VLAK_TAP: 0,70. Het V5-record van DEZELFDE passage kwam hier binnen en
+// ging onvoorwaardelijk naar OBS_VLAK: 0,50. De richting die door de tik zelf
+// ONTSTOND liep de bonus voor die tik mis — een zuiver rekenverschil, en de
+// hoofdoorzaak van het gat tussen een richting en het ronde licht bij gelijk n
+// (32 tegen 25 procentpunt bij n=1, 69 tegen 56 bij n=3).
+//
+// `tb === 1` is het stempel dat slaOpV5 (r2934) sinds deze release zet, en
+// uitsluitend op het schrijfpad achter tikHerkomstEcht — een echte, bewuste
+// tik van een mens op DEZE node in DEZE sessie. Ontbreekt het veld, dan geldt
+// de oude 0,50. Dat is bewust en geldt ook voor alle records van voor deze
+// release: er wordt niets herberekend en niets teruggestempeld. Een
+// merge_alg-record (r14159, een V4-meting die via een samenvoeging in een
+// richting-emmer belandde) komt niet van een tik en krijgt het stempel dus
+// ook nooit.
+//
+// DE AFSTANDSKORTING BLIJFT EEN FACTOR. Een verre meting (40-80 m) hield haar
+// korting als 0,30 = 0,50 x 0,6 en houdt die nu als 0,42 = 0,70 x 0,6. De
+// korting zelf verandert niet — alleen het getal waarop ze werkt. Zou de bonus
+// er plat bovenop komen, dan zou een verre tik ineens even zwaar wegen als een
+// dichtbij-meting zonder tik, en dat is precies wat V9_GEWICHT_VER moet
+// voorkomen.
+function v5NaarV4Vorm(x) {
+  const basis = (x && x.tb === 1) ? OBS_VLAK_TAP : OBS_VLAK;
+  return {
+    duur: x.duur, tijd: x.tijd, s2: x.s2, bron: x.bron,
+    gewicht: basis * ((x.gewicht ?? V9_GEWICHT_DICHTBIJ) / V9_GEWICHT_DICHTBIJ)
+  };
+}
+
 function algemeenMetingen(nodeId, dd = null) {
   const dagdelen = dd ? [dd] : Object.keys(DD);
   let m = [];
@@ -1814,10 +1864,12 @@ function algemeenMetingen(nodeId, dd = null) {
   if (!mark) return m;   // geen koppeling: byte-identiek aan wat er stond
 
   const naarRicht = (aanrij, afrij) => bochtUitLabel(rijdersPijlLabel(aanrij, afrij).tekst);
-  const norm = (x) => ({
-    duur: x.duur, tijd: x.tijd, s2: x.s2, bron: x.bron,
-    gewicht: OBS_VLAK * ((x.gewicht ?? V9_GEWICHT_DICHTBIJ) / V9_GEWICHT_DICHTBIJ)
-  });
+  // V11.18.19: de omrekening woont nu in v5NaarV4Vorm, zodat deze helft en
+  // richtingLeerPct niet uiteen kunnen lopen. Een gekoppelde richting IS hier
+  // het ronde licht en haar V4-tweelingen zijn er door zonderRichtingVerwant
+  // net uit gefilterd — zonder de tap-bonus zou dit kruispunt dus lager
+  // uitkomen dan precies hetzelfde kruispunt zonder koppeling.
+  const norm = v5NaarV4Vorm;
   const voorvoegsel = `${LS_PREFIX_V5}${nodeId}_`;
   for (const k of Object.keys(localStorage)) {
     if (!k.startsWith(voorvoegsel)) continue;
@@ -1841,29 +1893,59 @@ function berekenLeerPct(osmId) {
   const alleM = algemeenMetingen(osmId);
   if (!alleM.length) return 0;
   const obsPct = berekenObsScore(alleM);
-  const gem = gewGem(alleM);
-  // V11.17.66 poort 1: `alleM.length >= 3` telde de lege S2-markeringen mee.
+  // V11.18.19: de drie bonussen wonen nu in nodeBredeBonussen, zodat de
+  // richtingkant er dezelfde — verzwakte — vorm van kan lezen. Zuivere
+  // extractie: zelfde bronnen, zelfde drempels, zelfde plafonds, en deze
+  // optelling is onveranderd.
+  const b = nodeBredeBonussen(osmId, alleM, obsPct);
+  return Math.min(95, obsPct + b.s2 + b.gpsTik + b.bevestig);
+}
+
+// ── V11.18.19: DE DRIE BONUSSEN DIE BIJ HET KRUISPUNT HOREN ───
+// © 2026 StoplichtIQ — Y. Lemaalem
+//
+// Deze drie stonden binnen berekenLeerPct en golden daardoor UITSLUITEND voor
+// het ronde licht. Dat was een bewuste keuze — alle drie zijn per NODE
+// opgeslagen en niet aan een enkele bocht toe te wijzen — maar het bleef een
+// rekenverschil bij gelijk bewijs: twee categorieen met evenveel metingen op
+// hetzelfde kruispunt kregen niet hetzelfde getal. Vanaf nu leest de
+// richtingkant ze ook, verzwakt (zie richtingLeerPct).
+//
+// `metingen` is de laag waar het percentage over gaat, in HAAR EIGEN vorm —
+// dus V4-records voor het ronde licht en rauwe V5-records voor een richting.
+// Alleen `duur` (via heeftGemetenDuur) en gewGem worden eruit gelezen, en die
+// gewGem is met opzet de rauwe: het is de cyclustijd die de app voor deze laag
+// ook werkelijk voorspelt, en dat is het getal dat een buurkruispunt moet
+// kunnen bevestigen. De op OBS_VLAK genormaliseerde vorm hoort bij de
+// SCORE, niet bij de seconden.
+//
+// De drie takken hieronder zijn letterlijk verplaatst uit berekenLeerPct
+// (V11.17.66 poort 1 en V11.13.1 inbegrepen); er is geen drempel, plafond of
+// bron gewijzigd.
+function nodeBredeBonussen(osmId, metingen, obsPct) {
+  const gem = gewGem(metingen);
+  // V11.17.66 poort 1: `metingen.length >= 3` telde de lege S2-markeringen mee.
   // Bij een emmer die alleen daaruit bestaat was dat onschadelijk (gem is dan
   // null), maar bij een GEMENGDE emmer opende een handvol markeringen de poort
   // die anders dicht bleef. Gemeten: 34 nodes vallen anders uit.
-  const s2Bonus = alleM.filter(heeftGemetenDuur).length >= 3 && gem
+  const s2 = metingen.filter(heeftGemetenDuur).length >= 3 && gem
     ? Math.min(10, zoekS2BevestigingScore(osmId, gem) * 3) : 0;
-  let gpsTikBonus = 0;
+  let gpsTik = 0;
   try {
     const rd = JSON.parse(localStorage.getItem(`sl_richting_${osmId}`));
-    if (rd && rd.gps_tik_score != null) gpsTikBonus = Math.round(rd.gps_tik_score * 5);
+    if (rd && rd.gps_tik_score != null) gpsTik = Math.round(rd.gps_tik_score * 5);
   } catch(e) {}
   // V11.13.1: vertrouwens-bonus uit gebruikersbevestigingen.
   // Alleen actief als er voldoende echte observatie-onderbouwing is
   // (obsPct >= 10), zodat KLOPTE-taps op dunne data niets opzwellen.
-  let bevestigBonus = 0;
+  let bevestig = 0;
   if (obsPct >= 10) {
     const bevS = berekenBevestigScore(osmId);
     if (bevS && bevS.score > 0) {
-      bevestigBonus = Math.min(8, Math.round(bevS.score * 8));
+      bevestig = Math.min(8, Math.round(bevS.score * 8));
     }
   }
-  return Math.min(95, obsPct + s2Bonus + gpsTikBonus + bevestigBonus);
+  return { s2, gpsTik, bevestig };
 }
 
 function leerKleur(pct) {
@@ -2931,7 +3013,12 @@ function telRichtingVerwant(nodeId) {
 const V5_MIN_DUUR_S = 4;
 const V5_MAX_DUUR_S = 180;
 
-function slaOpV5(nodeId, aanrij, afrij, dd, duur, gewicht, zagOvergang=null, bron='tik') {
+// V11.18.19: `tikBevestigd` is het STEMPEL, niet het gewicht. Het gewicht blijft
+// het afstandsgewicht — gewGem leest dat en bepaalt er de countdown mee, dus
+// daar mag geen bonus in. Alleen het PERCENTAGE kijkt naar het stempel, via
+// v5NaarV4Vorm (r1809). Standaard false, zodat elke toekomstige aanroeper die
+// niet aantoonbaar achter tikHerkomstEcht staat vanzelf geen bonus krijgt.
+function slaOpV5(nodeId, aanrij, afrij, dd, duur, gewicht, zagOvergang=null, bron='tik', tikBevestigd=false) {
   if (!nodeId || !aanrij || !afrij || !dd || !duur
       || duur < V5_MIN_DUUR_S || duur > V5_MAX_DUUR_S) {
     logOpslagMis('v5_guard', { node: nodeId, dur: duur, aanrij, afrij });
@@ -2948,6 +3035,12 @@ function slaOpV5(nodeId, aanrij, afrij, dd, duur, gewicht, zagOvergang=null, bro
   // V11.17.26 W2: zelfde label als het gepaarde V4-record (r2350).
   if (zagOvergang === true) v5entry.zo = 1;
   else if (zagOvergang === false) v5entry.zo = 0;
+  // V11.18.19: dit record komt uit een echte, bewuste tik van een mens. Het
+  // V4-record van dezelfde passage krijgt bij een handmatige bevestiging
+  // OBS_VLAK_TAP (0,70) toegekend; met dit stempel doet het V5-record dat ook.
+  // Veld AFWEZIG = geen bonus — dezelfde conventie als `zo` en `rv`, en de
+  // reden dat er niets met terugwerkende kracht verandert.
+  if (tikBevestigd === true) v5entry.tb = 1;
   m.push(v5entry);
   if (m.length > MAX_METINGEN) { m.sort((a,b) => gew(b.tijd)-gew(a.tijd)); m = m.slice(0, MAX_METINGEN); }
   try { localStorage.setItem(sleutel, JSON.stringify(m)); } catch(e) {}
@@ -3333,22 +3426,75 @@ function naderingLabel(naderingen, g) {
 // dichtbij-meting telt als één vlakke waarneming, een verre houdt haar korting
 // (0,30). Daarmee ligt een richting bij gelijke n exact op de V4-lijn.
 //
-// De drie bonussen uit berekenLeerPct (s2, gps_tik, bevestig) blijven er
-// bewust buiten: alle drie zijn per NODE opgeslagen en niet aan één bocht toe
-// te wijzen. Een richting haalt dus wel de volle 95 via observatie — vanaf
-// acht dichtbij-metingen, hetzelfde punt als een node — maar niet via bonus.
-function richtingLeerPct(metingen) {
+// De drie bonussen uit berekenLeerPct (s2, gps_tik, bevestig) bleven er in
+// V11.17.84 bewust buiten: alle drie zijn per NODE opgeslagen en niet aan één
+// bocht toe te wijzen. V11.18.19 draait dat gedeeltelijk terug — zie hieronder.
+//
+// ── V11.18.19 STAP B: DE NODE-BREDE BONUSSEN, GEHALVEERD ────
+// © 2026 StoplichtIQ — Y. Lemaalem
+//
+// WAT ER MIS WAS — EN WAT ER NIET MIS WAS. Er zijn drie redenen waarom een
+// richting langzamer in percentage groeit dan het ronde licht, en maar twee
+// ervan zijn een rekenfout:
+//
+//   1. de tap-bonus viel aan één kant — gerepareerd in v5NaarV4Vorm (r1809);
+//   2. deze drie bonussen golden alleen voor het ronde licht — dit blok;
+//   3. elke passage levert een V4-record, maar alleen een GETIKTE passage
+//      levert een V5-record. Dat is GEEN rekenverschil en wordt niet
+//      gerepareerd. Minder bewijs hoort minder percentage te geven; dat is de
+//      hele betekenis van het getal.
+//
+// WAAROM WEL MEETELLEN. Alle drie zeggen iets dat ook over deze bocht gaat.
+// Een buurkruispunt met dezelfde cyclus (s2), een GPS-richting die de tik van
+// de gebruiker bevestigt (gps_tik) en KLOPTE-tikken op de countdown
+// (bevestig) maken de voorspelling van DIT kruispunt geloofwaardiger — en de
+// bestuurder staat bij die bocht voor dat kruispunt. Ze volledig wegstrepen
+// betekent dat twee categorieen met exact hetzelfde bewijs een ander getal
+// tonen, en dat is precies wat deze release wegneemt.
+//
+// WAAROM NIET VOLUIT. De opslag is per node: sl_bevestig_<id>, sl_richting_<id>
+// en de buurscan van zoekS2BevestigingScore kennen geen bochten. Een kruispunt
+// met vier richtingen zou dezelfde acht bevestigingspunten vier keer uitdelen
+// — vier keer hetzelfde bewijs, op vier regels van hetzelfde scherm. Het
+// bewijs is er, maar het is bewijs over de PLEK en niet over de BOCHT, en dat
+// hoort lichter te wegen dan bewijs dat wel uit deze emmer komt.
+//
+// DE GEKOZEN VORM: elke bonus door RICHT_NODEBONUS_DELER en naar BENEDEN
+// afgerond. Dus 5 in plaats van 10 (s2), 2 in plaats van 5 (gps_tik) en 4 in
+// plaats van 8 (bevestig): samen ten hoogste 11 punten tegen 23 voor het ronde
+// licht. Drie eigenschappen maakten dit de keuze boven een eigen plafond per
+// bonus:
+//   • het is één getal op één plek — er staat geen tweede set drempels die
+//     stil kan gaan afwijken van de originele drie;
+//   • de ORDENING blijft heel: een richting kan door deze bonussen nooit boven
+//     het ronde licht van hetzelfde kruispunt uitkomen, bij welke score dan ook;
+//   • naar beneden afronden volgt de staande regel van dit project (zie
+//     vlakGewichtVoor r1652): een onterecht toegekende bonus is erger dan een
+//     gemiste. Een score die maar net boven nul uitkomt levert zo 0 op.
+//
+// De observatiekant blijft onaangeraakt: een richting haalt de volle 95 via
+// haar eigen metingen vanaf acht dichtbij-metingen, hetzelfde punt als een node.
+//
+// ZONDER nodeId GEEN BONUS. Dat is niet alleen een veilige terugval maar ook de
+// enige juiste: zonder node is er geen bevestig-store, geen gps_tik_score en
+// geen buurscan om te lezen. Aanroepers die alleen een metingenlijst hebben
+// krijgen dus exact het getal dat ze voor deze release kregen.
+const RICHT_NODEBONUS_DELER = 2;
+
+function richtingLeerPct(metingen, nodeId = null) {
   if (!metingen || !metingen.length) return 0;
   // Alleen de velden die berekenObsScore leest, en bewust ZONDER `obs` en
   // `tier`: dat maakt de gewichtstak deterministisch (vlakGewichtVoor geeft
   // gegarandeerd null) terwijl de skiplijst op bron/s2 blijft werken.
-  return berekenObsScore(metingen.map(x => ({
-    duur: x.duur,
-    tijd: x.tijd,
-    s2: x.s2,
-    bron: x.bron,
-    gewicht: OBS_VLAK * ((x.gewicht ?? V9_GEWICHT_DICHTBIJ) / V9_GEWICHT_DICHTBIJ)
-  })));
+  // V11.18.19: de omrekening — inclusief de tap-bonus voor een record dat uit
+  // een echte tik komt — staat in v5NaarV4Vorm, gedeeld met algemeenMetingen.
+  const obsPct = berekenObsScore(metingen.map(v5NaarV4Vorm));
+  if (nodeId == null) return obsPct;
+  // De RAUWE metingen gaan mee: nodeBredeBonussen neemt er gewGem van, en dat
+  // moet de cyclustijd zijn die deze richting werkelijk voorspelt.
+  const b = nodeBredeBonussen(nodeId, metingen, obsPct);
+  const zwak = (x) => Math.floor(x / RICHT_NODEBONUS_DELER);
+  return Math.min(95, obsPct + zwak(b.s2) + zwak(b.gpsTik) + zwak(b.bevestig));
 }
 
 function berekenRichtingPct(nodeId, aanrij, afrij, dd) {
@@ -3356,7 +3502,7 @@ function berekenRichtingPct(nodeId, aanrij, afrij, dd) {
   // Leeg blijft null en niet 0: de aanroepers gebruiken dat om een regel
   // helemaal weg te laten in plaats van hem op nul te tonen.
   if (!m.length) return null;
-  return { pct: richtingLeerPct(m), metingen: m.length };
+  return { pct: richtingLeerPct(m, nodeId), metingen: m.length };
 }
 
 function verzamelV5Richtingen(nodeId, lsIndex = null) {
@@ -4796,7 +4942,13 @@ function schrijfV5DirectBijGroen(nodeId, dur, dd, afstandM, stempels) {
   if (typeof afstandM === 'number' && !isNaN(afstandM) && afstandM > V9_DICHTBIJ_AFSTAND) {
     gewicht = V9_GEWICHT_VER;
   }
-  slaOpV5(nodeId, aanrijRichting, tik.afrij, dd, dur, gewicht, v9KandidaatZagOvergang);
+  // V11.18.19: bepaalGetikteAfrij hierboven gaf alleen een waarde terug omdat
+  // tikHerkomstEcht true was — er is dus per constructie getikt. De poort staat
+  // hier nog een keer expliciet, zodat aan de schrijfregel zelf te zien is
+  // waarvoor het stempel staat en de twee niet uiteen kunnen lopen als
+  // bepaalGetikteAfrij ooit verandert.
+  slaOpV5(nodeId, aanrijRichting, tik.afrij, dd, dur, gewicht, v9KandidaatZagOvergang,
+          'tik', tikHerkomstEcht(nodeId));
   const paar = aanrijRichting + '_' + tik.afrij;
   logOpslagMis('v5_vroeg_geschreven', { node: nodeId, dur,
     aanrij: aanrijRichting, afrij: tik.afrij, afst: afstandM, v5Reden: tik.bron });
@@ -4952,7 +5104,12 @@ function voerV9DelayedWriteUit(huidigeHeading, trigger = null, poort = null, onz
       aanrij: aanrijRichting, afrij: afrijRichting });
     v5Geschreven = true;
   } else if (viaTik) {
-    slaOpV5(v9KandidaatNode, aanrijRichting, afrijRichting, dd, duur, gewicht, v9KandidaatZagOvergang);
+    // V11.18.19: `viaTik` komt uit bepaalGetikteAfrij en die geeft alleen een
+    // waarde terug achter tikHerkomstEcht, dus deze toets is hier per
+    // constructie true. Zie schrijfV5DirectBijGroen voor waarom hij er toch
+    // letterlijk staat.
+    slaOpV5(v9KandidaatNode, aanrijRichting, afrijRichting, dd, duur, gewicht,
+            v9KandidaatZagOvergang, 'tik', tikHerkomstEcht(v9KandidaatNode));
     v5Geschreven = true;
   } else {
     logOpslagMis('v5_geen_tik', { node: v9KandidaatNode, dur: duur,
@@ -10589,7 +10746,10 @@ function renderRichtingBlok(osm) {
       // uiteen kunnen lopen; met één aanroep kan dat niet.
       // `metingen` blijft de kale telling: hij stuurt de sortering en de
       // Terug-poort hieronder, en die mogen niet mee verschuiven.
-      pct: richtingLeerPct(laagMetingen(nodeId, { paren: g.paren })),
+      // V11.18.19: nodeId mee, zodat deze regel dezelfde — gehalveerde —
+      // node-brede bonussen ziet als laagLeerPct hieronder. Zouden ze hier
+      // ontbreken, dan week de regel weer af van de balk erboven.
+      pct: richtingLeerPct(laagMetingen(nodeId, { paren: g.paren }), nodeId),
       cyc: g.cycCount > 0 ? Math.round(g.cycSum / g.cycCount) : null,
       label: g.label
     }))
@@ -10928,7 +11088,9 @@ function laagMetingen(nodeId, laag, dd = null) {
 
 function laagLeerPct(nodeId, laag) {
   if (!laag) return berekenLeerPct(nodeId);
-  return richtingLeerPct(laagMetingen(nodeId, laag));
+  // V11.18.19: nodeId mee. De Algemeen-tak hierboven telt de drie node-brede
+  // bonussen al op; deze tak telt ze vanaf nu ook, gehalveerd.
+  return richtingLeerPct(laagMetingen(nodeId, laag), nodeId);
 }
 
 // De cijfers voor één dagdeel-chip. Zelfde vorm als de V4-tak die hij vervangt:
@@ -10972,7 +11134,7 @@ function laagDagdeelPct(nodeId, laag, dd) {
   // deze regel, dan één keer scoren. Bleef dit middelen, dan week de
   // vastgezette-dagdeelweergave af van de gewone.
   const m = laagMetingen(nodeId, laag, dd);
-  return m.length ? richtingLeerPct(m) : null;
+  return m.length ? richtingLeerPct(m, nodeId) : null;
 }
 
 // Terug naar Algemeen. Zet GEEN rijrichting — dat was de fout in de oude

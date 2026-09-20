@@ -3,6 +3,9 @@
 //  © 2026 StoplichtIQ — Y. Lemaalem
 //
 //  Test bij V11.17.84 (D1): een richting wordt gescoord als een stoplicht.
+//  Bijgewerkt bij V11.18.19: T7 is OMGEKEERD. De drie node-brede bonussen
+//  tellen sinds die release wel mee voor een richting, maar gehalveerd en
+//  naar beneden afgerond. T8b volgt de verhuizing naar nodeBredeBonussen.
 //
 //  WAT HIER BEWAAKT WORDT
 //  Tot deze release scoorde een richting via een trapfunctie op het kale
@@ -170,7 +173,15 @@ function testRichtingPct() {
     eis('T6b twee paren van 2 geven hetzelfde als één emmer van 4',
         beidePaar === inEenEmmer, inEenEmmer + '%', beidePaar + '%');
 
-    // ══ T7 — DE NODE-BONUSSEN LEKKEN NIET NAAR DE RICHTING ════
+    // ══ T7 — DE NODE-BONUSSEN TELLEN MEE, MAAR GEHALVEERD ════
+    // V11.18.19 KEERT DEZE TOETS OM. Tot deze release eiste T7 dat de drie
+    // node-brede bonussen het richting-percentage NIET raakten. Die keuze was
+    // verdedigbaar — de bonussen staan per node opgeslagen — maar ze liet een
+    // rekenverschil staan: twee categorieen met exact hetzelfde bewijs op
+    // hetzelfde kruispunt kregen een ander getal. Stap B van V11.18.19 laat ze
+    // meetellen, gedeeld door RICHT_NODEBONUS_DELER en naar beneden afgerond.
+    // De eis is dus niet meer 'geen verschil' maar 'een kleiner verschil dan
+    // het ronde licht krijgt, en nooit nul'.
     wisNode();
     zetLS('sl_v5_' + NODE + '_N_W_' + DD_NU, JSON.stringify(v5rec(2)));
     const zonderBonus = berekenRichtingPct(NODE, 'N', 'W', DD_NU).pct;
@@ -179,12 +190,29 @@ function testRichtingPct() {
       Array.from({ length: 8 }, () => ({ categorie: 'klopte', tijd: nu }))));
     zetLS('sl_richting_' + NODE, JSON.stringify({ gps_tik_score: 1.0, headings: [], laatste_update: nu }));
     const metBonus = berekenRichtingPct(NODE, 'N', 'W', DD_NU).pct;
-    eis('T7 de node-bonussen veranderen het richting-percentage niet',
-        metBonus === zonderBonus, zonderBonus + '%', metBonus + '%');
-    const bronRP = String(berekenRichtingPct) + String(richtingLeerPct);
-    eis('T7b en de bronnen ervan worden nergens aangeroepen',
-        !/zoekS2BevestigingScore|berekenBevestigScore|gps_tik_score/.test(bronRP),
-        'geen bonusaanroep', 'schoon');
+    // MET de bonusbronnen nog op scherp: dezelfde metingen, maar aangeroepen
+    // zonder nodeId. Dat is de terugval voor aanroepers die alleen een
+    // metingenlijst hebben, en die hoort exact het oude getal te geven.
+    const zonderNodeId = richtingLeerPct(laadMV5Geclusterd(NODE, 'N', 'W', DD_NU));
+    // Dezelfde twee bonusbronnen, nu op de V4-kant van dezelfde node. Dat is
+    // het getal waar de richting onder moet blijven.
+    zetLS('sl_v4_' + NODE + '_' + DD_NU, JSON.stringify(v4rec(2)));
+    const rondMet = berekenLeerPct(NODE);
+    zetLS('sl_bevestig_' + NODE, null);
+    zetLS('sl_richting_' + NODE, null);
+    const rondZonder = berekenLeerPct(NODE);
+    eis('T7 de node-bonussen tellen nu WEL mee voor een richting',
+        metBonus > zonderBonus, 'hoger dan ' + zonderBonus + '%', metBonus + '%');
+    eis('T7b maar verzwakt: de winst is kleiner dan die van het ronde licht',
+        (metBonus - zonderBonus) < (rondMet - rondZonder),
+        'richtingwinst < ' + (rondMet - rondZonder) + ' punt',
+        (metBonus - zonderBonus) + ' punt');
+    eis('T7c precies gehalveerd en naar beneden afgerond (gps 5→2, bevestig 8→4)',
+        (metBonus - zonderBonus) === Math.floor(5 / RICHT_NODEBONUS_DELER) + Math.floor(8 / RICHT_NODEBONUS_DELER),
+        '6 punt', (metBonus - zonderBonus) + ' punt');
+    eis('T7d zonder nodeId leest richtingLeerPct geen enkele bonusbron',
+        zonderNodeId === zonderBonus, zonderBonus + '%', String(zonderNodeId));
+    zetLS('sl_v4_' + NODE + '_' + DD_NU, null);
 
     // ══ T8 — berekenLeerPct HOUDT ZIJN VORM ═══════════════════
     // V11.17.85: deze wacht toetste de inleesregel LETTERLIJK. D2 wikkelt daar
@@ -212,10 +240,22 @@ function testRichtingPct() {
     eis('T8a2 en telt daarbij ALLE vier de dagdelen mee',
         vierDd > eenDd && eenDd > 0,
         'vier dagdelen hoger dan een', eenDd + '% -> ' + vierDd + '%');
+    // V11.18.19: de drie bonussen zijn uit deze functie GETILD naar
+    // nodeBredeBonussen, zodat de richtingkant ze verzwakt kan lezen. De
+    // letterlijke slotregel bestaat dus niet meer; wat D1 wilde bewaken — het
+    // node-percentage telt ze VOLUIT op bij obsPct — staat hier nu als gedrag.
     eis('T8b en telt nog steeds de drie bonussen op bij obsPct',
-        /Math\.min\(95, obsPct \+ s2Bonus \+ gpsTikBonus \+ bevestigBonus\)/.test(bl),
-        'slotregel ongewijzigd',
-        /obsPct \+ s2Bonus \+ gpsTikBonus \+ bevestigBonus/.test(bl) ? 'ongewijzigd' : 'GEWIJZIGD');
+        /Math\.min\(95, obsPct \+ b\.s2 \+ b\.gpsTik \+ b\.bevestig\)/.test(bl),
+        'slotregel telt de drie op',
+        /obsPct \+ b\.s2 \+ b\.gpsTik \+ b\.bevestig/.test(bl) ? 'ongewijzigd' : 'GEWIJZIGD');
+    wisNode();
+    zetLS('sl_v4_' + NODE + '_' + DD_NU, JSON.stringify(v4rec(2)));
+    const nodeZonder = berekenLeerPct(NODE);
+    zetLS('sl_richting_' + NODE, JSON.stringify({ gps_tik_score: 1.0, headings: [], laatste_update: nu }));
+    eis('T8b2 en voluit — de node krijgt de HELE gps_tik-bonus, niet de helft',
+        berekenLeerPct(NODE) - nodeZonder === 5, '5 punt',
+        (berekenLeerPct(NODE) - nodeZonder) + ' punt');
+    zetLS('sl_richting_' + NODE, null);
 
     // ══ T9 — V9_MIN_METINGEN TOETST OP LENGTE (RV2) ═══════════
     eis('T9 V9_MIN_METINGEN is 5', V9_MIN_METINGEN === 5, '5', String(V9_MIN_METINGEN));
