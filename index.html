@@ -994,7 +994,7 @@ if (typeof ort !== 'undefined') {
 //
 // De stijl volgt de eerdere labels: nummer, kastlijntje, korte omschrijving in
 // kleine letters. De CSS zet hem zelf in kapitalen (text-transform:uppercase).
-const APP_VERSIE = 'V11.18.19 — richting telt even zwaar';
+const APP_VERSIE = 'V11.18.20 — logs getrimd';
 
 // ── CONSTANTEN ────────────────────────────────────────────────
 const OSM_RADIUS       = 5000;
@@ -2025,7 +2025,35 @@ function toggleLeerLog() {
 // Maakt elke stille weigering in de opslagketen zichtbaar. Wijzigt GEEN
 // enkele conditie of drempel — puur observeren. Elk record heeft dezelfde
 // vorm (ontbrekende waarden expliciet null) zodat analyse simpel blijft.
-const MAX_OPSLAGLOG = 500;
+//
+// -- V11.18.20: DE CAP VAN 500 NAAR 150 -----------------------
+// (c) 2026 StoplichtIQ - Y. Lemaalem
+//
+// WAAROM. Dit log is de grootste en snelst groeiende LOSSE sleutel in
+// localStorage. Gemeten op de backups van 23 en 28 augustus: 258,4 KB naar
+// 338,8 KB in 4,88 dagen, oftewel +16,5 KB per dag tot het op zijn cap van
+// 500 vastliep. Daarmee is het in zijn eentje 6,8% van het 5 MB-quotum,
+// terwijl de noodrem in checkLocalStorageRuimte bij 4 MB begint en in pas 5
+// LEERDATA gaat halveren: sl_v4_-emmers ouder dan 180 dagen. Een diagnoselog
+// hoort nooit de reden te zijn dat een meting sneuvelt.
+//
+// WAT HET KOST, EERLIJK. 500 records besloegen op die export precies 2,9
+// dagen rijden (25 aug 14:56 tot 28 aug 13:10). Met 150 records is dat
+// venster ongeveer een dag. Voor de vier analyses die dit log lezen
+// (analyse/q4_correctie, t_twijfel, k2_verlaten, pk1_voorbij) betekent dat
+// vaker exporteren, of over minder ritten redeneren. Bewust geaccepteerd:
+// het alternatief is dat de noodrem leerdata weggooit die niet terugkomt.
+// q4_correctie.js meldt bij een vol log dat er oudere events zijn
+// weggerouleerd; die drempel is meeverlaagd zodat die melding blijft kloppen.
+//
+// WAAROM 150 EN NIET 200 OF 250. Gemeten op dezelfde export kost 150 records
+// 120,1 KB, 200 kost 158,5 KB en 250 kost 188,9 KB. De stap van 500 naar 150
+// levert 218,7 KB op; bij 250 zou daarvan een derde alweer wegvallen.
+//
+// DIT IS EEN CAP, GEEN OPRUIMING. Een verlaagde cap wordt pas zichtbaar bij
+// de VOLGENDE schrijving, en tot die tijd blijft een log van 500 records op
+// 500 staan. trimDiagnostiekLogs (zie daar) trekt hem daarom eenmalig bij.
+const MAX_OPSLAGLOG = 150;
 
 // V11.17.76: peiling naar een node t.o.v. de rijrichting. Gesigneerd:
 // 0 = recht vooruit, +90 = rechts opzij, -90 = links opzij, ±180 = pal achter.
@@ -4646,6 +4674,26 @@ function exporteerMeetdata() {
     document.body.appendChild(link); link.click(); document.body.removeChild(link);
     setTimeout(()=>URL.revokeObjectURL(url), 1000);
   };
+  // -- V11.18.20: HET SCHADUWLOG VOLGT EINDELIJK HETZELFDE PAD --
+  // (c) 2026 StoplichtIQ - Y. Lemaalem
+  //
+  // Vier diagnoselogs hebben een eigen exportknop die na afloop wist:
+  // sl_conflog, sl_zichtlog, sl_detlog en sl_herzieninglog. sl_schaduwlog is
+  // de enige die dat niet heeft - die reist alleen mee in DEZE export, in
+  // `uit.schaduw`, en bleef daarna gewoon staan. Gevolg: hij groeide door tot
+  // zijn cap van 200 en bleef daar hangen (44,9 KB op de meting van 28
+  // augustus, +4,7 KB per dag tot hij vol was).
+  //
+  // DE KLEINSTE INGREEP. Een vijfde exportknop bouwen zou hetzelfde doen met
+  // vijftig regels meer; het log zit al volledig in dit bestand. Dus hier
+  // dezelfde `naExport` die exporteerHerzieningLog (r15795) al gebruikt, met
+  // dezelfde voorwaarde: pas wissen als het delen of downloaden IS GELUKT.
+  // Breekt de gebruiker het deelvenster af, dan blijft het log staan.
+  //
+  // ALLEEN sl_schaduwlog. De andere sleutels in deze export zijn leerdata
+  // (sl_v4_, sl_v5_, sl_klok_, sl_passief_) of hebben hun eigen knop; die
+  // worden hier met geen enkele reden aangeraakt.
+  const naExport = () => { try { localStorage.removeItem('sl_schaduwlog'); } catch(_) {} };
   setTimeout(() => {
     try {
       const uit = { versie:'V11.17.57', geexporteerd:new Date().toISOString(),
@@ -4710,12 +4758,13 @@ function exporteerMeetdata() {
         const opslagBestand = new File([opslagJson], opslagBestandsnaam, { type:'application/json' });
         if (navigator.canShare({ files:[bestand, opslagBestand] })) {
           navigator.share({ files:[bestand, opslagBestand], title:'StoplichtIQ Meetdata' })
-            .then(() => { alert('✅ Meetdata + opslagoverzicht gedeeld'); herstelBtn(); })
+            .then(() => { naExport(); alert('✅ Meetdata + opslagoverzicht gedeeld'); herstelBtn(); })
             .catch(e => {
               if (e && e.name === 'AbortError') { herstelBtn(); return; }
               alert('⚠️ Delen mislukt, download start...');
               downloadFallback(jsonString, bestandsnaam);
               downloadFallback(opslagJson, opslagBestandsnaam);
+              naExport();
               herstelBtn();
             });
           return;
@@ -4723,6 +4772,7 @@ function exporteerMeetdata() {
       }
       downloadFallback(jsonString, bestandsnaam);
       downloadFallback(opslagJson, opslagBestandsnaam);
+      naExport();
       alert('✅ Meetdata + opslagoverzicht gedownload');
       herstelBtn();
     } catch(e) { alert('Export mislukt: '+e.message); herstelBtn(); }
@@ -10353,6 +10403,22 @@ function bevestigCountdown(categorie) {
     aiT: (typeof aiTeller === 'number' && !isNaN(aiTeller)) ? aiTeller : null,
     schaduw: schaduwLog
   });
+  // -- V11.18.20: DEZE CAP BLIJFT OP 20, EN DAT IS GEMETEN ------
+  // (c) 2026 StoplichtIQ - Y. Lemaalem
+  //
+  // Fase 1 van het opslagplan overwoog deze cap naar 10 te brengen. De meting
+  // wijst dat af. Op de backup van 28 augustus is sl_bevestig_ met 317,2 KB
+  // weliswaar de vijfde sleutelgroep, maar die omvang zit niet in het AANTAL
+  // records: de mediaan is 2 per node en slechts 5 van de 134 nodes staan op
+  // de cap van 20. Halveren zou 37,8 KB opleveren - 0,8% van het quotum -
+  // tegenover 607,2 KB voor de redundante positiecache en 217,8 KB voor het
+  // opslaglog. De omvang zit in de BREEDTE van een record (ruim 460 tekens),
+  // en dat afknijpen is een ander gesprek dan een cap verlagen.
+  //
+  // En het zou niet gratis zijn. berekenBevestigScore leest zelf al alleen de
+  // laatste 10 (r3635), dus het LEREN merkt er inderdaad niets van - maar de
+  // lopende analyses naar autolock_correctie_geweigerd en node_vermoeden
+  // kijken juist naar het verloop over meer taps. Voor 0,8% is dat te duur.
   if (data.length > 20) data = data.slice(-20);
   try { localStorage.setItem(sleutel, JSON.stringify(data)); }
   catch(e) {}
@@ -12281,6 +12347,131 @@ function kiesBesteWeg(wegen, gpsHeading) {
 // had precies een aanroeper (slaOpIntern r1707) en draaide dus uitsluitend bij
 // een geslaagde V4-schrijving. Zit de gebruiker al over de drempel maar rijdt
 // hij niet, dan gebeurde er niets.
+// -- V11.18.20: DE REDUNDANTE POSITIECACHE, APART AANROEPBAAR --
+// (c) 2026 StoplichtIQ - Y. Lemaalem
+//
+// Dit is pas 4 van voerOpruimPassenUit, woord voor woord, nu met een naam.
+// Reden voor de extractie: die functie draait ZES passen achter elkaar en pas
+// 5 halveert sl_v4_-emmers ouder dan 180 dagen. Dat is leerdata, en de
+// eenmalige trim van deze release mag daar met geen mogelijkheid aankomen.
+// Een aparte naam maakt dat een eigenschap van de code in plaats van een
+// belofte in een commentaarblok.
+//
+// WAAROM DIT DE GROOTSTE WINST IS. Gemeten op de backup van 28 augustus:
+// 4.587 sl_pos_-sleutels met bron 'osm', samen 607,2 KB - meer dan het
+// opslaglog en het schaduwlog bij elkaar, en 12,1% van het hele quotum. Het
+// zijn exacte kopieen van sl.lat/sl.lon uit osmCache; sinds V11.17.40 stap 1
+// valt vindDichtbijScore daarop terug, dus de node-score verandert niet.
+// De 313 sleutels ZONDER bron komen uit slaOp en leggen vast waar de
+// gebruiker werkelijk stilstond (42,4 KB); die blijven onaangeroerd staan.
+//
+// HET KOMT DEELS TERUG, EN DAT IS GOED. migratieSlPos maakt deze cache bij de
+// volgende downloadOSM opnieuw aan, maar alleen voor het huidige 5 km-gebied
+// in plaats van voor elk gebied waar ooit gereden is. Gemeten tussen 23 en 28
+// augustus groeide sl_pos_ met 0,87 KB per dag; de sprongen komen van een
+// nieuw gebied, niet van dagelijks rijden.
+//
+// Geeft terug hoeveel sleutels er zijn verwijderd.
+function ruimRedundantePosCache() {
+  let verwijderd = 0;
+  for (const key of Object.keys(localStorage)) {
+    if (!key.startsWith('sl_pos_')) continue;
+    try {
+      const p = JSON.parse(localStorage.getItem(key) || 'null');
+      if (p && p.bron === 'osm') { localStorage.removeItem(key); verwijderd++; }
+    } catch(e) { /* bewust laten staan */ }
+  }
+  return verwijderd;
+}
+
+// -- V11.18.20: EEN VERLAAGDE CAP MOET OOK TERUGWERKEN ---------
+// (c) 2026 StoplichtIQ - Y. Lemaalem
+//
+// HET PROBLEEM DAT DIT OPLOST. Elke log hieronder knipt zichzelf bij de
+// SCHRIJVING: `if (arr.length > MAX) arr = arr.slice(-MAX)`. Verlaag je de
+// cap, dan gebeurt er dus niets tot de volgende schrijving - en een log dat
+// niet meer geschreven wordt (omdat de gebruiker die functie niet gebruikt)
+// blijft voor altijd op zijn oude lengte staan. Voor sl_opslaglog zou de
+// 218,7 KB die V11.18.20 belooft pas na de eerstvolgende rit vrijkomen, en
+// juist op dat moment kan de 4 MB-noodrem al gevuurd hebben.
+//
+// WAT HIJ WEL EN NIET DOET. Hij knipt elk diagnoselog terug tot de cap die er
+// NU voor geldt - dezelfde slice(-MAX) die de schrijver zelf zou doen, alleen
+// eerder. Er wordt geen enkele andere sleutel aangeraakt: geen sl_v4_, geen
+// sl_v5_, geen sl_klok_, geen sl_passief_, geen sl_s2_. De caps zelf staan
+// bij hun eigen schrijver en worden hier alleen gelezen, zodat de twee niet
+// uiteen kunnen lopen.
+//
+// sl_conflog draagt zijn cap als kaal getal bij de schrijver (r6578) en niet
+// als constante; 50 staat hier dus letterlijk, met dezelfde waarde.
+//
+// Geeft per sleutel terug hoeveel records er zijn weggeknipt.
+const TRIM_LOGCAPS = () => ([
+  ['sl_opslaglog',     MAX_OPSLAGLOG],
+  ['sl_schaduwlog',    MAX_SCHADUWLOG],
+  ['sl_richtinglog',   MAX_RICHTINGLOG],
+  ['sl_herzieninglog', MAX_HERZIENINGLOG],
+  ['sl_zichtlog',      MAX_ZICHTLOG],
+  ['sl_detlog',        MAX_DETLOG],
+  ['sl_conflog',       50]
+]);
+
+function trimDiagnostiekLogs() {
+  const uit = {};
+  for (const [sleutel, cap] of TRIM_LOGCAPS()) {
+    try {
+      const arr = JSON.parse(localStorage.getItem(sleutel));
+      if (!Array.isArray(arr) || arr.length <= cap) continue;
+      const weg = arr.length - cap;
+      localStorage.setItem(sleutel, JSON.stringify(arr.slice(-cap)));
+      uit[sleutel] = weg;
+    } catch(e) { /* onleesbaar log: met rust laten, niet wissen */ }
+  }
+  return uit;
+}
+
+// -- V11.18.20: DE EENMALIGE TRIM BIJ HET OPSTARTEN ------------
+// (c) 2026 StoplichtIQ - Y. Lemaalem
+//
+// FASE 1 VAN HET OPSLAGPLAN, EN ALLEEN FASE 1. Het onderzoek stelde vast dat
+// localStorage richting het 5 MB-plafond loopt en dat de noodrem bij 4 MB
+// leerdata gaat halveren. De structurele oplossing is een IndexedDB-migratie
+// (fase 2-5); dit is de kleine, veilige stap die nu al kan: diagnostiek
+// opruimen zodat er lucht is om die migratie rustig te bouwen.
+//
+// DRIE DINGEN, GEEN VAN ALLE LEERDATA:
+//   1. de redundante sl_pos_-cache (607,2 KB op de meting van 28 augustus)
+//   2. elk diagnoselog terug naar zijn huidige cap (218,7 KB voor het
+//      opslaglog alleen al, nu MAX_OPSLAGLOG op 150 staat)
+//   3. niets anders
+//
+// EENMALIG EN GEGUARD, zoals saneerS2Nullen, migratieAfrijConventie en
+// migratieRvWezen die hierboven al staan. De vlag heet sl_trimv1; hij wordt
+// pas gezet als de pas zonder uitzondering is doorgekomen, zodat een
+// afgebroken poging de volgende keer opnieuw draait. Zou fase 1 ooit een
+// tweede ronde nodig hebben, dan krijgt die een eigen vlag (sl_trimv2) -
+// dezelfde conventie die V11.17.15 en V11.17.70 volgden.
+//
+// HET RESULTAAT GAAT HET OPSLAGLOG IN. Anders is achteraf niet te zien wat
+// deze release op het toestel werkelijk heeft opgeleverd; dat getal bepaalt
+// hoeveel haast fase 2 heeft. Het is een gewone logregel en valt dus vanzelf
+// binnen dezelfde cap van 150.
+function trimDiagnostiekV1() {
+  try {
+    if (localStorage.getItem('sl_trimv1') === 'done') return;
+    const voor = berekenLocalStorageKB();
+    const posWeg = ruimRedundantePosCache();
+    const logsWeg = trimDiagnostiekLogs();
+    const na = berekenLocalStorageKB();
+    localStorage.setItem('sl_trimv1', 'done');
+    console.log(`[TRIM-V1] ${voor}KB -> ${na}KB (${voor - na}KB vrij) |`
+      + ` sl_pos_ osm verwijderd: ${posWeg} |`
+      + ` logrecords weggeknipt: ${JSON.stringify(logsWeg)}`);
+    logOpslagMis('trim_v1', { kbVoor: voor, kbNa: na, posWeg,
+      logWeg: Object.values(logsWeg).reduce((a, b) => a + b, 0) });
+  } catch(e) { console.warn('[TRIM-V1] overgeslagen:', e); }
+}
+
 function voerOpruimPassenUit() {
   try {
       const nu = Date.now();
@@ -12324,13 +12515,11 @@ function voerOpruimPassenUit() {
       //    om de redundante of de informatieve soort gaat.
       //    Deze pas staat bewust VOOR de sl_v4_-pas hieronder: overbodige
       //    cache hoort eerder te wijken dan leerdata.
-      for (const key of Object.keys(localStorage)) {
-        if (!key.startsWith('sl_pos_')) continue;
-        try {
-          const p = JSON.parse(localStorage.getItem(key) || 'null');
-          if (p && p.bron === 'osm') localStorage.removeItem(key);
-        } catch(e) { /* bewust laten staan */ }
-      }
+      //    V11.18.20: de lus zelf woont nu in ruimRedundantePosCache, zodat de
+      //    eenmalige trim bij het opstarten hem kan draaien ZONDER pas 5 (die
+      //    leerdata halveert) mee te nemen. Zuivere extractie: zelfde toets,
+      //    zelfde uitkomst, zelfde plek in de volgorde.
+      ruimRedundantePosCache();
       // 5. sl_v4_ metingen ouder dan 180 dagen (oudste helft per kruispunt)
       for (const key of Object.keys(localStorage)) {
         if (!key.startsWith('sl_v4_')) continue;
@@ -16059,7 +16248,9 @@ function hoekStabielReset() { hoekStabielSleutel = null; hoekStabielTeller = 0; 
 // keer voor, terwijl de gebruiker er drie foto's van heeft.
 //
 // PER EPISODE, NIET PER TICK. Bij 1 Hz zou één minuut stilstaan 60 records
-// schrijven — 12% van MAX_OPSLAGLOG (500), en dan duwt de meting precies de
+// schrijven — 12% van MAX_OPSLAGLOG toen die nog 500 was, en 40% sinds
+// V11.18.20 hem op 150 zette. De keuze voor per episode was toen al juist
+// en is sindsdien alleen dwingender geworden: per tick zou de meting nu de
 // records weg die ze nodig heeft. Bovendien is per episode BETERE steekproef:
 // de vraag is hoe vaak en hoe ver de selectie ernaast zit, niet hoe lang iemand
 // toevallig voor rood stond. Een lang wachten zou de verdeling anders
@@ -17721,6 +17912,23 @@ function koppelBboxAanNode(bbox) {
   console.log('Geen OSM node match voor deze bbox.');
   return false;
 }
+
+// -- V11.18.20: HELEMAAL ONDERAAN, EN DAT IS GEEN SLORDIGHEID --
+// (c) 2026 StoplichtIQ - Y. Lemaalem
+//
+// De drie andere eenmalige passen (saneerS2Nullen, migratieAfrijConventie,
+// migratieRvWezen) staan bij het opstarten rond r6917. Deze niet, en de reden
+// is hard: trimDiagnostiekLogs leest MAX_DETLOG, en dat is een `const` die pas
+// op r15685 gedeclareerd wordt. Een const voor zijn declaratie aanraken is
+// geen `undefined` maar een ReferenceError (temporal dead zone), en die zou de
+// hele pas stil in zijn eigen catch laten sneuvelen: het log zou dan eeuwig
+// op zijn oude lengte blijven staan terwijl de vlag onaangeroerd blijft.
+//
+// Hier onderaan zijn alle caps gedeclareerd en is elk van de zeven logs
+// daadwerkelijk te knippen. De pas leest en schrijft uitsluitend localStorage
+// en hangt van geen enkele DOM-node of GPS-toestand af, dus het moment binnen
+// het opstarten maakt verder niets uit.
+trimDiagnostiekV1();
 </script>
 
 <!-- V10.0.6: Dashboard kaart overlay -->

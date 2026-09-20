@@ -406,7 +406,9 @@ function testNodescore() {
         verd.length === 3 && verd[0] === 2 && verd[1] === 10 && verd[2] === 28,
         '2, 10 en 28 m', verd.join(', ') + ' m');
 
-    // Per episode, niet per tick: MAX_OPSLAGLOG is 500 en 1 Hz zou dat vullen.
+    // Per episode, niet per tick: 1 Hz zou MAX_OPSLAGLOG vullen. Die cap ging
+    // in V11.18.20 van 500 naar 150, wat dit argument alleen sterker maakt -
+    // de toets zelf telt regels en hangt niet van het getal af.
     wisLog();
     zetAfwijking(27, 17, 0);
     for (let i = 0; i < 40; i++) meetStilstandNodeAfwijking();
