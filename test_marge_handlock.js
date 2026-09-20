@@ -173,6 +173,16 @@ function testMargeHandlock() {
         handmatigLockActief === true && String(dichtstbijOSM.id) === String(GEKOZEN),
         'lock aan, node ' + GEKOZEN,
         'hand=' + handmatigLockActief + ', node=' + dichtstbijOSM.id);
+    // V11.18.17: één fix is niet meer genoeg. De eerste twee tikken laten de
+    // tap staan; pas de derde bevestiging laat hem vallen. Dat is het hele punt
+    // van die release — een geldige tap mag niet op GPS-ruis sneuvelen — en het
+    // verandert niets aan de UITKOMST van dit scenario, alleen aan de snelheid
+    // waarmee hij bereikt wordt.
+    checkHandLockVerval(huidigePos.lat, huidigePos.lon);
+    eis('T4b1 na één fix staat de lock er nog — bescherming tegen een uitschieter',
+        handmatigLockActief === true,
+        'true', String(handmatigLockActief));
+    checkHandLockVerval(huidigePos.lat, huidigePos.lon);
     checkHandLockVerval(huidigePos.lat, huidigePos.lon);
     eis('T4b de lock vervalt omdat een ander licht aantoonbaar dichterbij ligt',
         handmatigLockActief === false,
@@ -182,12 +192,15 @@ function testMargeHandlock() {
           && handmatigGeselecteerdNodeId === null,
         'hand=false, auto=false, nodeId=null',
         [handmatigLockActief, stilstandAutoLock, handmatigGeselecteerdNodeId].join(', '));
-    eis('T4d en het verval is in het log terug te vinden',
+    eis('T4d en het verval is in het log terug te vinden, met het aantal ' +
+        'bevestigingen erbij (V11.18.17)',
         logRegels('handlock_vervallen').length === 1
-          && logRegels('handlock_vervallen')[0].afwM === 38,
-        '1 regel, afwM 38',
+          && logRegels('handlock_vervallen')[0].afwM === 38
+          && logRegels('handlock_vervallen')[0].hoekN === HANDTAP_VERVAL_STABIEL_N,
+        '1 regel, afwM 38, 3 bevestigingen',
         logRegels('handlock_vervallen').length + ' regels, afwM '
-          + (logRegels('handlock_vervallen')[0] || {}).afwM);
+          + (logRegels('handlock_vervallen')[0] || {}).afwM + ', n '
+          + (logRegels('handlock_vervallen')[0] || {}).hoekN);
     // en nu doet de bestaande correctieroute de rest — dit is de koppeling
     // tussen de twee wijzigingen.
     checkNodeCorrectieStilstand(huidigePos.lat, huidigePos.lon);
@@ -195,18 +208,22 @@ function testMargeHandlock() {
         String(dichtstbijOSM.id) === String(CLOSEST),
         String(CLOSEST), String(dichtstbijOSM.id));
 
-    // DE KOPPELING OMGEKEERD: met de oude marge van 20 zou stap 2 niets doen.
-    // 38 haalt 20 wel, maar een afwijking van 12 (binnen het oude gat) niet —
-    // dat is precies wat wijziging 1 toevoegt.
+    // V11.18.17 HEEFT DIT GEVAL OMGEDRAAID, EN DAT IS DE BEDOELING.
+    // Deze toets legde vast dat een afwijking van 12 m — binnen het gat dat
+    // V11.18.7 dichtte — een HAND-LOCK liet vervallen. Sinds V11.18.17 geldt
+    // voor het weggooien van een TAP een eigen, ruimere marge
+    // (HANDTAP_VERVAL_MARGE_M, 20 m), omdat een tap een menselijke keuze is en
+    // geen gok van de app. Twaalf meter is stadsruis en laat een tap dus staan,
+    // hoe vaak hij ook bevestigd wordt.
+    // De 8 m van V11.18.7 blijft onverkort gelden waar hij voor bedoeld was:
+    // het CORRIGEREN van een auto-lock. Dat is T2 hierboven, ongewijzigd.
     opzet({ gekozenAf: 40, closestAf: 28, closestHoek: 60 });
-    checkHandLockVerval(huidigePos.lat, huidigePos.lon);
-    const losBij12 = handmatigLockActief === false;
-    checkNodeCorrectieStilstand(huidigePos.lat, huidigePos.lon);
-    eis('T4f bij 12 m vervalt de lock én corrigeert de route — met de oude ' +
-        'marge van 20 was dit blijven staan',
-        losBij12 && String(dichtstbijOSM.id) === String(CLOSEST),
-        'lock los en gecorrigeerd',
-        'los=' + losBij12 + ', node=' + dichtstbijOSM.id);
+    for (let i = 0; i < 5; i++) checkHandLockVerval(huidigePos.lat, huidigePos.lon);
+    eis('T4f bij 12 m blijft een handmatige tap staan — ruis mag een bewuste ' +
+        'keuze niet wegdrukken (V11.18.17)',
+        handmatigLockActief === true && handLockVervalTeller === 0,
+        'lock blijft, teller 0',
+        'hand=' + handmatigLockActief + ', teller=' + handLockVervalTeller);
 
     // ═══ T5 — HET WEGRIJ-SCENARIO BLIJFT BESTAAN ════════════
     // >100 m, voorbij, >5 km/u — de route van V10.0.3, onaangeroerd.

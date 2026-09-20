@@ -994,7 +994,7 @@ if (typeof ort !== 'undefined') {
 //
 // De stijl volgt de eerdere labels: nummer, kastlijntje, korte omschrijving in
 // kleine letters. De CSS zet hem zelf in kapitalen (text-transform:uppercase).
-const APP_VERSIE = 'V11.18.16 — kleiner model, scherper oog';
+const APP_VERSIE = 'V11.18.17 — jouw tik houdt vast';
 
 // ── CONSTANTEN ────────────────────────────────────────────────
 const OSM_RADIUS       = 5000;
@@ -1098,6 +1098,43 @@ const FSCORE_OVERRIDE_DREMPEL     = 0.35; // Laag 3a: familiescore-drempel voor 
 const FSCORE_OVERRIDE_MIN_RUNS    = 2;    // Laag 3a: aantal opeenvolgende hoge-fScore-runs
 const VOLGORDE_LOG_INTERVAL_MS    = 1000; // diagnose [VOLGORDE] throttle
 const VOLGORDE_KENNIS_RESET_MS    = 5000; // Laag 3b/c: amnesia-venster na reset
+
+// ── V11.18.17: BEZINKTIJD IN SECONDEN, NIET IN RUNS ──────────
+// © 2026 StoplichtIQ — Y. Lemaalem
+//
+// WAT ER MIS GING. Vier drempels tellen RUNS: AI_DREMPEL (2), zijn onverwachte
+// broer (3), TOLERANTIE_RUNS (5) en STICKY_MISS_MAX (5). Zolang een run ~1066 ms
+// kostte was dat een tijdsmaat in vermomming. V11.18.16 bracht de run naar
+// ~415 ms en daarmee is elke bezinktijd stilletjes door drie gedeeld: een
+// fase-omslag die 2,1 s de tijd kreeg om zich te bewijzen, krijgt er nu 0,8.
+// Dat is precies de klacht "hij springt op groen terwijl ik voor rood sta":
+// niet omdat de app vaker wisselt, maar omdat een wissel nu binnen een seconde
+// doorslaat naar het scherm.
+//
+// DE REGEL: RUNS ÉN TIJD, DE STRENGSTE WINT. De runs-tellers blijven staan en
+// er komt een tijdseis naast. Bij een traag model beslist het aantal runs (zoals
+// vroeger), bij een snel model de klok. Een volgende modelwissel — sneller of
+// trager — verandert deze bezinktijd daarmee niet meer.
+//
+// DE GETALLEN, EN DE KANTTEKENING DIE ERBIJ HOORT. Ze zijn de runs-waarden maal
+// de oude runtijd van 1066 ms. Streng genomen ligt de ECHT gemeten bezinktijd
+// van vroeger lager: bij twee runs zit er één interval tussen de eerste en de
+// tweede waarneming, dus ~1,1 s en geen 2,1. De ruimere waarde is hier bewust
+// gekozen, om drie redenen:
+//   1. de zichtbare kleur verandert er niet door — die volgt al op run 1
+//      (UI_DREMPEL, r8659) en blijft even snel als nu;
+//   2. de geleerde duren verschuiven niet. Een fase wordt gemeten van
+//      bevestiging tot bevestiging (verwerkFase r8936); vertraagt beide kanten
+//      even veel, dan valt het verschil tegen elkaar weg;
+//   3. wat het wél koopt is marge tegen precies het geval waarvoor deze release
+//      bestaat: een sprong naar een ander licht die binnen een seconde een
+//      groen laat zien dat niet van jou is.
+// Valt de countdown hierdoor merkbaar laat, dan is AI_BEZINK_MS het enige getal
+// dat omlaag hoeft — 1100 ms is de letterlijke reconstructie van het oude gedrag.
+const AI_BEZINK_MS             = 2100;  // AI_DREMPEL (2 runs) x 1066 ms
+const AI_BEZINK_ONVERWACHT_MS  = 3200;  // AI_DREMPEL_ONVERWACHT (3) x 1066 ms
+const TOLERANTIE_MS            = 5300;  // TOLERANTIE_RUNS (5) x 1066 ms
+const STICKY_MISS_MS           = 5300;  // STICKY_MISS_MAX (5) x 1066 ms
 const VOLGORDE_VOLGENDE = Object.freeze({ groen:'oranje', oranje:'rood', rood:'groen' });
 
 // V8.7: Stale fase timer — dynamisch berekend in updateStaleMax()
@@ -5669,6 +5706,10 @@ const CLUSTER_AFSTAND_M = 5;
 let clusterNodes = new Set();
 let laatstGemeldeClusterNode = null;   // throttle, patroon van opslagLogCooldownNode
 let aiTeller=0, aiKleur=null, geenTeller=0;
+// V11.18.17: wanneer de huidige kleurreeks begon, en wanneer er voor het laatst
+// iets gezien is. Twee klokken naast twee tellers — zie AI_BEZINK_MS.
+let aiTellerStart = 0;
+let laatsteDetectieTijd = 0;
 // V11.17.11: fase-volgorde-machine staat
 let hogeFScoreRuns = 0;          // Laag 3a: opeenvolgende runs met fScore ≥ FSCORE_OVERRIDE_DREMPEL
 let volgordeLogLaatste = 0;      // [VOLGORDE] throttle
@@ -6024,6 +6065,29 @@ canvas.addEventListener('click', (e) => {
   const yoloY = effectiefY * lbScale + lbPadY;
 
   cameraTapMarker = { x: videoX, y: videoY, tijd: Date.now() };
+
+  // ── V11.18.17: DEZE TIK ZET OOK DE NODE VAST ─────────────────
+  // © 2026 StoplichtIQ — Y. Lemaalem
+  //
+  // WELKE node, en waarom niet de node ONDER de vingertop. Er bestaat code die
+  // een vakje naar een node-id vertaalt (koppelBboxAanNode, r17311), maar die
+  // wordt nergens aangeroepen en is bovendien stuk: hij rekent de peiling met
+  // Math.atan2(dLon, dLat) op rauwe graden, dezelfde fout die V11.17.86 in
+  // peilingNaar repareerde — tot 13,9 graden mis op onze breedtegraad. En hij
+  // leunt op een gladgestreken heading, die juist bij stilstand het minst
+  // betrouwbaar is: precies het moment waarop iemand tikt.
+  //
+  // Een verkeerd gemikte vertaling zou stilletjes naar een ANDER licht
+  // overstappen — exact de fout die deze release moet uitbannen. Daarom zegt een
+  // tik op het beeld: "bevries wat je me nu toont", niet "zoek opnieuw uit welk
+  // kruispunt dit is". Zit de app op het verkeerde kruispunt, dan is de weg
+  // daarheen de kruispuntnaam -> correctielijst; de waarschuwing van V11.18.12
+  // ("ander stoplicht ligt N m dichterbij") wijst daar ook naar.
+  //
+  // Bij een cluster van meerdere masten op één kruising zet deze tik dus de
+  // ACTIEVE node vast, niet per se de mast waarop je tikte. Het vakje volgt wel
+  // je vinger — dat regelen bboxOverride en de sticky hieronder.
+  if (dichtstbijOSM) vergrendelNodeHandmatig(dichtstbijOSM.id, 'beeld');
 
   // Zoek dichtstbijzijnde detectie
   let dichtstbij = null;
@@ -6407,6 +6471,49 @@ const NODE_CHK_STANDSTILL_DUUR_MS = 3000;  // W3: minimum stilstand-duur voor he
 // verandert het verschil met maximaal ongeveer 2x delta. Daarom 8 en niet 6.
 const NODE_CHK_CORRECTIE_MARGE_M  = 8;     // W3: alternatief moet zoveel dichterbij zijn
 const NODE_CHK_HEADING_MAX_GRAD   = 60;    // W3: heading-match tolerantie (indien beschikbaar)
+
+// ── V11.18.17: EEN TAP IS GEEN GOK ───────────────────────────
+// © 2026 StoplichtIQ — Y. Lemaalem
+//
+// De vervalregel van V11.18.7 liet een handmatige tap vallen zodra een andere
+// node 8 meter dichterbij lag. Twee dingen ontbraken daaraan, en samen maken ze
+// het verschil tussen "een achterhaalde tap opruimen" en "een geldige tap
+// weggooien":
+//
+// 1. GEEN STABILITEITSEIS. De hoekroute van de correctie eist drie gelijke
+//    oordelen op rij (NODE_HOEK_STABIEL_N) juist omdat één GPS-fix niets
+//    bewijst. Deze route eiste er nul: één uitschieter en de tap was weg. In de
+//    stad springt een positie makkelijk tien tot twintig meter, en juist
+//    stilstaand voor rood — precies wanneer deze regel actief is. Erger nog:
+//    checkHandLockVerval draait in onGPS vóór updateDichtbij, dus de app koos
+//    in dezelfde tik al een andere node.
+//
+// 2. DEZELFDE MARGE ALS VOOR EEN AUTOMATISCHE GOK. NODE_CHK_CORRECTIE_MARGE_M
+//    (8) is afgeleid uit de verdeling van AUTO-lock-afwijkingen, waar de app
+//    haar eigen keuze corrigeert. Een tap is geen keuze van de app maar van een
+//    mens, en verdient meer bewijs voordat hij opzij wordt gezet.
+//
+// WAAROM 20 METER. Het geval waarvoor V11.18.7 gebouwd is staat in de meting van
+// 12 september, episode 9/10: de getikte node lag 46 m achter de bestuurder met
+// een ander licht op 8 m — een verschil van 38 m. Die blijft met 20 m ruim
+// binnen bereik. Wat er wél buiten valt is de band van 8 tot 15 meter, waar de
+// vier hand-lock-episodes van 2 en 4 meter en de gewone stadsruis zitten. De
+// afwijkingsverdeling van diezelfde meting (mediaan 7,5 m) ligt vrijwel
+// helemaal onder deze drempel.
+//
+// WAAROM DRIE TIKKEN. Gelijk aan NODE_HOEK_STABIEL_N, en om dezelfde reden: bij
+// ~1 Hz is dat drie seconden volgehouden bewijs. Samen met de stilstandseis van
+// NODE_CHK_STANDSTILL_DUUR_MS die er al stond, staat een tap dus minimaal zes
+// seconden onder druk voordat hij valt. De sleutel bevat beide node-ids, zodat
+// een closest die heen en weer springt de teller nult in plaats van doortelt.
+//
+// ROUTE 1 BLIJFT ONGEMOEID. Wegrijden (>100 m, voorbij, >5 km/u) is geen
+// twijfelgeval en heeft geen stabiliteitseis nodig.
+const HANDTAP_VERVAL_MARGE_M   = 20;   // ruimer dan de 8 m voor een auto-lock
+const HANDTAP_VERVAL_STABIEL_N = 3;    // opeenvolgende GPS-ticks met hetzelfde bewijs
+let handLockVervalSleutel = null;      // "lockNode>closestNode" van het lopende bewijs
+let handLockVervalTeller  = 0;
+function handLockVervalReset() { handLockVervalSleutel = null; handLockVervalTeller = 0; }
 const NODE_CHK_LOG_INTERVAL_MS    = 1000;  // W5: [NODE-CHK] throttle voor twijfel-events
 
 // ── V11.17.79: DE PEILING TELT MEE BIJ GELIJKE AFSTAND ────────
@@ -7336,7 +7443,7 @@ function selecteerBesteDetectie(detecties) {
           stickyMissTeller = 0;
           return { s1: overname, s2Rest: bruikbaar.filter(d => d !== overname), afwijsReden: overnameReden };
         }
-        if (stickyMissTeller < STICKY_MISS_MAX) {
+        if (!stickyMagLosgelaten()) {   // V11.18.17: runs EN tijd
           if (Date.now() - stickyOvernameLogLaatst > 1000) {
             console.log(`[STICKY] sticky_miss afst=${Math.round(afstNodeSticky)}m miss=${stickyMissTeller} overgenomen=nee`);
             stickyOvernameLogLaatst = Date.now();
@@ -7642,6 +7749,34 @@ function effectieveAiDrempel(vanFase, naarKleur) {
   // Laag 3a: familiescore-escape overrulet de verhoging.
   if (hogeFScoreRuns >= FSCORE_OVERRIDE_MIN_RUNS) return AI_DREMPEL;
   return AI_DREMPEL_ONVERWACHT;
+}
+
+// V11.18.17: de tijdsbroer van effectieveAiDrempel. Zelfde takken, zodat een
+// onverwachte omslag ook in tijd zwaarder weegt dan een verwachte.
+function effectieveBezinkMs(vanFase, naarKleur) {
+  if (isVerwachteOmslag(vanFase, naarKleur)) return AI_BEZINK_MS;
+  if (hogeFScoreRuns >= FSCORE_OVERRIDE_MIN_RUNS) return AI_BEZINK_MS;
+  return AI_BEZINK_ONVERWACHT_MS;
+}
+
+// De poort zelf, als aparte functie zodat een test hem kan stellen zonder de
+// hele detectieketen na te bootsen. Beide eisen moeten gelden: genoeg runs ÉN
+// genoeg tijd.
+function faseMagOfficieelWorden(vanFase, naarKleur, nu = Date.now()) {
+  return aiTeller >= effectieveAiDrempel(vanFase, naarKleur)
+      && (nu - aiTellerStart) >= effectieveBezinkMs(vanFase, naarKleur);
+}
+
+// Idem voor het loslaten van een bbox na een reeks missers.
+function tolerantieVerlopen(nu = Date.now()) {
+  return aiMissRuns > TOLERANTIE_RUNS && (nu - laatsteDetectieTijd) > TOLERANTIE_MS;
+}
+
+// Idem voor het loslaten van de sticky-identiteit.
+function stickyMagLosgelaten(nu = Date.now()) {
+  if (!stickyDetectie) return true;
+  return stickyMissTeller >= STICKY_MISS_MAX
+      && (nu - (stickyDetectie.tijd || 0)) >= STICKY_MISS_MS;
 }
 
 function volgordeLog(reden, van, naar, extras) {
@@ -8634,6 +8769,7 @@ function verwerkDetecties() {
 
   if (aiR && aiR.kleur) {
     aiMissRuns = 0;
+    laatsteDetectieTijd = Date.now();   // V11.18.17: klok naast de misser-teller
     // V11.17.11 Laag 3a: fScore-teller loopt PARALLEL aan aiTeller.
     // Reset op elke lage-fScore-frame (streak-eis) én op kleurwissel.
     const _hoogFScore = (aiR.fScore || 0) >= FSCORE_OVERRIDE_DREMPEL;
@@ -8644,6 +8780,7 @@ function verwerkDetecties() {
       // Kleurwissel: hard resetten — voorkomt dat rood-teller naar groen doorloopt
       aiKleur = aiR.kleur;
       aiTeller = 1;
+      aiTellerStart = Date.now();   // V11.18.17: hier begint de bezinktijd
       hogeFScoreRuns = _hoogFScore ? 1 : 0;
     }
     tekenOverlay(aiR.box, aiR.fScore, aiR.horizontaal);
@@ -8687,8 +8824,18 @@ function verwerkDetecties() {
       volgordeLog('gedempt', fase, aiR.kleur,
         { teller: aiTeller, drempel: _effDrempel, fscoreOK: hogeFScoreRuns });
     }
-    // AI_DREMPEL=2: officieel — fase, leergeheugen, countdown, zoom vergrendeling
-    if (aiTeller >= _effDrempel) {
+    // V11.18.17: de runs zijn er wel, de bezinktijd nog niet. Eigen logreden,
+    // want dit is een ANDERE rem dan de volgorde-machine hierboven en zonder
+    // onderscheid zou in een export niet te zien zijn welke van de twee remde.
+    if (aiTeller >= _effDrempel && aiR.kleur !== fase
+        && !faseMagOfficieelWorden(fase, aiR.kleur)) {
+      volgordeLog('bezinkt', fase, aiR.kleur,
+        { teller: aiTeller, ms: Date.now() - aiTellerStart,
+          nodig: effectieveBezinkMs(fase, aiR.kleur) });
+    }
+    // AI_DREMPEL=2 runs ÉN AI_BEZINK_MS: officieel — fase, leergeheugen,
+    // countdown, zoom vergrendeling. V11.18.17: de tijdseis erbij.
+    if (faseMagOfficieelWorden(fase, aiR.kleur)) {
       staleFaseSinds = Date.now();
       if (!zoomVergrendeld) {
         zoomVergrendeld = true; vergrendeldZoomNiveau = huidigeZoom;
@@ -8741,7 +8888,7 @@ function verwerkDetecties() {
 
   // Geen detectie
   aiMissRuns++;
-  if (aiMissRuns > TOLERANTIE_RUNS) {
+  if (tolerantieVerlopen()) {   // V11.18.17: runs EN tijd
     tekenOverlay(null);
     // V11.17.11: fase-teller reset gaat gepaard met fScore-streak reset.
     if (!zoomTransitieActief) { aiTeller=0; aiKleur=null; hogeFScoreRuns=0; }
@@ -14177,6 +14324,39 @@ function ni_kleur(pct) {
 }
 
 // Bug 2 + Bug 3: Handmatige node-selectie
+// ── V11.18.17: ÉÉN PLEK WAAR EEN MENS EEN NODE VASTZET ───────
+// © 2026 StoplichtIQ — Y. Lemaalem
+//
+// De vier velden die samen "een mens heeft deze node gekozen" betekenen stonden
+// tot nu toe alleen in selecteerNodeHandmatig. De tik op het stoplicht IN HET
+// CAMERABEELD zette ze niet: die handler (r6004) stuurt bboxOverride, cropHint
+// en tapSeedDetectie — allemaal over welk VAKJE gevolgd wordt. De node-keuze
+// liep ondertussen gewoon door op GPS en mocht wisselen. Voor de gebruiker zijn
+// dat twee vormen van hetzelfde gebaar, maar maar één ervan hield vast.
+//
+// `stilstandAutoLock = false` is hier het scherpst: die combinatie
+// (handmatigLockActief && !stilstandAutoLock) is de "echte tap"-vlag waarop
+// poort 5 van checkNodeCorrectieStilstand de automatische correctie tegenhoudt.
+// Een tik op het beeld krijgt daarmee exact dezelfde bescherming als een tik in
+// de correctielijst.
+//
+// Het log schrijft alleen bij een NIEUWE vergrendeling, niet bij elke tik op
+// dezelfde node — anders vult een gebruiker die drie keer op hetzelfde licht
+// tikt zijn log met drie identieke regels.
+function vergrendelNodeHandmatig(nodeId, element) {
+  if (nodeId == null) return false;
+  const n = String(nodeId);
+  const alVast = handmatigLockActief && !stilstandAutoLock
+    && String(handmatigGeselecteerdNodeId) === n;
+  handmatigGeselecteerdNodeId = n;
+  handmatigGeselecteerdTimestamp = Date.now();
+  handmatigLockActief = true;
+  stilstandAutoLock = false;
+  handLockVervalReset();   // een verse tap begint met een schone vervalteller
+  if (!alVast) logOpslagMis('node_vergrendeld', { node: n, element: element || 'onbekend' });
+  return true;
+}
+
 function selecteerNodeHandmatig(nodeId) {
   sluitCorrectielijst();
   const sl = osmCache.find(s => String(s.id) === String(nodeId));
@@ -14208,14 +14388,13 @@ function selecteerNodeHandmatig(nodeId) {
   // Bug 3: Hoofdscherm volledig vernieuwen
   refreshHoofdschermVoorActieveNode();
   // V8.9.12: Harde lock — blokkeer auto-selectie tot GPS-voorbij
-  handmatigGeselecteerdNodeId = String(nodeId);
-  handmatigGeselecteerdTimestamp = Date.now();
-  handmatigLockActief = true;
   // V11.17.9 W3-fix: expliciete tap wist stilstandAutoLock — anders zou de
   // combinatie handmatigLockActief && !stilstandAutoLock (de "echte tap"-
   // vlag voor de veiligheidsregel in checkNodeCorrectieStilstand) niet
   // kloppen als de gebruiker tapt terwijl auto-lock al liep.
-  stilstandAutoLock = false;
+  // V11.18.17: die vier velden wonen nu in vergrendelNodeHandmatig, zodat de
+  // tik op het camerabeeld precies dezelfde lock zet.
+  vergrendelNodeHandmatig(nodeId, 'lijst');
   resetVolgordeKennis('handmatig-tap'); // V11.17.11 Laag 3b: mens heeft het woord
   invalideerPassiefSnapshot(); // V11.17.13 W3
   // V10.0.3: Richtingkeuze lock resetten bij handmatige node-wissel
@@ -15825,17 +16004,29 @@ function checkHandLockVerval(lat, lon) {
       && stilstandSinds !== 0
       && (Date.now() - stilstandSinds) >= NODE_CHK_STANDSTILL_DUUR_MS) {
     const closestAf = afstand(lat, lon, puurDichtsteNodeCache.lat, puurDichtsteNodeCache.lon);
-    achterhaald = (lockAfstand - closestAf) >= NODE_CHK_CORRECTIE_MARGE_M;
-    if (achterhaald) {
-      logOpslagMis('handlock_vervallen', {
-        node: String(handmatigGeselecteerdNodeId),
-        afst: lockAfstand,
-        afwM: Math.round(lockAfstand - closestAf)
-      });
+    // V11.18.17: ruimere marge én bewijs dat blijft staan — zie boven.
+    if ((lockAfstand - closestAf) >= HANDTAP_VERVAL_MARGE_M) {
+      const sleutel = String(handmatigGeselecteerdNodeId) + '>' + String(puurDichtsteNodeCache.id);
+      if (sleutel !== handLockVervalSleutel) { handLockVervalSleutel = sleutel; handLockVervalTeller = 0; }
+      handLockVervalTeller++;
+      achterhaald = handLockVervalTeller >= HANDTAP_VERVAL_STABIEL_N;
+      if (achterhaald) {
+        logOpslagMis('handlock_vervallen', {
+          node: String(handmatigGeselecteerdNodeId),
+          afst: lockAfstand,
+          afwM: Math.round(lockAfstand - closestAf),
+          hoekN: handLockVervalTeller   // hergebruikt veld: aantal bevestigingen
+        });
+      }
+    } else {
+      handLockVervalReset();   // het bewijs is weg: opnieuw beginnen
     }
+  } else {
+    handLockVervalReset();     // rijdend of zonder cache telt niets door
   }
 
   if (wegGereden || achterhaald) {
+    handLockVervalReset();
     // Dezelfde drie velden als de auto-unlock (r15086-15088), zodat er geen
     // halve toestand achterblijft waarin de vlag weg is maar de node-id niet.
     handmatigLockActief = false;
