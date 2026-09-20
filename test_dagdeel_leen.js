@@ -55,6 +55,7 @@ function testDagdeelLeen() {
     v9AanrijHeading, v9AanrijSnelheidHeading, v9PreSelectieAfrij,
     getoondeLaag, getoondDagdeel, richtingBlokVerborgen,
     huidigCdBron, huidigCdDdGeleend,
+    richtingLockNodeId, richtingLockKeuze, richtingLockBron,
     leerNaam: (document.getElementById('leer-naam') || {}).textContent,
     pctTxt: (leerPctGetal || {}).textContent,
     ddTxt: (leerPctDd || {}).textContent,
@@ -86,6 +87,14 @@ function testDagdeelLeen() {
     zetLS('sl_bevestig_' + NODE, null);
     zetLS('sl_richting_' + NODE, null);
     huidigCdBron = null; huidigCdDdGeleend = false;
+    // V11.18.18: stap 1 van kiesCountdownBron eist sinds deze release een ECHTE
+    // tik (tikHerkomstEcht). In de app is v9PreSelectieAfrij niet anders te
+    // vullen — het herstelpad bestaat niet meer — dus de opzet zet die herkomst
+    // er expliciet bij. Zonder deze twee regels meet de toets de nieuwe poort
+    // in plaats van wat hij wil meten.
+    richtingLockNodeId = String(NODE);
+    richtingLockKeuze = 'rechts';
+    richtingLockBron = 'tik';
   };
   // rechtsaf = N>W, linksaf = Z>O — twee clusters die elkaar niet raken.
   const RA = ['N', 'W'], LA = ['Z', 'O'];
@@ -279,6 +288,9 @@ function testDagdeelLeen() {
     getoondeLaag = bewaard.getoondeLaag; getoondDagdeel = bewaard.getoondDagdeel;
     richtingBlokVerborgen = bewaard.richtingBlokVerborgen;
     huidigCdBron = bewaard.huidigCdBron; huidigCdDdGeleend = bewaard.huidigCdDdGeleend;
+    richtingLockNodeId = bewaard.richtingLockNodeId;
+    richtingLockKeuze = bewaard.richtingLockKeuze;
+    richtingLockBron = bewaard.richtingLockBron;
     const ln = document.getElementById('leer-naam');
     if (ln) ln.textContent = bewaard.leerNaam;
     if (leerPctGetal) leerPctGetal.textContent = bewaard.pctTxt;

@@ -66,7 +66,7 @@ function testRichtingDrempel() {
     // T8 roept bepaalRichtingTekort aan en die schrijft in een global die de
     // pill per frame leest. Zonder herstel blijft een suffix van deze fixture
     // achter op het scherm van de volgende suite.
-    richtingTekort, richtingLockKeuze, richtingLockNodeId
+    richtingTekort, richtingLockKeuze, richtingLockNodeId, richtingLockBron
   };
 
   // Alle V5-emmers die deze suite ooit aanraakt — ook de buren, want
@@ -107,9 +107,17 @@ function testRichtingDrempel() {
     zetLS('sl_enkelricht_' + NODE, null);
     zetLS('sl_bevestig_' + NODE, null);
     zetLS('sl_v4_' + NODE + '_' + DDNU, null);
+    // V11.18.18: stap 1 van kiesCountdownBron eist sinds deze release een ECHTE
+    // tik (tikHerkomstEcht). In de app is v9PreSelectieAfrij niet anders te
+    // vullen — het herstelpad bestaat niet meer — dus de opzet zet die herkomst
+    // er expliciet bij. Zonder deze twee regels meet de toets de nieuwe poort
+    // in plaats van wat hij wil meten.
     v9AanrijSnelheidHeading = null;
     v9AanrijHeading = null;
     v9PreSelectieAfrij = null;
+    richtingLockNodeId = String(NODE);
+    richtingLockKeuze = 'rechts';
+    richtingLockBron = 'tik';
     huidigePos = null;
     osmCache = [];
   };
@@ -378,6 +386,7 @@ function testRichtingDrempel() {
     richtingTekort = bewaard.richtingTekort;
     richtingLockKeuze = bewaard.richtingLockKeuze;
     richtingLockNodeId = bewaard.richtingLockNodeId;
+    richtingLockBron = bewaard.richtingLockBron;
   }
 
   const gefaald = regels.filter(r => r.uitslag === 'GEFAALD');

@@ -994,7 +994,7 @@ if (typeof ort !== 'undefined') {
 //
 // De stijl volgt de eerdere labels: nummer, kastlijntje, korte omschrijving in
 // kleine letters. De CSS zet hem zelf in kapitalen (text-transform:uppercase).
-const APP_VERSIE = 'V11.18.17 — jouw tik houdt vast';
+const APP_VERSIE = 'V11.18.18 — rond licht is de basis';
 
 // ── CONSTANTEN ────────────────────────────────────────────────
 const OSM_RADIUS       = 5000;
@@ -2144,7 +2144,8 @@ function logOpslagMis(reden, extra) {
       // heeft moet achteraf te zien zijn of er een tik-lock stond. tikLeeft is
       // de ouderdom van die tik in ms en alleen gevuld als de lock nu 'tik' is:
       // een kleine waarde is een verse tik, een grote een lock die bleef hangen.
-      // element is alleen gevuld op 'richting_tik' en 'koppelchip_getoond'.
+      // element is alleen gevuld op 'richting_tik' en 'node_vergrendeld'
+      // (V11.18.18: 'koppelchip_getoond' bestaat niet meer — die chip is weg).
       lockBron: (typeof richtingLockBron !== 'undefined') ? (richtingLockBron || null) : null,
       tikLeeft: (typeof richtingLockBron !== 'undefined' && richtingLockBron === 'tik' && richtingTikTijd)
         ? Date.now() - richtingTikTijd : null,
@@ -3781,7 +3782,32 @@ function kiesCountdownBron(nodeId, dd, aanrijRichting, preSelectieAfrij) {
   // voor het eerst bereikbaar op richtingen. Bewust hier niet gerepareerd: het
   // hoort bij de modusklasse zelf en raakt dan elke bron tegelijk.
   // test_richting_drempel T3 legt het vast zodat het niet ongemerkt schuift.
-  if (!resultaat && !neutraal && aanrijRichting && preSelectieAfrij) {
+  // ── V11.18.18: ROND LICHT IS DE STANDAARD ────────────────────
+  // © 2026 StoplichtIQ — Y. Lemaalem
+  //
+  // WAT HIER VERANDERT. Deze stap pakte de emmer van `preSelectieAfrij`, en die
+  // waarde werd door TWEE paden gevuld: door een tik van de gebruiker, en door
+  // de app zelf, die bij nadering een eerder getikte richting terugzette. Het
+  // tweede pad is weg (zie toonRichtingKnoppen), maar de poort blijft hier
+  // staan als slot op de deur: alleen een richting die van een MENS komt mag de
+  // countdown sturen.
+  //
+  // WAAROM. Een rond licht is op zeven of acht van de tien kruispunten wat er
+  // werkelijk hangt. De app die uit zichzelf een richting koos, koos daarmee
+  // ongevraagd de smalste emmer — vaak één of twee metingen — boven de brede.
+  // Wie een richting wil, tikt hem; wie niets doet, krijgt het ronde licht.
+  //
+  // tikHerkomstEcht is niet nieuw: V11.18.10 bouwde hem om te bepalen of er een
+  // meting WEGGESCHREVEN mocht worden. Dit is dezelfde vraag, één stap eerder —
+  // mag deze richting het scherm sturen. Daarmee lopen schrijven en tonen
+  // eindelijk op dezelfde herkomst.
+  //
+  // WAT ER GEBEURT ALS DE POORT DICHT IS: niets bijzonders. De keten valt door
+  // naar stap 2/3/4, precies zoals bij een kruispunt waar nog nooit een richting
+  // is getikt. Die gelijkheid is het hele punt en staat als toets vast
+  // (test_rond_standaard S1c).
+  if (!resultaat && !neutraal && aanrijRichting && preSelectieAfrij
+      && tikHerkomstEcht(nodeId)) {
     // V11.18.13: dezelfde emmer, andere dagdelen. `preSelectieAfrij` en
     // `aanrijRichting` liggen buiten de lus vast, dus dit blijft één richting.
     const l1 = metDagdeelLening(
@@ -10458,7 +10484,6 @@ function bijwerkLeerkaart(osm) {
 // (per dagdeel), gewGem+laadMV5Geclusterd voor cyclustijd, ni_kleur voor kleur,
 // tikRichting voor keuze-actie. GEEN nieuwe scoring-logica — de aggregatie
 // over dagdelen is een gewogen gemiddelde op basis van bestaande outputs.
-let koppelChipLogSleutel = null;   // V11.18.11: node@tiktijd van de laatst gelogde chip
 function renderRichtingBlok(osm) {
   const blok = document.getElementById('richting-blok');
   const body = document.getElementById('richting-blok-body');
@@ -10689,36 +10714,26 @@ function renderRichtingBlok(osm) {
       // zelf. Wat overblijft is de losmaak-knop, en die moet bereikbaar blijven:
       // zonder hem is de markering vanaf het rijscherm onomkeerbaar.
       erChip = ` <span onclick="event.stopPropagation();verwijderEnkelRicht('${nodeId}')" title="Dit kruispunt is gemarkeerd als één licht voor ${KOPPEL_NAAM[erMark] || erMark} — tik om los te maken" class="rb-koppel gekoppeld">✕</span>`;
-    } else if (rijrichtingVoor(nodeId) && richtingLockBron === 'tik') {
-      // ── V11.17.96: TWEE EISEN, ALLEBEI NODIG ────────────────
-      // © 2026 StoplichtIQ — Y. Lemaalem
-      //
-      // rijrichtingVoor(nodeId): de keuze moet bij DIT kruispunt horen. De kale
-      // global kon van het vorige kruispunt komen — de wisregel bij een
-      // node-wissel eist stilstand-uitsluitend `snelheidKmh > 5`, dus wie voor
-      // rood staat te wachten houdt de oude lock. Dat is het beeld op 158 m.
-      //
-      // richtingLockBron === 'tik': de chip stelt een VRAAG over een keuze
-      // ("is Algemeen hetzelfde licht als de richting die je koos?"). Over een
-      // richting die activeerPersistenteRichting zelf heeft ingevuld is die
-      // vraag zinloos — en het antwoord schrijft een permanente markering weg.
-      //
-      // De 'algemeen'-tak van V11.17.93 is hierin opgegaan: rijrichtingVoor
-      // projecteert 'algemeen' weg, dus die valt hier vanzelf buiten. Eén
-      // voorwaarde in plaats van twee takken die hetzelfde zeggen.
-      const _rr = rijrichtingVoor(nodeId);
-      const p = richtingSymbool(_rr).trim() || '•';
-      // V11.18.11: EEN regel per getoonde chip, niet per tekenronde. De sleutel
-      // is node + tijdstip van de tik: dezelfde chip die elke GPS-tick opnieuw
-      // getekend wordt telt één keer, een chip na een NIEUWE tik telt opnieuw.
-      // tikLeeft op deze regel is precies de vraag: vers of blijven hangen?
-      const _chipSleutel = String(nodeId) + '@' + richtingTikTijd;
-      if (_chipSleutel !== koppelChipLogSleutel) {
-        koppelChipLogSleutel = _chipSleutel;
-        logOpslagMis('koppelchip_getoond', { node: String(nodeId), element: richtingTikElement });
-      }
-      erChip = ` <span onclick="event.stopPropagation();koppelEnkelRicht('${nodeId}')" title="Is het ronde licht hier hetzelfde als ${KOPPEL_NAAM[_rr] || _rr}?" class="rb-koppel">zelfde als ${p}?</span>`;
     }
+    // ── V11.18.18: HET KOPPELAANBOD IS HIER WEG ─────────────────
+    // © 2026 StoplichtIQ — Y. Lemaalem
+    //
+    // Hier stond de chip 'zelfde als →?': het aanbod om het ronde licht aan de
+    // zojuist getikte richting te koppelen. Drie keer is gemeld dat hij opdook
+    // waar hij niet hoorde, en drie keer bleek de code te doen wat er stond.
+    // Het probleem zat niet in de voorwaarde maar in de vraag zelf.
+    //
+    // Met rond licht als vaste standaard is die vraag zinloos geworden. Het
+    // ronde licht is een eigen categorie, geen kandidaat om in een richting op
+    // te gaan. Een aanbod dat verschijnt zodra je een richting kiest, nodigt uit
+    // tot een permanente markering op een moment dat je iets heel anders aan het
+    // doen bent. Daarom weggehaald en niet nogmaals gerepareerd.
+    //
+    // WAT BLIJFT. De ✕ hierboven maakt een BESTAANDE koppeling los — zonder die
+    // knop zou een ooit gezette markering vanaf het rijscherm onomkeerbaar zijn.
+    // En koppelen zelf blijft gewoon mogelijk via het node-info-paneel
+    // (koppelVanuitPaneel), waar je er bewust naartoe navigeert in plaats van
+    // het onderweg aangeboden te krijgen.
     // V11.17.83: de ALG-rij riep tikRichting('rechtdoor') aan en selecteerde dus
     // stilletjes een RIJRICHTING terwijl de gebruiker alleen de algemene cijfers
     // wilde zien. Er was daardoor ook geen weg terug naar de Algemeen-laag.
@@ -12551,15 +12566,36 @@ function toonRichtingKnoppen(nodeId, forceerTonen = false) {
   if (richtingGedruktVoorNode === nodeId) return;
   // V10.0.3: Richtingkeuze lock — niet opnieuw tonen als keuze al gemaakt voor deze node
   if (richtingLockNodeId === nodeId && rijrichting()) return;
-  // V11.17.17 W1: persistente keuze onderdrukt de knoppen (tenzij bewuste
-  // correctie via de badge). De eerder getikte richting wordt direct
-  // geactiveerd i.p.v. de gebruiker opnieuw te laten kiezen.
+  // ── V11.18.18: DE APP KIEST GEEN RICHTING MEER VOOR JE ───────
+  // © 2026 StoplichtIQ — Y. Lemaalem
+  //
+  // Hier stond het hart van V11.17.17 W1: bestond er een eerder getikte richting
+  // met minstens één bevestiging, dan zette activeerPersistenteRichting die
+  // direct terug — lock, pre-selectie, preZet — en bleven de keuzeknoppen weg.
+  // Op de export van 28 augustus gold dat voor 493 kruispunten.
+  //
+  // Dat is precies wat er weg moest. Rond licht is de basis; een richting hoort
+  // alleen actief te zijn als je er in DEZE rit zelf om vraagt. De richting
+  // verdwijnt niet: hij staat nog in sl_richting_, zijn rij staat nog in het
+  // blok met zijn eigen cijfers, en één tik maakt hem weer actief — met alle
+  // rechten die een echte tik heeft (countdown, schrijven, V11.18.5).
+  //
+  // GEEN HALFSLACHTIGE TUSSENVORM. Overwogen: de functie laten staan om alleen
+  // de WEERGAVE te sturen (pijl-indicator, oplichtende rij) zonder de countdown
+  // te raken. Daar is bewust van afgezien. De indicator en de actieve rij zijn
+  // afgeleid van dezelfde lock die ook de countdown voedt (rijrichting,
+  // rijrichtingVoor, verversAfrijIndicator); een lock die "alleen voor de
+  // weergave" geldt zou een tweede waarheid introduceren naast de eerste, en
+  // dat is hoe V11.17.93 en V11.17.96 hun bugs kregen. Bovendien: een pijl die
+  // een richting toont die de countdown NIET stuurt, liegt over wat de app doet.
+  // Er staat nu het ronde teken, en dat is ook wat er gebeurt.
+  //
+  // WAT DIT KOST, en dat is geaccepteerd: op kruispunten waar altijd dezelfde
+  // kant op gereden wordt, verschijnen de keuzeknoppen weer en moet er opnieuw
+  // getikt worden voor een richting-countdown. Op dezelfde export gaat het om
+  // 97 kruispunten die daadwerkelijk V5-data hebben; de overige 396 vielen in de
+  // countdown toch al terug op het ronde licht.
   if (!forceerTonen) {
-    const rd = laadRichtingData(nodeId);
-    if (rd && rd.tikrichting && (rd.tik_bevestigingen || 0) >= 1) {
-      activeerPersistenteRichting(nodeId, rd.tikrichting);
-      return;
-    }
     // Eén logische richting (EXACT 1 bekende aanrij) → keuze is zinloos.
     // size===0 (nieuwe node) valt hier bewust NIET onder: die krijgt de knoppen.
     if (aantalAanrijRichtingen(nodeId) === 1) return;
@@ -12615,21 +12651,13 @@ function verbergRichtingKnoppen() {
   if (richtingGroenDelayTimer) { clearTimeout(richtingGroenDelayTimer); richtingGroenDelayTimer = null; }
 }
 
-// V11.17.17 W1: activeer een eerder getikte richting ZONDER de knoppen te tonen.
-// Repliceert de selectie-neveneffecten van tikRichting (lock + pre-selectie +
-// badge) maar schrijft NIETS — de keuze stond al in sl_richting_.
-function activeerPersistenteRichting(nodeId, tikrichting) {
-  richtingLockNodeId = nodeId;
-  richtingLockKeuze = tikrichting;
-  richtingLockBron = 'hersteld';   // V11.17.96: de app vult in, de gebruiker koos niet
-  richtingGedruktVoorNode = nodeId;
-  const h = v9AanrijSnelheidHeading ?? v9AanrijHeading;
-  v9PreSelectieAfrij = (h != null) ? berekenAfrijRichtingViaTik(h, tikrichting) : tikrichting;
-  // V11.18.10: 'hersteld' — de app vult dit in, de gebruiker heeft niets gedaan.
-  // Deze richting mag de countdown sturen maar NOOIT een meting wegschrijven.
-  markeerPreZet(nodeId, v9PreSelectieAfrij, 'hersteld');   // V11.17.56
-  verversAfrijIndicator(nodeId);   // V11.17.96: afgeleid, niet onthouden
-}
+// V11.18.18: activeerPersistenteRichting is hier weggehaald. Zij was de enige
+// aanroeper van richtingLockBron 'hersteld' en van markeerPreZet(..., 'hersteld').
+// Die twee waarden blijven wel in de code staan: markeerPreZet normaliseert nog
+// altijd alles wat geen 'tik' is naar 'hersteld', en de poorten van V11.18.10
+// (tikHerkomstEcht, bepaalGetikteAfrij) toetsen op 'tik' en blijven daarmee
+// onveranderd geldig. Verwijzingen naar deze functie in oudere commentaarblokken
+// zijn historisch: ze leggen uit waarom een guard ooit nodig was.
 
 // V11.17.17 W1: bewuste correctie via de badge — hef de suppressors op en toon
 // de knoppen alsnog (forceerTonen), zodat een verkeerde persistente keuze
@@ -13419,16 +13447,10 @@ function laagTerugNaarAlgemeenBijKoppeling(nodeId, richting) {
   if (raaktKoppeling) getoondeLaag = null;
 }
 
-function koppelEnkelRicht(nodeId) {
-  if (!nodeId) return;
-  const r = rijrichting();
-  if (!r) return;
-  zetEnkelRicht(nodeId, r);
-  laagTerugNaarAlgemeenBijKoppeling(nodeId, r);
-  toonToast('Dit kruispunt telt nu als ' + KOPPEL_NAAM[r]);
-  if (dichtstbijOSM) renderRichtingBlok(dichtstbijOSM);
-  if (String(nodeInfoNodeId) === String(nodeId)) renderNodeInfo(nodeId);
-}
+// V11.18.18: koppelEnkelRicht is hier weggehaald — hij was de klikafhandeling
+// van de verwijderde chip en had verder geen aanroepers. Koppelen gebeurt nu
+// uitsluitend via koppelVanuitPaneel, dat hetzelfde doet vanuit het
+// node-info-paneel.
 function verwijderEnkelRicht(nodeId) {
   if (!nodeId) return;
   wisEnkelRicht(nodeId);

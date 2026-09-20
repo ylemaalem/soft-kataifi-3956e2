@@ -41,7 +41,7 @@ function testRondLicht() {
     dichtstbijOSM, osmCache, huidigePos, huidigeRichting, snelheidKmh, fase,
     richtingKnoppenNodeId, huidigBevestigdOsmNodeId, richtingGedruktVoorNode,
     richtingLockKeuze, richtingLockNodeId, richtingLockBron,
-    richtingTikTijd, richtingTikElement, koppelChipLogSleutel,
+    richtingTikTijd, richtingTikElement,
     v9AanrijHeading, v9AanrijSnelheidHeading, v9PreSelectieAfrij, preZet, preWis,
     getoondeLaag, getoondDagdeel, richtingBlokVerborgen, laatsteRichtingRijen,
     nodeInfoNodeId, mergeModusAan, mergeSelectie: [...mergeSelectie], mergeUndoBuffer,
@@ -79,7 +79,7 @@ function testRondLicht() {
     richtingKnoppenNodeId = String(NODE); huidigBevestigdOsmNodeId = String(NODE);
     richtingGedruktVoorNode = null;
     richtingLockKeuze = null; richtingLockNodeId = null; richtingLockBron = null;
-    richtingTikTijd = 0; richtingTikElement = null; koppelChipLogSleutel = null;
+    richtingTikTijd = 0; richtingTikElement = null;
     v9AanrijHeading = 0; v9AanrijSnelheidHeading = 0; v9PreSelectieAfrij = null;
     preZet = null; preWis = null;
     getoondeLaag = null; getoondDagdeel = null; richtingBlokVerborgen = false;
@@ -96,21 +96,27 @@ function testRondLicht() {
     eis('R1.1b en zo staat hij ook in het rijblok',
         algRijLabel() === 'Rond licht', 'Rond licht', String(algRijLabel()));
 
+    // ── V11.18.18: DEZE DRIE TOETSEN ZIJN OMGEDRAAID ────────
+    // R1.2 t/m R1.2c legden de tekst van het koppelaanbod vast: "Is het ronde
+    // licht hier hetzelfde als linksaf?". Die vraag is vervallen met de release
+    // die rond licht tot vaste standaard maakte — het ronde licht is een eigen
+    // categorie en geen kandidaat om in een richting op te gaan. Wat hier nu
+    // staat is dus geen verzwakte toets maar de tegenovergestelde eis.
     tikRichting('links', 'vraag');
     renderRichtingBlok(dichtstbijOSM);
     let chip = el('richting-blok-body').querySelector('.rb-koppel');
-    eis('R1.2 de koppel-chip vraagt "Is het ronde licht hier hetzelfde als linksaf?"',
-        !!chip && chip.getAttribute('title') === 'Is het ronde licht hier hetzelfde als linksaf?',
-        'Is het ronde licht hier hetzelfde als linksaf?', chip ? chip.getAttribute('title') : 'geen chip');
+    eis('R1.2 na een tik staat er GEEN koppelaanbod meer op de ronde-lichtregel',
+        chip === null, 'geen chip', chip ? chip.getAttribute('title') : 'geen chip');
     opzet();
     tikRichting('rechts', 'vraag');
     renderRichtingBlok(dichtstbijOSM);
     chip = el('richting-blok-body').querySelector('.rb-koppel');
-    eis('R1.2b en noemt de volle naam ook bij rechtsaf',
-        !!chip && chip.getAttribute('title') === 'Is het ronde licht hier hetzelfde als rechtsaf?',
-        '… als rechtsaf?', chip ? chip.getAttribute('title') : 'geen chip');
-    eis('R1.2c de zichtbare chiptekst zelf is ongewijzigd',
-        !!chip && chip.textContent === 'zelfde als →?', 'zelfde als →?', chip ? chip.textContent : 'geen chip');
+    eis('R1.2b ook niet bij een andere richting',
+        chip === null, 'geen chip', chip ? chip.getAttribute('title') : 'geen chip');
+    eis('R1.2c en de renderfunctie kent de chiptekst niet meer',
+        !/zelfde als/.test(String(renderRichtingBlok).replace(/\/\*[\s\S]*?\*\//g, ' ')
+                                                   .replace(/\/\/.*/g, ' ')),
+        'geen chiptekst in de code', 'weg');
 
     opzet();
     mergeModusAan = true;
@@ -222,13 +228,14 @@ function testRondLicht() {
         rijdersPijlLabel('ALG', 'ALG').tekst === 'Rond licht', 'Rond licht', rijdersPijlLabel('ALG', 'ALG').tekst);
 
     // ═══ R5 — KOPPELEN, LOSMAKEN, SAMENVOEGEN ════════════════
+    // V11.18.18: koppelen gebeurt niet meer via een chip op het rijscherm maar
+    // bewust vanuit het node-info-paneel. De rest van deze groep (de naam van de
+    // rij, losmaken, samenvoegen) is ongewijzigd.
     opzet();
     tikRichting('rechts', 'vraag');
+    koppelVanuitPaneel(String(NODE), 'rechts');
     renderRichtingBlok(dichtstbijOSM);
-    chip = el('richting-blok-body').querySelector('.rb-koppel');
-    if (chip) chip.click();
-    renderRichtingBlok(dichtstbijOSM);
-    eis('R5 een klik op de chip koppelt, en de rij heet dan naar de richting',
+    eis('R5 koppelen via het paneel werkt, en de rij heet dan naar de richting',
         laadEnkelRicht(String(NODE)) === 'rechts' && algRijLabel() && algRijLabel().indexOf('Rechtsaf') === 0
           && blokTxt().indexOf('Rond licht') < 0,
         "'rechts', label Rechtsaf", laadEnkelRicht(String(NODE)) + ' / ' + algRijLabel());
@@ -272,7 +279,6 @@ function testRondLicht() {
     richtingLockKeuze = bewaard.richtingLockKeuze; richtingLockNodeId = bewaard.richtingLockNodeId;
     richtingLockBron = bewaard.richtingLockBron;
     richtingTikTijd = bewaard.richtingTikTijd; richtingTikElement = bewaard.richtingTikElement;
-    koppelChipLogSleutel = bewaard.koppelChipLogSleutel;
     v9AanrijHeading = bewaard.v9AanrijHeading; v9AanrijSnelheidHeading = bewaard.v9AanrijSnelheidHeading;
     v9PreSelectieAfrij = bewaard.v9PreSelectieAfrij; preZet = bewaard.preZet; preWis = bewaard.preWis;
     getoondeLaag = bewaard.getoondeLaag; getoondDagdeel = bewaard.getoondDagdeel;

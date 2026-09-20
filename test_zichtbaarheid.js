@@ -324,24 +324,29 @@ function testZichtbaarheid() {
         BEV_GOED_MAX_MS === 2000 && BEV_BIJNA_MAX_MS === 10000,
         '2000 / 10000', BEV_GOED_MAX_MS + ' / ' + BEV_BIJNA_MAX_MS);
 
-    // ══ T23 — de verplaatste guard in toonRichtingKnoppen ═════
-    // De bevestigActief-return mag niet vóór het persistente-keuze-blok staan:
-    // daar blokkeert hij activeerPersistenteRichting, en dan blijft
-    // v9PreSelectieAfrij null en kiest startCd een andere countdownbron. Dat is
-    // een gedragswijziging aan de countdown, en die valt buiten deze release.
-    // Alleen in broncode te toetsen: het echte pad vraagt een GPS-voorspelling
-    // gevolgd door een rood-detectie tijdens het rijden.
-    // Ook hier het commentaar eruit, om dezelfde reden als bij T21: de
-    // toelichting bij de verplaatste guard noemt beide namen.
+    // ══ T23 — de guard in toonRichtingKnoppen ═════════════════
+    // ── V11.18.18: DE AANLEIDING VOOR DEZE TOETS IS WEG ─────
+    // T23 bewaakte dat de bevestigActief-return NA het persistente-keuze-blok
+    // stond: daarvóór zou hij activeerPersistenteRichting blokkeren en daarmee
+    // stilletjes de countdownbron veranderen. Dat blok bestaat niet meer — de
+    // app zet geen richting meer terug, dus er valt niets meer te blokkeren.
+    //
+    // Wat blijft is waar de guard voor bedoeld was: hij mag de OVERLAY niet
+    // tonen zolang de bevestigknoppen actief zijn. Dat is nu de hele eis, en hij
+    // is te toetsen op dezelfde manier: de return moet vóór het zichtbaar maken
+    // staan, en de verwijderde functie mag nergens meer opduiken.
     const richtBron = zonderCommentaar(String(toonRichtingKnoppen));
     const iGuard = richtBron.indexOf('if (bevestigActief) return;');
-    const iPersistent = richtBron.indexOf('activeerPersistenteRichting');
-    eis('T23 bevestigActief-guard staat NA activeerPersistenteRichting',
-        iGuard > -1 && iPersistent > -1 && iGuard > iPersistent,
-        'guard na de persistente activering',
-        iGuard === -1 ? 'GUARD WEG'
-          : iPersistent === -1 ? 'activeerPersistenteRichting WEG'
-          : (iGuard > iPersistent ? 'guard staat erna' : 'GUARD STAAT ERVOOR'));
+    const iToon = richtBron.indexOf("style.display = 'flex'");
+    eis('T23 de bevestigActief-guard staat vóór het tonen van de overlay',
+        iGuard > -1 && iToon > -1 && iGuard < iToon,
+        'guard vóór het tonen',
+        iGuard === -1 ? 'GUARD WEG' : iToon === -1 ? 'TOONREGEL WEG'
+          : (iGuard < iToon ? 'guard staat ervoor' : 'GUARD STAAT ERNA'));
+    eis('T23b en het persistente-herstelpad is verdwenen',
+        richtBron.indexOf('activeerPersistenteRichting') === -1
+          && typeof activeerPersistenteRichting === 'undefined',
+        'nergens meer', 'weg');
 
     // ══ T24 — het kmh-veld in het bevestig-record ═════════════
     // Puur op de bron: bevestigCountdown schrijft naar localStorage en roept

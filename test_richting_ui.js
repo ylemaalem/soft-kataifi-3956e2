@@ -70,7 +70,7 @@ function testRichtingUi() {
 
   const bewaard = {
     dichtstbijOSM, getoondeLaag, getoondDagdeel, richtingBlokVerborgen,
-    richtingLockKeuze, richtingLockNodeId, richtingKnoppenNodeId,
+    richtingLockKeuze, richtingLockNodeId, richtingLockBron, richtingKnoppenNodeId,
     v9AanrijHeading, v9AanrijSnelheidHeading, v9PreSelectieAfrij,
     huidigCdBron, fase, cdStart, activeCdDoel, activeCdModus, activeCdMin,
     richtingTekort, osmVoorspellingActief, cdBereikteNul, countdownNulTijd,
@@ -325,6 +325,10 @@ function testRichtingUi() {
         'geen V5-label', bronNul ? bronNul.bron : 'geen bron');
 
     // ══ T8 — RICHTING DIE DE DREMPEL WEL HAALT ════════════════
+    // V11.18.18: stap 1 eist een echte tik op DEZE node (tikHerkomstEcht).
+    richtingLockNodeId = String(NODE_EIGEN);
+    richtingLockKeuze = 'rechts';
+    richtingLockBron = 'tik';
     const bronEigen = kiesCountdownBron(NODE_EIGEN, DD_NU, 'N', 'W');
     eis('T8 richting met >= V9_MIN_METINGEN krijgt de eigen V5-bron',
         bronEigen && bronEigen.bron === 'V5 W' && bronEigen.v5 === true,
@@ -348,6 +352,10 @@ function testRichtingUi() {
       richtingTekort = null;                 // suffix uit beeld houden
       v9PreSelectieAfrij = 'W';
       richtingLockKeuze = 'rechts';          // de tik IS gedaan
+      // V11.18.18: en de herkomst hoort er sindsdien bij, anders telt de tik
+      // niet mee voor kiesCountdownBron (tikHerkomstEcht).
+      richtingLockNodeId = String(NODE_LEEN);
+      richtingLockBron = 'tik';
       huidigCdBron = bron;
       cdStart = performance.now() - 15000;
       tickCd();
@@ -440,6 +448,7 @@ function testRichtingUi() {
     richtingBlokVerborgen = bewaard.richtingBlokVerborgen;
     richtingLockKeuze = bewaard.richtingLockKeuze;
     richtingLockNodeId = bewaard.richtingLockNodeId;
+    richtingLockBron = bewaard.richtingLockBron;
     richtingKnoppenNodeId = bewaard.richtingKnoppenNodeId;
     v9AanrijHeading = bewaard.v9AanrijHeading;
     v9AanrijSnelheidHeading = bewaard.v9AanrijSnelheidHeading;

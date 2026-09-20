@@ -90,11 +90,23 @@ function testHerkomstPoort() {
   merkLS();
   try {
     // ═══ T1 — REPRODUCTIE 1: DE ALGEMEEN-TIK ═════════════════
+    // ── V11.18.18: HET HERSTELPAD BESTAAT NIET MEER ─────────
+    // T1a eiste dat de app de oude richting zelf terugzette. Sinds rond licht de
+    // vaste standaard is, gebeurt dat niet meer — de toets eist nu het
+    // omgekeerde. Het SCENARIO van deze test blijft wel bestaan: de gebruiker
+    // tikt zelf een richting en zegt daarna "rond licht". Dat is precies waar
+    // V11.18.10 voor gebouwd is, dus de pre-selectie wordt hier met een echte
+    // tik gezet in plaats van door de app.
     opzet(A, 'rechtdoor');
-    toonRichtingKnoppen(String(A));                  // app herstelt 'rechtdoor'
-    eis('T1a vooraf: de app herstelt de oude richting automatisch',
-        v9PreSelectieAfrij === 'Z' && richtingLockBron === 'hersteld',
-        "pre 'Z', bron 'hersteld'", 'pre ' + v9PreSelectieAfrij + ', bron ' + richtingLockBron);
+    toonRichtingKnoppen(String(A));
+    eis('T1a vooraf: de app herstelt de oude richting NIET meer',
+        v9PreSelectieAfrij === null && richtingLockBron === null,
+        'pre null, bron null', 'pre ' + v9PreSelectieAfrij + ', bron ' + richtingLockBron);
+    richtingKnoppenNodeId = String(A);
+    tikRichting('rechtdoor', 'vraag');               // nu tikt de gebruiker zelf
+    eis('T1a2 en een echte tik zet hem wel, met herkomst tik',
+        v9PreSelectieAfrij === 'Z' && richtingLockBron === 'tik',
+        "pre 'Z', bron 'tik'", 'pre ' + v9PreSelectieAfrij + ', bron ' + richtingLockBron);
     kiesLaagAlgemeen();                              // de gebruiker zegt: rond licht
     eis('T1b de Algemeen-tik wist de pre-selectie',
         v9PreSelectieAfrij === null, 'null', String(v9PreSelectieAfrij));
@@ -113,10 +125,10 @@ function testHerkomstPoort() {
 
     // ═══ T2 — REPRODUCTIE 2: GEEN TIK, OUDE RICHTING BIJ B ═══
     opzet(B, 'links');
-    toonRichtingKnoppen(String(B));                  // app herstelt 'links'
-    eis('T2a vooraf: B krijgt automatisch zijn oude richting terug',
-        v9PreSelectieAfrij === 'O' && richtingLockBron === 'hersteld',
-        "pre 'O', bron 'hersteld'", 'pre ' + v9PreSelectieAfrij + ', bron ' + richtingLockBron);
+    toonRichtingKnoppen(String(B));
+    eis('T2a vooraf: B krijgt zijn oude richting NIET meer terug (V11.18.18)',
+        v9PreSelectieAfrij === null && richtingLockBron === null,
+        'pre null, bron null', 'pre ' + v9PreSelectieAfrij + ', bron ' + richtingLockBron);
     const g2 = schrijfV5DirectBijGroen(String(B), 45, DD, 12, []);
     eis('T2 zonder tik wordt bij B GEEN meting weggeschreven',
         g2 === false && v5van(B).length === 0,
@@ -125,8 +137,11 @@ function testHerkomstPoort() {
     voerV9DelayedWriteUit(90, 'test', '-', false);
     eis('T2b ook de late keten schrijft bij B niets',
         v5van(B).length === 0, '0 V5-records', v5van(B).join(',') || '0');
+    // V11.18.18: een herstelde pre-selectie ontstaat niet meer vanzelf, dus
+    // zetten we hem hier met de hand — de poort moet hem blijven weigeren.
     eis('T2c bepaalGetikteAfrij weigert een herstelde richting',
-        (opzet(B, 'links'), toonRichtingKnoppen(String(B)),
+        (opzet(B, 'links'), v9PreSelectieAfrij = 'O',
+         markeerPreZet(String(B), 'O', 'hersteld'),
          bepaalGetikteAfrij(String(B), 0)) === null,
         'null', 'afgewezen');
 
@@ -157,23 +172,41 @@ function testHerkomstPoort() {
         gered && gered.afrij === 'W' && gered.bron === 'teruggehaald',
         "W via 'teruggehaald'", JSON.stringify(gered));
 
-    // ═══ T4 — OPTIE B: DE COUNTDOWN BLIJFT ═══════════════════
-    // Een herstelde richting mag nog steeds haar eigen geleerde cyclus tonen.
+    // ═══ T4 — OPTIE B IS VERVALLEN MET V11.18.18 ════════════
+    // ── DEZE TOETS STAAT OM, EN DAT IS DE KERN VAN DIE RELEASE ──
+    // V11.18.10 koos bewust optie B: een herstelde richting mocht de countdown
+    // nog sturen, maar niets meer wegschrijven. Die tussenvorm is met V11.18.18
+    // opgeheven — rond licht is de standaard, dus een richting die de app zelf
+    // invulde stuurt ook het scherm niet meer. Schrijven én tonen volgen nu
+    // dezelfde herkomst, en dat was precies de inconsistentie die overbleef.
     opzet(A, 'rechts');
     localStorage.setItem('sl_v5_' + A + '_N_W_' + DD, JSON.stringify(
       [{ duur: 28, tijd: Date.now(), gewicht: 1, bron: 'tik' }]));
     localStorage.setItem('sl_v4_' + A + '_' + DD, JSON.stringify(
       [{ duur: 60, tijd: Date.now(), gewicht: 1, obs: 60, bron: 's1' }]));
-    toonRichtingKnoppen(String(A));                  // herstel: pre 'W', bron 'hersteld'
+    toonRichtingKnoppen(String(A));                  // zet niets meer terug
+    // de pre-selectie met de hand op 'hersteld', zoals die vroeger ontstond
+    v9PreSelectieAfrij = 'W';
+    markeerPreZet(String(A), 'W', 'hersteld');
     const cd = kiesCountdownBron(String(A), DD, 'N', v9PreSelectieAfrij);
-    eis('T4 een herstelde richting stuurt de countdown nog zoals voorheen',
-        richtingLockBron === 'hersteld' && cd && cd.bron === 'V5 W' && Math.round(cd.gem) === 28,
-        "bron 'V5 W', 28s", cd ? (cd.bron + ', ' + Math.round(cd.gem) + 's') : 'null');
-    eis('T4b maar schrijft er geen nieuwe meting bij',
+    eis('T4 een herstelde richting stuurt de countdown NIET meer — het ronde ' +
+        'licht (60s) wint van de richting (28s)',
+        cd && cd.v5 === false && Math.round(cd.gem) === 60,
+        'rond licht, 60s', cd ? (cd.bron + ', ' + Math.round(cd.gem) + 's') : 'null');
+    eis('T4b en schrijft er evenmin een nieuwe meting bij',
         schrijfV5DirectBijGroen(String(A), 31, DD, 10, []) === false
           && JSON.parse(localStorage.getItem('sl_v5_' + A + '_N_W_' + DD)).length === 1,
         'nog steeds 1 record',
         JSON.parse(localStorage.getItem('sl_v5_' + A + '_N_W_' + DD)).length + ' records');
+    // En de spiegel: dezelfde richting, nu wél door de gebruiker getikt. Dan
+    // stuurt hij de countdown en mag er ook geschreven worden — de twee rechten
+    // lopen sinds V11.18.18 op dezelfde herkomst.
+    richtingKnoppenNodeId = String(A);
+    tikRichting('rechts', 'vraag');
+    const cdTik = kiesCountdownBron(String(A), DD, 'N', v9PreSelectieAfrij);
+    eis('T4c met een ECHTE tik stuurt dezelfde richting de countdown wel',
+        cdTik && cdTik.v5 === true && Math.round(cdTik.gem) === 28,
+        "'V5 W', 28s", cdTik ? (cdTik.bron + ', ' + Math.round(cdTik.gem) + 's') : 'null');
 
     // ═══ T5 — ALGEMEEN, DAN TOCH EEN RICHTING ════════════════
     opzet(A, null);

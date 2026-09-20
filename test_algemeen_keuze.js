@@ -120,33 +120,33 @@ function testAlgemeenKeuze() {
     eis('T1c de getoonde laag gaat mee terug naar Algemeen',
         getoondeLaag === null, 'null', JSON.stringify(getoondeLaag));
 
-    // ══ T2 — DE KOPPEL-CHIP ═══════════════════════════════════
+    // ══ T2 — HET KOPPELAANBOD BESTAAT NIET MEER ═══════════════
+    // ── V11.18.18: DEZE HELE GROEP IS OMGEDRAAID ────────────
+    // T2 eiste dat de ronde-lichtregel na een richting-tik de koppeling AANBOOD
+    // ('zelfde als →?'). Met rond licht als vaste standaard is die vraag
+    // vervallen: het ronde licht is een eigen categorie, geen kandidaat om in
+    // een richting op te gaan. Het aanbod is verwijderd, dus de toetsen eisen nu
+    // het omgekeerde. Losmaken van een BESTAANDE koppeling blijft (T9c2).
     opnieuw('rechts');
-    eis('T2 met een richting-lock biedt de Algemeen-regel de koppeling aan',
-        chipTxt() !== null && chipTxt().indexOf('zelfde als') === 0,
-        "'zelfde als →?'", String(chipTxt()));
+    eis('T2 een richting-lock levert geen koppelaanbod meer op',
+        chip() === null, 'geen chip', String(chipTxt()));
     kiesLaagAlgemeen();
-    eis('T2b na Algemeen verdwijnt dat aanbod',
+    eis('T2b en na Algemeen evenmin',
         chip() === null, 'geen chip', String(chipTxt()));
 
-    // ── V11.17.96: DEZE TOETS STOND OM ─────────────────────
-    // Hier eiste T2c dat het aanbod ER NOG STOND na activeerPersistenteRichting.
-    // Dat legde precies het gemelde probleem vast als correct gedrag: de app
-    // stelde een koppelvraag over een richting die zij zelf had ingevuld, en
-    // een groene test hield die situatie in stand. Nu eist hij het omgekeerde.
+    // De app zet een eerder getikte richting sinds V11.18.18 ook niet meer zelf
+    // terug: een bekend kruispunt begint op rond licht, met de keuzeknoppen.
     opnieuw(null);
-    activeerPersistenteRichting(String(NODE), 'rechts');
+    toonRichtingKnoppen(String(NODE));
     bijwerkLeerkaart(dichtstbijOSM);
-    eis('T2c een lock die de app zelf terugzette krijgt GEEN koppelvraag',
-        chip() === null, 'geen chip', String(chipTxt()));
-    eis('T2c2 de herkomst staat op hersteld, de keuze zelf is gewoon gezet',
-        richtingLockBron === 'hersteld' && richtingLockKeuze === 'rechts',
-        "'hersteld' / 'rechts'", richtingLockBron + ' / ' + richtingLockKeuze);
-    eis('T2c3 maar de indicator blijft wél staan — de app mag dit onthouden',
-        zicht() && indic().textContent.indexOf('rechtsaf') >= 0,
-        'zichtbaar, rechtsaf', zicht() ? indic().textContent : 'verborgen');
+    eis('T2c een bekend kruispunt activeert uit zichzelf geen richting meer',
+        richtingLockBron === null && richtingLockKeuze === null,
+        'geen lock', richtingLockBron + ' / ' + richtingLockKeuze);
+    eis('T2c2 en de indicator toont dus het ronde teken, niet een richting',
+        indic().textContent.indexOf('rechtsaf') < 0,
+        'geen richting in de indicator', indic().textContent);
     kiesLaagAlgemeen();
-    eis('T2d en na Algemeen is er nog steeds geen chip',
+    eis('T2d na een Algemeen-keuze staat er ook geen chip',
         chip() === null && richtingLockKeuze === 'algemeen',
         'geen chip, keuze algemeen',
         (chip() ? 'chip: ' + chipTxt() : 'geen chip') + ', keuze ' + richtingLockKeuze);
@@ -156,8 +156,10 @@ function testAlgemeenKeuze() {
     // is een van de vier gelijkwaardige categorieën en hoort dus net zo zichtbaar
     // te zijn als de andere drie; een lege indicator zou hem weer tot restwaarde
     // maken. Wat weg moet is de RICHTING-tekst, niet de indicator zelf.
+    // V11.18.18: via een ECHTE tik — het herstelpad bestaat niet meer.
     opnieuw(null);
-    activeerPersistenteRichting(String(NODE), 'rechts');
+    richtingKnoppenNodeId = String(NODE);
+    tikRichting('rechts', 'vraag');
     eis('T3 de pijl staat in beeld na een richting',
         zicht() && indic().textContent.indexOf('rechtsaf') >= 0,
         'zichtbaar, rechtsaf', zicht() ? indic().textContent : 'verborgen');
@@ -197,9 +199,8 @@ function testAlgemeenKeuze() {
     eis('T4 van Algemeen terug naar een richting werkt',
         richtingLockKeuze === 'rechts' && zicht(),
         "'rechts', pijl zichtbaar", richtingLockKeuze + ', pijl ' + indic().style.display);
-    eis('T4b en het koppelaanbod komt terug',
-        chipTxt() !== null && chipTxt().indexOf('zelfde als') === 0,
-        "'zelfde als →?'", String(chipTxt()));
+    eis('T4b en er komt geen koppelaanbod terug (V11.18.18)',
+        chip() === null, 'geen chip', String(chipTxt()));
     kiesLaagAlgemeen();
     eis('T4c en weer naar Algemeen geeft dezelfde uitkomst als de eerste keer',
         richtingLockKeuze === naAlg.k && (chip() === null) === naAlg.chip && (!zicht()) === naAlg.pijl,
@@ -211,11 +212,10 @@ function testAlgemeenKeuze() {
     for (const r of ['links', 'rechtdoor', 'rechts']) {
       opnieuw(r);
       const c = chipTxt();
-      const goed = c !== null && c.indexOf('zelfde als') === 0;
-      if (!goed) { regressieOk = false; detail.push(r + ': ' + c); }
+      if (c !== null) { regressieOk = false; detail.push(r + ': ' + c); }
     }
-    eis('T5 alle drie de richtingen tonen het koppelaanbod zoals voorheen',
-        regressieOk, '3x aanbod', detail.length ? detail.join(' | ') : '3x aanbod');
+    eis('T5 geen van de drie richtingen levert nog een koppelaanbod op',
+        regressieOk, '3x geen chip', detail.length ? detail.join(' | ') : '3x geen chip');
     opnieuw(null);
     eis('T5b zonder keuze staat er geen chip — ongewijzigd gedrag',
         chip() === null, 'geen chip', String(chipTxt()));
@@ -293,17 +293,19 @@ function testAlgemeenKeuze() {
     eis('T9d wisEnkelRicht haalt hem weg zoals voorheen',
         laadEnkelRicht(String(NODE)) === null, 'null', String(laadEnkelRicht(String(NODE))));
 
-    // ══ T10 — KOPPELEN VANUIT ALGEMEEN IS EEN NO-OP ═══════════
-    // koppelEnkelRicht koppelt "de huidige actieve rijrichting". Die is er niet
-    // onder Algemeen, dus er mag niets geschreven worden — geen halve markering.
+    // ══ T10 — KOPPELEN GAAT NU VIA HET PANEEL ═════════════════
+    // V11.18.18: koppelEnkelRicht was de klikafhandeling van de verwijderde chip
+    // en is met hem verdwenen. Koppelen gebeurt sindsdien uitsluitend bewust,
+    // vanuit het node-info-paneel, met een EXPLICIETE richting in plaats van
+    // "de richting die nu toevallig actief is".
     zetLS('sl_enkelricht_' + NODE, null);
-    richtingLockKeuze = 'algemeen';
-    koppelEnkelRicht(String(NODE));
-    eis('T10 koppelen zonder rijrichting schrijft niets',
+    eis('T10 het oude, impliciete koppelpad bestaat niet meer',
+        typeof koppelEnkelRicht === 'undefined', 'weg', typeof koppelEnkelRicht);
+    koppelVanuitPaneel(String(NODE), 'onzin');
+    eis('T10b een onbekende richting schrijft niets',
         laadEnkelRicht(String(NODE)) === null, 'null', String(laadEnkelRicht(String(NODE))));
-    richtingLockKeuze = 'rechtdoor';
-    koppelEnkelRicht(String(NODE));
-    eis('T10b met een echte rijrichting koppelt hij wel — ongewijzigd',
+    koppelVanuitPaneel(String(NODE), 'rechtdoor');
+    eis('T10c met een echte richting koppelt het paneel wel',
         laadEnkelRicht(String(NODE)) === 'rechtdoor',
         "'rechtdoor'", String(laadEnkelRicht(String(NODE))));
 
@@ -352,15 +354,17 @@ function testAlgemeenKeuze() {
         lockGeldigVoor(null) === null && lockGeldigVoor(undefined) === null,
         'null', lockGeldigVoor(null) + ' / ' + lockGeldigVoor(undefined));
 
-    // Renderplek 1 — de chip: staat op node A, niet op node B.
+    // Renderplek 1 — V11.18.18: de chip bestaat niet meer, dus staat hij op
+    // geen van beide kruispunten. De node-gebondenheid zelf is hierboven
+    // getoetst met rijrichtingVoor (T11c/T11d) en hieronder met de indicator.
     dichtstbijOSM = { id: NODE, lat: 52.0, lon: 4.7, afstand: 25, naam: 'A' };
     getoondeLaag = null; bijwerkLeerkaart(dichtstbijOSM);
     const chipOpA = chipTxt();
     dichtstbijOSM = { id: NODE_B, lat: 52.0, lon: 4.7, afstand: 158, naam: 'B' };
     getoondeLaag = null; bijwerkLeerkaart(dichtstbijOSM);
-    eis('T11e de koppelvraag van kruispunt A verschijnt niet op kruispunt B',
-        chipOpA !== null && chip() === null,
-        'wel op A, niet op B',
+    eis('T11e er is nergens meer een koppelvraag — niet op A en niet op B',
+        chipOpA === null && chip() === null,
+        'geen chip op A en geen op B',
         'A: ' + chipOpA + ' | B: ' + chipTxt());
     // Renderplek 2 — de indicator: hetzelfde.
     eis('T11f en de pijl van A staat niet bij B in beeld',
@@ -372,17 +376,19 @@ function testAlgemeenKeuze() {
         'zichtbaar, lock intact',
         (zicht() ? 'zichtbaar' : 'verborgen') + ', lock ' + richtingLockKeuze);
 
-    // ══ T12 — DE CHIP EIST EEN ECHTE TIK ══════════════════════
+    // ══ T12 — GEEN CHIP, ONGEACHT DE HERKOMST ═════════════════
+    // V11.18.18: dit onderscheid (wel een chip bij een tik, geen bij een
+    // herstel) was de reparatie van V11.17.96. Nu het aanbod zelf weg is, geldt
+    // voor beide herkomsten hetzelfde: geen chip.
     opnieuw('rechts', 'tik');
     const chipTik = chipTxt();
     opnieuw('rechts', 'hersteld');
-    eis('T12 dezelfde keuze geeft wel een chip bij een tik en geen bij een herstel',
-        chipTik !== null && chipTik.indexOf('zelfde als') === 0 && chip() === null,
-        'tik: chip, hersteld: geen',
-        'tik: ' + chipTik + ' | hersteld: ' + chipTxt());
-    eis('T12b de indicator maakt dat onderscheid juist NIET',
+    eis('T12 een tik geeft evenmin een chip als een herstel',
+        chipTik === null && chip() === null,
+        'beide geen chip', 'tik: ' + chipTik + ' | hersteld: ' + chipTxt());
+    eis('T12b de indicator volgt nog wel gewoon de lock',
         zicht() && indic().textContent.indexOf('rechtsaf') >= 0,
-        'zichtbaar bij hersteld', zicht() ? indic().textContent : 'verborgen');
+        'zichtbaar bij een gezette lock', zicht() ? indic().textContent : 'verborgen');
     wisRichtingLock();
     eis('T12c wisRichtingLock laat geen herkomst achter',
         richtingLockKeuze === null && richtingLockNodeId === null && richtingLockBron === null,

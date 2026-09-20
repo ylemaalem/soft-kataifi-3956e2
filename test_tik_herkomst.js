@@ -39,7 +39,7 @@ function testTikHerkomst() {
     dichtstbijOSM, osmCache, huidigePos, huidigeRichting, snelheidKmh, fase,
     richtingKnoppenNodeId, huidigBevestigdOsmNodeId, richtingGedruktVoorNode,
     richtingLockKeuze, richtingLockNodeId, richtingLockBron,
-    richtingTikTijd, richtingTikElement, koppelChipLogSleutel,
+    richtingTikTijd, richtingTikElement,
     v9AanrijHeading, v9AanrijSnelheidHeading, v9PreSelectieAfrij, preZet, preWis,
     getoondeLaag, getoondDagdeel, richtingBlokVerborgen, laatsteRichtingRijen,
     blokHtml: (document.getElementById('richting-blok-body') || {}).innerHTML
@@ -71,7 +71,7 @@ function testTikHerkomst() {
     richtingKnoppenNodeId = String(NODE); huidigBevestigdOsmNodeId = String(NODE);
     richtingGedruktVoorNode = null;
     richtingLockKeuze = null; richtingLockNodeId = null; richtingLockBron = null;
-    richtingTikTijd = 0; richtingTikElement = null; koppelChipLogSleutel = null;
+    richtingTikTijd = 0; richtingTikElement = null;
     v9AanrijHeading = 0; v9AanrijSnelheidHeading = 0; v9PreSelectieAfrij = null;
     preZet = null; preWis = null;
     getoondeLaag = null; getoondDagdeel = null; richtingBlokVerborgen = false;
@@ -127,10 +127,17 @@ function testTikHerkomst() {
     opzet();
     zetLS('sl_richting_' + NODE, JSON.stringify({ tikrichting: 'links', tik_bevestigingen: 3,
       headings: [0], laatste_update: nu, bevestigingen: 3 }));
-    toonRichtingKnoppen(String(NODE));                    // automatisch herstel
+    toonRichtingKnoppen(String(NODE));
+    // V11.18.18: de app zet een opgeslagen richting niet meer zelf terug, dus
+    // deze toestand ontstaat nergens meer vanzelf. Het LOGVELD moet hem wel
+    // blijven kunnen dragen — een export van vóór die release bevat hem — dus
+    // wordt hij hier met de hand gezet.
+    richtingLockNodeId = String(NODE);
+    richtingLockKeuze = 'links';
+    richtingLockBron = 'hersteld';
     logOpslagMis('kandidaat_verlaten', { node: String(NODE) });
     r = laatste('kandidaat_verlaten');
-    eis('T2 na een herstel draagt een willekeurige regel lockBron "hersteld"',
+    eis('T2 een lock met herkomst "hersteld" komt zo in elke logregel terecht',
         r && r.lockBron === 'hersteld' && r.tikLeeft === null,
         "'hersteld', tikLeeft null", r ? (r.lockBron + ', ' + r.tikLeeft) : 'geen regel');
 
@@ -150,40 +157,42 @@ function testTikHerkomst() {
         r && r.lockBron === null && r.tikLeeft === null && r.element === null,
         'null, null, null', r ? [r.lockBron, r.tikLeeft, r.element].join(', ') : 'geen regel');
 
-    // ═══ T3 — DE CHIP LOGT ÉÉN KEER PER GETOONDE CHIP ════════
+    // ═══ T3 — DE CHIP BESTAAT NIET MEER ══════════════════════
+    // ── V11.18.18: OMGEDRAAID, EN DAT IS DE BEDOELING ───────
+    // T3 t/m T3d maten hoe vaak de koppel-chip werd getoond en gelogd. Dat was
+    // een MEETrelease: de vraag was of een gemelde chip van een verse of een
+    // oude tik kwam. Die vraag is vervallen doordat het aanbod zelf verdwenen
+    // is — rond licht is een eigen categorie geworden. Wat blijft is de eis dat
+    // hij nergens meer opduikt, in geen van de scenario's die hem vroeger gaven.
     opzet();
     tikRichting('rechts', 'toevoeg');
     renderRichtingBlok(dichtstbijOSM);
     renderRichtingBlok(dichtstbijOSM);
-    renderRichtingBlok(dichtstbijOSM);
-    const chip = document.querySelector('#richting-blok-body .rb-koppel');
-    eis('T3a vooraf: de chip staat in beeld na een tik',
-        !!chip && chip.textContent.indexOf('zelfde als') === 0,
-        'zelfde als …?', chip ? chip.textContent : 'geen chip');
-    eis('T3 drie tekenrondes met dezelfde chip geven één regel',
-        regelsVan('koppelchip_getoond').length === 1,
-        '1', String(regelsVan('koppelchip_getoond').length));
-    r = laatste('koppelchip_getoond');
-    eis('T3b die regel draagt het element, lockBron en tikLeeft',
-        r && r.element === 'toevoeg' && r.lockBron === 'tik' && typeof r.tikLeeft === 'number',
-        "toevoeg, tik, getal", r ? [r.element, r.lockBron, r.tikLeeft].join(', ') : 'geen regel');
+    eis('T3 na een tik staat er geen koppelaanbod meer in het rijblok',
+        document.querySelector('#richting-blok-body .rb-koppel') === null,
+        'geen chip', 'geen chip');
+    eis('T3b en er wordt ook niets meer over gelogd',
+        regelsVan('koppelchip_getoond').length === 0,
+        '0 regels', String(regelsVan('koppelchip_getoond').length));
     tikRichting('links', 'vraag');
-    richtingTikTijd += 1;                                 // gegarandeerd een nieuw tijdstip
+    richtingTikTijd += 1;
     renderRichtingBlok(dichtstbijOSM);
-    eis('T3c na een NIEUWE tik telt de chip opnieuw',
-        regelsVan('koppelchip_getoond').length === 2,
-        '2', String(regelsVan('koppelchip_getoond').length));
+    eis('T3c ook niet na een tweede, verse tik',
+        document.querySelector('#richting-blok-body .rb-koppel') === null
+          && regelsVan('koppelchip_getoond').length === 0,
+        'geen chip, 0 regels', String(regelsVan('koppelchip_getoond').length));
 
-    // zonder tik geen chip en dus geen regel
+    // en een opgeslagen richting wordt sinds V11.18.18 niet meer teruggezet
     opzet();
     zetLS('sl_richting_' + NODE, JSON.stringify({ tikrichting: 'links', tik_bevestigingen: 3,
       headings: [0], laatste_update: nu, bevestigingen: 3 }));
     toonRichtingKnoppen(String(NODE));
     renderRichtingBlok(dichtstbijOSM);
-    eis('T3d een automatisch herstel geeft geen chip en geen chip-regel',
-        !document.querySelector('#richting-blok-body .rb-koppel')
-          && regelsVan('koppelchip_getoond').length === 0,
-        'geen chip, 0 regels', String(regelsVan('koppelchip_getoond').length));
+    eis('T3d een bekend kruispunt activeert niets uit zichzelf',
+        richtingLockBron === null && v9PreSelectieAfrij === null
+          && document.querySelector('#richting-blok-body .rb-koppel') === null,
+        'geen lock, geen chip',
+        [richtingLockBron, v9PreSelectieAfrij].join(', '));
 
     // ═══ T4 — REGRESSIE: NIETS AAN HET GEDRAG ════════════════
     opzet();
@@ -213,7 +222,6 @@ function testTikHerkomst() {
     richtingLockKeuze = bewaard.richtingLockKeuze; richtingLockNodeId = bewaard.richtingLockNodeId;
     richtingLockBron = bewaard.richtingLockBron;
     richtingTikTijd = bewaard.richtingTikTijd; richtingTikElement = bewaard.richtingTikElement;
-    koppelChipLogSleutel = bewaard.koppelChipLogSleutel;
     v9AanrijHeading = bewaard.v9AanrijHeading; v9AanrijSnelheidHeading = bewaard.v9AanrijSnelheidHeading;
     v9PreSelectieAfrij = bewaard.v9PreSelectieAfrij; preZet = bewaard.preZet; preWis = bewaard.preWis;
     getoondeLaag = bewaard.getoondeLaag; getoondDagdeel = bewaard.getoondDagdeel;
