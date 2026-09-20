@@ -994,7 +994,7 @@ if (typeof ort !== 'undefined') {
 //
 // De stijl volgt de eerdere labels: nummer, kastlijntje, korte omschrijving in
 // kleine letters. De CSS zet hem zelf in kapitalen (text-transform:uppercase).
-const APP_VERSIE = 'V11.18.20 — logs getrimd';
+const APP_VERSIE = 'V11.18.21 — opslaglaag';
 
 // ── CONSTANTEN ────────────────────────────────────────────────
 const OSM_RADIUS       = 5000;
@@ -1932,7 +1932,7 @@ function nodeBredeBonussen(osmId, metingen, obsPct) {
     ? Math.min(10, zoekS2BevestigingScore(osmId, gem) * 3) : 0;
   let gpsTik = 0;
   try {
-    const rd = JSON.parse(localStorage.getItem(`sl_richting_${osmId}`));
+    const rd = opslagLees(`sl_richting_${osmId}`);   // V11.18.21
     if (rd && rd.gps_tik_score != null) gpsTik = Math.round(rd.gps_tik_score * 5);
   } catch(e) {}
   // V11.13.1: vertrouwens-bonus uit gebruikersbevestigingen.
@@ -1982,13 +1982,224 @@ function checkCyclusReset(duur, gem, metingen, nodeId) {
   return false;
 }
 
+// -- V11.18.21: DE OPSLAGLAAG (FASE 2 VAN HET OPSLAGPLAN) -----
+// (c) 2026 StoplichtIQ - Y. Lemaalem
+//
+// WAAROM DEZE LAAG BESTAAT. localStorage loopt tegen zijn 5 MB-plafond en de
+// uitweg is IndexedDB. Dat is geen plafond van 5 MB maar van honderden MB's -
+// en het is ASYNCHROON. Dat laatste is het hele probleem: deze app leest
+// SYNCHROON. laadM wordt midden in een countdown-tick aangeroepen en moet
+// daar een array teruggeven, niet een Promise. Zou fase 3 IndexedDB
+// rechtstreeks onder de helpers schuiven, dan moest elk van die tientallen
+// aanroepplekken `await` worden - tot in de rendercode aan toe.
+//
+// De uitweg is de data BIJ HET OPSTARTEN in het geheugen te zetten en de
+// synchrone lezingen daaruit te bedienen. Dat is wat deze laag voorbereidt.
+// In fase 2 blijft localStorage de bron van de waarheid en verandert er aan
+// de uitkomst van geen enkele functie iets; wat er verandert is dat alle
+// lees- en schrijfpaden nu door DRIE functies lopen in plaats van door
+// honderd losse localStorage-aanroepen.
+//
+// -- WAT FASE 3 STRAKS MOET WIJZIGEN: PRECIES EEN PLEK --------
+// opslagLeesRuw. Vandaag vraagt die localStorage om de waarde en houdt de
+// Map ernaast bij; in fase 3 wordt de Map de bron en verdwijnt de
+// localStorage-regel. Alles daarboven - opslagLees, opslagSchrijf en de
+// helpers die ze gebruiken - blijft dan staan zoals het is.
+//
+// -- WAAROM DE MAP RUWE STRINGS BEWAART EN GEEN GEPARSEDE WAARDEN --
+// Twee redenen, allebei gemeten.
+//
+// (1) SNELHEID. Alle 12.740 sleutels van de export van 28 augustus RAUW
+//     inlezen kost 35,7 ms; ze ook allemaal parsen kost 104,5 ms. Dat
+//     verschil komt vooral doordat 2.208 van die sleutels helemaal geen JSON
+//     zijn (sl_naam_, sl_tag_, vlaggen), en een mislukte JSON.parse is duur.
+//     Parsen gebeurt dus nog steeds pas als iemand de waarde opvraagt.
+//
+// (2) VEILIGHEID, EN DIT IS DE ZWAARSTE. Zou de Map GEPARSEDE arrays
+//     bewaren, dan zou elke lezer hetzelfde object terugkrijgen. En er WORDT
+//     gemuteerd: slaOpIntern doet `m.push(entry)` op wat laadM teruggaf,
+//     laadMV5 sorteert zijn eigen resultaat, stempelV4Richtingverwant zet
+//     `rec.rv = 1`. Met een gedeeld object zou een van die mutaties stil in
+//     de cache landen en door een volgende lezer gezien worden VOORDAT er
+//     iets geschreven is. Dat is precies het soort datacorruptie dat pas
+//     weken later opvalt. Door per lezing opnieuw te parsen krijgt elke
+//     aanroeper zijn eigen verse object - exact zoals vandaag.
+//
+// -- WAAROM DE LEZING LANGS localStorage BLIJFT GAAN IN FASE 2 --
+// De app telt 101 functies die localStorage aanraken: migraties, de
+// opruimpassen, de exports, de merge-routines en de analysefuncties. Die
+// lopen bewust NIET door deze laag - ze draaien eenmalig of op een knop, en
+// ze meenemen zou deze release drie keer zo groot maken. Maar ze schrijven
+// wel. Door in fase 2 de waarheid bij localStorage te laten, kan geen van
+// die 101 plekken de cache uit de pas laten lopen. Hetzelfde geldt voor de
+// 48 testsuites, die hun fixtures rechtstreeks in localStorage zetten en
+// daarom ongewijzigd blijven werken.
+//
+// Fase 3 zet OPSLAG_MEELEZEN uit en brengt die overige plekken mee - dan is
+// de Map de waarheid en is er geen tweede schrijver meer.
+const opslagCache = new Map();     // sleutel -> { ruw, onopgeslagen? }
+const OPSLAG_MEELEZEN = true;      // fase 2: localStorage is de bron
+let opslagBootMs = null;           // hoe lang het vullen duurde
+let opslagBootSleutels = 0;
+let opslagQuotaFouten = 0;
+let opslagQuotaGemeld = false;
+
+// De ruwe waarde van een sleutel, of null.
+//
+// DE ENIGE PLEK DIE FASE 3 MOET OMBOUWEN. Nu: localStorage vragen en de Map
+// bijwerken. Straks: de Map lezen, punt.
+//
+// De `onopgeslagen`-tak is geen voorbereiding maar lost vandaag al iets op.
+// Gaat een schrijving stuk op een vol quotum, dan heeft de cache de nieuwe
+// waarde wel en localStorage niet. Zonder deze tak zou de app daarna de OUDE
+// waarde teruglezen en zou de gebruiker een meting zien verdwijnen die hij
+// net heeft zien landen. Nu blijft die waarde in elk geval deze sessie staan.
+function opslagLeesRuw(sleutel) {
+  const memo = opslagCache.get(sleutel);
+  if (memo && memo.onopgeslagen) return memo.ruw;
+  if (!OPSLAG_MEELEZEN) return memo ? memo.ruw : null;
+  let ruw = null;
+  try { ruw = localStorage.getItem(sleutel); } catch(e) { return memo ? memo.ruw : null; }
+  if (memo) memo.ruw = ruw; else opslagCache.set(sleutel, { ruw });
+  return ruw;
+}
+
+// De geparsede waarde, of `terugval` als de sleutel ontbreekt of de inhoud
+// geen geldige JSON is. Bewust GEEN memo op het resultaat - zie het blok
+// hierboven over mutatie.
+function opslagLees(sleutel, terugval = null) {
+  const ruw = opslagLeesRuw(sleutel);
+  if (ruw == null) return terugval;
+  try {
+    const w = JSON.parse(ruw);
+    return w === undefined ? terugval : w;
+  } catch(e) { return terugval; }
+}
+
+// Schrijft een ruwe string. Geeft true terug als hij ook PERSISTENT is.
+//
+// -- DE STILLE MISLUKKING IS HIER WEG ------------------------
+// Van de 55 setItem-aanroepen in deze app stonden er 40 in een
+// `try { ... } catch(e) {}` zonder enige melding. Een vol quotum zag je dus
+// alleen aan data die er niet bleek te staan. Vanaf nu: de cache houdt de
+// waarde vast, er gaat een regel naar de console en naar sl_opslaglog, en bij
+// de derde mislukking in een sessie krijgt de gebruiker het te zien. Drie en
+// niet een: een enkele mislukking kan een uitschieter zijn, en een toast
+// midden in het rijden is duur.
+const OPSLAG_QUOTA_MELDGRENS = 3;
+function opslagSchrijfRuw(sleutel, ruw) {
+  const memo = opslagCache.get(sleutel);
+  if (memo) { memo.ruw = ruw; delete memo.onopgeslagen; }
+  else opslagCache.set(sleutel, { ruw });
+  try {
+    localStorage.setItem(sleutel, ruw);
+    return true;
+  } catch(e) {
+    const m = opslagCache.get(sleutel);
+    if (m) m.onopgeslagen = true;
+    opslagQuotaFouten++;
+    console.warn(`[OPSLAG-VOL] ${sleutel} (${ruw.length} tekens) niet opgeslagen`
+      + ` - fout ${opslagQuotaFouten} deze sessie:`, e && e.name);
+    try { logOpslagMis('opslag_vol', { node: sleutel, dur: ruw.length }); } catch(_) {}
+    if (opslagQuotaFouten >= OPSLAG_QUOTA_MELDGRENS && !opslagQuotaGemeld) {
+      opslagQuotaGemeld = true;
+      try { toonToast('\u26a0\ufe0f Opslag vol - metingen worden niet bewaard'); } catch(_) {}
+    }
+    return false;
+  }
+}
+
+// Schrijft een waarde als JSON. Geeft true terug als hij persistent is.
+function opslagSchrijf(sleutel, waarde) {
+  let ruw;
+  try { ruw = JSON.stringify(waarde); } catch(e) { return false; }
+  if (ruw === undefined) return false;
+  return opslagSchrijfRuw(sleutel, ruw);
+}
+
+function opslagVerwijder(sleutel) {
+  opslagCache.delete(sleutel);
+  try { localStorage.removeItem(sleutel); } catch(e) {}
+}
+
+// -- V11.18.21: DE OPSTARTFASE --------------------------------
+// (c) 2026 StoplichtIQ - Y. Lemaalem
+//
+// Vult de cache met alles wat er staat. In fase 2 is dat nog een warmloop -
+// de lezingen halen hun waarde nog bij localStorage - maar in fase 3 is dit
+// DE stap die synchroon lezen mogelijk maakt, en dan moet hij af zijn
+// voordat er ook maar iets gelezen wordt. Door hem nu al te bouwen en te
+// meten staat die volgorde vast voordat er iets van afhangt.
+//
+// IN BROKKEN, MET EEN ADEMPAUZE ERTUSSEN - EN 4.000 IS GEMETEN.
+// Het zuivere werk is klein: alle 12.741 sleutels van de export van 28
+// augustus inlezen kost 19 tot 27 ms op een laptop, ongeacht de brokgrootte.
+// Wat wel meebeweegt is de WANDKLOK, want elke yield kost planningstijd:
+//
+//     brok      yields   wandklok   zuiver werk
+//        500        25     119,3 ms      24,2 ms
+//      1.000        12      88,6 ms      27,3 ms
+//      4.000         3      41,2 ms      23,2 ms
+//      8.000         1      30,6 ms      20,3 ms
+//     in een keer    0      23,5 ms      19,0 ms
+//
+// In een keer is dus het snelst, maar dat is ook 19 ms waarin het scherm
+// niet kan tekenen - en op een telefoon is een factor drie tot vijf
+// gebruikelijk, dus eerder 60 tot 95 ms. Dat is een zichtbare hapering
+// precies terwijl het startscherm opkomt.
+//
+// 4.000 is de knik in die tabel: drie onderbrekingen, elk brok ongeveer 7 ms
+// werk hier en naar schatting 30 ms op een telefoon - onder twee beeldframes,
+// dus onzichtbaar - terwijl de wandklok maar een derde is van die bij 1.000.
+//
+// NA DE MIGRATIES EN NA trimDiagnostiekV1. Die schrijven rechtstreeks in
+// localStorage; eerder vullen zou een cache opleveren die meteen achterloopt.
+// In fase 2 is dat door OPSLAG_MEELEZEN onschadelijk, maar de volgorde moet
+// nu al kloppen, want in fase 3 is ze bindend.
+const OPSLAG_BOOT_BROK = 4000;
+let opslagBootBelofte = null;
+
+async function vulOpslagCache() {
+  const t0 = performance.now();
+  let sleutels = [];
+  try { sleutels = Object.keys(localStorage); } catch(e) { sleutels = []; }
+  let n = 0;
+  for (let i = 0; i < sleutels.length; i++) {
+    const k = sleutels[i];
+    try {
+      const ruw = localStorage.getItem(k);
+      const memo = opslagCache.get(k);
+      // Een waarde die deze sessie niet opgeslagen kon worden is NIEUWER dan
+      // wat er in localStorage staat; die mag de boot niet overschrijven.
+      if (memo && memo.onopgeslagen) continue;
+      if (memo) memo.ruw = ruw; else opslagCache.set(k, { ruw });
+      n++;
+    } catch(e) { /* een onleesbare sleutel slaan we over, niet de hele boot */ }
+    if ((i + 1) % OPSLAG_BOOT_BROK === 0) await new Promise(r => setTimeout(r, 0));
+  }
+  opslagBootSleutels = n;
+  opslagBootMs = Math.round((performance.now() - t0) * 10) / 10;
+  console.log(`[OPSLAG-BOOT] ${n} sleutels in ${opslagBootMs}ms`
+    + ` (${berekenLocalStorageKB()}KB)`);
+  return { sleutels: n, ms: opslagBootMs };
+}
+
+// De poort waar startApp op wacht. Idempotent: tweede aanroep levert dezelfde
+// belofte op, zodat er nooit twee vulrondes tegelijk lopen.
+function startOpslagBoot() {
+  if (!opslagBootBelofte) opslagBootBelofte = vulOpslagCache();
+  return opslagBootBelofte;
+}
+
 function laadM(osmId, dd) {
   try {
     const resultaten = []; const gezien = new Set();
     for (const prefix of LS_PREFIXEN) {
-      const s = localStorage.getItem(`${prefix}${osmId}_${dd}`);
-      if (!s) continue;
-      const data = JSON.parse(s);
+      // V11.18.21: via de opslaglaag. opslagLees parseert per aanroep opnieuw,
+      // dus `data` is nog steeds een vers object - dat is hier wezenlijk,
+      // want slaOpIntern pusht straks in het resultaat van deze functie.
+      const data = opslagLees(`${prefix}${osmId}_${dd}`);
+      if (!Array.isArray(data)) continue;
       for (const m of data) if (!gezien.has(m.tijd)) { gezien.add(m.tijd); resultaten.push(m); }
     }
     return resultaten.sort((a,b) => b.tijd-a.tijd).slice(0, MAX_METINGEN);
@@ -2437,12 +2648,8 @@ function slaGroenOp(osmId, richting, duur, obs) {
   // terugval op de astronomische bepaling (r1123).
   const dd = huidigDDActief();
   const sleutel = `${LS_PREFIX}${osmId}_${dd}_groen`;
-  let m = [];
-  try {
-    const raw = localStorage.getItem(sleutel);
-    m = raw ? JSON.parse(raw) : [];
-    if (!Array.isArray(m)) m = [];
-  } catch(e) { m = []; }
+  let m = opslagLees(sleutel, []);   // V11.18.21
+  if (!Array.isArray(m)) m = [];
   const gewicht = berekenObsGewicht(obs || 30, 's1', false);
   m.push({
     duur: Math.round(duur),
@@ -2463,9 +2670,7 @@ function slaGroenOp(osmId, richting, duur, obs) {
     m.sort((a,b)=>gew(b.tijd)-gew(a.tijd));
     m = m.slice(0, MAX_METINGEN);
   }
-  try {
-    localStorage.setItem(sleutel, JSON.stringify(m));
-  } catch(e) {}
+  opslagSchrijf(sleutel, m);   // V11.18.21
 }
 
 // V11.5.5: Groene fase opslaan bij passeren kruispunt
@@ -2483,8 +2688,7 @@ function slaGroenOpBijPasseren(osmId) {
 function laadGroenM(osmId, dd) {
   try {
     const sleutel = `${LS_PREFIX}${osmId}_${dd}_groen`;
-    const raw = localStorage.getItem(sleutel);
-    const m = raw ? JSON.parse(raw) : [];
+    const m = opslagLees(sleutel, []);   // V11.18.21
     return Array.isArray(m) ? m : [];
   } catch(e) { return []; }
 }
@@ -2673,7 +2877,7 @@ function slaOpIntern(osmId, richting, duur, gewichtOverride, dd, bron='s1', conf
   // recentheid; `rv` komt hier bewust niet in voor. Een gemarkeerd record
   // wordt dus niet eerder of later weggegooid dan een gewoon record (RV4).
   if (m.length > MAX_METINGEN) { m.sort((a,b)=>gew(b.tijd)-gew(a.tijd)); m=m.slice(0,MAX_METINGEN); }
-  try { localStorage.setItem(`${LS_PREFIX}${osmId}_${dd}`, JSON.stringify(m)); } catch(e) {}
+  opslagSchrijf(`${LS_PREFIX}${osmId}_${dd}`, m);   // V11.18.21: meldt een vol quotum
   // V11.17.85: leg vast WELK record dit was. Het stempel verderop moet er
   // precies één kunnen aanwijzen, en (node, dagdeel, afgeronde duur) is daar
   // te grof voor: passeer je hetzelfde kruispunt twee keer in hetzelfde
@@ -2708,8 +2912,7 @@ function v10BezoekSleutel(osmId, dd) {
 }
 function laadBezoekPerFase(osmId, dd) {
   try {
-    const raw = localStorage.getItem(v10BezoekSleutel(osmId, dd));
-    const b = raw ? JSON.parse(raw) : null;
+    const b = opslagLees(v10BezoekSleutel(osmId, dd));   // V11.18.21
     return (b && typeof b === 'object') ? b : { groen: 0, oranje: 0, rood: 0 };
   } catch(e) { return { groen: 0, oranje: 0, rood: 0 }; }
 }
@@ -2718,7 +2921,7 @@ function updateBezoekPerFase(osmId, faseNaam) {
   const dd = huidigDDActief();
   const b = laadBezoekPerFase(osmId, dd);
   b[faseNaam] = (b[faseNaam] || 0) + 1;
-  try { localStorage.setItem(v10BezoekSleutel(osmId, dd), JSON.stringify(b)); } catch(e) {}
+  opslagSchrijf(v10BezoekSleutel(osmId, dd), b);   // V11.18.21
 }
 
 // ── V10: DRIE INTERNE SCORES ──────────────────────────────────
@@ -2806,9 +3009,7 @@ function slaRouteSequentieOp(buffer) {
   const laatste3 = buffer.slice(-3);
   const sleutel = `sl_route_${laatste3.map(x => x.nodeId).join('_')}`;
   const dd = laatste3[laatste3.length - 1].dd;
-  let data;
-  try { data = JSON.parse(localStorage.getItem(sleutel)) || []; }
-  catch(e) { data = []; }
+  let data = opslagLees(sleutel, []) || [];   // V11.18.21
   data.push({
     tijden: laatste3.map(x => x.cyclustijd),
     totaal: laatste3.reduce((s, x) => s + x.cyclustijd, 0),
@@ -2816,7 +3017,7 @@ function slaRouteSequentieOp(buffer) {
     dd: dd
   });
   if (data.length > 20) data = data.slice(-20);
-  try { localStorage.setItem(sleutel, JSON.stringify(data)); } catch(e) {}
+  opslagSchrijf(sleutel, data);   // V11.18.21
 }
 
 function nodeIsInBekendeRoute(nodeId) {
@@ -2937,9 +3138,10 @@ function v5Sleutel(nodeId, aanrij, afrij, dd) {
 
 function laadMV5(nodeId, aanrij, afrij, dd) {
   try {
-    const raw = localStorage.getItem(v5Sleutel(nodeId, aanrij, afrij, dd));
-    if (!raw) return [];
-    const m = JSON.parse(raw);
+    // V11.18.21: via de opslaglaag. De .sort() hieronder muteert het
+    // teruggegeven object; omdat opslagLees per aanroep vers parseert raakt
+    // dat nooit iets anders dan deze ene lezing.
+    const m = opslagLees(v5Sleutel(nodeId, aanrij, afrij, dd));
     return Array.isArray(m) ? m.sort((a,b) => b.tijd-a.tijd).slice(0, MAX_METINGEN) : [];
   } catch(e) { return []; }
 }
@@ -3009,14 +3211,15 @@ function stempelV4Richtingverwant(nodeId, stempels, paarKey) {
   for (const st of stempels) {
     if (!st || !st.dd || typeof st.tijd !== 'number') continue;
     const sleutel = `${LS_PREFIX}${nodeId}_${st.dd}`;
-    let m;
-    try { m = JSON.parse(localStorage.getItem(sleutel)); } catch(e) { continue; }
+    // V11.18.21: opslagLees geeft een VERS object, dus `rec.rv = 1` hieronder
+    // raakt alleen deze kopie - precies zoals de oude JSON.parse deed.
+    const m = opslagLees(sleutel);
     if (!Array.isArray(m)) continue;
     const rec = m.find(x => x && x.tijd === st.tijd);
     if (!rec || rec.rv === 1) continue;
     rec.rv = 1;
     if (paarKey) rec.rvK = paarKey;
-    try { localStorage.setItem(sleutel, JSON.stringify(m)); gezet++; } catch(e) {}
+    if (opslagSchrijf(sleutel, m)) gezet++;
   }
   return gezet;
 }
@@ -3071,7 +3274,7 @@ function slaOpV5(nodeId, aanrij, afrij, dd, duur, gewicht, zagOvergang=null, bro
   if (tikBevestigd === true) v5entry.tb = 1;
   m.push(v5entry);
   if (m.length > MAX_METINGEN) { m.sort((a,b) => gew(b.tijd)-gew(a.tijd)); m = m.slice(0, MAX_METINGEN); }
-  try { localStorage.setItem(sleutel, JSON.stringify(m)); } catch(e) {}
+  opslagSchrijf(sleutel, m);   // V11.18.21
 }
 
 // ── V11.17.70: EENMALIGE CORRECTIE VAN DE AFRIJ-CONVENTIE ─────
@@ -3659,9 +3862,7 @@ function bepaalCdModus(gem, metingen) {
 
 function berekenBevestigScore(osmId) {
   try {
-    const data = JSON.parse(
-      localStorage.getItem('sl_bevestig_'+osmId)
-    ) || [];
+    const data = opslagLees('sl_bevestig_' + osmId, []) || [];   // V11.18.21
     if (data.length < 2) return null;
     const recent = data.slice(-10);
     const klopte = recent.filter(
@@ -10306,9 +10507,7 @@ function bevestigCountdown(categorie) {
   const autoVerschil = (fase === 'groen' && cdBereikteNul && countdownNulTijd != null)
     ? Date.now() - countdownNulTijd : null;
   const sleutel = 'sl_bevestig_' + dichtstbijOSM.id;
-  let data;
-  try { data = JSON.parse(localStorage.getItem(sleutel)) || []; }
-  catch(e) { data = []; }
+  let data = opslagLees(sleutel, []) || [];   // V11.18.21
   const nu = Date.now();
   // V11.17.55: vangnet. De her-toon-lus hierboven is de vermoedelijke bron van de
   // dubbeltiks, maar dat vermoeden is niet waterdicht — daarom ook hier een slot,
@@ -10420,8 +10619,7 @@ function bevestigCountdown(categorie) {
   // lopende analyses naar autolock_correctie_geweigerd en node_vermoeden
   // kijken juist naar het verloop over meer taps. Voor 0,8% is dat te duur.
   if (data.length > 20) data = data.slice(-20);
-  try { localStorage.setItem(sleutel, JSON.stringify(data)); }
-  catch(e) {}
+  opslagSchrijf(sleutel, data);   // V11.18.21
   if (dichtstbijOSM) {
     verwerkBevestigLeren(
       dichtstbijOSM.id,
@@ -12880,8 +13078,7 @@ function checkVRISuggestie(nodeId) {
 function slaRichtingOp(nodeId, cx, heading) {
   if (!nodeId) return;
   const sleutel = `sl_richting_${nodeId}`;
-  let data;
-  try { data = JSON.parse(localStorage.getItem(sleutel)); } catch(e) { data = null; }
+  let data = opslagLees(sleutel);   // V11.18.21
   if (!data || typeof data !== 'object') {
     data = { headings: [], laatste_update: Date.now(), bevestigingen: 0 };
   }
@@ -12893,14 +13090,13 @@ function slaRichtingOp(nodeId, cx, heading) {
   }
   data.laatste_update = Date.now();
   data.bevestigingen = (data.bevestigingen || 0) + 1;
-  try { localStorage.setItem(sleutel, JSON.stringify(data)); } catch(e) {}
+  opslagSchrijf(sleutel, data);   // V11.18.21
 }
 
 function laadRichtingData(nodeId) {
   if (!nodeId) return null;
   try {
-    const raw = localStorage.getItem(`sl_richting_${nodeId}`);
-    return raw ? JSON.parse(raw) : null;
+    return opslagLees(`sl_richting_${nodeId}`);   // V11.18.21
   } catch(e) { return null; }
 }
 
@@ -13032,8 +13228,7 @@ function tikRichting(richting, element) {
   const nodeId = richtingKnoppenNodeId || huidigBevestigdOsmNodeId;
   if (!nodeId) return;
   const sleutel = `sl_richting_${nodeId}`;
-  let data;
-  try { data = JSON.parse(localStorage.getItem(sleutel)); } catch(e) { data = null; }
+  let data = opslagLees(sleutel);   // V11.18.21
   if (!data || typeof data !== 'object') {
     data = { cx_zones: [{ zone:'links', count:0 }, { zone:'midden', count:0 }, { zone:'rechts', count:0 }],
              headings: [], laatste_update: Date.now(), bevestigingen: 0 };
@@ -13043,7 +13238,7 @@ function tikRichting(richting, element) {
   const zoneMap = { links:'links', rechtdoor:'midden', rechts:'rechts' };
   data.tik_cx_zone = zoneMap[richting] || 'midden';
   data.laatste_update = Date.now();
-  try { localStorage.setItem(sleutel, JSON.stringify(data)); } catch(e) {}
+  opslagSchrijf(sleutel, data);   // V11.18.21
   richtingGedruktVoorNode = nodeId;
   // V10.0.3: Richtingkeuze lock — voorkom overschrijving bij GPS-drift
   richtingLockNodeId = nodeId;
@@ -13714,7 +13909,7 @@ function toonToast(tekst, actie, soort) {
 // ── V11.16.1: NEUTRAAL-MARKERING ──────────────────────────────
 function isNodeNeutraal(nodeId) {
   if (!nodeId) return false;
-  return localStorage.getItem('sl_neutraal_' + nodeId) === '1';
+  return opslagLeesRuw('sl_neutraal_' + nodeId) === '1';   // V11.18.21
 }
 
 // V11.17.19: enkel-richting markering. Zelfde stijl als sl_neutraal_: losse
@@ -13723,7 +13918,7 @@ function isNodeNeutraal(nodeId) {
 // Verplaatst/kopieert/wist GEEN enkele meting.
 function laadEnkelRicht(nodeId) {
   if (!nodeId) return null;
-  const v = localStorage.getItem('sl_enkelricht_' + nodeId);
+  const v = opslagLeesRuw('sl_enkelricht_' + nodeId);   // V11.18.21: ruw, geen JSON
   return (v === 'links' || v === 'rechtdoor' || v === 'rechts') ? v : null;
 }
 // ── V11.17.99: MEET DE KOPPELING OP HET MOMENT DAT HIJ GEZET WORDT ──
@@ -13770,11 +13965,11 @@ function zetEnkelRicht(nodeId, richting) {
       richtN:       richtKant.length
     });
   } catch (e) { /* meten mag de koppeling nooit tegenhouden */ }
-  try { localStorage.setItem('sl_enkelricht_' + nodeId, richting); } catch(e) {}
+  opslagSchrijfRuw('sl_enkelricht_' + nodeId, richting);   // V11.18.21: ruw, geen JSON
 }
 function wisEnkelRicht(nodeId) {
   if (!nodeId) return;
-  localStorage.removeItem('sl_enkelricht_' + nodeId);
+  opslagVerwijder('sl_enkelricht_' + nodeId);   // V11.18.21
 }
 // V11.17.19 W4: diagnose wanneer de markering de bronkeuze beïnvloedt. 1/sec.
 function enkelRichtLog(nodeId, gemarkeerd, actief, modusVoor, modusNa) {
@@ -14535,7 +14730,7 @@ function telAlgemeenVerplaatsbaar(nodeId) {
   let n = 0;
   for (const d of Object.keys(DD)) {
     let arr;
-    try { arr = JSON.parse(localStorage.getItem(`${LS_PREFIX}${nodeId}_${d}`)); } catch (e) { continue; }
+    arr = opslagLees(`${LS_PREFIX}${nodeId}_${d}`);   // V11.18.21
     if (!Array.isArray(arr)) continue;
     for (const rec of arr) {
       if (!rec || rec.rv === 1) continue;
@@ -14800,12 +14995,11 @@ function vindOsmMatchOpRichting(absoluteRichting, maxHoekGraden, maxAfstandMeter
 function slaS2Aanwezigheid(nodeId, kleur) {
   if (!nodeId) return;
   const sleutel = `sl_s2_${nodeId}`;
-  let m;
-  try { m = JSON.parse(localStorage.getItem(sleutel)) || []; } catch(e) { m = []; }
+  let m = opslagLees(sleutel, []);   // V11.18.21
   if (!Array.isArray(m)) m = [];
   m.push({ duur:0, tijd:Date.now(), dd:huidigDDActief(), richting:Math.round(huidigeRichting||0), bron:'s2', gewicht:OBS_S2, kleur });
   if (m.length > MAX_S2_METINGEN) { m.sort((a,b)=>gew(b.tijd)-gew(a.tijd)); m=m.slice(0,MAX_S2_METINGEN); }
-  try { localStorage.setItem(sleutel, JSON.stringify(m)); } catch(e) {}
+  opslagSchrijf(sleutel, m);   // V11.18.21
 }
 
 // ── V11.17.20: KLOKMOMENTEN ───────────────────────────────────
@@ -14835,13 +15029,12 @@ function slaKlokMoment(nodeId, type) {
     return;
   }
   const sleutel = 'sl_klok_' + nodeId;
-  let arr;
-  try { arr = JSON.parse(localStorage.getItem(sleutel)) || []; } catch(e) { arr = []; }
+  let arr = opslagLees(sleutel, []);   // V11.18.21
   if (!Array.isArray(arr)) arr = [];
   const dd = huidigDDActief();
   arr.push({ t: Date.now(), type, dd, dow: new Date().getDay(), richt: (richtingLockKeuze || null) });
   if (arr.length > MAX_KLOK_MOMENTEN) arr = arr.slice(-MAX_KLOK_MOMENTEN);
-  try { localStorage.setItem(sleutel, JSON.stringify(arr)); } catch(e) {}
+  opslagSchrijf(sleutel, arr);   // V11.18.21
   klokLog('moment', { node: nodeId, type, dd, n: arr.length });
 }
 
@@ -15216,13 +15409,12 @@ async function toonTrainframeAnalyse() {
 function slaStoplichtTagOp(nodeId, type) {
   const geldig = ['voetganger','normaal','groene_golf','vri'];
   if (!nodeId||!geldig.includes(type)) return;
-  try { localStorage.setItem('sl_tag_'+nodeId, JSON.stringify({ type, tijdstip:Date.now(), versie:1 })); } catch(e) {}
+  opslagSchrijf('sl_tag_' + nodeId, { type, tijdstip: Date.now(), versie: 1 });   // V11.18.21
 }
 
 function laadStoplichtTag(nodeId) {
   if (!nodeId) return null;
-  try { const raw=localStorage.getItem('sl_tag_'+nodeId); return raw?JSON.parse(raw):null; }
-  catch(e) { return null; }
+  return opslagLees('sl_tag_' + nodeId);   // V11.18.21
 }
 
 function toonTagKnop(nodeId) {
@@ -17414,6 +17606,21 @@ function sluitKaartOverlay() {
 
 // ── START ─────────────────────────────────────────────────────
 async function startApp() {
+  // -- V11.18.21: WACHTEN OP DE OPSLAG-BOOT ------------------
+  // (c) 2026 StoplichtIQ - Y. Lemaalem
+  //
+  // De poort waar het opslagplan om vraagt: de cache moet gevuld zijn voordat
+  // de camera aangaat en de eerste meting geschreven kan worden. In de
+  // praktijk is hij dat allang - de boot start bij het laden van de pagina en
+  // duurt tientallen milliseconden, terwijl deze functie pas draait als de
+  // gebruiker op de knop tikt. Maar 'in de praktijk allang' is geen garantie,
+  // en in fase 3 - waar de cache de enige bron is - zou een te vroege lezing
+  // lege data opleveren. Daarom hier expliciet, en niet impliciet.
+  //
+  // startOpslagBoot is idempotent en geeft dezelfde belofte terug, dus dit
+  // start geen tweede vulronde. Faalt de boot onverhoopt, dan gaat de app
+  // gewoon door: in fase 2 leest alles nog uit localStorage.
+  try { await startOpslagBoot(); } catch(e) { console.warn('[OPSLAG-BOOT] mislukt:', e); }
   initialiseerAudio();
   pGeluid.className = 'pill-dot'+(geluidAan?' g':'');
   pGeluidT.textContent = geluidAan?'SND':'MUTE';
@@ -17929,6 +18136,20 @@ function koppelBboxAanNode(bbox) {
 // en hangt van geen enkele DOM-node of GPS-toestand af, dus het moment binnen
 // het opstarten maakt verder niets uit.
 trimDiagnostiekV1();
+
+// -- V11.18.21: DE OPSLAG-BOOT START HIER ---------------------
+// (c) 2026 StoplichtIQ - Y. Lemaalem
+//
+// NA trimDiagnostiekV1 EN NA DE DRIE MIGRATIES (r6966-6968). Die schrijven
+// alle vier rechtstreeks in localStorage; eerder vullen zou een cache
+// opleveren die vanaf regel een achterloopt. In fase 2 vangt OPSLAG_MEELEZEN
+// dat nog op, maar de volgorde moet nu al kloppen - in fase 3 is ze bindend.
+//
+// Niet awaiten: dit is het einde van een klassiek script en daar kan geen
+// top-level await staan. startApp wacht er wel op, en dat is het enige punt
+// waar het moet - tot die knop ingedrukt wordt staat er niets te lezen dat
+// niet ook rechtstreeks uit localStorage mag komen.
+startOpslagBoot();
 </script>
 
 <!-- V10.0.6: Dashboard kaart overlay -->
