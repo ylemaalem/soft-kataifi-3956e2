@@ -1046,7 +1046,7 @@ if (typeof ort !== 'undefined') {
 //
 // De stijl volgt de eerdere labels: nummer, kastlijntje, korte omschrijving in
 // kleine letters. De CSS zet hem zelf in kapitalen (text-transform:uppercase).
-const APP_VERSIE = 'V11.19.0 — tap-verval-koerstoets';
+const APP_VERSIE = 'V11.20.0 — bbox-slot zichtbaar';
 
 // ── CONSTANTEN ────────────────────────────────────────────────
 const OSM_RADIUS       = 5000;
@@ -6503,13 +6503,102 @@ let stickyOvernameLogLaatst = 0;        // V11.17.21: throttle voor [STICKY] ove
 let tapSeedDetectie = null;      // { cx, cy, familie, tijd }
 const TAP_SEED_TIMEOUT  = 3000;  // 3s vervalvenster (~6 YOLO-runs)
 const TAP_SEED_MATCH_PX = 50;    // compacter dan STICKY_MATCH_PX: 1× intentie, geen drift
+// ── V11.20.0: WELK SLOT HOUDT DEZE BOX VAST? ───────────
+// © 2026 StoplichtIQ — Y. Lemaalem
+//
+// WAAROM DIT BESTAAT. selecteerBesteDetectie geeft {s1, s2Rest, afwijsReden}
+// terug. afwijsReden zegt waarom iets AFVIEL, niet welke tak WON — 'ok' komt
+// uit vier verschillende takken. Er was dus geen enkele manier om te zien of
+// de box wordt vastgehouden of elke run opnieuw wordt gekozen. Dat is precies
+// de vraag achter klacht 1 ("de box springt tussen lampen"), en zonder antwoord
+// is niet te meten of een reparatie werkt.
+//
+// DRIE TOESTANDEN, ALLE DRIE BESTAAN ZE VANDAAG AL:
+//   'tap'   LOCK 2 is actief: je hebt op het beeld getikt en de sticky-tracker
+//           volgt die ene lamp. De sterkste vorm van vasthouden die de app kent.
+//   'vast'  geen tap, maar de voorkeursbbox is rijp én de winnaar ligt binnen
+//           VOORKEUR_RADIUS_PX ervan — de box kreeg dus de voorkeursbonus en
+//           werd mede daardoor gekozen. Zwak vasthouden: een duwtje van 25
+//           punten tegenover een centerScore van 80, geen grendel.
+//   'vrij'  de scoretak koos vers, zonder enige continuïteit. Hier springt hij.
+//
+// DEZE RELEASE VERANDERT NIETS AAN WELKE BOX GEKOZEN WORDT. Ze maakt alleen
+// zichtbaar wat er al gebeurt. Het echte slot zonder tap is release 2c; deze
+// laag is het meetinstrument dat daarvóór hoort te komen — dezelfde volgorde
+// als bij de opslagreleases, waar eerst gemeten is en daarna verbouwd.
+//
+// GEEN GLOBALE RESET NODIG. bboxSlot wordt alleen bijgewerkt op een return MET
+// een box. Levert een run niets op, dan blijft de vorige waarde staan, en dat
+// klopt: het tolerantiepad laat dan de VORIGE box nog even staan, en die werd
+// door dat slot vastgehouden. Is er helemaal geen box, dan tekent tekenOverlay
+// niets en doet de waarde er niet toe.
+let bboxSlot = 'vrij';   // 'tap' | 'vast' | 'vrij'
+
+// ── V11.20.0: DE RANDSTIJL PER SLOT ──────────────────
+// © 2026 StoplichtIQ — Y. Lemaalem
+//
+// Eigen functie en niet inline in tekenOverlay, om twee redenen. Ten eerste is
+// dit de enige plek waar de drie toestanden een uiterlijk krijgen, en die moet
+// te vinden zijn. Ten tweede is tekenOverlay zelf niet te testen zonder een
+// canvas na te bootsen; deze functie wel, en daarmee is de afspraak vastgelegd
+// los van de tekenlaag.
+//
+// DE HOEKHAKEN BLIJVEN. De app tekent geen rechthoek maar vier hoekhaken met
+// een gloed — dat is haar gezicht en dat verandert hier niet. Wat verandert is
+// de DIKTE en of de lijn doorloopt of streept. Streepjes lezen onmiddellijk als
+// "nog niet vast", zonder dat je een legenda nodig hebt.
+function bboxRandStijl(slot) {
+  if (slot === 'tap')  return { lijn: 4, streep: [],     alpha: 0.98, slotje: true  };
+  if (slot === 'vast') return { lijn: 3, streep: [],     alpha: 0.92, slotje: false };
+  return                      { lijn: 2, streep: [7, 5], alpha: 0.78, slotje: false };
+}
+
 let voorkeursBboxCx   = null;
 let voorkeursBboxCy   = null;
 let voorkeursBboxRuns = 0;
 let voorkeursBboxTijd = 0;
+// ── V11.20.0: DE VIJFDE VASTHOUDREGEL KRIJGT ZIJN TIJDGENOOT ──
+// © 2026 StoplichtIQ — Y. Lemaalem
+//
+// V11.18.17 gaf vier drempels een tijdseis naast hun runs-teller: AI_DREMPEL,
+// zijn onverwachte broer, TOLERANTIE_RUNS en STICKY_MISS_MAX. De reden stond
+// daar: zolang een run ~1066 ms kostte was een runs-teller een tijdsmaat in
+// vermomming, en sinds V11.18.16 duurt een run ~415 ms. Elke bezinktijd die
+// in runs staat is daarmee stilletjes door drie gedeeld.
+//
+// VOORKEUR_MIN_RUNS bleef toen staan. Dat is de vijfde van dezelfde soort en
+// hij is hier dezelfde behandeling gegeven: runs ÉN tijd, de strengste wint.
+// Bij een traag model beslist het aantal runs zoals vroeger, bij een snel model
+// de klok. Drie runs × 1066 ms = 3200 ms, exact de rekenwijze van V11.18.17.
+//
+// WAAROM DIT GEEN GROTE GEDRAGSWIJZIGING IS. VOORKEUR_MIN_RUNS opent geen slot;
+// hij geeft VOORKEUR_SCORE_BONUS (25 punten) tegenover een centerScore die tot
+// 80 loopt. De bonus komt nu ~1,9 s later beschikbaar dan met alleen de
+// runs-eis bij het snelle model — terug op het tempo waarop hij ontworpen is.
+//
+// VOORKEUR_TIMEOUT_MS IS IETS ANDERS EN BLIJFT ONGEMOEID. Dat is de houdbaarheid
+// van de voorkeur (8 s zonder bevestiging en hij vervalt), niet de tijd die hij
+// nodig heeft om te RIJPEN. Vandaar een eigen starttijd: voorkeursBboxTijd
+// verschuift elke run mee, en daarmee is niet te zien hoe lang de reeks al loopt.
+let voorkeursBboxStart = 0;
 const VOORKEUR_MIN_RUNS    = 3;
+const VOORKEUR_MIN_MS      = 3200;   // VOORKEUR_MIN_RUNS (3) x 1066 ms
 const VOORKEUR_TIMEOUT_MS  = 8000;
 const VOORKEUR_SCORE_BONUS = 25;
+// V11.20.0: stond drie keer als los getal 80 in selecteerBesteDetectie, en deze
+// release had er een vierde bij gezet. Eén naam, één betekenis: "hoort dit nog
+// bij dezelfde box".
+const VOORKEUR_RADIUS_PX   = 80;
+
+// Is de voorkeursbbox rijp genoeg om mee te tellen? Zelfde vorm als
+// stickyMagLosgelaten (r8290): runs én tijd, allebei of niets.
+function voorkeurIsRijp(nu = Date.now()) {
+  if (voorkeursBboxCx === null) return false;
+  if ((nu - voorkeursBboxTijd) >= VOORKEUR_TIMEOUT_MS) return false;
+  return voorkeursBboxRuns >= VOORKEUR_MIN_RUNS
+      && (nu - voorkeursBboxStart) >= VOORKEUR_MIN_MS;
+}
+
 // V11.8.0: Predictive bbox anchoring — exponentieel gemiddelde in camera-norm coords (0-1)
 let bboxAnchorCx = null, bboxAnchorCy = null, bboxAnchorTijd = 0;
 // V11.8.0: Geleidelijke crop ratio
@@ -7823,6 +7912,7 @@ function selecteerBesteDetectie(detecties) {
       if (afst < minLockAfst) { minLockAfst = afst; besteLock = det; }
     }
     if (besteLock && minLockAfst < 120) {
+      bboxSlot = 'vast';   // V11.20.0 (onbereikbaar sinds V11.15.3; hier voor volledigheid)
       return { s1: besteLock, s2Rest: bruikbaar.filter(d => d !== besteLock), afwijsReden:'ok' };
     }
     return { s1: null, s2Rest: bruikbaar, afwijsReden:'lock_afst' };
@@ -7907,6 +7997,7 @@ function selecteerBesteDetectie(detecties) {
           if (nieuweFamilie) stickyDetectie.familie = nieuweFamilie;
           stickyDetectie.tijd = Date.now();
           stickyMissTeller = 0;
+          bboxSlot = 'tap';   // V11.20.0
           return { s1: match, s2Rest: bruikbaar.filter(d => d !== match), afwijsReden:'ok' };
         }
         // Geen kandidaat binnen radius
@@ -7955,6 +8046,7 @@ function selecteerBesteDetectie(detecties) {
           if (ovFam) stickyDetectie.familie = ovFam;
           stickyDetectie.tijd = Date.now();
           stickyMissTeller = 0;
+          bboxSlot = 'tap';   // V11.20.0
           return { s1: overname, s2Rest: bruikbaar.filter(d => d !== overname), afwijsReden: overnameReden };
         }
         if (!stickyMagLosgelaten()) {   // V11.18.17: runs EN tijd
@@ -8021,6 +8113,7 @@ function selecteerBesteDetectie(detecties) {
             tijd: Date.now()
           };
           stickyMissTeller = 0;
+          bboxSlot = 'tap';   // V11.20.0
           return { s1: match, s2Rest: bruikbaar.filter(d => d !== match), afwijsReden:'ok' };
         }
         // Geen herstel-match: valt door naar tap-seed voorrang + closest-op-bboxOverride
@@ -8060,6 +8153,7 @@ function selecteerBesteDetectie(detecties) {
           };
           stickyMissTeller = 0;
           tapSeedDetectie = null; // seed verbruikt
+          bboxSlot = 'tap';   // V11.20.0
           return { s1: match, s2Rest: bruikbaar.filter(d => d !== match), afwijsReden:'ok' };
         }
       }
@@ -8093,6 +8187,7 @@ function selecteerBesteDetectie(detecties) {
         };
         stickyMissTeller = 0;
         bboxOverrideMatchTeller++;
+        bboxSlot = 'tap';   // V11.20.0
         return { s1: besteOv, s2Rest: bruikbaar.filter(d => d !== besteOv), afwijsReden:'ok' };
       }
     }
@@ -8181,13 +8276,12 @@ function selecteerBesteDetectie(detecties) {
       }
     }
 
-    if (voorkeursBboxCx !== null
-        && voorkeursBboxRuns >= VOORKEUR_MIN_RUNS
-        && (Date.now() - voorkeursBboxTijd) < VOORKEUR_TIMEOUT_MS) {
+    // V11.20.0: runs én tijd, via één gedeelde toets — zie voorkeurIsRijp.
+    if (voorkeurIsRijp()) {
       const vDx = det.cx - voorkeursBboxCx;
       const vDy = det.cy - voorkeursBboxCy;
       const vAfst = Math.sqrt(vDx*vDx + vDy*vDy);
-      if (vAfst < 80) totaal += VOORKEUR_SCORE_BONUS;
+      if (vAfst < VOORKEUR_RADIUS_PX) totaal += VOORKEUR_SCORE_BONUS;
     }
 
     // Bijhouden beste binnen en buiten midden apart
@@ -8204,9 +8298,20 @@ function selecteerBesteDetectie(detecties) {
 
   if (beste) {
     const nu = Date.now();
+    // ── V11.20.0: EERST HET SLOT LEZEN, DAN PAS BIJWERKEN ────
+    // De volgorde is bindend. Het blok hieronder schuift de voorkeur naar de
+    // winnaar toe: de afstand wordt 0 en de teller loopt op. Zou het slot daarna
+    // bepaald worden, dan stond er altijd 'vast' — een meting die zichzelf
+    // bevestigt. De vraag is of DEZE winnaar profiteerde van een voorkeur die al
+    // rijp WÁS, en dat is alleen vóór de bijwerking te beantwoorden.
+    const vRijp = voorkeurIsRijp(nu);
+    const vAfst = voorkeursBboxCx !== null
+      ? Math.sqrt((beste.cx - voorkeursBboxCx)**2 + (beste.cy - voorkeursBboxCy)**2)
+      : Infinity;
+    bboxSlot = (vRijp && vAfst < VOORKEUR_RADIUS_PX) ? 'vast' : 'vrij';
+
     const verlopen = (nu - voorkeursBboxTijd) > VOORKEUR_TIMEOUT_MS;
-    const dichterBij = voorkeursBboxCx !== null
-      && Math.sqrt((beste.cx - voorkeursBboxCx)**2 + (beste.cy - voorkeursBboxCy)**2) < 80;
+    const dichterBij = voorkeursBboxCx !== null && vAfst < VOORKEUR_RADIUS_PX;
     if (!verlopen && dichterBij) {
       voorkeursBboxCx = beste.cx;
       voorkeursBboxCy = beste.cy;
@@ -8217,6 +8322,7 @@ function selecteerBesteDetectie(detecties) {
       voorkeursBboxCy = beste.cy;
       voorkeursBboxRuns = 1;
       voorkeursBboxTijd = nu;
+      voorkeursBboxStart = nu;   // V11.20.0: hier begint de reeks
     }
   }
 
@@ -9247,17 +9353,39 @@ function tekenOverlay(box, score, horizontaal) {
   const kCSS = box.kleur==='rood'?'#FF3030':box.kleur==='groen'?'#34C759':box.kleur==='oranje'?'#FF9F0A':'#888';
   const mg=8, hl=Math.min(box.w,box.h)*0.35+8;
   const x1=box.x-mg, y1=box.y-mg, x2=box.x+box.w+mg, y2=box.y+box.h+mg;
-  octx.strokeStyle=kCSS; octx.lineWidth=3; octx.globalAlpha=0.92;
+  // ── V11.20.0: DE RAND VERTELT WELK SLOT ACTIEF IS ──────
+  // © 2026 StoplichtIQ — Y. Lemaalem
+  //
+  // Dik en doorlopend = jouw tik houdt hem vast. Normaal en doorlopend = de app
+  // houdt hem zelf vast. Dun en gestreept = hij zoekt vrij en kan elk moment
+  // verspringen. De hoekhaken en de gloed blijven ongemoeid — dat is het gezicht
+  // van de app; alleen dikte, streep en doorzichtigheid verschillen.
+  //
+  // setLineDash moet na de stroke terug naar leeg: clearRect wist de tekening
+  // maar niet de tekenstand, en de blokken hierboven tekenen ook met streepjes.
+  const stijl = bboxRandStijl(bboxSlot);
+  octx.strokeStyle=kCSS; octx.lineWidth=stijl.lijn; octx.globalAlpha=stijl.alpha;
+  octx.setLineDash(stijl.streep);
   octx.shadowColor=kCSS; octx.shadowBlur=12;
   octx.beginPath();
   octx.moveTo(x1+hl,y1); octx.lineTo(x1,y1); octx.lineTo(x1,y1+hl);
   octx.moveTo(x2-hl,y1); octx.lineTo(x2,y1); octx.lineTo(x2,y1+hl);
   octx.moveTo(x1,y2-hl); octx.lineTo(x1,y2); octx.lineTo(x1+hl,y2);
   octx.moveTo(x2-hl,y2); octx.lineTo(x2,y2); octx.lineTo(x2,y2-hl);
-  octx.stroke(); octx.shadowBlur=0;
+  octx.stroke(); octx.shadowBlur=0; octx.setLineDash([]);
+  // Het slotje stond als tekstsuffix achter het label. Daar botste het met de
+  // klassenaam en het percentage, en bij een lange naam viel het buiten beeld.
+  // Nu in de rechterbovenhoek van de box zelf: dezelfde informatie, op de plek
+  // waar je toch al kijkt. Één slotje, niet twee.
+  if (stijl.slotje) {
+    octx.globalAlpha = 1;
+    octx.font = '14px monospace';
+    octx.fillStyle = kCSS;
+    octx.fillText('🔒', x2 - 18, y1 + 15);
+  }
   if (box.kleur) {
     octx.fillStyle=kCSS; octx.globalAlpha=0.9; octx.font='bold 13px monospace';
-    const tapIndicator = (typeof bboxOverride !== 'undefined' && bboxOverride !== null) ? ' 🔒' : '';
+    const tapIndicator = '';   // V11.20.0: verhuisd naar de hoek van de box
     // V11.15.5: klasse-naam ipv alleen kleur — fallback naar kleur bij
     // ontbrekend klasse-veld (edge-case oude cache), voorkomt "undefined".
     const klasseNaam = (box.klasse !== undefined && KLASSE_NAMEN[box.klasse])
