@@ -81,7 +81,7 @@ function testGate() {
   opzet(200);
   bboxOverride = { cx: 300, cy: 200 };
   bboxOverrideCamX = 1000; bboxOverrideCamY = 800;
-  bboxOverrideTijd = Date.now() - 3000;   // ruim binnen TAP_FORCE_TIMEOUT
+  bboxOverrideTijd = Date.now() - 3000;   // ruim binnen TAP_CROPHINT_MS
   eis('T5b VAL: verse tap zonder cropHintPositie heft de gate óók op',
       runIsKansloos() === false && cropHintPositie === null,
       'false, en cropHintPositie is inderdaad nog null',
@@ -90,9 +90,20 @@ function testGate() {
   opzet(200);
   bboxOverride = { cx: 300, cy: 200 };
   bboxOverrideCamX = 1000; bboxOverrideCamY = 800;
-  bboxOverrideTijd = Date.now() - (TAP_FORCE_TIMEOUT + 5000);  // verlopen
-  eis('T6 verlopen tap heft de gate niet meer op',
+  // ── V11.20.1: DIT VENSTER IS NÍET DE LEVENSDUUR VAN DE LOCK ──
+  // De tap-lock verloopt sinds V11.20.1 niet meer op een klok vanaf de tik;
+  // deze waarborg wél. Ze gaat over de eerste seconden waarin de app moet
+  // kijken waar de gebruiker wees. Zou ze aan de lock hangen, dan draaide de
+  // gate een hele roodfase lang nooit meer leeg.
+  bboxOverrideTijd = Date.now() - (TAP_CROPHINT_MS + 5000);  // buiten het hint-venster
+  bboxOverrideLaatsteMatch = Date.now();                     // maar de lock leeft nog
+  eis('T6 een tik buiten het crophint-venster heft de gate niet meer op',
       runIsKansloos() === true, 'true', String(runIsKansloos()));
+  eis('T6b ook niet als de tap-lock zelf nog springlevend is — de gate hangt ' +
+      'bewust aan het hint-venster, niet aan de lock (V11.20.1)',
+      tapLockLeeft() === true && runIsKansloos() === true,
+      'lock leeft, gate blijft staan',
+      'lock=' + tapLockLeeft() + ', gate=' + runIsKansloos());
 
   // ══ T7-T8 — waarborg 2c: anchor ══════════════════════════════
   opzet(200);

@@ -1046,7 +1046,7 @@ if (typeof ort !== 'undefined') {
 //
 // De stijl volgt de eerdere labels: nummer, kastlijntje, korte omschrijving in
 // kleine letters. De CSS zet hem zelf in kapitalen (text-transform:uppercase).
-const APP_VERSIE = 'V11.20.0 — bbox-slot zichtbaar';
+const APP_VERSIE = 'V11.20.1 — getikte box is heilig';
 
 // ── CONSTANTEN ────────────────────────────────────────────────
 const OSM_RADIUS       = 5000;
@@ -1341,8 +1341,24 @@ const CD_DROPOUT_MAX_S = 12;
 // toekomstig gebruik.
 const BEVESTIG_TOON_MS = 15000;
 
-// V11.8.0: Tap timeout (was 10000 hardcoded)
-const TAP_FORCE_TIMEOUT = 25000;
+// ── V11.20.1: TAP_FORCE_TIMEOUT SPLITST IN TWEEËN ───────
+// © 2026 StoplichtIQ — Y. Lemaalem
+//
+// Eén getal van 25 seconden deed drie verschillende dingen, en dat was er twee
+// te veel:
+//   1. het liet de TAP-LOCK vallen — na 25 s koos de app weer op score
+//   2. het hield de CROP op de tap gericht
+//   3. het tilde de kansloos-gate op zodat de runs na een tap echt draaiden
+//
+// Alleen (1) is een slot. Dat is wat deze release weghaalt: een tik van de
+// gebruiker hoort niet te verlopen omdat er een klok afloopt, maar omdat de
+// lamp er niet meer is of omdat je bij een ander kruispunt staat. (2) en (3)
+// zijn beeldvorming in de eerste seconden na een tik en houden hun 25 s —
+// ongewijzigd gedrag, alleen onder een naam die klopt.
+//
+// Het oude gedrag van (1) staat hieronder als TAP_KWIJT_MS, maar gemeten vanaf
+// de LAATSTE WAARNEMING in plaats van vanaf de tik. Zie tapLockLeeft.
+const TAP_CROPHINT_MS = 25000;
 
 // V11.8.0: Predictive bbox anchoring
 const BBOX_ANCHOR_TIMEOUT = 15000;
@@ -6452,6 +6468,83 @@ let bboxOverrideCamY = null;
 // bij stale-coord mismatch). Zodra >0: cap 180px actief tegen bevriezing bij
 // rijden (V11.16.11-gedrag). Reset naar 0 in tap-handler + bboxOverride-wis.
 let bboxOverrideMatchTeller = 0;
+// ── V11.20.1: DE GETIKTE BOX IS HEILIG ───────────────
+// © 2026 StoplichtIQ — Y. Lemaalem
+//
+// WAT ER MIS WAS. Een tik op het beeld hield 25 seconden. Daarna viel de lock
+// weg en koos de app weer op score — midden in een roodfase, zonder dat er iets
+// veranderd was aan wat de camera zag. Voor de gebruiker is dat onverklaarbaar:
+// hij heeft aangewezen welk licht het is, en een half minuutje later doet de
+// app alsof dat nooit gebeurd is.
+//
+// DRIE REDENEN OM LOS TE LATEN, EN GEEN VIERDE:
+//   (a) een nieuwe tik — de tap-handler overschrijft bboxOverride;
+//   (b) een ander kruispunt — al geregeld op drie plekken: de node-wissel in
+//       updateDichtbij, corrigeerNodeAutomatisch en het GPS-voorbij-pad. Alle
+//       drie nullen bboxOverride al sinds V11.4.5/V11.15.2;
+//   (c) de lamp is er niet meer — TAP_KWIJT_MS hieronder.
+// De klok die er stond was geen van deze drie.
+//
+// GEMETEN VANAF DE LAATSTE WAARNEMING, NIET VANAF DE TIK. Dat is het hele
+// verschil. Zolang de tracker de lamp elke run terugvindt, blijft de lock staan
+// — ook na tien minuten voor rood. Verdwijnt hij, dan telt de klok en valt de
+// lock na TAP_KWIJT_MS alsnog.
+//
+// WAAROM 20 SECONDEN. Een gemiste run is niet hetzelfde als een verdwenen lamp:
+// de sticky-tak, de twee overname-routes, de herstel-stap en de
+// closest-op-override vangen samen elke tijdelijke occlusie op. Twintig seconden
+// zonder één enkele geslaagde match betekent dat er binnen 180 px van de
+// tap-positie werkelijk niets meer te zien is — een vrachtwagen ervoor duurt
+// geen twintig seconden. Korter zou een tik weggooien die nog geldig is; langer
+// heeft geen nut, want (b) vangt het wegrijden al af.
+const TAP_KWIJT_MS = 20000;
+let bboxOverrideLaatsteMatch = 0;   // wanneer de lock voor het laatst iets vond
+
+// Leeft de tap-lock nog? Één bron voor elke plek die het wil weten.
+//
+// Math.max en niet `||`: een verse tik moet altijd winnen van een oude
+// matchtijd die van een vorige tap is blijven staan. Zo hoeft geen van de drie
+// tap-handlers bboxOverrideLaatsteMatch te nullen.
+function tapLockLeeft(nu = Date.now()) {
+  if (bboxOverride === null) return false;
+  return (nu - Math.max(bboxOverrideLaatsteMatch, bboxOverrideTijd)) <= TAP_KWIJT_MS;
+}
+
+// Elke geslaagde LOCK 2-match meldt zich hier: de slot-weergave én de klok.
+// Samen in één functie zodat ze niet uit elkaar kunnen lopen — een tak die wel
+// het slotje zet maar niet de klok, zou de lock stilletjes laten verlopen
+// terwijl hij zichtbaar aan het werk is.
+function tapGezien() {
+  bboxSlot = 'tap';
+  bboxOverrideLaatsteMatch = Date.now();
+}
+
+// ── V11.20.1: WAAR MAG EEN ZWAKKE DETECTIE DOOR? ────────
+// © 2026 StoplichtIQ — Y. Lemaalem
+//
+// De positie waaromheen postprocessYOLO zijn ruimere drempel toepast, of null
+// als er geen levende tap is. De sticky gaat voor: die is elke run bijgewerkt
+// en meebewogen, terwijl bboxOverride op de tik-positie blijft staan.
+//
+// DE COÖRDINATENVAL, EN WAAROM HIJ HIER ONSCHADELIJK IS. Zowel stickyDetectie
+// als bboxOverride staat in de YOLO-ruimte van een VORIGE preprocess-crop; op
+// een skipCrop-run (elke vijfde) is dat een ander stelsel dan het huidige. De
+// straal kan daardoor op de verkeerde plek in beeld liggen.
+//
+// Dat is hier geen probleem, en dat is een eigenschap van waar deze toets
+// staat. Ze VERRUIMT alleen een filter; ze kiest niets. Ligt de straal
+// verkeerd, dan overleven een paar zwakke detecties die daarna alsnog door
+// selecteerBesteDetectie tegen de sticky (80 px) of de override moeten worden
+// gelegd. Een verkeerde straal kan dus nooit een verkeerde lamp laten volgen —
+// hooguit een handvol kandidaten opleveren die meteen weer afvallen.
+const TAP_CONF_DREMPEL  = 0.04;   // tegen CONF_DREMPEL 0,10 — zie postprocessYOLO
+const TAP_ZWAK_STRAAL_PX = 100;   // gelijk aan STICKY_HERSTEL_PX: precies het
+                                  // gebied waar de tracker straks toch zoekt
+function tapZwakPositie() {
+  if (!tapLockLeeft()) return null;
+  if (stickyDetectie) return { cx: stickyDetectie.cx, cy: stickyDetectie.cy };
+  return { cx: bboxOverride.cx, cy: bboxOverride.cy };
+}
 // V11.15.8: sticky detectie-identiteit voor LOCK 2 — voorkomt dat LOCK 2
 // elke YOLO-run een andere closest kiest bij naburige detecties.
 // KLASSE_MAP (r723) fungeert direct als familie-bron ('rood'/'groen'/'oranje').
@@ -7460,7 +7553,7 @@ function preprocessVoorYOLO() {
   // inverse faalt op skipCrop-runs (cropRegio=null, andere lbScale/lbPadX)
   // → tapCamX/Y werd ~900px fout → cropHint sprong random weg. Nu 1-op-1
   // uit de tap-handler, geen state-afhankelijkheid.
-  if (bboxOverride && bboxOverrideCamX != null && Date.now() - bboxOverrideTijd < TAP_FORCE_TIMEOUT) {
+  if (bboxOverride && bboxOverrideCamX != null && Date.now() - bboxOverrideTijd < TAP_CROPHINT_MS) {
     cropHintPositie = { x: bboxOverrideCamX, y: bboxOverrideCamY };
     cropHintTeller = 10;
   }
@@ -7672,6 +7765,30 @@ function postprocessYOLO(outputData, dims) {
   // Dynamisch max_y bij lage snelheid (file detectie)
   const dynamischMaxY = (typeof snelheidKmh==='number' && !isNaN(snelheidKmh) && snelheidKmh<15)
     ? 0.85 : MAX_Y_RATIO;
+  // ── V11.20.1: DE VIJF FILTERS GELDEN NIET VOOR JOUW LAMP ──
+  // © 2026 StoplichtIQ — Y. Lemaalem
+  //
+  // Deze vijf regels gooien weg wat in het ALGEMEEN geen stoplicht kan zijn:
+  // te vaag, te laag in beeld, te klein, te breed, te plat. Dat is verstandig
+  // zolang de app zelf moet raden waar een lamp zit.
+  //
+  // Zodra de gebruiker heeft aangewezen wélke lamp het is, klopt die aanname
+  // niet meer. Dan weten we dat daar een stoplicht staat, en een detectie van
+  // 5% op die plek is geen ruis maar een slecht zichtbare lamp — tegenlicht,
+  // regen, afstand. Younes' eigen woorden bij deze klacht: "Al is de bbox maar
+  // 5%." Met CONF_DREMPEL op 0,10 haalde die 5% het nooit, en sneuvelde de tik
+  // in een laag waar de tik niet eens bekend was.
+  //
+  // De ruimere drempel geldt ALLEEN binnen TAP_ZWAK_STRAAL_PX van de gevolgde
+  // positie. Buiten die straal verandert er niets: daar raadt de app nog steeds,
+  // en daar horen de vijf filters onverkort te gelden.
+  //
+  // DE ONDERGRENS BLIJFT. Een box zonder breedte of van één pixel hoog is geen
+  // slecht zichtbare lamp maar een rekenfout, en zou verderop delen door bijna
+  // nul (w/h, hoogteverhoudingen, de tekenlaag). Vandaar h >= 2 en w > 0, ook
+  // binnen de straal.
+  const tapZwak = tapZwakPositie();
+  const tapStraal2 = TAP_ZWAK_STRAAL_PX * TAP_ZWAK_STRAAL_PX;
   // V11.15.10 DEBUG: reset tracker per run — TIJDELIJK
   let debugBestAnchorIdx = -1;
   let debugBestAnchorScore = 0;
@@ -7705,11 +7822,20 @@ function postprocessYOLO(outputData, dims) {
     let famScore = maxScore;
     const fam = KLASSE_MAP[maxKlasse];
     if (fam) famScore = famSom(alleScores, fam, maxScore);   // V11.17.25: NC-bewust
-    if (famScore < CONF_DREMPEL) continue;
-    if (cy/YOLO_SIZE > dynamischMaxY) continue;
-    if (h < MIN_H_PX) continue;
-    if (w/YOLO_SIZE > MAX_BOX_W_RATIO) continue;
-    if (h > 0 && w/h > MAX_WH_RATIO) continue;
+    // V11.20.1: ligt dit anker binnen de straal rond de gevolgde lamp?
+    const inTapZone = tapZwak !== null
+      && ((cx - tapZwak.cx) * (cx - tapZwak.cx)
+        + (cy - tapZwak.cy) * (cy - tapZwak.cy)) <= tapStraal2;
+    if (inTapZone) {
+      if (famScore < TAP_CONF_DREMPEL) continue;
+      if (h < 2 || w <= 0) continue;
+    } else {
+      if (famScore < CONF_DREMPEL) continue;
+      if (cy/YOLO_SIZE > dynamischMaxY) continue;
+      if (h < MIN_H_PX) continue;
+      if (w/YOLO_SIZE > MAX_BOX_W_RATIO) continue;
+      if (h > 0 && w/h > MAX_WH_RATIO) continue;
+    }
     detections.push({
       klasse:maxKlasse, score:maxScore,
       alleScores, // V11.16.7 — 10-klassen vector voor familieScore() downstream
@@ -7928,7 +8054,9 @@ function selecteerBesteDetectie(detecties) {
   // aiMissRuns/TOLERANTIE_RUNS de bbox kort laten staan (bestaand tolerantie-pad,
   // sluit aan bij 'ai:filter'-flow). Miss ≥MAX: sticky reset, hervat closest.
   if (bboxOverride !== null) {
-    if (Date.now() - bboxOverrideTijd > TAP_FORCE_TIMEOUT) {
+    // V11.20.1: niet meer "25 s na de tik", maar "TAP_KWIJT_MS niets gezien".
+    // Zie tapLockLeeft voor de drie redenen die wél mogen loslaten.
+    if (!tapLockLeeft()) {
       bboxOverride = null;
       bboxOverrideCamX = null; bboxOverrideCamY = null;
       bboxOverrideMatchTeller = 0;
@@ -7997,7 +8125,7 @@ function selecteerBesteDetectie(detecties) {
           if (nieuweFamilie) stickyDetectie.familie = nieuweFamilie;
           stickyDetectie.tijd = Date.now();
           stickyMissTeller = 0;
-          bboxSlot = 'tap';   // V11.20.0
+          tapGezien();   // V11.20.1: slotje én de kwijt-klok
           return { s1: match, s2Rest: bruikbaar.filter(d => d !== match), afwijsReden:'ok' };
         }
         // Geen kandidaat binnen radius
@@ -8046,7 +8174,7 @@ function selecteerBesteDetectie(detecties) {
           if (ovFam) stickyDetectie.familie = ovFam;
           stickyDetectie.tijd = Date.now();
           stickyMissTeller = 0;
-          bboxSlot = 'tap';   // V11.20.0
+          tapGezien();   // V11.20.1: slotje én de kwijt-klok
           return { s1: overname, s2Rest: bruikbaar.filter(d => d !== overname), afwijsReden: overnameReden };
         }
         if (!stickyMagLosgelaten()) {   // V11.18.17: runs EN tijd
@@ -8113,7 +8241,7 @@ function selecteerBesteDetectie(detecties) {
             tijd: Date.now()
           };
           stickyMissTeller = 0;
-          bboxSlot = 'tap';   // V11.20.0
+          tapGezien();   // V11.20.1: slotje én de kwijt-klok
           return { s1: match, s2Rest: bruikbaar.filter(d => d !== match), afwijsReden:'ok' };
         }
         // Geen herstel-match: valt door naar tap-seed voorrang + closest-op-bboxOverride
@@ -8153,7 +8281,7 @@ function selecteerBesteDetectie(detecties) {
           };
           stickyMissTeller = 0;
           tapSeedDetectie = null; // seed verbruikt
-          bboxSlot = 'tap';   // V11.20.0
+          tapGezien();   // V11.20.1: slotje én de kwijt-klok
           return { s1: match, s2Rest: bruikbaar.filter(d => d !== match), afwijsReden:'ok' };
         }
       }
@@ -8187,7 +8315,7 @@ function selecteerBesteDetectie(detecties) {
         };
         stickyMissTeller = 0;
         bboxOverrideMatchTeller++;
-        bboxSlot = 'tap';   // V11.20.0
+        tapGezien();   // V11.20.1: slotje én de kwijt-klok
         return { s1: besteOv, s2Rest: bruikbaar.filter(d => d !== besteOv), afwijsReden:'ok' };
       }
     }
@@ -8647,8 +8775,13 @@ function runIsKansloos() {
   // dus nog null zijn terwijl er wel degelijk een geldige tap ligt. Zonder deze
   // spiegeling gooit de gate precies de runs weg die de gebruiker zojuist heeft
   // aangewezen.
+  // V11.20.1: TAP_CROPHINT_MS, niet de levensduur van de lock. Deze waarborg
+  // gaat over de eerste seconden na een tik, waarin de app echt moet kijken
+  // waar de gebruiker wees. Zou hij aan de lock hangen, dan draaide de gate
+  // een hele roodfase lang nooit meer leeg — dat kost stroom zonder iets op
+  // te leveren, want een lopende lock betekent juist dát de box gevonden wordt.
   if (bboxOverride && bboxOverrideCamX != null
-      && Date.now() - bboxOverrideTijd < TAP_FORCE_TIMEOUT) return false;
+      && Date.now() - bboxOverrideTijd < TAP_CROPHINT_MS) return false;
   // Waarborg 2c: actieve anchor. Dit is meteen de reden dat de gate het
   // stale-venster niet kan verkorten: elke geslaagde detectie zet de anchor, en
   // BBOX_ANCHOR_TIMEOUT (15s) is even lang als STALE_FASE_BODEM_MS (15s).
@@ -9287,10 +9420,12 @@ function tekenOverlay(box, score, horizontaal) {
     octx.restore();
   }
   // V11.10.0 W3: tap indicator alleen tonen als aiTeller<2 OF geen actieve bbox OF niet vergrendeld
-  const tapActief = bboxOverride !== null && Date.now() - bboxOverrideTijd < TAP_FORCE_TIMEOUT;
+  // V11.20.1: de lock telt niet meer af, dus er valt niets af te tellen. De
+  // indicator blijft zelfbeperkend: hij verdwijnt zodra de app de box echt te
+  // pakken heeft (aiTeller >= 2 én een box én zoom vergrendeld).
+  const tapActief = tapLockLeeft();
   const toonTapIndicator = tapActief && (aiTeller < 2 || !box || !zoomVergrendeld);
   if (toonTapIndicator) {
-    const restSec = Math.ceil((TAP_FORCE_TIMEOUT - (Date.now() - bboxOverrideTijd)) / 1000);
     const indicatorX = (bboxOverride.cx - lbPadX) / lbScale + (cropRegio ? cropRegio.x : 0);
     const indicatorY = (bboxOverride.cy - lbPadY) / lbScale + (cropRegio ? cropRegio.y : 0);
     octx.save();
@@ -9311,7 +9446,7 @@ function tekenOverlay(box, score, horizontaal) {
     octx.stroke();
     octx.fillStyle = 'rgba(251,191,36,0.9)';
     octx.font = 'bold 11px monospace';
-    octx.fillText('TAP ' + restSec + 's', indicatorX + 14, indicatorY - 14);
+    octx.fillText('TAP', indicatorX + 14, indicatorY - 14);
     octx.restore();
   }
   // V11.9.0: OSM crop hint indicator — paarse stippelcirkel
@@ -9764,7 +9899,7 @@ function verwerkFase(nieuw, horizontaal, conf=null) {
     // hangen na groen-passage te voorkomen. Sinds V11.10/V11.15.2 dekken
     // node-wissel (r6719) en GPS-voorbij (r6823) dat al af voor rijdende
     // gebruikers. Effect verwijdering: cropHint blijft na groen zichtbaar
-    // tot TAP_FORCE_TIMEOUT (25s) of tot passage — matcht gebruikersintentie
+    // tot de lock vervalt of tot passage — matcht gebruikersintentie
     // (V11.16.9 fix wilde precies dit bereiken maar deed het via een
     // ontkoppelde levensduur-variabele; deze release lost de root cause op).
     // sticky+tapSeed reset blijven staan: die zijn detectie-identiteits-

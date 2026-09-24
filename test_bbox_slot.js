@@ -293,8 +293,15 @@ function testBboxSlot() {
           && MAX_BOX_W_RATIO === 0.65 && MAX_WH_RATIO === 2.5,
         '0.10 / 0.75 / 5 / 0.65 / 2.5',
         [CONF_DREMPEL, MAX_Y_RATIO, MIN_H_PX, MAX_BOX_W_RATIO, MAX_WH_RATIO].join(' / '));
-    eis('B10d TAP_FORCE_TIMEOUT staat nog op 25 s — dat is release 2b',
-        TAP_FORCE_TIMEOUT === 25000, '25000', String(TAP_FORCE_TIMEOUT));
+    // V11.20.1 heeft de 25 s gesplitst: het crophint-venster houdt die waarde,
+    // de lock verloopt sindsdien op TAP_KWIJT_MS vanaf de laatste waarneming.
+    // De uitgebreide toetsing staat in test_tap_heilig.js; hier alleen dat deze
+    // release er niet stilletjes iets aan verandert.
+    eis('B10d het crophint-venster staat nog op 25 s en de kwijt-klok op 20 s',
+        TAP_CROPHINT_MS === 25000 && TAP_KWIJT_MS === 20000
+          && typeof TAP_FORCE_TIMEOUT === 'undefined',
+        '25000 / 20000 / oude naam weg',
+        TAP_CROPHINT_MS + ' / ' + TAP_KWIJT_MS + ' / ' + typeof TAP_FORCE_TIMEOUT);
     // De bonus zelf moet nog landen, en dat is nauwkeurig werk: de voorkeur moet
     // ver genoeg van de middenbox liggen dat ALLEEN de zijbox hem krijgt.
     // Doorgerekend op deze fixture (alle andere termen gelijk):
