@@ -64,9 +64,25 @@ function testTapVast() {
   };
 
   // Vergrendeld op GEKOZEN, stilstaand, met ANDER op `afwijking` meter dichterbij.
+  //
+  // ── V11.19.0: DE PEILING VAN `ANDER` STAAT NU EXPLICIET ────
+  // © 2026 StoplichtIQ — Y. Lemaalem
+  //
+  // Deze fixture zette ANDER onveranderlijk op peiling 90 terwijl de koers op
+  // 10 stond: een koersverschil van 80 graden. Zolang checkHandLockVerval geen
+  // koerstoets had, maakte dat niets uit en las niemand het. Sinds V11.19.0
+  // blokkeert de koerstoets die geometrie volledig, en dan zou elke B-toets
+  // hieronder groen blijven om een reden die niets met zijn naam te maken heeft.
+  //
+  // Standaard is nu 10 graden — gelijk aan de koers, dus pal vooruit. Dat is het
+  // gewone geval: je staat voor een kruising en de andere mast hoort bij
+  // dezelfde kruising. De 90-gradengeometrie is niet verdwenen maar verhuisd
+  // naar B5b, waar ze test wat ze hoort te testen: een mast naast je laat een
+  // tap staan.
   const opzet = (gekozenAf, closestAf, opt = {}) => {
     zetLS('sl_opslaglog', '[]');
-    const g = naarPunt(0, gekozenAf), a = naarPunt(90, closestAf);
+    const g = naarPunt(0, gekozenAf);
+    const a = naarPunt(opt.closestHoek != null ? opt.closestHoek : 10, closestAf);
     huidigePos = { lat: LAT, lon: LON };
     osmCache = [{ id: GEKOZEN, lat: g.lat, lon: g.lon, naam: 'Gekozen' },
                 { id: ANDER, lat: a.lat, lon: a.lon, naam: 'Ander' }];
@@ -82,6 +98,9 @@ function testTapVast() {
     headingBuffer.length = 0; headingBuffer.push(opt.heading != null ? opt.heading : 10);
   };
   const tik = (n) => { for (let i = 0; i < n; i++) checkHandLockVerval(LAT, LON); };
+  // Broncode zonder commentaar, voor de structuurtoetsen. (Het blok verderop
+  // definieert een eigen `zc`; deze staat hier omdat B1b hem al nodig heeft.)
+  const zcF = (f) => String(f).replace(/\/\*[\s\S]*?\*\//g, ' ').replace(/\/\/.*/g, ' ');
 
   try {
     // ═══ A — DE TIK OP HET BEELD ═════════════════════════════
@@ -136,12 +155,34 @@ function testTapVast() {
         'één gedeelde functie', 'ok');
 
     // ═══ B — DE TAP OVERLEEFT GPS-RUIS ═══════════════════════
-    eis('B1 de marge voor het laten vervallen van een TAP is ruimer dan die ' +
-        'voor het corrigeren van een gok',
-        HANDTAP_VERVAL_MARGE_M === 20 && NODE_CHK_CORRECTIE_MARGE_M === 8
-          && HANDTAP_VERVAL_STABIEL_N === 3,
-        '20 tegen 8, 3 tikken',
-        [HANDTAP_VERVAL_MARGE_M, NODE_CHK_CORRECTIE_MARGE_M, HANDTAP_VERVAL_STABIEL_N].join(', '));
+    // V11.19.0 HEEFT DEZE TOETS OMGEDRAAID, EN DAT IS DE BEDOELING.
+    // V11.18.17 gaf een tap een RUIMERE marge (20) dan een automatische gok
+    // (8), omdat een menselijke keuze meer bewijs verdient voordat ze opzij
+    // gaat. Dat klopte, maar het liet een gat open van 8 tot 20 meter — precies
+    // de afstand tussen twee masten op één kruising, waar niets meer corrigeert
+    // zodra er getikt is. Het bewijs daarvoor staat in de meting van 24
+    // september (Landdroststraat, afwM=9).
+    //
+    // De extra bescherming zit nu in de KOERS in plaats van in de afstand: een
+    // tap mag alleen vervallen richting een mast die ook vóór je ligt, dezelfde
+    // eis die poort 8 aan de automatische correctie stelt. Daarmee is het
+    // weggooien van een tap precies zo streng als een correctie, en is een
+    // ruimere afstandsmarge niet langer nodig.
+    eis('B1 een tap vervalt nu bij dezelfde afstand als een gok, maar met een ' +
+        'koerstoets erbij (V11.19.0)',
+        HANDTAP_VERVAL_MARGE_M === 8 && NODE_CHK_CORRECTIE_MARGE_M === 8
+          && HANDTAP_VERVAL_STABIEL_N === 3 && NODE_CHK_HEADING_MAX_GRAD === 60,
+        '8 en 8, 3 tikken, 60 graden',
+        [HANDTAP_VERVAL_MARGE_M, NODE_CHK_CORRECTIE_MARGE_M,
+         HANDTAP_VERVAL_STABIEL_N, NODE_CHK_HEADING_MAX_GRAD].join(', '));
+    eis('B1b en beide poorten rekenen uit dezelfde bron, zodat ze niet uit ' +
+        'elkaar kunnen groeien',
+        typeof koersAfwijkingNaar === 'function'
+          && /koersAfwijkingNaar/.test(zcF(checkHandLockVerval))
+          && /koersAfwijkingNaar/.test(zcF(checkNodeCorrectieStilstand)),
+        '\u00e9\u00e9n gedeelde functie, twee aanroepers',
+        'checkHandLockVerval: ' + /koersAfwijkingNaar/.test(zcF(checkHandLockVerval))
+          + ', checkNodeCorrectieStilstand: ' + /koersAfwijkingNaar/.test(zcF(checkNodeCorrectieStilstand)));
 
     opzet(40, 15);          // 25 m verschil: ruim boven de drempel
     tik(1);
@@ -161,23 +202,29 @@ function testTapVast() {
           && stilstandAutoLock === false,
         'lock los, alle vlaggen gewist',
         [handmatigLockActief, handmatigGeselecteerdNodeId, stilstandAutoLock].join(', '));
-    eis('B3b met het aantal bevestigingen in het log',
+    eis('B3b met het aantal bevestigingen in het log, en sinds V11.19.0 ook het ' +
+        'gemeten koersverschil',
         logRegels('handlock_vervallen').length === 1
           && logRegels('handlock_vervallen')[0].afwM === 25
-          && logRegels('handlock_vervallen')[0].hoekN === 3,
-        'afwM 25, 3 bevestigingen',
-        JSON.stringify(logRegels('handlock_vervallen').map(r => [r.afwM, r.hoekN])));
+          && logRegels('handlock_vervallen')[0].hoekN === 3
+          && logRegels('handlock_vervallen')[0].hoekVoordeel === 0,
+        'afwM 25, 3 bevestigingen, koersverschil 0',
+        JSON.stringify(logRegels('handlock_vervallen')
+          .map(r => [r.afwM, r.hoekN, r.hoekVoordeel])));
 
     // tegenspraak tussendoor: de teller begint opnieuw
     opzet(40, 15);
     tik(2);
     // De node moet echt verhuizen: checkHandLockVerval rekent de afstand vers
     // uit lat/lon, dus alleen het veld .afstand aanpassen verandert niets.
-    const ver = naarPunt(90, 39);
+    // V11.19.0: peiling 10 in plaats van 90, gelijk aan de koers. Anders zou de
+    // koerstoets de tegenspraak leveren en niet de afstand, en meet B4 iets
+    // anders dan zijn naam zegt.
+    const ver = naarPunt(10, 39);
     puurDichtsteNodeCache = { id: ANDER, lat: ver.lat, lon: ver.lon, afstand: 39 };
     tik(1);
     const naTegenspraak = handLockVervalTeller;
-    const dichtbij = naarPunt(90, 15);
+    const dichtbij = naarPunt(10, 15);
     puurDichtsteNodeCache = { id: ANDER, lat: dichtbij.lat, lon: dichtbij.lon, afstand: 15 };
     tik(2);
     eis('B4 een tik zonder bewijs nult de teller — twee plus twee is geen drie',
@@ -185,9 +232,31 @@ function testTapVast() {
         'teller 0, lock blijft',
         'naTegenspraak=' + naTegenspraak + ', hand=' + handmatigLockActief);
 
-    opzet(40, 30);          // 10 m: tussen de oude 8 en de nieuwe 20
+    // ── B5: HET GAT VAN 8 TOT 20 METER, DE KERN VAN V11.19.0 ──
+    // Tot deze release stond hier dat tien meter een tap NÓÓIT liet vervallen.
+    // Dat was de bug: precies in die band ligt de tweede mast van dezelfde
+    // kruising, en daar corrigeerde niets meer zodra er getikt was.
+    zetLS('sl_opslaglog', '[]');
+    opzet(40, 30);          // 10 m verschil, mast recht vooruit
+    tik(2);
+    eis('B5 tien meter laat de tap na twee tikken nog staan — ruisbescherming ' +
+        'blijft',
+        handmatigLockActief === true && handLockVervalTeller === 2,
+        'lock blijft, teller 2',
+        'hand=' + handmatigLockActief + ', teller=' + handLockVervalTeller);
+    tik(1);
+    eis('B5a en vervalt bij de derde bevestiging — het gat van 8 tot 20 meter ' +
+        'is dicht (V11.19.0)',
+        handmatigLockActief === false && handmatigGeselecteerdNodeId === null,
+        'lock los',
+        'hand=' + handmatigLockActief + ', node=' + handmatigGeselecteerdNodeId);
+
+    // Dezelfde tien meter, maar de mast staat naast je: dan blijft de tap staan.
+    // Dit is de geometrie die deze fixture vroeger onbedoeld overal gebruikte,
+    // nu op de plek waar ze thuishoort.
+    opzet(40, 30, { closestHoek: 90 });   // koers 10, peiling 90 -> 80 graden
     tik(5);
-    eis('B5 tien meter verschil laat een tap nooit vervallen, ook niet na vijf tikken',
+    eis('B5b maar een mast 80 graden opzij laat de tap staan, ook na vijf tikken',
         handmatigLockActief === true && handLockVervalTeller === 0,
         'lock blijft, teller 0',
         'hand=' + handmatigLockActief + ', teller=' + handLockVervalTeller);

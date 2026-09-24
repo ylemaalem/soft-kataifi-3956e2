@@ -1046,7 +1046,7 @@ if (typeof ort !== 'undefined') {
 //
 // De stijl volgt de eerdere labels: nummer, kastlijntje, korte omschrijving in
 // kleine letters. De CSS zet hem zelf in kapitalen (text-transform:uppercase).
-const APP_VERSIE = 'V11.18.23 — toastbreedte';
+const APP_VERSIE = 'V11.19.0 — tap-verval-koerstoets';
 
 // ── CONSTANTEN ────────────────────────────────────────────────
 const OSM_RADIUS       = 5000;
@@ -6995,7 +6995,35 @@ const NODE_CHK_HEADING_MAX_GRAD   = 60;    // W3: heading-match tolerantie (indi
 //
 // ROUTE 1 BLIJFT ONGEMOEID. Wegrijden (>100 m, voorbij, >5 km/u) is geen
 // twijfelgeval en heeft geen stabiliteitseis nodig.
-const HANDTAP_VERVAL_MARGE_M   = 20;   // ruimer dan de 8 m voor een auto-lock
+// ── V11.19.0: DE MARGE GAAT TERUG NAAR 8, MET EEN KOERSTOETS ERBIJ ──
+// © 2026 StoplichtIQ — Y. Lemaalem
+//
+// De 20 hierboven is niet fout beredeneerd, maar hij laat een gat open dat in
+// de praktijk pijn doet. Tussen 8 en 20 meter ligt precies de typische afstand
+// tussen twee masten op één kruising. Zit de app daar op de verkeerde, dan
+// corrigeert niets: de automatische route mag niet (poort 5 houdt haar tegen
+// zodra er getikt is) en de vervalroute wil 20 meter zien.
+//
+// Gemeten geval: Landdroststraat, 24 september. Tik op het beeld om 08:11:56,
+// stilstand_node_afwijking met afwM=9 om 08:12:02. Alle vijf de mogelijke
+// loslaat-routes zijn nagelopen; geen enkele had bij 9 meter gevuurd. Dat het
+// die dag maar zes seconden duurde, kwam doordat de bestuurder zelf naar de
+// correctielijst greep — niet doordat de app zich herstelde. Younes heeft
+// bevestigd dat dat niet altijd lukt en dat het vaker is voorgebeurd.
+//
+// WAAROM 8 NU WÉL KAN. V11.18.17 verlaagde deze marge niet omdat de tap dan
+// losser zou staan dan de automatische lock. Die redenering klopt in de kern,
+// maar de exacte grond ligt elders: bij stilstand kiest vindDichtbijScore voor
+// 95% op afstand, zonder koers. Een mast opzij kon dus via de score binnenkomen
+// zodra de lock viel. De koerstoets in checkHandLockVerval sluit die deur —
+// zie het blok daar. Met die toets erbij is het weggooien van een tap precies
+// zo streng als de correctie die de app zichzelf toestaat, en is er geen reden
+// meer om een menselijke keuze een ruimere marge te geven dan een gok.
+//
+// DE DRIE BEVESTIGINGEN BLIJVEN. Die beschermen tegen één uitschieter en dat is
+// een ander probleem dan richting; samen met de stilstandseis staat een tap dus
+// nog steeds minstens zes seconden onder druk voordat hij valt.
+const HANDTAP_VERVAL_MARGE_M   = 8;    // gelijk aan de auto-correctie; zie het blok hierboven
 const HANDTAP_VERVAL_STABIEL_N = 3;    // opeenvolgende GPS-ticks met hetzelfde bewijs
 let handLockVervalSleutel = null;      // "lockNode>closestNode" van het lopende bewijs
 let handLockVervalTeller  = 0;
@@ -12187,6 +12215,44 @@ function peilingDuidelijkBeter(pos, huidige, huidigeAf, alt, altAf) {
   peilingLaatsteVoordeel = Math.round(voordeel);
   return true;
 }
+
+// ── V11.19.0: ÉÉN KOERSTOETS, TWEE AANROEPERS ──────────
+// © 2026 StoplichtIQ — Y. Lemaalem
+//
+// Het koersverschil in graden (0-180) tussen de rijrichting en de peiling naar
+// `node`, of null als er geen oordeel te vellen is.
+//
+// WAAROM DEZE FUNCTIE BESTAAT. De toets stond tot nu toe op één plek: poort 8
+// van checkNodeCorrectieStilstand, die een automatische correctie weigert naar
+// een mast die meer dan NODE_CHK_HEADING_MAX_GRAD (60) uit de rijrichting ligt.
+// Die poort is in het onderzoek van september nagelopen op drie gemeten
+// gevallen — 95, 97 en 144 graden — en weigerde alle drie terecht: de mast lag
+// naast of achter de auto.
+//
+// V11.19.0 heeft dezelfde toets nodig op een TWEEDE plek, de vervalroute van
+// een handmatige tap. Twee kopieën van een drempel die met echte data is
+// afgesteld, groeien uit elkaar zodra iemand er één bijstelt. Daarom één bron.
+//
+// WAAROM HIJ HET VERSCHIL TERUGGEEFT EN GEEN JA/NEE. Poort 8 logt het getal
+// (hoekVoordeel), en de nieuwe aanroeper doet dat ook. Een boolean zou die
+// meting weggooien. De drempelvergelijking blijft bij de aanroeper, zodat poort
+// 8 letterlijk hetzelfde blijft doen als voorheen.
+//
+// null BETEKENT "GEEN OORDEEL", NIET "AFGEKEURD". getSmoothedHeading geeft null
+// bij een lege headingBuffer — de app is dan net gestart en heeft nog geen
+// GPS-geschiedenis. Number.isFinite vangt daarnaast de NaN af die ontstaat als
+// de buffer objecten bevat in plaats van kale graden; vóór deze release glipte
+// zo'n NaN ongemerkt door poort 8 heen, want NaN > 60 is false. De uitkomst is
+// gelijk gebleven (poort slaat over), alleen heet het nu wat het is.
+function koersAfwijkingNaar(pos, node) {
+  const heading = getSmoothedHeading();
+  if (heading == null || !Number.isFinite(heading)) return null;
+  const bearing = peilingNaar(pos, node);
+  if (bearing == null) return null;
+  let rv = Math.abs(heading - bearing);
+  if (rv > 180) rv = 360 - rv;
+  return rv;
+}
 // Het gemeten hoekvoordeel in graden bij de laatste beoordeling. Zonder dit
 // getal is 'te_klein_voordeel' niet te wegen: 24 graden tegen de drempel van 25
 // vraagt om een andere reparatie dan 3 graden.
@@ -16712,8 +16778,51 @@ function checkHandLockVerval(lat, lon) {
       && stilstandSinds !== 0
       && (Date.now() - stilstandSinds) >= NODE_CHK_STANDSTILL_DUUR_MS) {
     const closestAf = afstand(lat, lon, puurDichtsteNodeCache.lat, puurDichtsteNodeCache.lon);
-    // V11.18.17: ruimere marge én bewijs dat blijft staan — zie boven.
-    if ((lockAfstand - closestAf) >= HANDTAP_VERVAL_MARGE_M) {
+    // ── V11.19.0: DE KOERSTOETS, EN WAAROM HIJ HÍER MOET STAAN ──
+    // © 2026 StoplichtIQ — Y. Lemaalem
+    //
+    // Deze regel moest erbij VÓÓR de marge van 20 naar 8 mocht. Het bewijs
+    // daarvoor zit in vindDichtbijScore: bij snelheidKmh < 5 — exact de
+    // toestand waarin deze route werkt — luidt de score
+    // `normAf * 0.95 + conf * 0.05`. Bij stilstand kiest de app haar kruispunt
+    // dus voor 95% op pure afstand, zonder enige koersterm.
+    //
+    // Daardoor is het vervallen van een lock geen neutrale handeling. In
+    // dezelfde GPS-tik draait updateDichtbij (r17235) direct hierna, en die was
+    // alleen door de lock tegengehouden. Valt de lock, dan wint de node die
+    // toevallig het dichtst bij staat — ook een mast pal naast of achter de
+    // auto. Die wissel passeert nergens een 60-gradentoets: poort 8 bewaakt
+    // alleen het CORRIGEREN, en er valt niets meer te corrigeren zodra de
+    // score de wissel al gedaan heeft.
+    //
+    // Zonder deze regel zou 8 meter dus een achterdeur openen waarlangs een
+    // kruisend licht of een fietserslicht een bewuste tap ongedaan maakt,
+    // terwijl diezelfde mast de app haar eigen gok nooit had mogen laten
+    // wisselen. Mét deze regel geldt voor het weggooien van een menselijke
+    // keuze exact dezelfde koerseis als voor een automatische correctie.
+    //
+    // ONBEKENDE KOERS LAAT DE REST BESLISSEN, en dat is een bewuste keuze
+    // tegen de voor de hand liggende in. Drie redenen:
+    //   1. poort 8 doet het al zo ("als er niets is, sla check over"). Zou deze
+    //      route bij onbekende koers juist weigeren, dan lopen de twee poorten
+    //      op dag één al uiteen — precies wat de gedeelde helper voorkomt.
+    //   2. dit is een VERVALroute. Weigeren houdt de verkeerde lock vast, en
+    //      dat is de klacht die deze release repareert.
+    //   3. het overgebleven bewijs is niet dun: 8 m dichterbij, minstens drie
+    //      seconden stil, en drie opeenvolgende fixes die hetzelfde zeggen —
+    //      méér dan de automatische correctie eist, die geen teller heeft.
+    // De koers is alleen onbekend bij een lege headingBuffer, dus vlak na het
+    // starten. Sta je dán drie seconden stil terwijl een ander licht drie fixes
+    // lang 8 m dichterbij ligt, dan is de kans dat de lock klopt het kleinst.
+    //
+    // GEEN BEWIJS IS GEEN BEWIJS: ligt de kandidaat buiten de koersgrens, dan
+    // valt hij in dezelfde else-tak als een te kleine afstand en nult de
+    // teller. Anders zou een mast die heen en weer springt tussen 55 en 65
+    // graden alsnog naar drie bevestigingen toe tellen.
+    const koersAf = koersAfwijkingNaar({ lat, lon }, puurDichtsteNodeCache);
+    const koersOk = (koersAf == null) || (koersAf <= NODE_CHK_HEADING_MAX_GRAD);
+    // V11.18.17: bewijs dat blijft staan — zie boven.
+    if (koersOk && (lockAfstand - closestAf) >= HANDTAP_VERVAL_MARGE_M) {
       const sleutel = String(handmatigGeselecteerdNodeId) + '>' + String(puurDichtsteNodeCache.id);
       if (sleutel !== handLockVervalSleutel) { handLockVervalSleutel = sleutel; handLockVervalTeller = 0; }
       handLockVervalTeller++;
@@ -16723,7 +16832,12 @@ function checkHandLockVerval(lat, lon) {
           node: String(handmatigGeselecteerdNodeId),
           afst: lockAfstand,
           afwM: Math.round(lockAfstand - closestAf),
-          hoekN: handLockVervalTeller   // hergebruikt veld: aantal bevestigingen
+          hoekN: handLockVervalTeller,   // hergebruikt veld: aantal bevestigingen
+          // V11.19.0: het gemeten koersverschil, of -1 als de koers onbekend
+          // was en de toets dus is overgeslagen. hoekVoordeel draagt bij een
+          // 'heading'-weigering al precies dit getal (zie r2528), dus hier komt
+          // geen nieuw veld bij — dat zou elke logregel in de app verbreden.
+          hoekVoordeel: (koersAf == null) ? -1 : Math.round(koersAf)
         });
       }
     } else {
@@ -17018,14 +17132,13 @@ function checkNodeCorrectieStilstand(lat, lon) {
   //    Bij standstill kan getSmoothedHeading nog een geldige oude waarde
   //    uit de aanrij bevatten; als er niets is, sla check over (marge
   //    uit voorwaarde 7 blijft dan de enige gate).
-  const heading = getSmoothedHeading();
-  if (heading != null) {
-    const bearing = peilingNaar({ lat, lon }, closest);   // V11.17.86: was een losse kopie
-    let rv = Math.abs(heading - bearing); if (rv > 180) rv = 360 - rv;
-    if (rv > NODE_CHK_HEADING_MAX_GRAD) {
-      nodeCorrWeiger = { poort: 'heading', voordeel: Math.round(rv) };
-      return;
-    }
+  // V11.19.0: dezelfde berekening, nu uit koersAfwijkingNaar zodat de
+  // vervalroute van een tap er niet naast kan gaan lopen. Gedrag ongewijzigd:
+  // null (geen koers bekend) slaat de poort net zo goed over als voorheen.
+  const rv = koersAfwijkingNaar({ lat, lon }, closest);
+  if (rv != null && rv > NODE_CHK_HEADING_MAX_GRAD) {
+    nodeCorrWeiger = { poort: 'heading', voordeel: Math.round(rv) };
+    return;
   }
   // alle gates open — corrigeer
   // V11.17.79: eigen reden voor de hoekroute, zodat in sl_opslaglog te scheiden

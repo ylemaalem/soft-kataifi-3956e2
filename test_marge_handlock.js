@@ -208,19 +208,33 @@ function testMargeHandlock() {
         String(dichtstbijOSM.id) === String(CLOSEST),
         String(CLOSEST), String(dichtstbijOSM.id));
 
-    // V11.18.17 HEEFT DIT GEVAL OMGEDRAAID, EN DAT IS DE BEDOELING.
-    // Deze toets legde vast dat een afwijking van 12 m — binnen het gat dat
-    // V11.18.7 dichtte — een HAND-LOCK liet vervallen. Sinds V11.18.17 geldt
-    // voor het weggooien van een TAP een eigen, ruimere marge
-    // (HANDTAP_VERVAL_MARGE_M, 20 m), omdat een tap een menselijke keuze is en
-    // geen gok van de app. Twaalf meter is stadsruis en laat een tap dus staan,
-    // hoe vaak hij ook bevestigd wordt.
-    // De 8 m van V11.18.7 blijft onverkort gelden waar hij voor bedoeld was:
-    // het CORRIGEREN van een auto-lock. Dat is T2 hierboven, ongewijzigd.
-    opzet({ gekozenAf: 40, closestAf: 28, closestHoek: 60 });
+    // ── DIT GEVAL IS TWEE KEER OMGEDRAAID, EN DAT HOORT ZO ──
+    // © 2026 StoplichtIQ — Y. Lemaalem
+    //
+    // V11.18.7 liet een hand-lock bij 12 m vervallen. V11.18.17 draaide dat om:
+    // een tap kreeg een eigen, ruimere marge van 20 m, omdat een menselijke
+    // keuze niet op stadsruis hoort te sneuvelen. V11.19.0 draait het terug
+    // naar 8 — niet omdat die redenering fout was, maar omdat ze een gat open
+    // liet van 8 tot 20 meter, precies waar de tweede mast van dezelfde
+    // kruising staat. Daar corrigeerde niets meer zodra er getikt was
+    // (Landdroststraat, 24 september, afwM=9).
+    //
+    // De bescherming die V11.18.17 wilde, zit er nog steeds — maar nu in de
+    // KOERS en in de teller, niet in de afstand. Vandaar de twee toetsen
+    // hieronder: dezelfde 12 meter valt anders uit al naar gelang de mast
+    // vóór je of naast je staat.
+    opzet({ gekozenAf: 40, closestAf: 28, closestHoek: 60 });   // koers 0, 60 graden: net binnen
     for (let i = 0; i < 5; i++) checkHandLockVerval(huidigePos.lat, huidigePos.lon);
-    eis('T4f bij 12 m blijft een handmatige tap staan — ruis mag een bewuste ' +
-        'keuze niet wegdrukken (V11.18.17)',
+    eis('T4f bij 12 m vervalt een tap nu wél als de mast vóór je ligt — het gat ' +
+        'van 8 tot 20 meter is dicht (V11.19.0)',
+        handmatigLockActief === false && handmatigGeselecteerdNodeId === null,
+        'lock los',
+        'hand=' + handmatigLockActief + ', node=' + handmatigGeselecteerdNodeId);
+    // en het Hospitaaldreef-geval: even dichtbij, maar naast de auto
+    opzet({ gekozenAf: 40, closestAf: 28, closestHoek: 95 });
+    for (let i = 0; i < 5; i++) checkHandLockVerval(huidigePos.lat, huidigePos.lon);
+    eis('T4g dezelfde 12 m laat de tap staan als de mast 95 graden opzij ligt ' +
+        '— het gemeten Hospitaaldreef-geval',
         handmatigLockActief === true && handLockVervalTeller === 0,
         'lock blijft, teller 0',
         'hand=' + handmatigLockActief + ', teller=' + handLockVervalTeller);
