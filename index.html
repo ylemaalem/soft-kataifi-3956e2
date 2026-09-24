@@ -1046,7 +1046,7 @@ if (typeof ort !== 'undefined') {
 //
 // De stijl volgt de eerdere labels: nummer, kastlijntje, korte omschrijving in
 // kleine letters. De CSS zet hem zelf in kapitalen (text-transform:uppercase).
-const APP_VERSIE = 'V11.20.1 — getikte box is heilig';
+const APP_VERSIE = 'V11.21.0 — bbox-slot zonder tap';
 
 // ── CONSTANTEN ────────────────────────────────────────────────
 const OSM_RADIUS       = 5000;
@@ -8018,6 +8018,156 @@ function stickyProjecteer(s) {
   s.hoogte = s.camH * lbScale;
 }
 
+// ── V11.21.0: DE MATCHKERN, ÉÉN KEER ─────────────────
+// © 2026 StoplichtIQ — Y. Lemaalem
+//
+// Deze twee functies stonden woordelijk in de bboxOverride-tak. Release 2c
+// heeft ze op een tweede plek nodig — het slot zonder tap — en dit bestand
+// heeft al drie keer een fout gehad van twee kopieën die uiteenliepen. Dus
+// één bron.
+//
+// Er is aan het gedrag niets veranderd: dezelfde voorspelling, dezelfde
+// projectie, dezelfde matchradius, dezelfde twee penalties, dezelfde sortering.
+// De tap-tak doet er alleen iets anders mee dan het auto-slot.
+function stickySlotMatch(bruikbaar) {
+  if (!stickyDetectie) return null;
+  // V11.17.45/54: eerst voorspellen waar hij NU hoort te staan, dan pas
+  // projecteren. Volgorde is bindend — stickyVoorspel werkt in camerapixels.
+  stickyVoorspel(stickyDetectie);
+  stickyProjecteer(stickyDetectie);
+  const kandidaten = [];
+  for (const det of bruikbaar) {
+    const dx = det.cx - stickyDetectie.cx;
+    const dy = det.cy - stickyDetectie.cy;
+    const afst = Math.sqrt(dx*dx + dy*dy);
+    // V11.17.46: kleinste afstand tot de sticky, VOOR de radiusfilter —
+    // alleen zo is zichtbaar of een miss door afstand of door iets anders kwam.
+    if (detLogStickyDx === null || afst < detLogStickyDx) detLogStickyDx = afst;
+    if (afst < STICKY_MATCH_PX) {
+      let effAfst = afst;
+      let penHoogte = false, penKlasse = false;
+      if (stickyDetectie.hoogte && stickyDetectie.hoogte > 0) {
+        const ratio = det.h / stickyDetectie.hoogte;
+        if (ratio < (1 - STICKY_HOOGTE_TOLERANTIE) || ratio > (1 + STICKY_HOOGTE_TOLERANTIE)) {
+          effAfst += STICKY_KLASSE_PENALTY_PX;
+          penHoogte = true;
+        }
+      }
+      if (stickyDetectie.klasse !== null && stickyDetectie.klasse !== undefined) {
+        if (KLASSE_MAP[det.klasse] !== KLASSE_MAP[stickyDetectie.klasse]) {
+          effAfst += STICKY_KLASSE_PENALTY_PX;
+          penKlasse = true;
+        }
+      }
+      kandidaten.push({ det, afst, effAfst, penHoogte, penKlasse });
+    }
+  }
+  if (!kandidaten.length) return null;
+  kandidaten.sort((a, b) => a.effAfst - b.effAfst);
+  const winner = kandidaten[0];
+  // W3 log: alleen als winner penalty kreeg én throttle open
+  if ((winner.penHoogte || winner.penKlasse) && (Date.now() - stickyBLogLaatst > 1000)) {
+    const tag = winner.penHoogte && winner.penKlasse ? 'beide' : (winner.penHoogte ? 'hoogte' : 'klasse');
+    leerLog('[STICKY-B] penalty=' + tag + ' pre=' + winner.afst.toFixed(0) + ' eff=' + winner.effAfst.toFixed(0));
+    stickyBLogLaatst = Date.now();
+  }
+  return winner;
+}
+
+// De sticky verhuist naar de zojuist gevonden detectie. `bron` blijft staan:
+// wie het slot bezit verandert niet door een geslaagde match.
+function stickyNeemOver(match) {
+  stickyDetectie.cx = match.cx;
+  stickyDetectie.cy = match.cy;
+  stickyDetectie.hoogte = match.h;
+  Object.assign(stickyDetectie, stickyCam(match));   // V11.17.45
+  stickyDetectie.klasse = match.klasse;
+  const nieuweFamilie = KLASSE_MAP[match.klasse];
+  if (nieuweFamilie) stickyDetectie.familie = nieuweFamilie;
+  stickyDetectie.tijd = Date.now();
+}
+
+// ── V11.21.0: HET SLOT ZONDER TAP ───────────────────
+// © 2026 StoplichtIQ — Y. Lemaalem
+//
+// KLACHT 1: de box springt tussen lampen. De oorzaak stond in het onderzoek:
+// de app heeft geen identiteit voor "welke lamp volg ik", alleen een score die
+// elke run opnieuw bepaalt welke box het beste ÓÓG is. centerScore weegt 80,
+// trackScore — de enige continuïteit — 60. Rijd je een kruising op of maak je
+// een bocht, dan schuift jouw lamp uit het midden en wint de buurlamp op punten.
+//
+// V11.10.0 had hier een echt slot (LOCK 1). Dat is in V11.15.3 uitgezet omdat
+// het een NIEUWE TAP blokkeerde, en nooit teruggezet. Die fout mag deze release
+// niet herhalen, en dat is de reden dat het slot in stickyDetectie zelf woont
+// in plaats van in een eigen variabele: elk van de twaalf plekken die
+// `stickyDetectie = null` doet — de tap-handler, de node-wissel, GPS-voorbij,
+// de volledige reset — ruimt dit slot daarmee vanzelf op. Precies dezelfde
+// reden waarom V11.16.5 hoogte en klasse in dat object zette.
+//
+// HET SLOT GAAT DICHT OP DE MAAT DIE 2a AL BOUWDE. voorkeurIsRijp() is letterlijk
+// "N runs én T ms dezelfde box": drie runs én 3200 ms. Dat was in V11.20.0 al de
+// voorwaarde voor de weergave 'vast'; vanaf nu is 'vast' geen beschrijving meer
+// maar een grendel. Wie de rand in V11.20.0 dun-en-dicht zag worden, zag dus
+// precies de momenten waarop dit slot nu dichtgaat.
+//
+// DRIE MANIEREN OM HET SLOT TE VERLIEZEN, EN GEEN VIERDE:
+//   (a) de lamp is weg — STICKY_MISS_MS zonder geslaagde match, gemeten in tijd
+//       via stickyDetectie.tijd. Hetzelfde getal en dezelfde vorm als
+//       stickyMagLosgelaten, want het is dezelfde vraag.
+//   (b) een ander kruispunt of een nieuwe tap — die nullen stickyDetectie, en
+//       daarmee is het slot weg zonder dat hier iets voor nodig is.
+//   (c) een andere box is overtuigend én langdurig beter — hieronder.
+//
+// (c) IS DE ENIGE DIE ECHT NIEUW IS. Eén frame met een hogere score telt niet:
+// dat is precies het gedrag waar deze release vanaf wil. De uitdager moet
+// AUTOSLOT_UITDAGER_FACTOR keer zo hoog scoren en dat AUTOSLOT_UITDAGER_MS lang
+// volhouden, op dezelfde plek. Zakt hij één run onder de drempel of springt hij
+// weg, dan begint de teller opnieuw.
+//
+// WAAROM DE SCORE TÓCH BEREKEND WORDT. Het slot volgt op positie, niet op score
+// — maar zonder scores is (c) niet te beoordelen. De scorelus draait dus gewoon
+// door; het verschil is dat de uitkomst ervan niet meer beslist WELKE box wint,
+// alleen nog of er een uitdager is. Dat is goedkoper dan het klinkt: die lus
+// draaide al.
+const AUTOSLOT_UITDAGER_FACTOR = 1.40;   // >= 40% hogere score
+const AUTOSLOT_UITDAGER_MS     = 1500;   // en dat aaneengesloten volhouden
+let autoSlotUitdager = null;             // { cx, cy, sinds }
+function autoSlotReset() { autoSlotUitdager = null; }
+function autoSlotActief() {
+  return bboxOverride === null
+      && stickyDetectie !== null
+      && stickyDetectie.bron === 'auto';
+}
+
+// Houdt deze uitdager het al lang genoeg vol? Identiteit op positie, want
+// detectie-objecten zijn elke run nieuw. Springt hij verder dan STICKY_MATCH_PX,
+// dan is het een andere box en begint de teller opnieuw.
+function autoSlotUitdagerRijp(det, nu) {
+  if (!autoSlotUitdager
+      || Math.abs(det.cx - autoSlotUitdager.cx) > STICKY_MATCH_PX
+      || Math.abs(det.cy - autoSlotUitdager.cy) > STICKY_MATCH_PX) {
+    autoSlotUitdager = { cx: det.cx, cy: det.cy, sinds: nu };
+    return false;
+  }
+  autoSlotUitdager.cx = det.cx;
+  autoSlotUitdager.cy = det.cy;
+  return (nu - autoSlotUitdager.sinds) >= AUTOSLOT_UITDAGER_MS;
+}
+
+// Zet het slot op deze box. Ook gebruikt bij een overdracht aan een uitdager.
+function autoSlotZet(det) {
+  stickyDetectie = {
+    cx: det.cx, cy: det.cy,
+    ...stickyCam(det),
+    familie: KLASSE_MAP[det.klasse] || null,
+    hoogte: det.h, klasse: det.klasse,
+    tijd: Date.now(),
+    bron: 'auto'          // V11.21.0: wie het slot bezit
+  };
+  stickyMissTeller = 0;
+  autoSlotReset();
+}
+
 function selecteerBesteDetectie(detecties) {
   // V11.17.7 W1: laatsteAfwijsReden houdt bij welke filter/tak het beste-kandidaat
   // laat vallen. Alleen loggen, geen gedragswijziging.
@@ -8063,6 +8213,23 @@ function selecteerBesteDetectie(detecties) {
       stickyDetectie = null; stickyMissTeller = 0;
       tapSeedDetectie = null; // V11.16.4
     } else {
+      // ── V11.21.0: EEN TAP ERFT NOOIT HET AUTO-SLOT ───────
+      // © 2026 StoplichtIQ — Y. Lemaalem
+      //
+      // De drie tap-handlers nullen stickyDetectie al voordat ze bboxOverride
+      // zetten, dus in de praktijk staat hier nooit een auto-sticky. Maar dat
+      // is een afspraak tussen aanroepers, en precies zo'n afspraak is in
+      // V11.15.3 misgegaan: LOCK 1 blokkeerde een nieuwe tap en is daarom
+      // uitgezet in plaats van gerepareerd.
+      //
+      // Zou er toch een auto-sticky blijven staan, dan zou de tap-tak die
+      // hieronder adopteren en stilletjes de lamp volgen die de APP had
+      // gekozen, niet de lamp waar de gebruiker op tikte. Die ene regel maakt
+      // "een tap wint altijd" een eigenschap van deze functie in plaats van
+      // een gewoonte van haar aanroepers.
+      if (stickyDetectie && stickyDetectie.bron === 'auto') {
+        stickyDetectie = null; stickyMissTeller = 0; autoSlotReset();
+      }
       // V11.16.5 Fix B W2: bewaar-var voor herstel-stap (moet buiten if-block leven).
       let laatsteStickyPos = null;
       // Sticky-tak: één keer gekozen detectie behouden mits nog binnen radius.
@@ -8072,58 +8239,12 @@ function selecteerBesteDetectie(detecties) {
       // Penalties zijn zacht — bij echte fase-overgang (rood→groen zelfde stoplicht)
       // wint 20px+penalty nog steeds van 60px zonder penalty.
       if (stickyDetectie !== null) {
-        // V11.17.45: eerst terugprojecteren naar het frame van DEZE run. Alles
-        // hieronder — matchradius, hoogtetolerantie, overname-routes, de
-        // herstel-stap — vergelijkt daarna in een consistent stelsel.
-        // V11.17.54: eerst voorspellen waar hij NU hoort te staan, dan pas
-        // projecteren. Volgorde is bindend — stickyVoorspel werkt in camerapixels.
-        stickyVoorspel(stickyDetectie);
-        stickyProjecteer(stickyDetectie);
-        const kandidaten = [];
-        for (const det of bruikbaar) {
-          const dx = det.cx - stickyDetectie.cx;
-          const dy = det.cy - stickyDetectie.cy;
-          const afst = Math.sqrt(dx*dx + dy*dy);
-          // V11.17.46: kleinste afstand tot de sticky, VOOR de radiusfilter —
-          // alleen zo is zichtbaar of een miss door afstand of door iets anders kwam.
-          if (detLogStickyDx === null || afst < detLogStickyDx) detLogStickyDx = afst;
-          if (afst < STICKY_MATCH_PX) {
-            let effAfst = afst;
-            let penHoogte = false, penKlasse = false;
-            if (stickyDetectie.hoogte && stickyDetectie.hoogte > 0) {
-              const ratio = det.h / stickyDetectie.hoogte;
-              if (ratio < (1 - STICKY_HOOGTE_TOLERANTIE) || ratio > (1 + STICKY_HOOGTE_TOLERANTIE)) {
-                effAfst += STICKY_KLASSE_PENALTY_PX;
-                penHoogte = true;
-              }
-            }
-            if (stickyDetectie.klasse !== null && stickyDetectie.klasse !== undefined) {
-              if (KLASSE_MAP[det.klasse] !== KLASSE_MAP[stickyDetectie.klasse]) {
-                effAfst += STICKY_KLASSE_PENALTY_PX;
-                penKlasse = true;
-              }
-            }
-            kandidaten.push({ det, afst, effAfst, penHoogte, penKlasse });
-          }
-        }
-        if (kandidaten.length > 0) {
-          kandidaten.sort((a, b) => a.effAfst - b.effAfst);
-          const winner = kandidaten[0];
+        // V11.21.0: de matchkern staat nu in stickySlotMatch, omdat het slot
+        // zonder tap hem ook nodig heeft. Gedrag ongewijzigd — zie daar.
+        const winner = stickySlotMatch(bruikbaar);
+        if (winner) {
           const match = winner.det;
-          // W3 log: alleen als winner penalty kreeg én throttle open
-          if ((winner.penHoogte || winner.penKlasse) && (Date.now() - stickyBLogLaatst > 1000)) {
-            const tag = winner.penHoogte && winner.penKlasse ? 'beide' : (winner.penHoogte ? 'hoogte' : 'klasse');
-            leerLog('[STICKY-B] penalty=' + tag + ' pre=' + winner.afst.toFixed(0) + ' eff=' + winner.effAfst.toFixed(0));
-            stickyBLogLaatst = Date.now();
-          }
-          stickyDetectie.cx = match.cx;
-          stickyDetectie.cy = match.cy;
-          stickyDetectie.hoogte = match.h;
-          Object.assign(stickyDetectie, stickyCam(match));   // V11.17.45
-          stickyDetectie.klasse = match.klasse;
-          const nieuweFamilie = KLASSE_MAP[match.klasse];
-          if (nieuweFamilie) stickyDetectie.familie = nieuweFamilie;
-          stickyDetectie.tijd = Date.now();
+          stickyNeemOver(match);
           stickyMissTeller = 0;
           tapGezien();   // V11.20.1: slotje én de kwijt-klok
           return { s1: match, s2Rest: bruikbaar.filter(d => d !== match), afwijsReden:'ok' };
@@ -8325,6 +8446,10 @@ function selecteerBesteDetectie(detecties) {
 
   let besteScore=-Infinity, beste=null;
   let besteBuitenMidden=null, besteScoreBuitenMidden=-Infinity;
+  // V11.21.0: het auto-slot moet de score van de VASTGEHOUDEN box kunnen
+  // vergelijken met die van de beste kandidaat. Zonder deze kaart is alleen de
+  // winnaar bekend. Hooguit een handvol regels per run.
+  const scorePer = new Map();
 
   for (const det of bruikbaar) {
     // ── HARDE FILTERS — alleen absolute onmogelijkheden ──────────
@@ -8412,6 +8537,8 @@ function selecteerBesteDetectie(detecties) {
       if (vAfst < VOORKEUR_RADIUS_PX) totaal += VOORKEUR_SCORE_BONUS;
     }
 
+    scorePer.set(det, totaal);   // V11.21.0
+
     // Bijhouden beste binnen en buiten midden apart
     // Fallback: als niets centraal staat, pak beste buiten midden
     if (horAfwijking <= 0.45) {
@@ -8423,6 +8550,50 @@ function selecteerBesteDetectie(detecties) {
 
   // Fallback: als geen enkel centraal stoplicht gevonden
   if (!beste) beste = besteBuitenMidden;
+
+  // ── V11.21.0: HET AUTO-SLOT BESLIST, DE SCORE ADVISEERT ──
+  // Staat het slot dicht, dan wint de vastgehouden box — ongeacht wat de
+  // scorelus hierboven ervan vond. De score is vanaf hier alleen nog invoer
+  // voor de uitdagersregel.
+  //
+  // DE MATCH LOOPT OVER `bruikbaar`, NIET OVER DE OVERLEVENDEN VAN DE LUS. De
+  // vier harde filters aan het begin van die lus (te klein, onder de horizon,
+  // te breed, te ver naar de rand) mogen een box die al vastligt niet alsnog
+  // wegduwen: toen het slot dichtging was hij goed genoeg, en één frame waarin
+  // hij net te breed uitvalt is geen reden om hem kwijt te raken. Dezelfde
+  // redenering als in V11.20.1 voor de getikte box.
+  if (autoSlotActief()) {
+    const nuSlot = Date.now();
+    const winner = stickySlotMatch(bruikbaar);
+    if (winner) {
+      const vast = winner.det;
+      stickyNeemOver(vast);
+      stickyMissTeller = 0;
+      // (c) een uitdager moet overtuigend ÉN langdurig beter zijn
+      const sVast = scorePer.has(vast) ? scorePer.get(vast) : -Infinity;
+      const sBest = (beste && scorePer.has(beste)) ? scorePer.get(beste) : -Infinity;
+      const overtuigend = beste && beste !== vast
+        && sVast > 0 && sBest >= sVast * AUTOSLOT_UITDAGER_FACTOR;
+      if (overtuigend && autoSlotUitdagerRijp(beste, nuSlot)) {
+        autoSlotZet(beste);        // het slot verhuist; `beste` wint deze run
+      } else {
+        if (!overtuigend) autoSlotReset();
+        beste = vast;              // het slot houdt vast
+      }
+    } else {
+      // (a) niets gevonden. Zelfde vorm en hetzelfde getal als
+      // stickyMagLosgelaten: pas na STICKY_MISS_MS is de lamp echt weg.
+      stickyMissTeller++;
+      if ((nuSlot - (stickyDetectie.tijd || 0)) >= STICKY_MISS_MS) {
+        stickyDetectie = null; stickyMissTeller = 0; autoSlotReset();
+        // val door: de scorelus hierboven heeft al een vrije keuze klaarstaan
+      } else {
+        // Nog niet opgeven. Hetzelfde pad als de tap-tak: {s1:null} laat
+        // aiMissRuns/TOLERANTIE_MS de vorige box kort laten staan.
+        return { s1: null, s2Rest: bruikbaar, afwijsReden: 'autoslot_miss' };
+      }
+    }
+  }
 
   if (beste) {
     const nu = Date.now();
@@ -8437,6 +8608,12 @@ function selecteerBesteDetectie(detecties) {
       ? Math.sqrt((beste.cx - voorkeursBboxCx)**2 + (beste.cy - voorkeursBboxCy)**2)
       : Infinity;
     bboxSlot = (vRijp && vAfst < VOORKEUR_RADIUS_PX) ? 'vast' : 'vrij';
+    // V11.21.0: 'vast' is geen beschrijving meer maar een grendel. De maat is
+    // die van V11.20.0 — voorkeurIsRijp() is letterlijk "drie runs én 3200 ms
+    // dezelfde box". Alleen zonder tap, en alleen als er nog niets vastligt.
+    if (bboxSlot === 'vast' && bboxOverride === null && stickyDetectie === null) {
+      autoSlotZet(beste);
+    }
 
     const verlopen = (nu - voorkeursBboxTijd) > VOORKEUR_TIMEOUT_MS;
     const dichterBij = voorkeursBboxCx !== null && vAfst < VOORKEUR_RADIUS_PX;
