@@ -117,14 +117,13 @@ function testClusterTap() {
         String(CLUSTER_A) + ', beeld',
         r ? (r.node + ', ' + r.element) : 'geen regel');
 
-    // #leer-toast staat op white-space:nowrap zonder max-width (index.html r606)
-    // en wordt gecentreerd met translateX(-50%): een te lange regel loopt aan
-    // BEIDE kanten even ver buiten beeld en is dus onleesbaar. Op 375 px bij
-    // 13 px font is het budget ~360 px; met de knop erbij past deze tekst op
-    // 341 px. Gemeten: 32 tekens = 341 px, dus 34 is de grens met marge.
-    eis('C1e de tekst past op een telefoonscherm — de toast knipt niet af',
-        CLUSTER_TAP_TEKST.length <= 34,
-        '<= 34 tekens', CLUSTER_TAP_TEKST.length + ' tekens: ' + CLUSTER_TAP_TEKST);
+    // V11.18.23: hier stond C1e, een tekenbudget van 34 als ruwe benadering van
+    // "past op 375 px". Dat was een noodverband zolang #leer-toast op
+    // white-space:nowrap stond zonder max-width. Die CSS is nu gerepareerd: elke
+    // melding breekt af binnen de vensterbreedte min 32 px, ongeacht lengte. Een
+    // tekenlimiet zou vanaf nu alleen nog een legitiem langere tekst blokkeren.
+    // De echte meting is verhuisd naar test_toast_past.js (T3), die ALLE
+    // meldingen van de app nameet in plaats van alleen deze ene.
 
     // ═══ C2 — GEEN CLUSTER, GEEN MELDING ═════════════════════
     opzet('vrij');

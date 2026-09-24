@@ -603,10 +603,62 @@
     #focus-knop.zichtbaar{opacity:1;pointer-events:auto;animation:puls-focus 2s infinite}
     @keyframes puls-focus{0%,100%{border-color:rgba(255,255,255,0.25)}50%{border-color:rgba(56,189,248,0.80)}}
     /* V11.11.0: Leer toast */
+    /* ── V11.18.23: DE TOAST PAST NU OP EEN TELEFOONSCHERM ────
+       © 2026 StoplichtIQ — Y. Lemaalem
+
+       WAT ER MIS WAS. Deze regel stond op `white-space:nowrap` zonder
+       max-width, en wordt gecentreerd met translateX(-50%). Een tekst die
+       breder rendert dan het scherm loopt daardoor aan BEIDE kanten even ver
+       buiten beeld — er wordt niets afgekapt met een randje, het verdwijnt
+       gewoon. Gemeten op 375 px (iPhone-klasse, 13 px Courier New) waren vijf
+       van de zeventien meldingen te breed:
+
+         553 px  "✅ Opgeslagen als ORANJE — groene fase wordt automatisch..."
+         520 px  "Niets te verplaatsen — deze metingen horen al bij een..."
+         476 px  "⚠ Ander stoplicht staat rechter vooruit — tik op de naam"
+         461 px  "⚠ Ander stoplicht ligt 12m dichterbij — tik op de naam"
+         382 px  "⚠️ Opslag vol - metingen worden niet bewaard"
+
+       De twee middelste zijn de waarschuwingen van V11.18.12 — precies de
+       meldingen waarvoor die release gebouwd is. Die zijn sindsdien op een
+       telefoon nooit volledig leesbaar geweest.
+
+       DE MARGE IS 16 px PER KANT, gelijk aan #correctie-sheet (r470). Dat is
+       de dichtstbijzijnde verwant: ook een zwevend paneel over het camerabeeld.
+       #startscherm gebruikt 32 px per kant, maar dat is een paginalayout met
+       gecentreerde inhoud, geen overlay.
+
+       width:max-content IS NIET OPTIONEEL, en dat kostte een meetronde. Met
+       alleen max-width kromp de toast naar 188 px en werd hij drie regels hoog.
+       Oorzaak: bij `left:50%` begint het blok waartegen de breedte berekend
+       wordt op de helft van het scherm, dus een toast zonder eigen breedte
+       krijgt maar 100vw-50% = 187,5 px te verdelen. max-content vraagt eerst de
+       breedte die de tekst op één regel nodig heeft; max-width knipt die dan
+       terug naar 343 px en pas daar breekt de regel af.
+
+       text-align:center hoort erbij: zonder dat zou een tweede regel links
+       uitgelijnd in een verder symmetrische pil hangen. overflow-wrap:anywhere
+       is de vangnetregel voor een enkel woord dat op zichzelf al te breed is —
+       dan breekt het af in plaats van opnieuw buiten beeld te lopen.
+
+       DE KNOP WAS NIET AAN TE TIKKEN, EN DAT IS HIER OOK GEREPAREERD. De toast
+       staat bewust op `pointer-events:none`, want hij zweeft boven het
+       camerabeeld en een tik daarop hoort het stoplicht te selecteren, niet de
+       melding. Maar .zichtbaar zette dat nergens terug, en een knop IN de
+       toast erft die none. Gemeten: een tik midden op de knop landde op
+       #startscherm en riep de callback nooit aan. Dat gold voor "Ongedaan
+       maken" bij het samenvoegen én voor "Wissel" van V11.18.22.
+
+       Alleen de KNOP krijgt pointer-events terug, niet de toast zelf. Anders
+       zou de melding zes seconden lang een strook over het camerabeeld
+       afschermen, precies op de plek waar de gebruiker naar het stoplicht tikt. */
     #leer-toast{position:fixed;top:60px;left:50%;transform:translateX(-50%);
       background:rgba(34,197,94,0.92);color:#000;font-family:'Courier New',monospace;
       font-size:13px;font-weight:700;padding:6px 18px;border-radius:20px;
-      pointer-events:none;opacity:0;transition:opacity 0.3s;z-index:9999;white-space:nowrap}
+      pointer-events:none;opacity:0;transition:opacity 0.3s;z-index:9999;
+      width:max-content;max-width:calc(100vw - 32px);
+      white-space:normal;overflow-wrap:anywhere;text-align:center;line-height:1.35}
+    #leer-toast .toast-actie{pointer-events:auto}
     #leer-toast.zichtbaar{opacity:1}
     /* V11.17.47: waarschuwingsvariant. De basis-toast is groen omdat hij
        oorspronkelijk voor leermeldingen was; groen leest als goed nieuws en
@@ -994,7 +1046,7 @@ if (typeof ort !== 'undefined') {
 //
 // De stijl volgt de eerdere labels: nummer, kastlijntje, korte omschrijving in
 // kleine letters. De CSS zet hem zelf in kapitalen (text-transform:uppercase).
-const APP_VERSIE = 'V11.18.22 — clusterwaarschuwing';
+const APP_VERSIE = 'V11.18.23 — toastbreedte';
 
 // ── CONSTANTEN ────────────────────────────────────────────────
 const OSM_RADIUS       = 5000;
@@ -14953,14 +15005,14 @@ function ni_kleur(pct) {
 // knop opent dezelfde correctielijst waar de kruispuntnaam al naartoe leidt
 // (r824) — de gebruiker beslist, de app niet.
 //
-// DE TEKST IS KORT OMDAT HIJ MOET PASSEN. #leer-toast staat op
-// `white-space:nowrap` zonder max-width en wordt gecentreerd met
-// translateX(-50%) (r606): elke toast die breder rendert dan het scherm loopt aan
-// BEIDE kanten evenveel buiten beeld. Op 375 px (iPhone-breedte, 13 px font)
-// is het budget ongeveer 360 px; met de knop erbij haalt deze tekst 341 px.
-// "vastgezet op het actieve kruispunt" was duidelijker maar mat 559 px — die
-// had de gebruiker dus nooit kunnen lezen. Wordt de regel ooit langer, meet
-// hem dan opnieuw; test_cluster_tap C1e bewaakt het tekenbudget.
+// DE TEKST IS KORT, MAAR NIET MEER OMDAT HIJ MOET. Bij de bouw van V11.18.22
+// bleek "vastgezet op het actieve kruispunt" 559 px breed op een scherm van
+// 375 px, en #leer-toast liet zoiets toen aan beide kanten buiten beeld lopen.
+// Daarom is deze regel ingekort tot 341 px. V11.18.23 heeft die CSS
+// gerepareerd (r606): elke melding breekt nu af binnen de vensterbreedte, dus
+// de lengte is geen harde grens meer. Kort blijft wel beter — dit is een
+// melding die iemand achter het stuur in één oogopslag moet kunnen lezen.
+// test_toast_past.js meet of alle meldingen passen.
 const CLUSTER_TAP_TOAST_MS = 6000;   // langer dan de standaard 2 s: er hoort een keuze bij
 const CLUSTER_TAP_TEKST = '\u26a0 Meerdere masten \u2014 klopt deze?';
 function meldClusterNaBeeldTap(nodeId) {
