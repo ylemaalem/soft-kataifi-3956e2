@@ -994,7 +994,7 @@ if (typeof ort !== 'undefined') {
 //
 // De stijl volgt de eerdere labels: nummer, kastlijntje, korte omschrijving in
 // kleine letters. De CSS zet hem zelf in kapitalen (text-transform:uppercase).
-const APP_VERSIE = 'V11.18.21 — opslaglaag';
+const APP_VERSIE = 'V11.18.22 — clusterwaarschuwing';
 
 // ── CONSTANTEN ────────────────────────────────────────────────
 const OSM_RADIUS       = 5000;
@@ -14891,6 +14891,92 @@ function ni_kleur(pct) {
   return pct >= 60 ? 'var(--groen)' : pct >= 30 ? 'var(--oranje)' : 'var(--rood)';
 }
 
+// ── V11.18.22: EEN BEELD-TAP OP EEN CLUSTER MAG NIET ZWIJGEN ──
+// © 2026 StoplichtIQ — Y. Lemaalem
+//
+// HET GEMETEN GAT. Landdroststraat, 24 september, acht seconden:
+//   08:11:54  cluster_gemeld            node 9831508301   45 km/u
+//   08:11:56  node_vergrendeld          node 9831508301   36 km/u  element=beeld
+//   08:12:02  stilstand_node_afwijking  node 9831508301    3 km/u  afwM=9
+//   08:12:02  node_vergrendeld          node 9831508302    3 km/u  element=lijst
+// De app WIST om 08:11:54 dat hier meerdere masten staan en zei dat ook. Twee
+// seconden later zette een tik op het beeld de verkeerde van die masten vast.
+// Daarna bleef het stil, tot de gebruiker het zelf ontdekte en zes seconden
+// later handmatig corrigeerde — met een lopende countdown op het verkeerde licht.
+//
+// WAAROM HET STIL BLEEF — DRIE REGELS, ALLE DRIE TERECHT
+//   1. De clustermelding in updateDichtbij is gethrottled op
+//      laatstGemeldeClusterNode: één melding per nadering. Die van 08:11:54 was
+//      er al, dus kwam er geen tweede. Terecht — bij elke GPS-tick melden maakt
+//      een melding waardeloos.
+//   2. meldNodeVermoeden laat bij een cluster juist de TOAST vallen, omdat punt
+//      1 "al gemeld heeft". Terecht — twee toasts over hetzelfde fysieke
+//      kruispunt is er één te veel.
+//   3. TRIGGER 1 van die functie eist NODE_CHK_STANDSTILL_DUUR_MS (3000) aan
+//      stilstand. De auto remde in dit venster van 45 naar 3 km/u en stond om
+//      08:12:02 dus nog geen drie seconden stil. Terecht — rijdend wisselt de
+//      dichtstbijzijnde node continu en is een melding onbruikbaar.
+//
+// Drie terechte regels die samén precies het moment onzichtbaar maken waarop de
+// gebruiker zijn keuze maakt. Het gat zit niet in één van de drie; het zit
+// ERTUSSEN. Daarom verlaagt deze release geen enkele drempel.
+//
+// WAAROM DE MELDING HIER HOORT. Dit is geen periodieke waarschuwing maar een
+// EENMALIGE, op een eenmalig moment: de gebruiker heeft zojuist zelf een node
+// vastgezet op een plek waar de app al weet dat er meerdere masten staan. Dat
+// moment kent geen GPS-tick, geen stilstandsduur en geen herhaling, en hoort
+// dus niet in één van de drie regels hierboven maar op de plek waar de lock
+// gezet wordt.
+//
+// BEWUST NÍET GETHROTTLED OP laatstGemeldeClusterNode. Die variabele beantwoordt
+// "is deze cluster deze nadering al aangekondigd", en het antwoord is bijna
+// altijd ja — de nadering komt nu eenmaal vóór de tik. Zou deze melding daarop
+// meeliften, dan zweeg ze in precies het gemeten geval. Ze LÉÉST die variabele
+// dus niet, en ze SCHRÍJFT hem ook niet: anders zou een tik hier de gewone
+// naderingsmelding van het volgende kruispunt kunnen wegdrukken.
+//
+// WÉL GETHROTTLED OP `alVast` — de vlag die de aanroeper al berekent voor zijn
+// eigen logregel. Drie keer op hetzelfde licht tikken geeft één melding, net als
+// één logregel: toast en log blijven in de pas. Vervalt de lock en tikt de
+// gebruiker opnieuw, dan is dat een nieuwe beslissing en dus terecht een
+// nieuwe melding.
+//
+// ALLEEN NA EEN BEELD-TAP. De correctielijst toont de drie dichtstbijzijnde
+// masten MÉT afstand: wie daar kiest heeft de alternatieven letterlijk voor zich
+// gehad, en een waarschuwing daarna is betuttelend. Een tik op het beeld zegt
+// "dit licht" maar zet de ACTIEVE node vast — en juist die twee kunnen bij een
+// cluster uit elkaar lopen; zie de toelichting bij de tap-handler op het
+// camerabeeld, die dat bewust zo laat. De melding hoort bij die mismatch.
+//
+// PUUR WEERGAVE. Geen wissel, geen correctie, geen aanraking van
+// handmatigLockActief, stilstandAutoLock of handmatigGeselecteerdNodeId. De
+// knop opent dezelfde correctielijst waar de kruispuntnaam al naartoe leidt
+// (r824) — de gebruiker beslist, de app niet.
+//
+// DE TEKST IS KORT OMDAT HIJ MOET PASSEN. #leer-toast staat op
+// `white-space:nowrap` zonder max-width en wordt gecentreerd met
+// translateX(-50%) (r606): elke toast die breder rendert dan het scherm loopt aan
+// BEIDE kanten evenveel buiten beeld. Op 375 px (iPhone-breedte, 13 px font)
+// is het budget ongeveer 360 px; met de knop erbij haalt deze tekst 341 px.
+// "vastgezet op het actieve kruispunt" was duidelijker maar mat 559 px — die
+// had de gebruiker dus nooit kunnen lezen. Wordt de regel ooit langer, meet
+// hem dan opnieuw; test_cluster_tap C1e bewaakt het tekenbudget.
+const CLUSTER_TAP_TOAST_MS = 6000;   // langer dan de standaard 2 s: er hoort een keuze bij
+const CLUSTER_TAP_TEKST = '\u26a0 Meerdere masten \u2014 klopt deze?';
+function meldClusterNaBeeldTap(nodeId) {
+  const n = String(nodeId);
+  if (!clusterNodes.has(n)) return false;
+  toonToast(CLUSTER_TAP_TEKST,
+    { label: 'Wissel', duurMs: CLUSTER_TAP_TOAST_MS, fn: toonCorrectielijst },
+    'waarschuwing');
+  // Meetbaar maken, net als cluster_gemeld: hoe vaak tikt iemand op het beeld
+  // terwijl hij in een cluster staat, en hoe vaak volgt daarop een tweede
+  // node_vergrendeld met element=lijst? Dat tweede getal is de enige maat
+  // waarop deze melding te beoordelen is.
+  logOpslagMis('cluster_tap_gemeld', { node: n, element: 'beeld' });
+  return true;
+}
+
 // Bug 2 + Bug 3: Handmatige node-selectie
 // ── V11.18.17: ÉÉN PLEK WAAR EEN MENS EEN NODE VASTZET ───────
 // © 2026 StoplichtIQ — Y. Lemaalem
@@ -14922,6 +15008,9 @@ function vergrendelNodeHandmatig(nodeId, element) {
   stilstandAutoLock = false;
   handLockVervalReset();   // een verse tap begint met een schone vervalteller
   if (!alVast) logOpslagMis('node_vergrendeld', { node: n, element: element || 'onbekend' });
+  // V11.18.22: alleen bij een NIEUWE tik op het camerabeeld — zie het blok
+  // hierboven voor waarom niet bij 'lijst' en niet bij een herhaalde tik.
+  if (!alVast && element === 'beeld') meldClusterNaBeeldTap(n);
   return true;
 }
 

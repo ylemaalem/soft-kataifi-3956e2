@@ -68,11 +68,20 @@ async function testOpslaglaag() {
 
   const opruimen = () => {
     for (const k of [K, K + '_b', K + '_c']) { zetLS(k, null); opslagCache.delete(k); }
-    for (const d of Object.keys(DD)) zetLS('sl_v4_' + NODE + '_' + d, null);
-    for (const k of Object.keys(localStorage)) if (k.startsWith('sl_v5_' + NODE + '_')) zetLS(k, null);
-    for (const p of ['sl_richting_', 'sl_bevestig_', 'sl_neutraal_', 'sl_enkelricht_',
-                     'sl_klok_', 'sl_s2_', 'sl_tag_', 'sl_passief_']) {
-      zetLS(p + NODE, null); opslagCache.delete(p + NODE);
+    // ── V11.18.22: ÉÉN VEEG OP NODE-ID IN PLAATS VAN EEN PREFIXLIJST ──
+    // © 2026 StoplichtIQ — Y. Lemaalem
+    //
+    // De handmatige lijst die hier stond miste `_bezoek` (en `_groen`). Omdat
+    // updateBezoekPerFase OPTELT, stond de teller bij een tweede run in dezelfde
+    // browser op 2, bij een derde op 3 — en dan faalden H1b en H2, terwijl er
+    // aan de opslaglaag niets mankeerde. De eerste run in een verse browser was
+    // groen, dus de fout bleef bij de release van V11.18.21 onopgemerkt.
+    //
+    // Een veeg op node-id kan die fout niet meer maken: komt er later een
+    // sleutelgroep bij, dan valt die vanzelf binnen de veeg. zetLS onthoudt elke
+    // oorspronkelijke waarde, dus de finally zet alles terug zoals het stond.
+    for (const k of Object.keys(localStorage)) {
+      if (k.indexOf(String(NODE)) !== -1) { zetLS(k, null); opslagCache.delete(k); }
     }
   };
 
