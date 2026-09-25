@@ -1046,7 +1046,7 @@ if (typeof ort !== 'undefined') {
 //
 // De stijl volgt de eerdere labels: nummer, kastlijntje, korte omschrijving in
 // kleine letters. De CSS zet hem zelf in kapitalen (text-transform:uppercase).
-const APP_VERSIE = 'V11.21.0 — bbox-slot zonder tap';
+const APP_VERSIE = 'V11.22.0 — sleutelscan uit het geheugen';
 
 // ── CONSTANTEN ────────────────────────────────────────────────
 const OSM_RADIUS       = 5000;
@@ -1939,8 +1939,7 @@ function algemeenMetingen(nodeId, dd = null) {
   // uitkomen dan precies hetzelfde kruispunt zonder koppeling.
   const norm = v5NaarV4Vorm;
   const voorvoegsel = `${LS_PREFIX_V5}${nodeId}_`;
-  for (const k of Object.keys(localStorage)) {
-    if (!k.startsWith(voorvoegsel)) continue;
+  for (const k of opslagSleutels(voorvoegsel)) {   // V11.22.0: uit de cache-Map
     const delen = k.slice(voorvoegsel.length).split('_');
     if (delen.length < 3) continue;
     const [aanrij, afrij, sleutelDd] = delen;
@@ -2190,6 +2189,162 @@ function opslagVerwijder(sleutel) {
   try { localStorage.removeItem(sleutel); } catch(e) {}
 }
 
+// -- V11.22.0: DE SLEUTELLIJST UIT HET GEHEUGEN ---------------
+// (c) 2026 StoplichtIQ - Y. Lemaalem
+//
+// HET PROBLEEM, GEMETEN. Vijf functies zoeken alle sl_v5_-sleutels van EEN
+// node op door de VOLLEDIGE sleutellijst af te lopen:
+//
+//     for (let i = 0; i < localStorage.length; i++) {
+//       const k = localStorage.key(i);
+//
+// Dat is geen detail. Gemeten op een laptop met 12.272 sleutels - de export
+// van 28 augustus had er 12.741 - kost isEenRichtingNode zo 12,6 ms per
+// aanroep. Een beeldframe duurt 16,7 ms, en op een telefoon is een factor
+// drie tot vijf gebruikelijk. Die ene functie eet dus driekwart van het
+// framebudget op, en op een toestel meer dan een heel frame.
+//
+// EN HIJ DRAAIT ELKE FRAME. tickCd -> updateGlosa (r10884) -> berekenGlosa ->
+// isEenRichtingNode (r11180), zolang fase 'rood' is, de snelheid tussen 5 en
+// 80 km/u ligt en het leerpercentage boven 40 zit. Dat is precies tijdens het
+// naderen van een rood licht: het moment waarop de countdown moet lopen.
+// (De tweede aanroep, in checkOsmVoorspelling r11264, zit wel achter een
+// poort van twee seconden.)
+//
+// DE OPLOSSING BESTOND AL. De cache-Map van fase 2 heeft dezelfde sleutels in
+// het geheugen staan. Dezelfde vraag beantwoorden uit die Map kost 0,6 ms -
+// eenentwintig keer sneller - en geeft aantoonbaar hetzelfde antwoord.
+// IndexedDB heeft hier niets mee te maken en zou het erger maken: een
+// sleutelscan over IndexedDB is asynchroon en kan in een frame helemaal niet.
+//
+// WAAROM DIT VEILIG IS, EN WAT DE VOORWAARDE IS. De Map klopt alleen als elke
+// schrijver van de gescande sleutels hem bijwerkt. Voor sl_v5_ is dat
+// nagelopen, sleutel voor sleutel:
+//
+//   slaOpV5 (r3326)                schrijft via opslagSchrijf            OK
+//   migratieAfrijConventie (r3523) schrijft rauw, maar draait op r7430 -
+//                                  VOOR startOpslagBoot (r18846), dus de
+//                                  boot leest zijn werk gewoon in          OK
+//   verplaatsAlgemeenNaarRichting  schrijft rauw, NA de boot     -> hersync
+//   mergeRichtingen (r15362/68/69) schrijft rauw, NA de boot     -> hersync
+//   mergeUndoUitvoeren (r15438/39) schrijft rauw, NA de boot     -> hersync
+//
+// Die laatste drie zijn BEWUST niet omgezet. Hun rollback leunt erop dat
+// localStorage.setItem GOOIT bij een vol quotum; opslagSchrijf vangt die fout
+// juist af en geeft false terug. Ze omzetten zou de try/catch in
+// mergeRichtingen (r15372) stil uitschakelen en een half uitgevoerde merge
+// laten staan - precies het soort fout dat pas weken later opvalt. In plaats
+// daarvan melden ze achteraf welke sleutels ze hebben aangeraakt.
+//
+// ANDERE VOORVOEGSELS ZIJN HIER NOG NIET AAN TOE. sl_pos_ wordt door
+// migratieSlPos (r12499) NA de boot rauw geschreven, en de opruimpassen en de
+// export scannen ALLE sleutels - die hangen dus van alle 37 rauwe schrijvers
+// af. Die komen in release B, als die schrijvers om zijn. Deze release raakt
+// uitsluitend sl_v5_.
+//
+// DE TERUGVAL. Is de boot nog niet klaar, dan is de Map per definitie
+// onvolledig en zou een scan te weinig sleutels opleveren. Dan leest deze
+// functie gewoon localStorage, net als voorheen. Liever traag dan onjuist.
+//
+// -- TWEE VALKUILEN DIE DE TESTRONDE AAN HET LICHT BRACHT ----
+//
+// (1) SPOOKSLEUTELS. opslagLeesRuw zet OOK een misser in de Map: vraag je een
+//     sleutel op die niet bestaat, dan blijft { ruw: null } achter. Die sleutel
+//     bestaat niet, maar staat wel in opslagCache.keys(). Een naïeve
+//     sleutellijst uit de Map geeft hem dus terug terwijl de oude scan langs
+//     localStorage hem nooit zag. Gemeten in de eerste testronde: 14 sleutels
+//     uit de Map tegen 5 uit localStorage. Vandaar de null-controle hieronder.
+//
+// (2) RAUWE SCHRIJVERS BUITEN DE LAAG. Wie met localStorage.setItem een NIEUWE
+//     sleutel maakt, staat niet in de Map. Dat geldt voor de merge-paden, maar
+//     ook voor de 44 testsuites die hun fixtures rechtstreeks in localStorage
+//     zetten. Die zouden onzichtbaar worden - en een test die niets meer meet
+//     maar wel groen blijft is erger dan een rode test.
+//
+//     EERST GEPROBEERD, EN HET WAS NIET GOED GENOEG: een teller op
+//     localStorage.length (gratis, < 0,0001 ms bij 12.023 sleutels) die bij
+//     elke verschuiving de lijst opnieuw ophaalt. Die mist het geval waarin een
+//     toevoeging en een verwijdering elkaar opheffen - en dat is nu juist wat
+//     een merge doet (doelsleutel erbij, bronsleutel eraf) en wat drie
+//     testsuites doen (alle emmers wissen, evenveel nieuwe neerzetten). De
+//     teller gaf een vals gevoel van veiligheid en drie suites vielen om.
+//
+//     WAT HET WEL DOET: de schrijving zelf meldt zich. Storage.prototype
+//     wordt hieronder eenmalig omwikkeld, zodat ELKE localStorage.setItem en
+//     removeItem de Map bijwerkt - waar die aanroep ook vandaan komt. Daarmee
+//     is "de Map kent alle sleutels" geen afspraak tussen honderd aanroepers
+//     meer, maar een eigenschap van de opslag zelf. Dezelfde redenering als bij
+//     het bbox-slot van V11.21.0: liever structureel dan conventioneel.
+//
+//     DE OMWIKKELING KAN GEEN SCHRIJVING BREKEN. Ze roept eerst de originele
+//     functie aan - die dus gooit bij een vol quotum, precies zoals de
+//     merge-rollback (r15466) nodig heeft - en werkt pas daarna de Map bij, in
+//     een eigen try/catch. Gaat die bijwerking stuk, dan is de schrijving toch
+//     al gebeurd en is het ergste gevolg een Map die achterloopt.
+let opslagBootKlaar = false;
+
+(function omwikkelOpslag() {
+  try {
+    if (typeof Storage === 'undefined' || !Storage.prototype) return;
+    const origSet = Storage.prototype.setItem;
+    const origDel = Storage.prototype.removeItem;
+    Storage.prototype.setItem = function(sleutel, waarde) {
+      origSet.call(this, sleutel, waarde);          // gooit zoals altijd
+      try {
+        if (this === window.localStorage) {
+          const k = String(sleutel), ruw = String(waarde);
+          const memo = opslagCache.get(k);
+          if (memo) { memo.ruw = ruw; delete memo.onopgeslagen; }
+          else opslagCache.set(k, { ruw });
+        }
+      } catch(e) { /* de schrijving is al gelukt; de Map is bijzaak */ }
+    };
+    Storage.prototype.removeItem = function(sleutel) {
+      origDel.call(this, sleutel);
+      try {
+        if (this === window.localStorage) opslagCache.delete(String(sleutel));
+      } catch(e) {}
+    };
+  } catch(e) { console.warn('[OPSLAG] omwikkeling mislukt:', e); }
+})();
+
+function opslagSleutels(voorvoegsel) {
+  const uit = [];
+  if (!opslagBootKlaar) {
+    try {
+      for (let i = 0; i < localStorage.length; i++) {
+        const k = localStorage.key(i);
+        if (k && k.startsWith(voorvoegsel)) uit.push(k);
+      }
+    } catch(e) { /* onbereikbare opslag: lege lijst, zoals de oude lussen */ }
+    return uit;
+  }
+  for (const [k, memo] of opslagCache) {
+    if (memo.ruw === null) continue;          // spooksleutel, zie (1) hierboven
+    if (k.startsWith(voorvoegsel)) uit.push(k);
+  }
+  return uit;
+}
+
+// Haalt de opgegeven sleutels opnieuw uit localStorage de Map in. Bedoeld voor
+// de paden die bewust rauw blijven schrijven (zie hierboven): die melden zich
+// achteraf, en daarmee klopt de Map weer zonder dat hun foutafhandeling
+// verandert. Een sleutel die niet meer bestaat gaat uit de Map.
+function opslagHersynchroniseer(sleutels) {
+  if (!sleutels) return 0;
+  let n = 0;
+  for (const k of sleutels) {
+    let ruw = null;
+    try { ruw = localStorage.getItem(k); } catch(e) { continue; }
+    if (ruw === null) { opslagCache.delete(k); n++; continue; }
+    const memo = opslagCache.get(k);
+    if (memo) { memo.ruw = ruw; delete memo.onopgeslagen; }
+    else opslagCache.set(k, { ruw });
+    n++;
+  }
+  return n;
+}
+
 // -- V11.18.21: DE OPSTARTFASE --------------------------------
 // (c) 2026 StoplichtIQ - Y. Lemaalem
 //
@@ -2246,6 +2401,9 @@ async function vulOpslagCache() {
     if ((i + 1) % OPSLAG_BOOT_BROK === 0) await new Promise(r => setTimeout(r, 0));
   }
   opslagBootSleutels = n;
+  // V11.22.0: pas hier staat de Map compleet. opslagSleutels() leest tot dit
+  // moment rechtstreeks uit localStorage - traag, maar nooit onvolledig.
+  opslagBootKlaar = true;
   opslagBootMs = Math.round((performance.now() - t0) * 10) / 10;
   console.log(`[OPSLAG-BOOT] ${n} sleutels in ${opslagBootMs}ms`
     + ` (${berekenLocalStorageKB()}KB)`);
@@ -2996,15 +3154,17 @@ function updateBezoekPerFase(osmId, faseNaam) {
 function berekenDekkingScore(osmId) {
   let totaalScore = 0;
   const ddKeys = Object.keys(DD);
+  // V11.22.0: de sleutellijst stond BINNEN de dagdeel-lus — vier volledige
+  // localStorage-scans per aanroep. Nu één keer uit de cache-Map, en de
+  // dagdeel-selectie gebeurt op de sleutel zelf. Zelfde uitkomst.
+  const v5Voorvoegsel = `${LS_PREFIX_V5}${osmId}_`;
+  const v5Sleutels = opslagSleutels(v5Voorvoegsel);
   for (const dd of ddKeys) {
     const m = laadM(osmId, dd);
     const bezoek = laadBezoekPerFase(osmId, dd);
     const v5Combos = new Set();
-    for (let i = 0; i < localStorage.length; i++) {
-      const k = localStorage.key(i);
-      if (!k || !k.startsWith(`${LS_PREFIX_V5}${osmId}_`)) continue;
-      const rest = k.replace(`${LS_PREFIX_V5}${osmId}_`, '');
-      const delen = rest.split('_');
+    for (const k of v5Sleutels) {
+      const delen = k.slice(v5Voorvoegsel.length).split('_');
       if (delen.length >= 3 && delen[2] === dd) {
         v5Combos.add(`${delen[0]}_${delen[1]}`);
       }
@@ -3808,12 +3968,13 @@ function verzamelV5Richtingen(nodeId, lsIndex = null) {
   const richtingen = [];
   // V11.14.1: gebruik pre-index als beschikbaar. v5Keys bevat alleen
   // sl_v5_${nodeId}_-sleutels — geen full localStorage-scan.
+  // V11.22.0: zonder pre-index niet meer de volledige sleutellijst aflopen
+  // maar de cache-Map bevragen. Dezelfde sleutels, zie opslagSleutels.
   const v5Keys = lsIndex
     ? (lsIndex.get(String(nodeId))?.v5Keys ?? [])
-    : null;
-  const scanLen = v5Keys ? v5Keys.length : localStorage.length;
-  for (let i = 0; i < scanLen; i++) {
-    const k = v5Keys ? v5Keys[i] : localStorage.key(i);
+    : opslagSleutels(`${LS_PREFIX_V5}${nodeId}_`);
+  for (let i = 0; i < v5Keys.length; i++) {
+    const k = v5Keys[i];
     if (!k || !k.startsWith(`${LS_PREFIX_V5}${nodeId}_`)) continue;
     const rest = k.replace(`${LS_PREFIX_V5}${nodeId}_`, '');
     const delen = rest.split('_');
@@ -3829,17 +3990,17 @@ function verzamelV5Richtingen(nodeId, lsIndex = null) {
 function haalAlleV5MetingenVoorNode(nodeId, dd) {
   const resultaten = [];
   const gezien = new Set();
-  for (let i = 0; i < localStorage.length; i++) {
-    const k = localStorage.key(i);
-    if (!k || !k.startsWith(`${LS_PREFIX_V5}${nodeId}_`)) continue;
+  for (const k of opslagSleutels(`${LS_PREFIX_V5}${nodeId}_`)) {   // V11.22.0
     const delen = k.replace(LS_PREFIX_V5, '').split('_');
     if (delen.length < 4) continue;
     const sleutelDd = delen[delen.length - 1];
     if (sleutelDd !== dd) continue;
-    try {
-      const m = JSON.parse(localStorage.getItem(k) || '[]');
-      for (const x of m) if (!gezien.has(x.tijd)) { gezien.add(x.tijd); resultaten.push(x); }
-    } catch(e) {}
+    // De WAARDE blijft via opslagLees lopen, niet via een tweede rauwe
+    // lezing: die parseert per aanroep vers, zodat de .sort() hieronder
+    // nooit een gedeeld object raakt (zie het blok bij opslagLees).
+    const m = opslagLees(k, []);
+    if (!Array.isArray(m)) continue;
+    for (const x of m) if (!gezien.has(x.tijd)) { gezien.add(x.tijd); resultaten.push(x); }
   }
   return resultaten.sort((a,b) => b.tijd-a.tijd).slice(0, MAX_METINGEN);
 }
@@ -3847,11 +4008,9 @@ function haalAlleV5MetingenVoorNode(nodeId, dd) {
 // FIX 5: controleert of een node slechts één aanrijrichting heeft in V5 data
 function isEenRichtingNode(nodeId) {
   const aanrijRichtingen = new Set();
-  for (let i = 0; i < localStorage.length; i++) {
-    const k = localStorage.key(i);
-    if (!k || !k.startsWith(`${LS_PREFIX_V5}${nodeId}_`)) continue;
-    const rest = k.replace(`${LS_PREFIX_V5}${nodeId}_`, '');
-    const delen = rest.split('_');
+  const voorvoegsel = `${LS_PREFIX_V5}${nodeId}_`;
+  for (const k of opslagSleutels(voorvoegsel)) {   // V11.22.0: 12,6 ms -> 0,6 ms
+    const delen = k.slice(voorvoegsel.length).split('_');
     if (delen.length >= 3) aanrijRichtingen.add(delen[0]);
   }
   return aanrijRichtingen.size <= 1;
@@ -3862,10 +4021,9 @@ function isEenRichtingNode(nodeId) {
 // de knop-suppressor mag alleen vuren bij EXACT 1 bekende richting.
 function aantalAanrijRichtingen(nodeId) {
   const set = new Set();
-  for (let i = 0; i < localStorage.length; i++) {
-    const k = localStorage.key(i);
-    if (!k || !k.startsWith(`${LS_PREFIX_V5}${nodeId}_`)) continue;
-    const delen = k.replace(`${LS_PREFIX_V5}${nodeId}_`, '').split('_');
+  const voorvoegsel = `${LS_PREFIX_V5}${nodeId}_`;
+  for (const k of opslagSleutels(voorvoegsel)) {   // V11.22.0
+    const delen = k.slice(voorvoegsel.length).split('_');
     if (delen.length >= 3) set.add(delen[0]);
   }
   return set.size;
@@ -13872,12 +14030,13 @@ function renderV9RichtingenVoorNode(nodeId, dd, lsIndex = null) {
   const gezieneSleutels = new Set();
   const aanwezigeManoeuvres = new Set(); // V11.17.17 W2: welke rijders-manoeuvres hebben V5-data
   // V11.14.1: gebruik pre-index als beschikbaar (O(1) i.p.v. O(localStorage.length))
+  // V11.22.0: zonder pre-index niet meer de volledige sleutellijst aflopen
+  // maar de cache-Map bevragen. Dezelfde sleutels, zie opslagSleutels.
   const v5Keys = lsIndex
     ? (lsIndex.get(String(nodeId))?.v5Keys ?? [])
-    : null;
-  const scanLen = v5Keys ? v5Keys.length : localStorage.length;
-  for (let i = 0; i < scanLen; i++) {
-    const k = v5Keys ? v5Keys[i] : localStorage.key(i);
+    : opslagSleutels(`${LS_PREFIX_V5}${nodeId}_`);
+  for (let i = 0; i < v5Keys.length; i++) {
+    const k = v5Keys[i];
     if (!k || !k.startsWith(`${LS_PREFIX_V5}${nodeId}_`)) continue;
     const rest = k.replace(`${LS_PREFIX_V5}${nodeId}_`, '');
     const delen = rest.split('_');
@@ -14502,8 +14661,7 @@ function zetEnkelRicht(nodeId, richting) {
     const algKant = algemeenMetingen(nodeId);            // nog zonder koppeling
     const richtKant = [];
     const voorvoegsel = `${LS_PREFIX_V5}${nodeId}_`;
-    for (const k of Object.keys(localStorage)) {
-      if (!k.startsWith(voorvoegsel)) continue;
+    for (const k of opslagSleutels(voorvoegsel)) {   // V11.22.0
       const delen = k.slice(voorvoegsel.length).split('_');
       if (delen.length < 3) continue;
       const t = rijdersPijlLabel(delen[0], delen[1]).tekst.toLowerCase();
@@ -15376,12 +15534,34 @@ function mergeRichtingen(nodeId, bron, doel) {
       if (sleutels[k] === null) localStorage.removeItem(k);
       else { try { localStorage.setItem(k, sleutels[k]); } catch(_) {} }
     }
+    opslagHersynchroniseer(Object.keys(sleutels));   // V11.22.0, zie hieronder
     mergeUndoBuffer = null;
     mergeModusAan = false; mergeSelectie = [];
     renderNodeInfo(nodeId);
     toonToast('⚠️ Opslag vol — samenvoegen teruggedraaid');
     return;
   }
+
+  // ── V11.22.0: DE CACHE WEER GELIJKTREKKEN ──────────────────
+  // © 2026 StoplichtIQ — Y. Lemaalem
+  //
+  // Dit blok schrijft met opzet rauw naar localStorage en niet via
+  // opslagSchrijf. De reden staat in de rollback hierboven: die hangt ervan af
+  // dat localStorage.setItem GOOIT bij een vol quotum. opslagSchrijf vangt die
+  // fout juist af en geeft false terug — daarmee zou de catch nooit meer
+  // vuren en bleef een half uitgevoerde merge staan.
+  //
+  // Sinds V11.22.0 leest isEenRichtingNode (en vier anderen) de sl_v5_-
+  // sleutellijst uit de cache-Map. Die zou na een merge achterlopen: verwijderde
+  // richtingen nog aanwezig, nieuwe afwezig. Vandaar deze regel.
+  //
+  // WAAROM `sleutels` PRECIES DE JUISTE LIJST IS. Het is de undo-snapshot, en
+  // die is hierboven zo opgebouwd dat hij elke sleutel bevat die deze operatie
+  // kan aanraken: bewaarV5(bron), bewaarV5(doel) en bewaarV4() dekken samen de
+  // V5-emmers van beide kanten én de V4-emmers als Algemeen meedoet. Zou er
+  // ooit een sleutel buiten de snapshot geschreven worden, dan was 'Ongedaan
+  // maken' allang stuk — deze regel erft dus dezelfde garantie.
+  opslagHersynchroniseer(Object.keys(sleutels));
 
   // V11.17.91: het meetpunt. Laat in één oogopslag zien hoeveel metingen er
   // sinds D2 in het niemandsland zaten, en hoeveel van dit herstel op de exacte
@@ -15438,6 +15618,7 @@ function mergeUndoUitvoeren() {
     if (sleutels[k] === null) localStorage.removeItem(k);
     else { try { localStorage.setItem(k, sleutels[k]); } catch(_) {} }
   }
+  opslagHersynchroniseer(Object.keys(sleutels));   // V11.22.0: zie mergeRichtingen
   mergeUndoBuffer = null;
   nodeInfoChipLaatsteNode = null;
   if (nodeInfoNodeId) { renderNodeInfo(nodeInfoNodeId); updateNodeInfoChip(nodeInfoNodeId); }
