@@ -1046,7 +1046,7 @@ if (typeof ort !== 'undefined') {
 //
 // De stijl volgt de eerdere labels: nummer, kastlijntje, korte omschrijving in
 // kleine letters. De CSS zet hem zelf in kapitalen (text-transform:uppercase).
-const APP_VERSIE = 'V11.24.0 — IndexedDB spiegelt mee';
+const APP_VERSIE = 'V11.25.0 — motorproef in de schaduw';
 
 // ── CONSTANTEN ────────────────────────────────────────────────
 const OSM_RADIUS       = 5000;
@@ -9462,9 +9462,15 @@ const MODELVGL_AAN = (() => {
 // COCO (80 algemene klassen) en kent rood/groen/uit/oranje niet. Een
 // 'zelfde uitkomst'-percentage zou hier een getal zijn dat niets betekent, en
 // daarom wordt het in deze modus niet berekend en niet getoond.
+// V11.25.0: vier modi in plaats van twee. De volgorde is die van de knop, en
+// 'v8n' staat vooraan zodat de standaard ongewijzigd blijft: zonder sleutel, of
+// met een onbekende waarde, meet de app zichzelf tegen zichzelf.
+const MODELVGL_MODI = ['v8n', 'dfine', 'ort130', 'webgpu'];
 const MODELVGL_MODEL = (() => {
-  try { return localStorage.getItem('sl_modelvgl_model') === 'dfine' ? 'dfine' : 'v8n'; }
-  catch (e) { return 'v8n'; }
+  try {
+    const v = localStorage.getItem('sl_modelvgl_model');
+    return MODELVGL_MODI.indexOf(v) > 0 ? v : 'v8n';
+  } catch (e) { return 'v8n'; }
 })();
 const MODELVGL_MAX_VOORBEELDEN = 40;
 let vglWorker = null, vglWorkerKlaar = false, vglBezig = false, vglStartTijd = 0;
@@ -9581,8 +9587,117 @@ self.onmessage=function(e){
   else if(msg.type==='inferentie')voerUit(msg.pixelData,msg.breedte,msg.hoogte,msg.frameId);
 };`;
 
+// ── V11.25.0: DE SCHADUW OP EEN ANDERE MOTOR ────────────
+// © 2026 StoplichtIQ — Y. Lemaalem
+//
+// DE VRAAG. De app draait op ONNX Runtime 1.17.1 met de WASM-provider, op één
+// thread — gemeten op de live app: numThreads 1, crossOriginIsolated false.
+// Zes kernen in de telefoon, waarvan er één werkt, en de GPU staat stil.
+// Twee dingen zouden daar iets aan kunnen doen, en van geen van beide is op
+// voorhand te zeggen of ze op DIT toestel helpen:
+//
+//   ort130  dezelfde provider, maar bibliotheek 1.30.0 in plaats van 1.17.1
+//   webgpu  dezelfde bibliotheek-generatie, maar de GPU in plaats van de CPU
+//
+// WAAROM DIT EEN METING IS EN GEEN OVERSTAP. Op een laptop met twee kernen mat
+// ik WebGPU 1,75x sneller dan WASM (566 tegen 993 ms) met een numeriek gelijke
+// uitvoer — verschil 1 x 10^-8 relatief. Maar diezelfde laptop liet 1.30.0
+// juist 8% TRAGER zien dan 1.17.1 (810 tegen 752 ms, afwisselend gemeten),
+// terwijl een eerdere, slordiger meting daar nog 18% winst suggereerde. Dat
+// verschil tussen twee metingen op dezelfde machine is precies de reden dat
+// hier niets wordt omgezet op grond van een tabel of een laptop.
+//
+// EN ER IS EEN ZWAARDERE REDEN OM EERST TE METEN. Voor onnxruntime-web op
+// WebGPU in Safari staan crashmeldingen open die exact dit gebruik beschrijven:
+// issue 27584 meldt YOLO op iOS 26.3 dat "constantly crash after around 500
+// inference" bij doorlopende camerabeelden, terwijl hetzelfde model op Chrome
+// gewoon loopt. Bij twee inferenties per seconde is dat vier minuten rijden.
+// Die grens hoort op het toestel zelf opgezocht te worden, in de schaduw, waar
+// een crash niets kost.
+//
+// WAT DE SCHADUW NIET DOET. Terugvallen. Er wordt precies één provider
+// gevraagd; lukt dat niet, dan start de schaduw niet en meldt hij waarom. Een
+// meting die stilletjes op WASM terugvalt meet namelijk niets — je zou dan
+// WASM tegen WASM afzetten en concluderen dat WebGPU "even snel" is.
+//
+// EIGEN WORKERKOPIE, net als bij D-FINE. YOLO_WORKER_CODE draait in het echte
+// app-pad en daar hoort geen letter aan te veranderen voor een tijdelijke
+// meting.
+function vglProviderWorkerBron(bundel, paden, providers) {
+  return `
+importScripts('${bundel}');
+let sessie=null,klaar=false;
+async function initialiseer(modelBuffer){
+  try{
+    ort.env.wasm.wasmPaths='${paden}';
+    sessie=await ort.InferenceSession.create(modelBuffer,
+      {executionProviders:${JSON.stringify(providers)},graphOptimizationLevel:'all'});
+    klaar=true;
+    self.postMessage({type:'klaar',provider:${JSON.stringify(providers[0])},
+                      threads:(ort.env.wasm&&ort.env.wasm.numThreads)||null});
+  }catch(e){self.postMessage({type:'fout',bericht:'init: '+(e&&e.message||e)});}
+}
+async function voerUit(pixelData,breedte,hoogte,frameId){
+  if(!klaar||!sessie){self.postMessage({type:'fout',bericht:'sessie niet klaar',frameId});return;}
+  try{
+    const tensor=new ort.Tensor('float32',pixelData,[1,3,breedte,hoogte]);
+    const output=await sessie.run({images:tensor});
+    const t=output['output0'];
+    self.postMessage({type:'resultaat',frameId,data:t.data,dims:t.dims},[t.data.buffer]);
+  }catch(e){self.postMessage({type:'fout',bericht:e&&e.message||String(e),frameId});}
+}
+self.onmessage=function(e){
+  const msg=e.data;
+  if(msg.type==='initialiseer')initialiseer(msg.modelBuffer);
+  else if(msg.type==='inferentie')voerUit(msg.pixelData,msg.breedte,msg.hoogte,msg.frameId);
+};`;
+}
+
+// De twee motorvarianten. Allebei HETZELFDE model als het hoofdpad, zodat de
+// bestaande A/B-koppeling (vglKoppel) zinvol blijft: verschilt de gekozen
+// klasse, dan ligt dat aan de motor en niet aan een ander model.
+//
+// Let op de bundelkeuze bij webgpu: sinds 1.19 zit WebGPU in de algemene
+// bundel, en die trekt een ander wasm-bestand aan — 5,2 MB over de lijn in
+// plaats van 2,9 MB. Voor een meetmodus achter vijf tikken is dat acceptabel;
+// voor het hoofdpad zou het dat niet zijn.
+const VGL_ORT130 = 'https://cdn.jsdelivr.net/npm/onnxruntime-web@1.30.0/dist/';
+const VGL_MOTOREN = {
+  ort130: { bundel: VGL_ORT130 + 'ort.wasm.min.js', paden: VGL_ORT130, providers: ['wasm'],
+            naam: 'ORT 1.30 (WASM)' },
+  webgpu: { bundel: VGL_ORT130 + 'ort.min.js',      paden: VGL_ORT130, providers: ['webgpu'],
+            naam: 'ORT 1.30 (WebGPU)' }
+};
+
 // Een D-FINE-frame is klaar. Geen koppeling aan A zoals bij B: er valt niets te
 // vergelijken, alleen te tellen.
+// V11.25.0: wat de motorproef over zichzelf meldt. Drie dingen, en ze staan
+// los van de snelheidscijfers omdat ze ook iets zeggen als er NUL frames zijn
+// gehaald — dan is "de sessie ging niet open, en dit was de reden" de uitkomst.
+function vglNoteerMotor(modus, provider, threads) {
+  const st = vglStatLaad();
+  // De modus komt van de AANROEPER, niet van MODELVGL_MODEL. Die constante
+  // staat vast bij het laden, en wie hem hier zou lezen legt de modus van de
+  // SESSIE vast in plaats van de motor die daadwerkelijk draaide.
+  st.motor = modus;
+  if (provider) st.motorProvider = provider;
+  if (threads != null) st.motorThreads = threads;
+  vglStatBewaar();
+}
+
+// Alleen de EERSTE fout bewaren, plus een teller. De eerste zegt waarom het
+// misging; de rest is ruis van hetzelfde. En als de schaduw pas na honderden
+// frames omvalt — het patroon uit issue 27584 — dan is st.n op dat moment
+// precies het aantal dat hij wél haalde.
+function vglNoteerMotorFout(modus, bericht) {
+  const st = vglStatLaad();
+  st.motor = modus;
+  st.motorFouten = (st.motorFouten || 0) + 1;
+  if (!st.motorFout) st.motorFout = String(bericht || 'onbekend').slice(0, 160);
+  if (st.motorFoutBijFrame == null) st.motorFoutBijFrame = st.n || 0;
+  vglStatBewaar();
+}
+
 function vglNoteerC(ms, aantalDetecties) {
   const st = vglStatLaad();
   st.nC++;
@@ -9741,7 +9856,19 @@ function mvSamenvattingTekst() {
   if (!st || (!st.n && !st.nC)) return 'Nog geen data — rijd eerst een rit';
   const r1 = (x) => (Math.round(x * 10) / 10).toString().replace('.', ',');
   const uit = [];
-  uit.push('Nu aan het meten: ' + (MODELVGL_MODEL === 'dfine' ? 'D-FINE-N' : 'YOLOv8n'));
+  uit.push('Nu aan het meten: ' + mvModusNaam(MODELVGL_MODEL));
+  // V11.25.0: bij een motorproef staat het belangrijkste bovenaan — draaide hij,
+  // op welke provider, en zo nee waarom niet. Dat is de uitkomst, ook (juist)
+  // als er nul frames zijn gehaald.
+  if (st.motor && VGL_MOTOREN[st.motor]) {
+    uit.push('  motor: ' + (st.motorProvider || '—')
+             + (st.motorThreads ? ' (' + st.motorThreads + ' thread)' : ''));
+    if (st.motorFout) {
+      uit.push('  NIET GESTART: ' + st.motorFout);
+      if (st.motorFoutBijFrame != null) uit.push('  na ' + st.motorFoutBijFrame + ' frames');
+    }
+    if (st.motorFouten) uit.push('  fouten tijdens de rit: ' + st.motorFouten);
+  }
   if (st.n) {
     const gemA = st.somMsA / st.n, gemB = st.somMsB / st.n;
     uit.push('');
@@ -9771,11 +9898,21 @@ function mvSamenvattingTekst() {
 // V11.18.14: wisselen tussen het tweede en het derde model. Zelfde patroon als
 // mvZetUit: sleutel zetten, melden, herladen — want de worker en het model
 // worden bij het laden gekozen.
+// V11.25.0: de knop loopt nu door VIER standen in plaats van te wippen tussen
+// twee. De volgorde begint bewust met v8n -> dfine, zodat de bestaande knop
+// zich vanuit de standaard precies zo gedraagt als voorheen.
+function mvModusNaam(modus) {
+  if (modus === 'dfine') return 'D-FINE-N';
+  if (VGL_MOTOREN[modus]) return VGL_MOTOREN[modus].naam;
+  return 'YOLOv8n';
+}
+
 function mvWisselModel() {
-  const nieuw = (MODELVGL_MODEL === 'dfine') ? 'v8n' : 'dfine';
+  const i = MODELVGL_MODI.indexOf(MODELVGL_MODEL);
+  const nieuw = MODELVGL_MODI[((i < 0 ? 0 : i) + 1) % MODELVGL_MODI.length];
   try { localStorage.setItem('sl_modelvgl_model', nieuw); } catch (e) {}
   mvSluit();
-  toonToast('Tweede model: ' + (nieuw === 'dfine' ? 'D-FINE-N' : 'YOLOv8n'));
+  toonToast('Tweede model: ' + mvModusNaam(nieuw));
   mvPlanHerlaad();
   return nieuw;
 }
@@ -9787,8 +9924,12 @@ function mvToonOverlay() {
   inh.textContent = mvSamenvattingTekst();
   // V11.18.14: de knop noemt wat je KRIJGT als je hem indrukt, niet wat er nu
   // staat — anders leest hij als een toestandsmelding en drukt niemand erop.
+  // V11.25.0: met vier standen noemt de knop de VOLGENDE in de reeks.
   const mk = document.getElementById('mv-model-knop');
-  if (mk) mk.textContent = (MODELVGL_MODEL === 'dfine') ? 'Meet YOLOv8n' : 'Meet D-FINE-N';
+  if (mk) {
+    const i = MODELVGL_MODI.indexOf(MODELVGL_MODEL);
+    mk.textContent = 'Meet ' + mvModusNaam(MODELVGL_MODI[((i < 0 ? 0 : i) + 1) % MODELVGL_MODI.length]);
+  }
   ov.classList.add('zichtbaar');
 }
 
@@ -9843,17 +9984,34 @@ function startVglWorker() {
   // ongewijzigd; alleen het pad, de workercode en de verwerking van het
   // resultaat hangen van de modus af.
   const dfine = (MODELVGL_MODEL === 'dfine');
+  // V11.25.0: een motorvariant draait HETZELFDE model, maar op een andere
+  // bibliotheek of provider. Model en verwerking zijn dus die van de v8n-tak;
+  // alleen de workercode verschilt.
+  const motor = VGL_MOTOREN[MODELVGL_MODEL] || null;
   const modelPad = dfine ? './model/dfine-n.onnx' : './model/model.onnx';
   try {
     fetch(modelPad).then(r => r.arrayBuffer()).then(buf => {
-      const blob = new Blob([dfine ? DFINE_WORKER_CODE : YOLO_WORKER_CODE], { type: 'application/javascript' });
+      const bron = dfine ? DFINE_WORKER_CODE
+                 : motor ? vglProviderWorkerBron(motor.bundel, motor.paden, motor.providers)
+                 : YOLO_WORKER_CODE;
+      const blob = new Blob([bron], { type: 'application/javascript' });
       const url = URL.createObjectURL(blob);
       vglWorker = new Worker(url);
       vglWorker.onmessage = function (e) {
         const msg = e.data;
-        if (msg.type === 'klaar') { vglWorkerKlaar = true; return; }
+        if (msg.type === 'klaar') {
+          vglWorkerKlaar = true;
+          // V11.25.0: vastleggen WAT er draait. Zonder dit zou een schaduw die
+          // stilletjes op iets anders uitkwam als geslaagde meting tellen.
+          if (motor) { try { vglNoteerMotor(MODELVGL_MODEL, msg.provider, msg.threads); } catch (_) {} }
+          return;
+        }
         if (msg.type === 'fout') {
           vglBezig = false;
+          // V11.25.0: de reden van de EERSTE fout bewaren. Bij een motorproef is
+          // juist die reden het antwoord: 'geen WebGPU op dit toestel' is een
+          // uitkomst, geen storing.
+          if (motor) { try { vglNoteerMotorFout(MODELVGL_MODEL, msg.bericht); } catch (_) {} }
           if (++vglFouten >= 5) { try { vglWorker.terminate(); } catch (_) {} vglWorker = null; vglWorkerKlaar = false; }
           return;
         }
