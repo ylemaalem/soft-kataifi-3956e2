@@ -334,9 +334,17 @@ async function testOpslaglaag() {
   } finally {
     Storage.prototype.setItem = echteSetItem;
     if (bewaardToast) window.toonToast = bewaardToast;
+    // V11.24.0: hier stond `opslagCache.delete(k)` ACHTER het terugzetten. Dat
+    // klopte tot V11.22.0 — de Map was toen een warme cache en een lege plek
+    // dwong een verse lezing af. Sindsdien is de Map de bron van de
+    // SLEUTELLIJST, en liet deze regel een sleutel achter die wél in
+    // localStorage staat maar niet in de lijst: de export miste hem dan.
+    // Een verwijdering mag nog steeds beide kanten opruimen; een herstelde
+    // waarde niet, want de omwikkeling van Storage.prototype heeft de Map dan
+    // al bijgewerkt.
     for (const [k, v] of bewaardLS) {
-      if (v === null) localStorage.removeItem(k); else localStorage.setItem(k, v);
-      opslagCache.delete(k);
+      if (v === null) { localStorage.removeItem(k); opslagCache.delete(k); }
+      else localStorage.setItem(k, v);
     }
     dichtstbijOSM = null;
   }

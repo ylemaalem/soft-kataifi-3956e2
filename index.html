@@ -1046,7 +1046,7 @@ if (typeof ort !== 'undefined') {
 //
 // De stijl volgt de eerdere labels: nummer, kastlijntje, korte omschrijving in
 // kleine letters. De CSS zet hem zelf in kapitalen (text-transform:uppercase).
-const APP_VERSIE = 'V11.23.0 — export door de opslaglaag';
+const APP_VERSIE = 'V11.24.0 — IndexedDB spiegelt mee';
 
 // ── CONSTANTEN ────────────────────────────────────────────────
 const OSM_RADIUS       = 5000;
@@ -2296,13 +2296,22 @@ let opslagBootKlaar = false;
           const memo = opslagCache.get(k);
           if (memo) { memo.ruw = ruw; delete memo.onopgeslagen; }
           else opslagCache.set(k, { ruw });
+          // V11.24.0: dezelfde wijziging naar de IndexedDB-spiegel. Deze
+          // omwikkeling is het enige punt waar ELKE schrijving langskomt -
+          // de laag, de merge-paden, de migraties en de testsuites - dus is
+          // het ook het enige punt waar de spiegel volledig kan zijn.
+          if (k.startsWith('sl_')) idbNoteer(k, ruw);
         }
       } catch(e) { /* de schrijving is al gelukt; de Map is bijzaak */ }
     };
     Storage.prototype.removeItem = function(sleutel) {
       origDel.call(this, sleutel);
       try {
-        if (this === window.localStorage) opslagCache.delete(String(sleutel));
+        if (this === window.localStorage) {
+          const k = String(sleutel);
+          opslagCache.delete(k);
+          if (k.startsWith('sl_')) idbNoteer(k, null);   // V11.24.0
+        }
       } catch(e) {}
     };
   } catch(e) { console.warn('[OPSLAG] omwikkeling mislukt:', e); }
@@ -2344,6 +2353,260 @@ function opslagHersynchroniseer(sleutels) {
   }
   return n;
 }
+
+// -- V11.24.0: DE SPIEGEL -------------------------------------
+// (c) 2026 StoplichtIQ - Y. Lemaalem
+//
+// WAT DIT WEL IS. Vanaf nu staat alles OOK in IndexedDB. Elke schrijving gaat
+// naar allebei, en bij de eerste start wordt de bestaande voorraad eenmalig
+// overgezet en nageteld.
+//
+// WAT DIT NIET IS. De app LEEST hier niets uit IndexedDB. localStorage blijft
+// onverkort de bron van waarheid; de spiegel kijkt alleen mee. Daarmee is deze
+// release omkeerbaar met een git revert: er gaat geen byte verloren als hij
+// eruit moet, want er is niets weggehaald.
+//
+// WAAROM EERST SPIEGELEN EN PAS VEEL LATER OMSCHAKELEN. Het enige wat we nog
+// niet weten is of de spiegel in de praktijk gelijk blijft lopen - op een
+// telefoon, bij achtergrond-purges van iOS, bij een vol quotum, bij een
+// afgebroken tabblad. Dat is niet te beredeneren, alleen te meten. Zolang
+// localStorage de bron is, kost een verschil niets en is het gewoon zichtbaar
+// in opslagIdbVergelijk().
+//
+// DE SCHRIJVING KAN NIET BREKEN. Alles hieronder is asynchroon en staat in een
+// try/catch. Een IndexedDB die niet opengaat (privémodus, vol schijf, oude
+// browser) telt een fout en verder gebeurt er niets - de app schrijft gewoon
+// door naar localStorage zoals altijd.
+const IDB_NAAM = 'StoplichtIQ_Opslag';
+const IDB_STORE = 'kv';
+const IDB_MIG_VLAG = 'sl_idbmig_v1';
+const IDB_FLUSH_MS = 400;          // schrijvingen bundelen i.p.v. een transactie per sleutel
+const IDB_BROK = 2000;             // recordbrok bij de eerste overzet
+let idbDb = null;
+let idbKlaar = false;
+let idbFouten = 0, idbGeschreven = 0, idbVerwijderd = 0;
+let idbMigratieUitslag = null;
+const idbWachtrij = new Map();     // sleutel -> ruwe string, of null = verwijderen
+let idbFlushTimer = null;
+
+function idbOpen() {
+  return new Promise((klaar, mis) => {
+    let v;
+    try { v = indexedDB.open(IDB_NAAM, 1); } catch(e) { mis(e); return; }
+    v.onupgradeneeded = (e) => {
+      const db = e.target.result;
+      if (!db.objectStoreNames.contains(IDB_STORE)) db.createObjectStore(IDB_STORE);
+    };
+    v.onsuccess = (e) => klaar(e.target.result);
+    v.onerror = () => mis(v.error);
+    v.onblocked = () => mis(new Error('geblokkeerd door een ander tabblad'));
+  });
+}
+
+// Zet een wijziging in de wachtrij. Synchroon en spotgoedkoop: een Map-zetting
+// plus eventueel een timer. De echte schrijving gebeurt gebundeld.
+function idbNoteer(sleutel, ruw) {
+  try {
+    idbWachtrij.set(sleutel, ruw);
+    if (idbFlushTimer === null) idbFlushTimer = setTimeout(idbFlush, IDB_FLUSH_MS);
+  } catch(e) { idbFouten++; }
+}
+
+async function idbFlush() {
+  idbFlushTimer = null;
+  if (!idbDb || !idbWachtrij.size) return;
+  const werk = [...idbWachtrij.entries()];
+  idbWachtrij.clear();
+  try {
+    await new Promise((klaar, mis) => {
+      const tx = idbDb.transaction(IDB_STORE, 'readwrite');
+      const st = tx.objectStore(IDB_STORE);
+      for (const [k, ruw] of werk) {
+        if (ruw === null) { st.delete(k); idbVerwijderd++; }
+        else { st.put(ruw, k); idbGeschreven++; }
+      }
+      tx.oncomplete = klaar;
+      tx.onerror = () => mis(tx.error);
+      tx.onabort = () => mis(tx.error || new Error('afgebroken'));
+    });
+  } catch(e) {
+    idbFouten++;
+    // Terugleggen zodat de volgende ronde het alsnog probeert. Nieuwere
+    // waarden uit de wachtrij winnen: die zijn per definitie recenter.
+    for (const [k, ruw] of werk) if (!idbWachtrij.has(k)) idbWachtrij.set(k, ruw);
+    console.warn('[IDB] schrijven mislukt (' + idbFouten + 'x):', e && e.name);
+  }
+}
+
+// De eenmalige overzet. Bron is de cache-Map: die is na de boot compleet EN
+// bevat ook de waarden die deze sessie niet in localStorage pasten.
+//
+// DE VLAG GAAT PAS OM ALS DE TELLING KLOPT. Dat is hetzelfde idioom als
+// migratieRvWezen (r3648), en het is hier wezenlijk: een half overgezette
+// spiegel die zich 'done' noemt, zou bij een latere omschakeling stil een gat
+// in de leerdata opleveren. Klopt de telling niet, dan blijft de vlag uit en
+// probeert de volgende start het opnieuw. localStorage wordt nooit aangeraakt.
+async function idbMigratie() {
+  const bron = [];
+  for (const [k, memo] of opslagCache) {
+    if (memo.ruw === null) continue;
+    if (k.startsWith('sl_')) bron.push([k, memo.ruw]);
+  }
+  const t0 = performance.now();
+  for (let i = 0; i < bron.length; i += IDB_BROK) {
+    const brok = bron.slice(i, i + IDB_BROK);
+    await new Promise((klaar, mis) => {
+      const tx = idbDb.transaction(IDB_STORE, 'readwrite');
+      const st = tx.objectStore(IDB_STORE);
+      for (const [k, ruw] of brok) st.put(ruw, k);
+      tx.oncomplete = klaar;
+      tx.onerror = () => mis(tx.error);
+      tx.onabort = () => mis(tx.error || new Error('afgebroken'));
+    });
+  }
+  // natellen, waarde voor waarde
+  const naar = await idbLeesAlles();
+  let gelijk = 0;
+  const missen = [], anders = [];
+  for (const [k, ruw] of bron) {
+    if (!naar.has(k)) missen.push(k);
+    else if (naar.get(k) !== ruw) anders.push(k);
+    else gelijk++;
+  }
+  const uitslag = {
+    bron: bron.length, gelijk, mist: missen.length, anders: anders.length,
+    voorbeelden: missen.slice(0, 3).concat(anders.slice(0, 3)),
+    ms: Math.round(performance.now() - t0)
+  };
+  if (uitslag.mist === 0 && uitslag.anders === 0 && uitslag.bron === uitslag.gelijk) {
+    opslagSchrijfRuw(IDB_MIG_VLAG, 'done');
+    uitslag.vlag = 'gezet';
+  } else {
+    uitslag.vlag = 'NIET gezet - volgende start probeert opnieuw';
+    console.warn('[IDB] overzet onvolledig:', uitslag);
+  }
+  return uitslag;
+}
+
+function idbLeesAlles() {
+  return new Promise((klaar, mis) => {
+    try {
+      const tx = idbDb.transaction(IDB_STORE, 'readonly');
+      const st = tx.objectStore(IDB_STORE);
+      const vs = st.getAllKeys(), vw = st.getAll();
+      let ks = null, ws = null;
+      const klaarAls = () => { if (ks && ws) {
+        const m = new Map();
+        for (let i = 0; i < ks.length; i++) m.set(String(ks[i]), ws[i]);
+        klaar(m);
+      } };
+      vs.onsuccess = () => { ks = vs.result; klaarAls(); };
+      vw.onsuccess = () => { ws = vw.result; klaarAls(); };
+      tx.onerror = () => mis(tx.error);
+    } catch(e) { mis(e); }
+  });
+}
+
+// Het meetinstrument. Leest beide kanten en vertelt waar ze uiteenlopen.
+// Puur observerend - verandert niets, repareert niets.
+async function opslagIdbVergelijk() {
+  if (!idbDb) return { fout: 'IndexedDB niet open', idbFouten };
+  await idbFlush();
+  const spiegel = await idbLeesAlles();
+  const hier = new Map();
+  for (const [k, memo] of opslagCache) {
+    if (memo.ruw === null || !k.startsWith('sl_')) continue;
+    hier.set(k, memo.ruw);
+  }
+  const mist = [], teveel = [], anders = [];
+  for (const [k, ruw] of hier) {
+    if (!spiegel.has(k)) mist.push(k);
+    else if (spiegel.get(k) !== ruw) anders.push(k);
+  }
+  for (const k of spiegel.keys()) if (!hier.has(k)) teveel.push(k);
+  return {
+    inOpslag: hier.size, inSpiegel: spiegel.size,
+    mistInSpiegel: mist.length, teveelInSpiegel: teveel.length, anders: anders.length,
+    gelijk: hier.size - mist.length - anders.length,
+    voorbeelden: mist.slice(0, 3).concat(anders.slice(0, 3)).concat(teveel.slice(0, 3)),
+    geschreven: idbGeschreven, verwijderd: idbVerwijderd, fouten: idbFouten,
+    migratie: idbMigratieUitslag
+  };
+}
+
+// -- DE SPIEGEL REPAREERT ZICHZELF ----------------------------
+// Gevonden tijdens het testen, en het is geen randgeval: schrijvingen worden
+// gebundeld en staan tot IDB_FLUSH_MS in de wachtrij. Wordt het tabblad in dat
+// venster gesloten - of gooit iOS de pagina uit het geheugen - dan gaat die
+// bundel verloren. De spiegel mist dan een record, of houdt er juist een over
+// dat intussen verwijderd is. Omdat de overzet maar EEN keer draait, zou zo'n
+// verschil daarna blijven staan.
+//
+// Vandaar deze pas bij elke start: vergelijken en alleen de verschillen
+// bijwerken. Hij raakt uitsluitend IndexedDB aan - localStorage wordt gelezen
+// en nooit geschreven. Bij een gelijklopende spiegel kost hij een lezing en
+// verder niets.
+async function idbHerstel() {
+  const v = await opslagIdbVergelijk();
+  if (v.fout) return v;
+  if (v.mistInSpiegel === 0 && v.anders === 0 && v.teveelInSpiegel === 0) {
+    return { hersteld: 0, gecontroleerd: v.inOpslag };
+  }
+  const spiegel = await idbLeesAlles();
+  let bij = 0, weg = 0;
+  for (const [k, memo] of opslagCache) {
+    if (memo.ruw === null || !k.startsWith('sl_')) continue;
+    if (spiegel.get(k) !== memo.ruw) { idbNoteer(k, memo.ruw); bij++; }
+  }
+  for (const k of spiegel.keys()) {
+    const memo = opslagCache.get(k);
+    if (!memo || memo.ruw === null) { idbNoteer(k, null); weg++; }
+  }
+  await idbFlush();
+  const na = await opslagIdbVergelijk();
+  const uitslag = { hersteld: bij + weg, bijgewerkt: bij, verwijderd: weg,
+                    restant: na.mistInSpiegel + na.anders + na.teveelInSpiegel };
+  console.log('[IDB] spiegel bijgewerkt:', uitslag);
+  return uitslag;
+}
+
+// Start de spiegel. Wordt NIET afgewacht door startApp: de app hoeft er niet
+// op te wachten, want ze leest er niets uit. Tot de database open is blijven
+// wijzigingen in de wachtrij staan.
+async function startIdbSpiegel() {
+  try {
+    idbDb = await idbOpen();
+  } catch(e) {
+    idbFouten++;
+    console.warn('[IDB] openen mislukt - de app draait gewoon door:', e && e.name);
+    return null;
+  }
+  idbKlaar = true;
+  try {
+    if (opslagLeesRuw(IDB_MIG_VLAG) !== 'done') {
+      idbMigratieUitslag = await idbMigratie();
+      console.log('[IDB] overzet:', idbMigratieUitslag);
+    } else {
+      await idbHerstel();
+    }
+    await idbFlush();
+  } catch(e) {
+    idbFouten++;
+    console.warn('[IDB] overzet mislukt:', e && e.name);
+  }
+  return idbMigratieUitslag;
+}
+
+// Het venster van IDB_FLUSH_MS zo klein mogelijk maken: bij het wegvallen van
+// de pagina meteen wegschrijven. Dit is een POGING, geen garantie - de browser
+// mag de pagina afbreken voordat de transactie rond is. De echte garantie is
+// idbHerstel() hierboven, die bij de volgende start alsnog gelijktrekt.
+try {
+  window.addEventListener('pagehide', () => { try { idbFlush(); } catch(e) {} });
+  document.addEventListener('visibilitychange', () => {
+    if (document.visibilityState === 'hidden') { try { idbFlush(); } catch(e) {} }
+  });
+} catch(e) { /* geen window/document: niets aan de hand */ }
 
 // -- V11.18.21: DE OPSTARTFASE --------------------------------
 // (c) 2026 StoplichtIQ - Y. Lemaalem
@@ -18521,6 +18784,9 @@ async function startApp() {
   // gewoon door: in fase 2 leest alles nog uit localStorage.
   try { await startOpslagBoot(); } catch(e) { console.warn('[OPSLAG-BOOT] mislukt:', e); }
   try { herstelOpslagGlobals(); } catch(e) { console.warn('[OPSLAG] globals herstellen mislukt:', e); }
+  // V11.24.0: de spiegel start ná de boot en wordt NIET afgewacht. De app
+  // leest er niets uit, dus wachten zou alleen het startscherm ophouden.
+  try { startIdbSpiegel(); } catch(e) { console.warn('[IDB] start mislukt:', e); }
   initialiseerAudio();
   pGeluid.className = 'pill-dot'+(geluidAan?' g':'');
   pGeluidT.textContent = geluidAan?'SND':'MUTE';
