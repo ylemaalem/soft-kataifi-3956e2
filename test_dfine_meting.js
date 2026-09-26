@@ -128,59 +128,67 @@ function testDfineMeting() {
         'kl 0, n 2', vglBeste(d).kl + ', ' + vglBeste(d).n);
 
     // ═══ E3 — DE BOEKHOUDING ═════════════════════════════════
+    // V11.26.0: de D-FINE-velden staan in hun eigen emmer, perModus.dfine.
     localStorage.removeItem('sl_modelvgl');
     vglStat = null;
-    let st = vglStatLaad();
+    let st = vglStatLaad().perModus.dfine;
     eis('E3 een verse opslag heeft de C-velden op nul',
         st.nC === 0 && st.somMsC === 0 && st.maxMsC === 0 && st.detC === 0,
         '0,0,0,0', [st.nC, st.somMsC, st.maxMsC, st.detC].join(','));
     vglNoteerC(200, 3);
     vglNoteerC(260, 1);
     vglNoteerHoofdInDfine(420);
-    st = vglStatLaad();
+    st = vglStatLaad().perModus.dfine;
     eis('E3b twee D-FINE-frames tellen op, met piek en detectieteller',
         st.nC === 2 && st.somMsC === 460 && st.maxMsC === 260 && st.detC === 4,
         '2, 460, 260, 4', [st.nC, st.somMsC, st.maxMsC, st.detC].join(', '));
     eis('E3c het hoofdmodel uit dezelfde rit wordt apart bijgehouden',
         st.nAC === 1 && st.somMsAC === 420 && st.maxMsAC === 420,
         '1, 420, 420', [st.nAC, st.somMsAC, st.maxMsAC].join(', '));
-    eis('E3d de A/B-cijfers zijn niet aangeraakt',
-        st.n === 0 && st.somMsA === 0 && st.somMsB === 0 && st.eens === 0,
-        'alles 0', [st.n, st.somMsA, st.somMsB, st.eens].join(','));
-    // een oude opslag zonder C-velden mag niet omvallen
+    const v8 = vglStatLaad().perModus.v8n;
+    eis('E3d de A/B-cijfers zijn niet aangeraakt — niet in de v8n-emmer, niet in die van dfine',
+        v8.n === 0 && v8.somMsA === 0 && v8.somMsB === 0 && v8.eens === 0
+          && st.n === 0 && st.somMsB === 0,
+        'alles 0', [v8.n, v8.somMsA, v8.somMsB, v8.eens, st.n, st.somMsB].join(','));
+    // een oude, platte opslag mag niet omvallen — en telt niet meer mee
     localStorage.setItem('sl_modelvgl', JSON.stringify({
       start: 1, n: 4, somMsA: 400, somMsB: 200, maxMsA: 120, maxMsB: 60,
       eens: 3, oneens: 1, matrix: {}, voorbeelden: []
     }));
     vglStat = null;
-    st = vglStatLaad();
-    eis('E3e een opslag van vóór deze release krijgt de C-velden erbij, zonder verlies',
-        st.n === 4 && st.eens === 3 && st.nC === 0 && st.somMsC === 0,
-        'n 4, eens 3, nC 0', [st.n, st.eens, st.nC].join(', '));
+    const na = vglStatLaad();
+    const arch = na.perModus.v8n.voorV1126 || {};
+    eis('E3e een opslag van vóór V11.26 gaat zonder verlies het archief in, en telt niet mee',
+        arch.n === 4 && arch.eens === 3 && na.perModus.v8n.n === 0 && na.perModus.dfine.nC === 0,
+        'archief n 4, eens 3; emmers 0', [arch.n, arch.eens, na.perModus.v8n.n, na.perModus.dfine.nC].join(', '));
 
     // ═══ E4 — WAT ER OP HET SCHERM KOMT ══════════════════════
+    // V11.26.0: de labels zijn nieuw — "Model A (groot, 42MB)" beschreef een
+    // model dat sinds 19 september niet meer bestaat, en "Sneller" is B/A.
+    localStorage.setItem('sl_modelvgl', JSON.stringify({ schema: 2, perModus: {
+      v8n: { n: 4, somMsA: 400, somMsB: 200, maxMsA: 120, maxMsB: 60,
+             eens: 3, oneens: 1, matrix: {}, voorbeelden: [] } } }));
+    vglStat = null;
     let tekst = mvSamenvattingTekst();
-    eis('E4 met alleen A/B-data staat de oude samenvatting er ongewijzigd',
-        tekst.indexOf('Model A (groot, 42MB): gem 100ms') >= 0
-          && tekst.indexOf('Model B (klein, 12MB): gem 50ms') >= 0
+    eis('E4 met alleen A/B-data staat alleen het A/B-blok er, en D-FINE is leeg',
+        tekst.indexOf('A hoofdpad: gem 100ms') >= 0
+          && tekst.indexOf('B schaduw: gem 50ms') >= 0
           && tekst.indexOf('Zelfde uitkomst: 75%') >= 0
-          && tekst.indexOf('D-FINE') < 0,
-        'A/B-blok, geen D-FINE-blok', tekst.replace(/\n/g, ' | ').slice(0, 160));
-    localStorage.setItem('sl_modelvgl', JSON.stringify({
-      start: 1, n: 0, somMsA: 0, somMsB: 0, maxMsA: 0, maxMsB: 0,
-      eens: 0, oneens: 0, matrix: {}, voorbeelden: [],
-      nC: 10, somMsC: 3000, maxMsC: 410, detC: 12, nAC: 10, somMsAC: 4500, maxMsAC: 600
-    }));
+          && tekst.indexOf('Frames met D-FINE') < 0
+          && /── D-FINE-N ──\n— nog niet gemeten —/.test(tekst),
+        'A/B-blok, D-FINE nog niet gemeten', tekst.replace(/\n/g, ' | ').slice(0, 160));
+    localStorage.setItem('sl_modelvgl', JSON.stringify({ schema: 2, perModus: {
+      dfine: { nC: 10, somMsC: 3000, maxMsC: 410, detC: 12, nAC: 10, somMsAC: 4500, maxMsAC: 600 } } }));
     vglStat = null;
     tekst = mvSamenvattingTekst();
     eis('E4b het D-FINE-blok toont het gemiddelde en de piek',
-        tekst.indexOf('Model C (D-FINE-N, 15MB): gem 300ms') >= 0
+        tekst.indexOf('B D-FINE-N (15 MB): gem 300ms') >= 0
           && tekst.indexOf('piek 410ms') >= 0 && tekst.indexOf('Frames met D-FINE: 10') >= 0,
         'gem 300ms, piek 410ms', tekst.replace(/\n/g, ' | ').slice(0, 200));
-    eis('E4c en zet het hoofdmodel uit DEZELFDE rit ernaast',
-        tekst.indexOf('Model A (groot, 42MB): gem 450ms') >= 0
-          && tekst.indexOf('1,5× sneller dan A') >= 0,
-        '450ms, 1,5× sneller', tekst.replace(/\n/g, ' | ').slice(0, 200));
+    eis('E4c en zet het hoofdmodel uit DEZELFDE rit ernaast, als B/A',
+        tekst.indexOf('A hoofdpad: gem 450ms') >= 0
+          && tekst.indexOf('B/A: 0,67') >= 0,
+        '450ms, B/A 0,67', tekst.replace(/\n/g, ' | ').slice(0, 200));
     eis('E4d het scherm zegt met zoveel woorden dat dit ALLEEN over snelheid gaat',
         tekst.indexOf('Alleen SNELHEID') >= 0 && tekst.indexOf('COCO') >= 0
           && tekst.indexOf('kent rood/groen/uit/oranje niet') >= 0,
@@ -220,13 +228,16 @@ function testDfineMeting() {
     vglOpenA.set(7, { ms: 400, kl: 0, cf: 0.9, n: 1 });
     vglOpenB.set(7, { ms: 120, kl: 0, cf: 0.8, n: 1 });
     vglKoppel(7);
-    st = vglStatLaad();
+    // V11.26.0: zonder modus op B belandt het paar in de emmer van deze
+    // sessie — v8n, want de testpagina laadt zonder sleutel.
+    st = vglStatLaad().perModus.v8n;
     eis('E6 de bestaande A/B-koppeling werkt ongewijzigd',
         st.n === 1 && st.eens === 1 && st.somMsA === 400 && st.somMsB === 120
           && st.matrix['0>0'] === 1,
         '1 paar, eens, 400/120', [st.n, st.eens, st.somMsA, st.somMsB].join(', '));
+    const dfE = vglStatLaad().perModus.dfine;
     eis('E6b en raakt de C-velden niet aan',
-        st.nC === 0 && st.nAC === 0, '0 en 0', st.nC + ', ' + st.nAC);
+        dfE.nC === 0 && dfE.nAC === 0, '0 en 0', dfE.nC + ', ' + dfE.nAC);
     eis('E6c de YOLO-worker is ongemoeid: dezelfde invoer, dezelfde uitvoer',
         YOLO_WORKER_CODE.indexOf("sessie.run({images:tensor})") >= 0
           && YOLO_WORKER_CODE.indexOf("output['output0']") >= 0

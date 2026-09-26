@@ -423,11 +423,17 @@
       background:rgba(255,159,10,0.20);color:var(--oranje);font-size:9px;letter-spacing:0.08em}
     /* V11.18.9: de resultaat-overlay. z-index boven het startscherm (300) en
        boven de toast (9999), want hij kan vanaf allebei geopend worden. */
+    /* V11.26.0: met vier standen onder elkaar is de kaart hoger dan een
+       telefoonscherm. align-items:center duwde de bovenkant dan buiten beeld,
+       en zonder overflow was er niets te scrollen: de knoppen onderaan, ook
+       "Zet uit", waren onbereikbaar. margin:auto centreert zolang het past en
+       wordt nul zodra het niet past; dan scrollt de overlay. */
     #mv-overlay{position:fixed;inset:0;z-index:10000;background:rgba(6,8,10,0.94);
-      display:none;align-items:center;justify-content:center;padding:24px}
+      display:none;align-items:flex-start;justify-content:center;padding:24px;
+      overflow-y:auto;-webkit-overflow-scrolling:touch}
     #mv-overlay.zichtbaar{display:flex}
     #mv-kaart{width:100%;max-width:330px;background:#11151A;border:1px solid var(--border);
-      border-radius:14px;padding:18px 20px}
+      border-radius:14px;padding:18px 20px;margin:auto}
     #mv-titel{font-size:12px;letter-spacing:0.14em;text-transform:uppercase;
       color:var(--oranje);font-weight:700;margin-bottom:12px}
     #mv-inhoud{font-family:'Share Tech Mono',monospace;font-size:12px;color:#fff;
@@ -1046,7 +1052,7 @@ if (typeof ort !== 'undefined') {
 //
 // De stijl volgt de eerdere labels: nummer, kastlijntje, korte omschrijving in
 // kleine letters. De CSS zet hem zelf in kapitalen (text-transform:uppercase).
-const APP_VERSIE = 'V11.25.0 — motorproef in de schaduw';
+const APP_VERSIE = 'V11.26.0 — meetstanden apart geteld';
 
 // ── CONSTANTEN ────────────────────────────────────────────────
 const OSM_RADIUS       = 5000;
@@ -9415,6 +9421,17 @@ function slaKanslozeRunOver() {
 // (rood/groen/uit/oranje) en dezelfde outputvorm (1,8,8400). De nabewerking
 // is daardoor letterlijk dezelfde functie — zie hieronder.
 //
+// V11.26.0: DE REGEL OVER A KLOPT SINDS 19 SEPTEMBER NIET MEER. Commit 2aa04b9
+// verving model.onnx door een YOLOv8n op fase8_volledig (Ultralytics 8.4.155).
+// Gecontroleerd op de bestanden zelf:
+//   A = model.onnx        12.268.151 bytes, fase8_volledig, 2026-09-19
+//   B = model/model.onnx  12.240.396 bytes, dataset2,       2026-03-26
+// Twee nano's van hetzelfde formaat, met een andere training. Er staat geen
+// model van 42 MB meer in de repo. In de stand v8n is dit dus geen
+// snelheidsvergelijking maar een CONTROLE: gelijke grootte, gelijke motor,
+// een andere worker en een andere training. Wat daar voor B/A uitkomt is de
+// maatstaf voor de motorstanden, die precies ditzelfde B-bestand laden.
+//
 // WAT DEZE METING WEL EN NIET KAN BEANTWOORDEN
 //   SNELHEID   schoon. De inferentietijd hangt af van de architectuur, niet
 //              van de dataset waarop getraind is. Het gemeten verschil is dus
@@ -9476,33 +9493,141 @@ const MODELVGL_MAX_VOORBEELDEN = 40;
 let vglWorker = null, vglWorkerKlaar = false, vglBezig = false, vglStartTijd = 0;
 let vglFouten = 0;
 let vglOpenA = new Map();   // frameId -> { ms, kl, cf, n }
-let vglOpenB = new Map();
+let vglOpenB = new Map();   // frameId -> { ms, kl, cf, n, modus }
 let vglStat = null;
+
+// ── V11.26.0: EEN EMMER PER STAND ────────────────────────────
+// © 2026 StoplichtIQ — Y. Lemaalem
+//
+// WAT ER MIS WAS. v8n, ort130 en webgpu liepen alle drie door vglKoppel en
+// schreven in DEZELFDE velden: n, somMsA, somMsB, eens, oneens, matrix. Niets
+// ging verloren; alles werd bij elkaar opgeteld. somMsB was een mengsel van
+// ORT 1.17.1-wasm, ORT 1.30-wasm en ORT 1.30-WebGPU, gedeeld door een n die
+// over alle drie doorliep en nooit werd teruggezet. En motorFoutBijFrame las
+// die n af, dus "na 10.780 frames" betekende "na alle v8n-ritten van eerder" —
+// terwijl de fout bij init viel, vóór het eerste frame van die stand.
+//
+// WAT HET NU IS. sl_modelvgl = { schema: 2, perModus: { v8n, dfine, ort130,
+// webgpu } }. Elke emmer heeft zijn eigen n, somMsA, somMsB, eens, oneens,
+// matrix en voorbeelden, en zijn eigen motor, motorFout en motorFoutBijFrame.
+// Wisselen van stand wist niets: de andere emmers blijven staan.
+//
+// ELKE EMMER HOUDT ZIJN EIGEN A BIJ, uit dezelfde rit als zijn B. Dat is geen
+// dubbeling maar de reden dat de emmers te vergelijken zijn. De ort130-rit
+// valt op een andere dag dan de v8n-rit, met ander weer en een andere
+// accustand. Vergelijken tussen standen mag daarom ALLEEN op B/A — ruwe
+// milliseconden van maandag tegen ruwe milliseconden van vrijdag zetten is de
+// koud-tegen-warm-fout uit STAP 0 in een nieuw jasje.
+//
+// DE OUDE PLATTE VELDEN worden één keer omgezet (vglMigreerPlat). Ze gaan
+// allemaal als archief naar perModus.v8n.voorV1126, met een label, en tellen
+// nooit meer mee. Het is niet te repareren: welk paar bij welke motor hoorde
+// is nergens bewaard. Ook de D-FINE-velden gaan mee het archief in, al hadden
+// die eigen namen: hun A is het hoofdpad, en dat wisselde op 19 september van
+// model (2aa04b9, YOLOv8s naar YOLOv8n). Van geen enkele D-FINE-rit is bewaard
+// of hij daarvoor of daarna viel, dus ook die B/A is een mengsel.
+const VGL_ARCHIEF_LABEL = 'gemengd, vóór V11.26';
+const VGL_DFINE_VELDEN = ['nC', 'somMsC', 'maxMsC', 'detC', 'nAC', 'somMsAC', 'maxMsAC'];
+
+// Vult ontbrekende velden aan; bestaande waarden blijven staan. Zo valt een
+// emmer die half is opgeslagen, of uit een latere versie komt, niet om.
+function vglVulEmmer(e, modus) {
+  const x = (e && typeof e === 'object') ? e : {};
+  const nul = {
+    start: null, n: 0,
+    somMsA: 0, somMsB: 0, maxMsA: 0, maxMsB: 0,
+    eens: 0, oneens: 0,
+    motor: null, motorProvider: null, motorThreads: null,
+    motorFouten: 0, motorFout: null, motorFoutBijFrame: null
+  };
+  for (const k in nul) if (x[k] === undefined) x[k] = nul[k];
+  // matrix[klasseA + '>' + klasseB] = aantal; -1 = niets gedetecteerd
+  if (!x.matrix || typeof x.matrix !== 'object') x.matrix = {};
+  // alleen de laatste N gevallen waarin ze het oneens waren
+  if (!Array.isArray(x.voorbeelden)) x.voorbeelden = [];
+  // V11.18.14: D-FINE telt ongepaard. nAC/somMsAC is het HOOFDmodel in
+  // diezelfde rit — de A van deze emmer.
+  if (modus === 'dfine') {
+    for (const k of VGL_DFINE_VELDEN) if (typeof x[k] !== 'number') x[k] = 0;
+  }
+  return x;
+}
+
+// De platte vorm van V11.18.8 t/m V11.25.0 naar emmers. Puur: schrijft niets.
+function vglMigreerPlat(oud) {
+  const st = { schema: 2, perModus: {} };
+  for (const m of MODELVGL_MODI) st.perModus[m] = vglVulEmmer(null, m);
+  // Alles gaat ongewijzigd het archief in — ook motorFout en
+  // motorFoutBijFrame, want ook van die twee is niet meer te zeggen bij welke
+  // stand ze hoorden. Een lege oude opslag levert geen leeg archief op.
+  if (oud.n || oud.nC || oud.nAC || oud.motor || oud.motorFout) {
+    const archief = { label: VGL_ARCHIEF_LABEL };
+    for (const k of Object.keys(oud)) archief[k] = oud[k];
+    st.perModus.v8n.voorV1126 = archief;
+  }
+  return st;
+}
+
+// Elke vorm naar de huidige. Ook puur, zodat het overzicht hem kan gebruiken
+// zonder dat het openen van een scherm iets naar de opslag schrijft.
+function vglNormaliseer(ruw) {
+  if (!ruw || typeof ruw !== 'object') return vglMigreerPlat({});
+  if (!ruw.perModus || typeof ruw.perModus !== 'object') return vglMigreerPlat(ruw);
+  for (const m of MODELVGL_MODI) ruw.perModus[m] = vglVulEmmer(ruw.perModus[m], m);
+  ruw.schema = 2;
+  return ruw;
+}
 
 function vglStatLaad() {
   if (vglStat) return vglStat;
-  try { vglStat = JSON.parse(localStorage.getItem('sl_modelvgl')); } catch (e) { vglStat = null; }
-  if (!vglStat || typeof vglStat !== 'object') {
-    vglStat = {
-      start: Date.now(), n: 0,
-      somMsA: 0, somMsB: 0, maxMsA: 0, maxMsB: 0,
-      eens: 0, oneens: 0,
-      // matrix[klasseA + '>' + klasseB] = aantal; -1 = niets gedetecteerd
-      matrix: {},
-      // alleen de laatste N gevallen waarin ze het oneens waren
-      voorbeelden: []
-    };
-  }
-  // V11.18.14: velden van het derde model. Apart bijgehouden en apart geteld,
-  // want ze horen bij een andere rit dan de A/B-paren hierboven. nAC/somMsAC is
-  // het HOOFDmodel gemeten in diezelfde D-FINE-rit: zonder die referentie uit
-  // dezelfde sessie zou C vergeleken worden met een gemiddelde van een andere
-  // dag, ander weer en een andere accustand.
-  if (vglStat.nC == null) {
-    vglStat.nC = 0;  vglStat.somMsC = 0;  vglStat.maxMsC = 0;  vglStat.detC = 0;
-    vglStat.nAC = 0; vglStat.somMsAC = 0; vglStat.maxMsAC = 0;
-  }
+  let ruw = null;
+  try { ruw = JSON.parse(localStorage.getItem('sl_modelvgl')); } catch (e) { ruw = null; }
+  const plat = !!(ruw && typeof ruw === 'object' && !ruw.perModus);
+  vglStat = vglNormaliseer(ruw);
+  // De omzetting meteen vastleggen. Anders gebeurt hij bij elke laadbeurt
+  // opnieuw, tot er toevallig een tiende paar valt.
+  if (plat) vglStatBewaar();
   return vglStat;
+}
+
+// De emmer van een stand. Een onbekende naam valt terug op de stand van deze
+// sessie, net als MODELVGL_MODEL zelf — nooit op een nieuwe, losse emmer.
+function vglEmmer(modus) {
+  const st = vglStatLaad();
+  const m = MODELVGL_MODI.indexOf(modus) >= 0 ? modus : MODELVGL_MODEL;
+  const e = st.perModus[m];
+  if (!e.start) e.start = Date.now();
+  return e;
+}
+
+// ── V11.26.0: OPEN FRAMES BLIJVEN BEGRENSD ───────────────────
+// Het hoofdpad zet ELK frame in vglOpenA, maar de schaduw krijgt er alleen
+// een als hij vrij is (voerAIUit: `&& !vglBezig`). vglKoppel ruimde alleen op
+// bij een geslaagd paar, dus elk overgeslagen frame bleef liggen. Het ergst in
+// precies het geval dat ertoe doet: start de motor niet, dan gaat er nul naar
+// B en groeit vglOpenA een rit lang met een regel per frame.
+//
+// vglNaarB onthoudt welke frames WEL naar de schaduw gingen. Alleen voor die
+// frames komt er ooit een B. Een A die daar niet in staat, wordt meteen
+// weggegooid. VGL_OPEN_MAX is het vangnet voor wat daarna nog overblijft —
+// een schaduw die blijft hangen, of een hoofdframe dat faalt terwijl B al
+// antwoordde. Normaal staat er hoogstens één frame open.
+let vglNaarB = new Set();
+const VGL_OPEN_MAX = 16;
+// Wat de schaduw in DEZE stand haalde, vanaf nul bij het starten. Dat is het
+// getal van issue 27584 ("crash after around 500 inference"), en het is iets
+// anders dan de n van de emmer, die over alle ritten in die stand optelt.
+let vglFramesDezeStand = 0;
+
+function vglSnoei() {
+  for (const m of [vglOpenA, vglOpenB, vglNaarB]) {
+    while (m.size > VGL_OPEN_MAX) m.delete(m.keys().next().value);
+  }
+}
+
+// Een frame waarvoor de schaduw een fout gaf: er komt nooit een paar meer.
+function vglVergeetFrame(frameId) {
+  vglNaarB.delete(frameId); vglOpenA.delete(frameId); vglOpenB.delete(frameId);
 }
 
 // ── V11.18.14: DE UITKOMST VAN D-FINE NAAR HET GEDEELDE FORMAAT ──
@@ -9657,6 +9782,15 @@ self.onmessage=function(e){
 // bestaande A/B-koppeling (vglKoppel) zinvol blijft: verschilt de gekozen
 // klasse, dan ligt dat aan de motor en niet aan een ander model.
 //
+// V11.26.0: CORRECTIE. Niet hetzelfde model als het hoofdpad: startVglWorker
+// laadt voor elke stand behalve dfine ./model/model.onnx, en het hoofdpad
+// ./model.onnx. Dat zijn sinds 19 september twee nano's van gelijke grootte,
+// maar met een andere training. Voor de SNELHEID maakt dat weinig uit, en
+// het vergelijkingspunt klopt wel: ort130 en webgpu draaien precies het
+// B-bestand van de stand v8n. Hun B/A tegen die van v8n afzetten isoleert dus
+// de motor. Voor 'zelfde uitkomst' geldt dat niet — daar zitten motor en
+// training door elkaar.
+//
 // Let op de bundelkeuze bij webgpu: sinds 1.19 zit WebGPU in de algemene
 // bundel, en die trekt een ander wasm-bestand aan — 5,2 MB over de lijn in
 // plaats van 2,9 MB. Voor een meetmodus achter vijf tikken is dat acceptabel;
@@ -9675,44 +9809,49 @@ const VGL_MOTOREN = {
 // los van de snelheidscijfers omdat ze ook iets zeggen als er NUL frames zijn
 // gehaald — dan is "de sessie ging niet open, en dit was de reden" de uitkomst.
 function vglNoteerMotor(modus, provider, threads) {
-  const st = vglStatLaad();
   // De modus komt van de AANROEPER, niet van MODELVGL_MODEL. Die constante
   // staat vast bij het laden, en wie hem hier zou lezen legt de modus van de
   // SESSIE vast in plaats van de motor die daadwerkelijk draaide.
-  st.motor = modus;
-  if (provider) st.motorProvider = provider;
-  if (threads != null) st.motorThreads = threads;
+  // V11.26.0: en de modus kiest nu ook de emmer.
+  const e = vglEmmer(modus);
+  e.motor = modus;
+  if (provider) e.motorProvider = provider;
+  if (threads != null) e.motorThreads = threads;
   vglStatBewaar();
 }
 
 // Alleen de EERSTE fout bewaren, plus een teller. De eerste zegt waarom het
-// misging; de rest is ruis van hetzelfde. En als de schaduw pas na honderden
-// frames omvalt — het patroon uit issue 27584 — dan is st.n op dat moment
-// precies het aantal dat hij wél haalde.
+// misging; de rest is ruis van hetzelfde.
+// V11.26.0: motorFoutBijFrame is het aantal frames dat de schaduw in DEZE
+// stand haalde vóór die eerste fout — vanaf nul bij het starten. Het las
+// eerst st.n af, en die liep over alle standen en alle ritten door. Een
+// init-fout staat daardoor nu op 0, en dat is ook waar hij viel.
 function vglNoteerMotorFout(modus, bericht) {
-  const st = vglStatLaad();
-  st.motor = modus;
-  st.motorFouten = (st.motorFouten || 0) + 1;
-  if (!st.motorFout) st.motorFout = String(bericht || 'onbekend').slice(0, 160);
-  if (st.motorFoutBijFrame == null) st.motorFoutBijFrame = st.n || 0;
+  const e = vglEmmer(modus);
+  e.motor = modus;
+  e.motorFouten = (e.motorFouten || 0) + 1;
+  if (!e.motorFout) {
+    e.motorFout = String(bericht || 'onbekend').slice(0, 160);
+    e.motorFoutBijFrame = vglFramesDezeStand;
+  }
   vglStatBewaar();
 }
 
 function vglNoteerC(ms, aantalDetecties) {
-  const st = vglStatLaad();
-  st.nC++;
-  st.somMsC += ms;
-  if (ms > st.maxMsC) st.maxMsC = ms;
-  st.detC += aantalDetecties;
-  if (st.nC % 10 === 0) vglStatBewaar();
+  const e = vglEmmer('dfine');
+  e.nC++;
+  e.somMsC += ms;
+  if (ms > e.maxMsC) e.maxMsC = ms;
+  e.detC += aantalDetecties;
+  if (e.nC % 10 === 0) vglStatBewaar();
 }
 
 // Het hoofdmodel, gemeten in dezelfde D-FINE-rit.
 function vglNoteerHoofdInDfine(ms) {
-  const st = vglStatLaad();
-  st.nAC++;
-  st.somMsAC += ms;
-  if (ms > st.maxMsAC) st.maxMsAC = ms;
+  const e = vglEmmer('dfine');
+  e.nAC++;
+  e.somMsAC += ms;
+  if (ms > e.maxMsAC) e.maxMsAC = ms;
 }
 
 function vglStatBewaar() {
@@ -9743,10 +9882,19 @@ function vglPostprocessVeilig(data, dims) {
 }
 
 function vglKoppel(frameId) {
-  if (!vglOpenA.has(frameId) || !vglOpenB.has(frameId)) return;
   const a = vglOpenA.get(frameId), b = vglOpenB.get(frameId);
-  vglOpenA.delete(frameId); vglOpenB.delete(frameId);
-  const st = vglStatLaad();
+  if (!a || !b) {
+    // V11.26.0: een A voor een frame dat nooit naar de schaduw ging, wacht op
+    // een B die niet komt. Meteen weg, anders is dit het lek.
+    if (a && !vglNaarB.has(frameId)) vglOpenA.delete(frameId);
+    vglSnoei();
+    return;
+  }
+  vglOpenA.delete(frameId); vglOpenB.delete(frameId); vglNaarB.delete(frameId);
+  // V11.26.0: de emmer volgt de stand van B — B is wat er per stand verschilt.
+  // Het hoofdpad roept deze functie aan zonder modus, en hoeft er dus niets
+  // van te weten.
+  const st = vglEmmer(b.modus);
   st.n++;
   st.somMsA += a.ms; st.somMsB += b.ms;
   if (a.ms > st.maxMsA) st.maxMsA = a.ms;
@@ -9771,20 +9919,58 @@ function vglKoppel(frameId) {
   if (st.n % 10 === 0) vglStatBewaar();
 }
 
+// B/A van een emmer, of null als er niets te delen valt. Eén plek, zodat de
+// console en het scherm nooit een andere verhouding kunnen tonen.
+function vglBA(e, modus) {
+  if (modus === 'dfine') {
+    if (!e.nC || !e.nAC) return null;
+    return (e.somMsC / e.nC) / Math.max(1, e.somMsAC / e.nAC);
+  }
+  if (!e.n) return null;
+  return (e.somMsB / e.n) / Math.max(1, e.somMsA / e.n);
+}
+
+// Is er in welke vorm dan ook iets vastgelegd — ook een motor die alleen een
+// fout meldde, of alleen het archief?
+function vglIetsGemeten(st) {
+  return MODELVGL_MODI.some(m => {
+    const e = st.perModus[m];
+    return e.n || e.nC || e.nAC || e.motorProvider || e.motorFout;
+  }) || !!st.perModus.v8n.voorV1126;
+}
+
 // Leesbare samenvatting voor in de console na een rit.
+// V11.26.0: per stand, met B/A. Het oude "A (v8s, 42,7MB)" beschreef een
+// model dat sinds 19 september niet meer in de repo staat.
 function modelVergelijking() {
   const st = vglStatLaad();
-  if (!st.n) return 'nog geen vergelijkingen — staat de testmodus aan?';
+  if (!vglIetsGemeten(st)) return 'nog geen vergelijkingen — staat de testmodus aan?';
   const r = (x) => Math.round(x * 10) / 10;
-  const regels = [
-    'frames vergeleken : ' + st.n,
-    'A (v8s, 42,7MB)   : gem ' + r(st.somMsA / st.n) + ' ms   piek ' + st.maxMsA + ' ms',
-    'B (v8n, 11,7MB)   : gem ' + r(st.somMsB / st.n) + ' ms   piek ' + st.maxMsB + ' ms',
-    'versnelling       : ' + r((st.somMsA / st.n) / Math.max(1, st.somMsB / st.n)) + 'x',
-    'zelfde klasse     : ' + st.eens + ' (' + Math.round(100 * st.eens / st.n) + '%)',
-    'verschillend      : ' + st.oneens + ' (' + Math.round(100 * st.oneens / st.n) + '%)',
-    'verdeling A>B     : ' + JSON.stringify(st.matrix)
-  ];
+  const r2 = (x) => Math.round(x * 100) / 100;
+  const regels = [];
+  for (const m of MODELVGL_MODI) {
+    const e = st.perModus[m], ba = vglBA(e, m);
+    const kop = (m + '        ').slice(0, 8) + ': ';
+    if (m === 'dfine') {
+      regels.push(kop + (e.nC
+        ? e.nC + ' frames  A ' + (e.nAC ? r(e.somMsAC / e.nAC) : '—') + ' ms  B ' + r(e.somMsC / e.nC)
+          + ' ms  B/A ' + (ba == null ? '—' : r2(ba))
+        : 'nog niet gemeten'));
+      continue;
+    }
+    regels.push(kop + (e.n
+      ? e.n + ' paren  A ' + r(e.somMsA / e.n) + ' ms  B ' + r(e.somMsB / e.n) + ' ms  B/A '
+        + r2(ba) + '  zelfde klasse ' + Math.round(100 * e.eens / e.n) + '%'
+      : 'nog niet gemeten'));
+    if (e.motorFout) {
+      regels.push('          ' + (String(e.motorFout).indexOf('init: ') === 0 ? 'niet gestart: '
+        : 'eerste fout na ' + e.motorFoutBijFrame + ' frames: ') + e.motorFout);
+    }
+  }
+  const arch = st.perModus.v8n.voorV1126;
+  if (arch) regels.push('archief : ' + (arch.n || 0) + ' paren' + (arch.nC ? ' + ' + arch.nC + ' D-FINE' : '')
+                        + ', ' + arch.label + ' — telt niet mee');
+  regels.push('regel   : vergelijk standen alleen op B/A, nooit op ruwe ms');
   return regels.join('\n');
 }
 if (typeof window !== 'undefined') window.modelVergelijking = modelVergelijking;
@@ -9850,47 +10036,79 @@ function mvWerkIndicatorBij() {
 // V11.18.14: drie modellen, twee soorten meting. De A/B-blokken tellen alleen
 // als er paren zijn; het C-blok alleen als D-FINE ooit gedraaid heeft. Zo staat
 // er na een enkele rit precies wat gemeten is en niets meer.
+// V11.26.0: alle vier de standen onder elkaar, elk uit zijn eigen emmer, en
+// "— nog niet gemeten —" waar niets staat. Bovenaan de vaste regel dat
+// standen alleen op B/A te vergelijken zijn. Het oude "Model A (groot, 42MB)"
+// is weg: dat model staat sinds 19 september niet meer in de repo. En de
+// regel "Sneller: X×" is weg, omdat hij in de stand v8n twee modellen van
+// gelijke grootte op dezelfde motor tegen elkaar zette en dat een
+// versnelling noemde. Eén verhouding, overal dezelfde richting: B/A.
 function mvSamenvattingTekst() {
-  let st = null;
-  try { st = JSON.parse(localStorage.getItem('sl_modelvgl')); } catch (e) { st = null; }
-  if (!st || (!st.n && !st.nC)) return 'Nog geen data — rijd eerst een rit';
-  const r1 = (x) => (Math.round(x * 10) / 10).toString().replace('.', ',');
+  let ruw = null;
+  try { ruw = JSON.parse(localStorage.getItem('sl_modelvgl')); } catch (e) { ruw = null; }
+  const st = vglNormaliseer(ruw);
+  const r2 = (x) => (Math.round(x * 100) / 100).toFixed(2).replace('.', ',');
   const uit = [];
   uit.push('Nu aan het meten: ' + mvModusNaam(MODELVGL_MODEL));
-  // V11.25.0: bij een motorproef staat het belangrijkste bovenaan — draaide hij,
-  // op welke provider, en zo nee waarom niet. Dat is de uitkomst, ook (juist)
-  // als er nul frames zijn gehaald.
-  if (st.motor && VGL_MOTOREN[st.motor]) {
-    uit.push('  motor: ' + (st.motorProvider || '—')
-             + (st.motorThreads ? ' (' + st.motorThreads + ' thread)' : ''));
-    if (st.motorFout) {
-      uit.push('  NIET GESTART: ' + st.motorFout);
-      if (st.motorFoutBijFrame != null) uit.push('  na ' + st.motorFoutBijFrame + ' frames');
-    }
-    if (st.motorFouten) uit.push('  fouten tijdens de rit: ' + st.motorFouten);
-  }
-  if (st.n) {
-    const gemA = st.somMsA / st.n, gemB = st.somMsB / st.n;
+  if (!vglIetsGemeten(st)) uit.push('Nog geen data — rijd eerst een rit');
+  uit.push('');
+  uit.push('VASTE REGEL: vergelijk standen alleen');
+  uit.push('op B/A, nooit op ruwe ms. Elke stand');
+  uit.push('is op een andere rit gemeten.');
+  uit.push('A = hoofdpad (model.onnx, 12 MB)');
+  for (const m of MODELVGL_MODI) {
+    const e = st.perModus[m], ba = vglBA(e, m);
     uit.push('');
-    uit.push('Frames vergeleken: ' + st.n);
-    uit.push('Model A (groot, 42MB): gem ' + Math.round(gemA) + 'ms');
-    uit.push('Model B (klein, 12MB): gem ' + Math.round(gemB) + 'ms');
-    uit.push('Sneller: ' + r1(gemA / Math.max(1, gemB)) + '×');
-    uit.push('Zelfde uitkomst: ' + Math.round(100 * st.eens / st.n) + '%');
-    uit.push('Verschillend: ' + Math.round(100 * st.oneens / st.n) + '%');
-  }
-  if (st.nC) {
-    const gemC = st.somMsC / st.nC;
-    uit.push('');
-    uit.push('Frames met D-FINE: ' + st.nC);
-    if (st.nAC) uit.push('Model A (groot, 42MB): gem ' + Math.round(st.somMsAC / st.nAC) + 'ms');
-    uit.push('Model C (D-FINE-N, 15MB): gem ' + Math.round(gemC) + 'ms   piek ' + st.maxMsC + 'ms');
-    if (st.nAC) {
-      uit.push('C is ' + r1((st.somMsAC / st.nAC) / Math.max(1, gemC)) + '× sneller dan A');
+    uit.push('── ' + mvModusNaam(m) + (m === MODELVGL_MODEL ? ' · nu' : '') + ' ──');
+    // V11.25.0: bij een motorproef staat het belangrijkste bovenaan — draaide
+    // hij, op welke provider, en zo nee waarom niet. Dat is de uitkomst, ook
+    // (juist) als er nul frames zijn gehaald.
+    if (VGL_MOTOREN[m] && (e.motorProvider || e.motorFout)) {
+      uit.push('motor: ' + (e.motorProvider || '—')
+               + (e.motorThreads ? ' (' + e.motorThreads + ' thread)' : ''));
+      if (e.motorFout) {
+        // V11.26.0: "NIET GESTART" alleen als hij ook echt niet startte. Een
+        // fout na honderd frames is een andere uitkomst, en precies de vraag
+        // van issue 27584.
+        if (String(e.motorFout).indexOf('init: ') === 0) uit.push('NIET GESTART: ' + e.motorFout);
+        else uit.push('eerste fout na ' + e.motorFoutBijFrame + ' frames: ' + e.motorFout);
+      }
+      if (e.motorFouten) uit.push('fouten: ' + e.motorFouten);
     }
-    uit.push('Alleen SNELHEID — dit model is op COCO getraind');
-    uit.push('en kent rood/groen/uit/oranje niet. Een');
-    uit.push('uitkomst-percentage zou hier niets betekenen.');
+    if (m === 'dfine') {
+      if (!e.nC) { uit.push('— nog niet gemeten —'); continue; }
+      uit.push('Frames met D-FINE: ' + e.nC);
+      if (e.nAC) uit.push('A hoofdpad: gem ' + Math.round(e.somMsAC / e.nAC) + 'ms');
+      uit.push('B D-FINE-N (15 MB): gem ' + Math.round(e.somMsC / e.nC) + 'ms, piek ' + e.maxMsC + 'ms');
+      if (ba != null) uit.push('B/A: ' + r2(ba));
+      uit.push('Alleen SNELHEID — dit model is op COCO getraind');
+      uit.push('en kent rood/groen/uit/oranje niet. Een');
+      uit.push('uitkomst-percentage zou hier niets betekenen.');
+      continue;
+    }
+    if (!e.n) { uit.push('— nog niet gemeten —'); continue; }
+    uit.push('Frames vergeleken: ' + e.n);
+    uit.push('A hoofdpad: gem ' + Math.round(e.somMsA / e.n) + 'ms');
+    uit.push('B schaduw: gem ' + Math.round(e.somMsB / e.n) + 'ms');
+    uit.push('B/A: ' + r2(ba));
+    uit.push('Zelfde uitkomst: ' + Math.round(100 * e.eens / e.n) + '%');
+    uit.push('Verschillend: ' + Math.round(100 * e.oneens / e.n) + '%');
+    if (m === 'v8n') {
+      uit.push('Controle: twee modellen van gelijke');
+      uit.push('grootte op dezelfde motor. B/A hoort');
+      uit.push('rond 1 te liggen en is de maatstaf');
+      uit.push('voor ORT 1.30 en WebGPU.');
+    }
+  }
+  const arch = st.perModus.v8n.voorV1126;
+  if (arch) {
+    uit.push('');
+    uit.push('Archief (' + arch.label + '):');
+    uit.push((arch.n || 0) + ' paren'
+             + (arch.nC ? ' en ' + arch.nC + ' D-FINE-frames' : ''));
+    uit.push('telt niet mee. A was tot 19 sept');
+    uit.push('YOLOv8s; v8n, ORT 1.30 en WebGPU');
+    uit.push('staan erin door elkaar.');
   }
   return uit.join('\n');
 }
@@ -9980,15 +10198,37 @@ if (typeof window !== 'undefined') {
 
 function startVglWorker() {
   if (!MODELVGL_AAN) return;
+  vglStartSchaduw(MODELVGL_MODEL);
+}
+
+// ── V11.26.0: DE SCHADUW STILLEGGEN, EN NIET WEES LATEN ─────
+// Drie paden zetten vglWorker op null ZONDER terminate(): onerror, de
+// .catch van de fetch-keten en de buitenste catch. De variabele was dan weg,
+// maar de worker draaide door met zijn hele wasm-heap. Alleen het pad na vijf
+// fouten deed het goed. Nu lopen ze alle vier hierlangs.
+//
+// Ook de open frames gaan mee: zonder schaduw komt er voor geen enkel
+// openstaand frame nog een B.
+function vglLegStil() {
+  const w = vglWorker;
+  vglWorker = null; vglWorkerKlaar = false; vglBezig = false;
+  vglOpenA.clear(); vglOpenB.clear(); vglNaarB.clear();
+  if (w) { try { w.terminate(); } catch (_) {} }
+}
+
+// De stand komt binnen als argument, zodat de emmer die B vult vastligt bij
+// het starten en een test een stand kan starten zonder te herladen.
+function vglStartSchaduw(modus) {
   // V11.18.14: welk tweede model deze rit draait. De rest van deze functie is
   // ongewijzigd; alleen het pad, de workercode en de verwerking van het
   // resultaat hangen van de modus af.
-  const dfine = (MODELVGL_MODEL === 'dfine');
+  const dfine = (modus === 'dfine');
   // V11.25.0: een motorvariant draait HETZELFDE model, maar op een andere
   // bibliotheek of provider. Model en verwerking zijn dus die van de v8n-tak;
   // alleen de workercode verschilt.
-  const motor = VGL_MOTOREN[MODELVGL_MODEL] || null;
+  const motor = VGL_MOTOREN[modus] || null;
   const modelPad = dfine ? './model/dfine-n.onnx' : './model/model.onnx';
+  vglFramesDezeStand = 0; vglFouten = 0;
   try {
     fetch(modelPad).then(r => r.arrayBuffer()).then(buf => {
       const bron = dfine ? DFINE_WORKER_CODE
@@ -10003,40 +10243,47 @@ function startVglWorker() {
           vglWorkerKlaar = true;
           // V11.25.0: vastleggen WAT er draait. Zonder dit zou een schaduw die
           // stilletjes op iets anders uitkwam als geslaagde meting tellen.
-          if (motor) { try { vglNoteerMotor(MODELVGL_MODEL, msg.provider, msg.threads); } catch (_) {} }
+          if (motor) { try { vglNoteerMotor(modus, msg.provider, msg.threads); } catch (_) {} }
           return;
         }
         if (msg.type === 'fout') {
           vglBezig = false;
+          // V11.26.0: voor dit frame komt er geen B meer; zijn A mag weg.
+          if (msg.frameId != null) vglVergeetFrame(msg.frameId);
           // V11.25.0: de reden van de EERSTE fout bewaren. Bij een motorproef is
           // juist die reden het antwoord: 'geen WebGPU op dit toestel' is een
           // uitkomst, geen storing.
-          if (motor) { try { vglNoteerMotorFout(MODELVGL_MODEL, msg.bericht); } catch (_) {} }
-          if (++vglFouten >= 5) { try { vglWorker.terminate(); } catch (_) {} vglWorker = null; vglWorkerKlaar = false; }
+          if (motor) { try { vglNoteerMotorFout(modus, msg.bericht); } catch (_) {} }
+          if (++vglFouten >= 5) vglLegStil();
           return;
         }
         if (msg.type === 'resultaat') {
           const ms = Date.now() - vglStartTijd;
           vglBezig = false;
+          vglFramesDezeStand++;
           try {
             if (dfine) {
               // Alleen tellen. De klassen van dit model zijn COCO-klassen en
               // zeggen niets over stoplichten; de tijd zegt alles.
               const d = postprocessDfine(msg.logits, msg.logitsDims, msg.boxes);
               vglNoteerC(ms, d.length);
+              // V11.26.0: D-FINE paart niet, dus vglKoppel ruimt dit frame
+              // nooit op. Zonder deze regel zou vglNaarB hier zelf gaan lekken.
+              vglNaarB.delete(msg.frameId);
             } else {
               const best = vglBeste(vglPostprocessVeilig(msg.data, msg.dims));
-              vglOpenB.set(msg.frameId, { ms, kl: best.kl, cf: best.cf, n: best.n });
+              // V11.26.0: B draagt zijn stand mee; vglKoppel kiest daarop de emmer.
+              vglOpenB.set(msg.frameId, { ms, kl: best.kl, cf: best.cf, n: best.n, modus });
               vglKoppel(msg.frameId);
             }
           } catch (_) {}
         }
       };
-      vglWorker.onerror = function () { vglWorker = null; vglWorkerKlaar = false; vglBezig = false; };
+      vglWorker.onerror = function () { vglLegStil(); };
       vglWorker.postMessage({ type: 'initialiseer', modelBuffer: buf }, [buf]);
       URL.revokeObjectURL(url);
-    }).catch(() => { vglWorker = null; });
-  } catch (e) { vglWorker = null; }
+    }).catch(() => { vglLegStil(); });
+  } catch (e) { vglLegStil(); }
 }
 
 async function voerAIUit() {
@@ -10062,6 +10309,7 @@ async function voerAIUit() {
             type:'inferentie', pixelData:vglKopie,
             breedte:YOLO_SIZE, hoogte:YOLO_SIZE, frameId:frameT
           }, [vglKopie.buffer]);
+          vglNaarB.add(frameT);   // V11.26.0: alleen voor dit frame komt er een B
         } catch (_) { vglBezig = false; }
       }
       yoloWorker._startTijd = Date.now();

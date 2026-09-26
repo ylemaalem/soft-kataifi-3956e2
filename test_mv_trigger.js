@@ -115,17 +115,19 @@ function testMvTrigger() {
         document.getElementById('mv-inhoud').textContent.slice(0, 40));
 
     // met data: de zes regels uit de opdracht
-    localStorage.setItem('sl_modelvgl', JSON.stringify({
+    // V11.26.0: per emmer, en met B/A in plaats van "Sneller" — het oude
+    // "Model A (groot, 42MB)" beschreef een model dat er niet meer is.
+    localStorage.setItem('sl_modelvgl', JSON.stringify({ schema: 2, perModus: { v8n: {
       start: Date.now(), n: 412, somMsA: 412 * 1066, somMsB: 412 * 331,
       maxMsA: 1420, maxMsB: 480, eens: 391, oneens: 21, matrix: {}, voorbeelden: []
-    }));
+    } } }));
     mvToonOverlay();
     const tekst = document.getElementById('mv-inhoud').textContent;
     eis('T2d met data staan alle zes de regels er',
         tekst.includes('Frames vergeleken: 412')
-        && tekst.includes('Model A (groot, 42MB): gem 1066ms')
-        && tekst.includes('Model B (klein, 12MB): gem 331ms')
-        && tekst.includes('Sneller: 3,2×')
+        && tekst.includes('A hoofdpad: gem 1066ms')
+        && tekst.includes('B schaduw: gem 331ms')
+        && tekst.includes('B/A: 0,31')
         && tekst.includes('Zelfde uitkomst: 95%')
         && tekst.includes('Verschillend: 5%'),
         'zes regels met de juiste cijfers', tekst.replace(/\n/g, ' | '));
