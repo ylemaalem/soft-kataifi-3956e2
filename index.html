@@ -1046,7 +1046,7 @@ if (typeof ort !== 'undefined') {
 //
 // De stijl volgt de eerdere labels: nummer, kastlijntje, korte omschrijving in
 // kleine letters. De CSS zet hem zelf in kapitalen (text-transform:uppercase).
-const APP_VERSIE = 'V11.22.0 — sleutelscan uit het geheugen';
+const APP_VERSIE = 'V11.23.0 — export door de opslaglaag';
 
 // ── CONSTANTEN ────────────────────────────────────────────────
 const OSM_RADIUS       = 5000;
@@ -3055,14 +3055,10 @@ function saneerS2Nullen() {
 
 function laadAlleGeleerdePosities() {
   const posities = [];
-  for (let i = 0; i < localStorage.length; i++) {
-    const k = localStorage.key(i);
-    if (!k || !k.startsWith('sl_pos_')) continue;
+  for (const k of opslagSleutels('sl_pos_')) {   // V11.23.0: via de opslaglaag
     const nodeId = k.replace('sl_pos_', '');
-    try {
-      const p = JSON.parse(localStorage.getItem(k));
-      if (p && p.lat && p.lon) posities.push({ nodeId, lat: p.lat, lon: p.lon, tijd: p.tijd, bron: p.bron });
-    } catch(e) {}
+    const p = opslagLees(k);
+    if (p && p.lat && p.lon) posities.push({ nodeId, lat: p.lat, lon: p.lon, tijd: p.tijd, bron: p.bron });
   }
   return posities;
 }
@@ -3249,9 +3245,8 @@ function slaRouteSequentieOp(buffer) {
 }
 
 function nodeIsInBekendeRoute(nodeId) {
-  for (let i = 0; i < localStorage.length; i++) {
-    const k = localStorage.key(i);
-    if (k && k.startsWith('sl_route_') && k.includes(nodeId)) return true;
+  for (const k of opslagSleutels('sl_route_')) {   // V11.23.0: via de opslaglaag
+    if (k.includes(nodeId)) return true;
   }
   return false;
 }
@@ -3262,20 +3257,19 @@ function vindRouteDataVoorNode(nodeId, lsIndex = null) {
   // sl_route_-sleutels waar deze nodeId in zit — geen full localStorage-scan.
   const routeKeys = lsIndex
     ? (lsIndex.get(String(nodeId))?.routeKeys ?? [])
-    : null;
-  const scanLen = routeKeys ? routeKeys.length : localStorage.length;
-  for (let i = 0; i < scanLen; i++) {
-    const k = routeKeys ? routeKeys[i] : localStorage.key(i);
+    : opslagSleutels('sl_route_');           // V11.23.0: via de opslaglaag
+  for (let i = 0; i < routeKeys.length; i++) {
+    const k = routeKeys[i];
     if (!k || !k.startsWith('sl_route_')) continue;
     if (!k.includes(nodeId)) continue;
-    try {
-      const data = JSON.parse(localStorage.getItem(k));
-      if (data && data.length > 0) {
-        const gemTotaal = data.reduce((s, x) => s + x.totaal, 0) / data.length;
-        gevonden = { sleutel: k, observaties: data.length, gemTotaal: Math.round(gemTotaal) };
-        break;
-      }
-    } catch(e) {}
+    // opslagLees vangt een onleesbare waarde zelf af en geeft dan null terug,
+    // dus de oude try/catch om de JSON.parse heen is hier overbodig geworden.
+    const data = opslagLees(k);
+    if (data && data.length > 0) {
+      const gemTotaal = data.reduce((s, x) => s + x.totaal, 0) / data.length;
+      gevonden = { sleutel: k, observaties: data.length, gemTotaal: Math.round(gemTotaal) };
+      break;
+    }
   }
   return gevonden;
 }
@@ -5058,9 +5052,9 @@ function telSchaduwLog() {
 // W5: totaal aantal passieve metingen over alle nodes.
 function telPassiefMetingen() {
   let n = 0;
-  for (const key of Object.keys(localStorage)) {
-    if (!key.startsWith('sl_passief_')) continue;
-    try { const arr = JSON.parse(localStorage.getItem(key)); if (Array.isArray(arr)) n += arr.length; } catch(e) {}
+  for (const key of opslagSleutels('sl_passief_')) {   // V11.23.0: via de opslaglaag
+    const arr = opslagLees(key);
+    if (Array.isArray(arr)) n += arr.length;
   }
   return n;
 }
@@ -5130,7 +5124,7 @@ function exporteerMeetdata() {
                     // op dit bestand miste daardoor de richtingdataset. sl_pos_
                     // blijft er bewust uit: 942 KB positiecache tegen 8 KB V5.
                     v5:{}, richtingdata:{}, route:{}, tag:{}, v10:{}, neutraal:{}, enkelricht:{}, conflog:{}, zicht:{}, det:{} };
-      for (const key of Object.keys(localStorage)) {
+      for (const key of opslagSleutels('')) {                          // V11.23.0
         let doel = null;
         if (key.startsWith('sl_passief_'))       doel = uit.passief;
         else if (key.startsWith('sl_bevestig_')) doel = uit.bevestig;
@@ -5156,8 +5150,10 @@ function exporteerMeetdata() {
         else if (key.startsWith('sl_enkelricht_')) doel = uit.enkelricht;
         else if (key.startsWith('sl_v4_'))       doel = uit.leer;
         if (!doel) continue;
-        try { doel[key] = JSON.parse(localStorage.getItem(key)); }
-        catch(e) { doel[key] = localStorage.getItem(key); }
+        const ruw = opslagLeesRuw(key);
+        if (ruw === null) continue;
+        try { doel[key] = JSON.parse(ruw); }
+        catch(e) { doel[key] = ruw; }
       }
       const jsonString = JSON.stringify(uit);
       const d = new Date();
@@ -5165,17 +5161,20 @@ function exporteerMeetdata() {
       const bestandsnaam = `stoplichtiq_meetdata_${datum}.json`;
 
       // V11.17.14: tweede export — alleen sleutelnaam + grootte in KB, geen inhoud.
-      const opslagSleutels = [];
-      for (let i = 0; i < localStorage.length; i++) {
-        const k = localStorage.key(i);
-        const kb = Math.round(new Blob([localStorage.getItem(k)]).size / 1024 * 10) / 10;
-        opslagSleutels.push({ sleutel: k, kb });
+      // V11.23.0: hernoemd van `opslagSleutels` naar `opslagSleutelLijst`. De
+      // oude naam schermde sinds V11.22.0 de gelijknamige globale functie af
+      // binnen deze hele functie - en omdat het een const is, zou een aanroep
+      // bovenin een ReferenceError geven in plaats van te werken.
+      const opslagSleutelLijst = [];
+      for (const k of opslagSleutels('')) {
+        const kb = Math.round(new Blob([opslagLeesRuw(k) || '']).size / 1024 * 10) / 10;
+        opslagSleutelLijst.push({ sleutel: k, kb });
       }
-      opslagSleutels.sort((a,b) => b.kb - a.kb);
+      opslagSleutelLijst.sort((a,b) => b.kb - a.kb);
       const opslagUit = {
         versie:'V11.17.15', geexporteerd:new Date().toISOString(),
-        totaalKb: Math.round(opslagSleutels.reduce((s,x) => s+x.kb, 0) * 10) / 10,
-        sleutels: opslagSleutels
+        totaalKb: Math.round(opslagSleutelLijst.reduce((s,x) => s+x.kb, 0) * 10) / 10,
+        sleutels: opslagSleutelLijst
       };
       const opslagJson = JSON.stringify(opslagUit);
       const opslagBestandsnaam = `stoplichtiq_opslag_${datum}.json`;
@@ -5749,14 +5748,10 @@ function verversAfrijIndicator(nodeId) {
 
 function haalAlleOsmIds() {
   const ids = new Set();
-  for (let i=0; i<localStorage.length; i++) {
-    const k = localStorage.key(i);
-    for (const prefix of LS_PREFIXEN) {
-      if (k?.startsWith(prefix)) {
-        const d = k.replace(prefix,'').split('_');
-        if (d.length >= 2) ids.add(d[0]);
-        break;
-      }
+  for (const prefix of LS_PREFIXEN) {              // V11.23.0: via de opslaglaag
+    for (const k of opslagSleutels(prefix)) {
+      const d = k.replace(prefix,'').split('_');
+      if (d.length >= 2) ids.add(d[0]);
     }
   }
   return [...ids];
@@ -7111,8 +7106,6 @@ const AIWEG_BUFFER_BEHOUD = 3;
 // gooit rest weg). Elke ~1s de volledige 10-scores van beste-anchor loggen.
 // V11.16.6: let + load-uit-localStorage (iOS Safari backgrounding-purge-proof)
 let klasseVerdelingLog = [];
-try { klasseVerdelingLog = JSON.parse(localStorage.getItem('sl_conflog') || '[]'); }
-catch(e) { klasseVerdelingLog = []; }
 const KLASSE_VERDELING_MAX = 300;
 let laatstConfLog = 0;
 let debugLaatsteAlle = null;
@@ -12290,9 +12283,7 @@ function laadDashboard() {
     if (!lsIndex.has(nodeId)) lsIndex.set(nodeId, { v5Keys: [], routeKeys: [], richtingRaw: null });
     return lsIndex.get(nodeId);
   };
-  for (let i = 0; i < localStorage.length; i++) {
-    const k = localStorage.key(i);
-    if (!k) continue;
+  for (const k of opslagSleutels('')) {                              // V11.23.0
     if (k.startsWith(v5Prefix)) {
       const nodeId = k.slice(v5Prefix.length).split('_')[0];
       zorgEntry(nodeId).v5Keys.push(k);
@@ -12301,7 +12292,7 @@ function laadDashboard() {
       for (const nodeId of nodesInKey) zorgEntry(nodeId).routeKeys.push(k);
     } else if (k.startsWith(richtingPrefix)) {
       const nodeId = k.slice(richtingPrefix.length);
-      zorgEntry(nodeId).richtingRaw = localStorage.getItem(k);
+      zorgEntry(nodeId).richtingRaw = opslagLeesRuw(k);
     }
   }
   const data = ids.map(id => {
@@ -12350,12 +12341,9 @@ function laadDashboard() {
   document.getElementById('ds-gem-pct').textContent     = gemPct+'%';
   // V9 richtingen statistiek
   let aantalKnopPresses = 0, aantalDelayedWrites = 0;
-  for (let i = 0; i < localStorage.length; i++) {
-    const k = localStorage.key(i);
-    if (!k) continue;
-    if (k.startsWith('sl_richting_')) aantalKnopPresses++;
-    if (k.startsWith(LS_PREFIX_V5)) aantalDelayedWrites++;
-  }
+  // V11.23.0: twee tellingen uit de opslaglaag i.p.v. een volledige scan
+  aantalKnopPresses  = opslagSleutels('sl_richting_').length;
+  aantalDelayedWrites = opslagSleutels(LS_PREFIX_V5).length;
   const v9Stat = document.getElementById('ds-richtingen');
   if (v9Stat) v9Stat.textContent = aantalKnopPresses;
   const v9Sub = document.getElementById('ds-richtingen-sub');
@@ -12493,12 +12481,43 @@ function exportSleutelMee(key) {
 // Het data-deel van de backup. Losgetrokken uit exporteerData zodat de selectie
 // zonder share-dialoog, alert en download te toetsen is. De parse-terugval is
 // ongewijzigd: een waarde die geen JSON is gaat als ruwe tekst mee, nooit weg.
+// -- V11.23.0: DE REDDINGSBOEI STAAT AAN DE GOEDE KANT -------
+// (c) 2026 StoplichtIQ - Y. Lemaalem
+//
+// Deze functie las `Object.keys(localStorage)`. Zolang localStorage de bron is
+// klopt dat, maar het opslagplan haalt die bron er in een latere release
+// onderuit - en dan zou deze lus over een LEGE lijst lopen. Geen foutmelding,
+// geen waarschuwing: een geldig backupbestand met niets erin. En omdat een
+// export juist het vangnet is waar alle latere stappen op leunen, is dat de
+// gevaarlijkste plek in het hele plan om te laten staan.
+//
+// Vandaar dat hij nu als eerste door de opslaglaag loopt, ruim voordat er iets
+// aan de bron verandert. Vandaag levert dat exact dezelfde inhoud op - de laag
+// leest nog steeds localStorage - maar straks blijft hij kloppen.
+//
+// EEN BEWUST VERSCHIL MET VROEGER. De laag kent sleutels die localStorage niet
+// heeft: waarden die deze sessie zijn geschreven maar niet pasten in een vol
+// quotum (`onopgeslagen`, zie opslagSchrijfRuw). De oude lus zag die niet en
+// liet ze dus uit de backup. Dat is precies verkeerd om: dat is de data waar de
+// gebruiker net een melding over kreeg, en die bij het afsluiten van de app
+// zonder export voorgoed weg is. Ze gaan nu mee. Een import zet ze terug.
+//
+// De parse-terugval is met opzet woordelijk overgenomen en loopt NIET via
+// opslagLees. Die geeft bij onleesbare JSON zijn terugvalwaarde terug, en die
+// is standaard null - dan zou een niet-JSON-waarde als `null` in de backup
+// landen in plaats van als tekst. Een eigen terugvalwaarde meegeven helpt niet:
+// `opslagLees(k, undefined)` valt terug op de standaardparameter, dus ook op
+// null. Hier hoort de RUWE tekst mee te gaan, en dat is geen detail: van de
+// 12.741 sleutels van de export van 28 augustus zijn er 2.208 geen JSON
+// (sl_naam_, sl_tag_, vlaggen).
 function verzamelBackupData() {
   const data = {};
-  for (const key of Object.keys(localStorage)) {
+  for (const key of opslagSleutels('')) {
     if (!exportSleutelMee(key)) continue;
-    try { data[key] = JSON.parse(localStorage.getItem(key)); }
-    catch(e) { data[key] = localStorage.getItem(key); }
+    const ruw = opslagLeesRuw(key);
+    if (ruw === null) continue;
+    try { data[key] = JSON.parse(ruw); }
+    catch(e) { data[key] = ruw; }
   }
   return data;
 }
@@ -12571,8 +12590,14 @@ function importeerData(bestand) {
         // veilig TERUG mag. sl_modelvgl* staat er niet in: een backup mag op
         // een ander toestel geen testmodus aanzetten.
         if (!key.startsWith('sl_v10_')&&!key.startsWith('sl_v5_')&&!key.startsWith('sl_v4_')&&!key.startsWith('sl_v3_')&&!key.startsWith('sl_s2_')&&!key.startsWith('sl_klok_')&&key!=='sl_opslaglog'&&key!=='sl_richtinglog'&&key!=='sl_schaduwlog'&&key!=='sl_herzieninglog'&&!key.startsWith('sl_passief_')&&key!=='sl_conflog'&&key!=='sl_zichtlog'&&key!=='sl_detlog'&&!key.startsWith('sl_tag_')&&!key.startsWith('sl_naam_')&&!key.startsWith('sl_richting_')&&!key.startsWith('sl_route_')&&!key.startsWith('sl_bevestig_')&&!key.startsWith('sl_pos_')&&!key.startsWith('sl_neutraal_')&&!key.startsWith('sl_enkelricht_')&&key!=='sl_cam_stats'&&key!=='sl_stad_cache') { overgeslagen++; continue; }
-        if (localStorage.getItem(key) !== null) { overgeslagen++; continue; }
-        try { localStorage.setItem(key, JSON.stringify(waarde)); toegevoegd++; } catch(e) { overgeslagen++; }
+        // V11.23.0: via de opslaglaag, om dezelfde reden als verzamelBackupData.
+        // Een import die naar een opslag schrijft die de app niet meer leest is
+        // een stil mislukte herstelactie - en juist dit is het pad waarlangs
+        // een backup terug moet kunnen komen. opslagSchrijf meldt een vol
+        // quotum met `false` in plaats van te gooien; de teller telt dat, net
+        // zoals de oude catch dat deed.
+        if (opslagLeesRuw(key) !== null) { overgeslagen++; continue; }
+        if (opslagSchrijf(key, waarde)) toegevoegd++; else overgeslagen++;
       }
       alert(`Import klaar!\n✅ ${toegevoegd} toegevoegd\n⏭️ ${overgeslagen} overgeslagen`);
       try { laadDashboard(); } catch(e) {}
@@ -13288,12 +13313,11 @@ function kiesBesteWeg(wegen, gpsHeading) {
 // Geeft terug hoeveel sleutels er zijn verwijderd.
 function ruimRedundantePosCache() {
   let verwijderd = 0;
-  for (const key of Object.keys(localStorage)) {
-    if (!key.startsWith('sl_pos_')) continue;
-    try {
-      const p = JSON.parse(localStorage.getItem(key) || 'null');
-      if (p && p.bron === 'osm') { localStorage.removeItem(key); verwijderd++; }
-    } catch(e) { /* bewust laten staan */ }
+  // V11.23.0: via de opslaglaag. De lijst wordt eerst vastgelegd, want
+  // opslagVerwijder haalt de sleutel uit de Map waar we overheen lopen.
+  for (const key of opslagSleutels('sl_pos_')) {
+    const p = opslagLees(key);
+    if (p && p.bron === 'osm') { opslagVerwijder(key); verwijderd++; }
   }
   return verwijderd;
 }
@@ -13390,9 +13414,15 @@ function voerOpruimPassenUit() {
   try {
       const nu = Date.now();
       const DAG_MS = 86400000;
+      // V11.23.0: de ZEVEN sleutelscans van deze functie lopen voortaan door
+      // de opslaglaag - dat scheelt zeven volledige lijsten per opruimronde.
+      // De verwijderingen en schrijvingen blijven met opzet RAUW: dit is de
+      // enige functie die leerdata weggooit, en de omwikkeling van
+      // Storage.prototype (r2240) houdt de cache daarbij vanzelf gelijk. Bij
+      // de latere stap waarin localStorage niet meer geschreven wordt, moet
+      // ook dit deel om - dan is het een release op zichzelf waard.
       // 1. sl_route_ sleutels ouder dan 30 dagen
-      for (const key of Object.keys(localStorage)) {
-        if (!key.startsWith('sl_route_')) continue;
+      for (const key of opslagSleutels('sl_route_')) {
         try {
           const data = JSON.parse(localStorage.getItem(key) || '[]');
           const recentste = data.length ? Math.max(...data.map(x => x.timestamp || 0)) : 0;
@@ -13400,7 +13430,7 @@ function voerOpruimPassenUit() {
         } catch(e) { localStorage.removeItem(key); }
       }
       // 2. sl_v10_..._rood_partieel ouder dan 60 dagen
-      for (const key of Object.keys(localStorage)) {
+      for (const key of opslagSleutels('')) {
         if (!key.includes('_rood_partieel')) continue;
         try {
           const data = JSON.parse(localStorage.getItem(key) || '[]');
@@ -13409,7 +13439,7 @@ function voerOpruimPassenUit() {
         } catch(e) { localStorage.removeItem(key); }
       }
       // 3. sl_v10_..._bezoek met 0 bezoeken
-      for (const key of Object.keys(localStorage)) {
+      for (const key of opslagSleutels('')) {
         if (!key.includes('_bezoek')) continue;
         try {
           const b = JSON.parse(localStorage.getItem(key) || '{}');
@@ -13435,8 +13465,7 @@ function voerOpruimPassenUit() {
       //    zelfde uitkomst, zelfde plek in de volgorde.
       ruimRedundantePosCache();
       // 5. sl_v4_ metingen ouder dan 180 dagen (oudste helft per kruispunt)
-      for (const key of Object.keys(localStorage)) {
-        if (!key.startsWith('sl_v4_')) continue;
+      for (const key of opslagSleutels('sl_v4_')) {
         try {
           const data = JSON.parse(localStorage.getItem(key) || '[]');
           if (!Array.isArray(data) || !data.length) continue;
@@ -13449,15 +13478,12 @@ function voerOpruimPassenUit() {
         } catch(e) {}
       }
       // 6. sl_v3_ prefixen altijd verwijderen als vol
-      for (const key of Object.keys(localStorage)) {
-        if (key.startsWith('sl_v3_')) localStorage.removeItem(key);
-      }
+      for (const key of opslagSleutels('sl_v3_')) localStorage.removeItem(key);
       // V11.17.15 (correctie): S2-aanwezigheid staat in eigen sl_s2_-sleutels
       // (presence-only, lage prioriteit). Bij vol geheugen tot de nieuwste 5
       // per node terugbrengen. (Voorheen: s2 uit sl_v4_ strippen — die data
       // leeft daar niet meer, dus die pass verviel.)
-      for (const key of Object.keys(localStorage)) {
-        if (!key.startsWith('sl_s2_')) continue;
+      for (const key of opslagSleutels('sl_s2_')) {
         try {
           const arr = JSON.parse(localStorage.getItem(key) || '[]');
           if (Array.isArray(arr) && arr.length > 5) {
@@ -13471,8 +13497,10 @@ function voerOpruimPassenUit() {
 
 function checkLocalStorageRuimte() {
   try {
+    // V11.23.0: via de opslaglaag. Meet nog steeds in UTF-16-bytes, dezelfde
+    // eenheid als berekenLocalStorageKB en de dashboardteller.
     let totaal=0;
-    for (const key of Object.keys(localStorage)) totaal+=(localStorage.getItem(key)||'').length*2;
+    for (const key of opslagSleutels('')) totaal += (opslagLeesRuw(key) || '').length * 2;
     if (totaal/(1024*1024) > 4.0) voerOpruimPassenUit();
   } catch(e) {}
 }
@@ -13480,7 +13508,7 @@ function checkLocalStorageRuimte() {
 
 function berekenLocalStorageKB() {
   let totaal = 0;
-  for (const key of Object.keys(localStorage)) totaal += (localStorage.getItem(key) || '').length * 2;
+  for (const key of opslagSleutels('')) totaal += (opslagLeesRuw(key) || '').length * 2;   // V11.23.0
   return Math.round(totaal / 1024);
 }
 
@@ -13495,12 +13523,11 @@ function opslagOverzicht() {
     const c = cat.get(naam) || { kb: 0, n: 0 };
     c.kb += kb; c.n += 1; cat.set(naam, c);
   };
-  for (const key of Object.keys(localStorage)) {
-    const kb = ((localStorage.getItem(key) || '').length * 2) / 1024;
+  for (const key of opslagSleutels('')) {                            // V11.23.0
+    const kb = ((opslagLeesRuw(key) || '').length * 2) / 1024;
     if (key.startsWith('sl_pos_')) {
-      let osm = false;
-      try { const p = JSON.parse(localStorage.getItem(key) || 'null'); osm = !!(p && p.bron === 'osm'); } catch(e) {}
-      tel(osm ? 'sl_pos_ (osm, pas 4)' : 'sl_pos_ (eigen, blijft)', kb);
+      const p = opslagLees(key);
+      tel((p && p.bron === 'osm') ? 'sl_pos_ (osm, pas 4)' : 'sl_pos_ (eigen, blijft)', kb);
     }
     else if (key.startsWith('sl_route_'))          tel('sl_route_ (pas 1)', kb);
     else if (key.includes('_rood_partieel'))       tel('v10 partieel (pas 2)', kb);
@@ -13542,15 +13569,14 @@ function opslagOverzicht() {
 // Analyse is read-only; schrijven gebeurt uitsluitend na expliciete bevestiging.
 function analyseerBevestigLus() {
   const uit = [];
-  for (const key of Object.keys(localStorage)) {
-    if (!key.startsWith(LS_PREFIX) || key.endsWith('_groen')) continue;
+  for (const key of opslagSleutels(LS_PREFIX)) {                     // V11.23.0
+    if (key.endsWith('_groen')) continue;
     const rest = key.slice(LS_PREFIX.length);
     const i = rest.lastIndexOf('_');
     if (i < 1) continue;
     const nodeId = rest.slice(0, i), dd = rest.slice(i + 1);
     if (!DD[dd]) continue;
-    let arr;
-    try { arr = JSON.parse(localStorage.getItem(key)); } catch(e) { continue; }
+    const arr = opslagLees(key);
     if (!Array.isArray(arr) || !arr.length) continue;
     if (!arr.some(m => m && m.bron === 'bevestig_fout')) continue;
     const opTijd = arr.slice().sort((a, b) => (a.tijd || 0) - (b.tijd || 0));
@@ -14090,15 +14116,12 @@ let v9ModalFilter = 'alle';
 function toonV9Richtingen() {
   v9ModalNodes = [];
   const steden = new Set();
-  for (let i = 0; i < localStorage.length; i++) {
-    const k = localStorage.key(i);
-    if (!k || !k.startsWith('sl_richting_')) continue;
+  for (const k of opslagSleutels('sl_richting_')) {                  // V11.23.0
     const nodeId = k.replace('sl_richting_', '');
-    let d;
-    try { d = JSON.parse(localStorage.getItem(k)); } catch(e) { continue; }
+    const d = opslagLees(k);
     if (!d || typeof d !== 'object') continue;
     const naam = vindNaamVoorId(nodeId) || nodeId;
-    const cachedNaam = localStorage.getItem('sl_naam_' + nodeId) || '';
+    const cachedNaam = opslagLeesRuw('sl_naam_' + nodeId) || '';
     const delen = cachedNaam.split(', ');
     const stad = delen.length >= 2 ? delen[delen.length - 1] : '';
     const straat = delen.length >= 2 ? delen.slice(0, -1).join(', ') : cachedNaam;
@@ -14198,11 +14221,8 @@ function renderV9Lijst() {
     const updateChip = update ? `<span class="v9-chip paars">${update}</span>` : '';
     // V5 delayed writes teller
     let v5Chip = '';
-    let v5Count = 0;
-    for (let i = 0; i < localStorage.length; i++) {
-      const k = localStorage.key(i);
-      if (k && k.startsWith(`${LS_PREFIX_V5}${nodeId}_`)) v5Count++;
-    }
+    // V11.23.0: via de opslaglaag
+    const v5Count = opslagSleutels(`${LS_PREFIX_V5}${nodeId}_`).length;
     if (v5Count > 0) v5Chip = `<span class="v9-chip groen">V5: ${v5Count} writes</span>`;
     // V11.2.0: Auto GPS richting chips
     let autoChip = '';
@@ -15984,10 +16004,8 @@ function toonKlokAnalyse() {
   let momIn = 0, momUit = 0;
   const verdeling = { '1': 0, '2': 0, '3': 0, '4-5': 0, '6+': 0 };
   const treffers = [], kandidaten = [];
-  for (const key of Object.keys(localStorage)) {
-    if (!key.startsWith('sl_klok_')) continue;
-    let arr;
-    try { arr = JSON.parse(localStorage.getItem(key)); } catch(e) { continue; }
+  for (const key of opslagSleutels('sl_klok_')) {                    // V11.23.0
+    const arr = opslagLees(key);
     if (!Array.isArray(arr) || !arr.length) continue;
     totaalNodes++;
     const nn = arr.length;
@@ -16056,19 +16074,17 @@ function toonKlokAnalyse() {
 function telTerugRecords() {
   const perNode = new Map();
   let keysTotaal = 0, terugKeys = 0, terugMetingen = 0, gelijkKeys = 0;
-  for (const key of Object.keys(localStorage)) {
-    if (!key.startsWith(LS_PREFIX_V5)) continue;
+  for (const key of opslagSleutels(LS_PREFIX_V5)) {                  // V11.23.0
     const delen = key.slice(LS_PREFIX_V5.length).split('_');
     if (delen.length < 4) continue;
     const nodeId = delen[0], aanrij = delen[1], afrij = delen[2];
     keysTotaal++;
-    let arr;
-    try { arr = JSON.parse(localStorage.getItem(key)) || []; } catch(_) { arr = []; }
+    const arr = opslagLees(key, []);
     const n = Array.isArray(arr) ? arr.length : 0;
     if (rijdersPijlLabel(aanrij, afrij).tekst !== 'Terug') continue;
     terugKeys++; terugMetingen += n;
     if (aanrij === afrij) gelijkKeys++;
-    const naam = localStorage.getItem('sl_naam_' + nodeId) || ('node ' + nodeId);
+    const naam = opslagLeesRuw('sl_naam_' + nodeId) || ('node ' + nodeId);
     const cur = perNode.get(naam) || { keys: 0, met: 0 };
     cur.keys++; cur.met += n; perNode.set(naam, cur);
   }
@@ -16110,20 +16126,17 @@ function telDuurLabels() {
       bak[k]++; ddBak[dd][k]++;
     }
   };
-  for (const key of Object.keys(localStorage)) {
-    let arr;
+  for (const key of opslagSleutels("")) {                            // V11.23.0
     if (key.startsWith(LS_PREFIX) && !key.endsWith("_groen")) {
       // sl_v4_{nodeId}_{dd}
       const d = key.slice(LS_PREFIX.length).split("_");
       if (d.length < 2) continue;
-      try { arr = JSON.parse(localStorage.getItem(key)); } catch(e) { continue; }
-      tel(arr, res.v4, res.v4dd, d[d.length - 1]);
+      tel(opslagLees(key), res.v4, res.v4dd, d[d.length - 1]);
     } else if (key.startsWith(LS_PREFIX_V5)) {
       // sl_v5_{nodeId}_{aanrij}_{afrij}_{dd}
       const d = key.slice(LS_PREFIX_V5.length).split("_");
       if (d.length < 4) continue;
-      try { arr = JSON.parse(localStorage.getItem(key)); } catch(e) { continue; }
-      tel(arr, res.v5, res.v5dd, d[d.length - 1]);
+      tel(opslagLees(key), res.v5, res.v5dd, d[d.length - 1]);
     }
   }
   return res;
@@ -16914,7 +16927,18 @@ function exporteerDetLog() {
 }
 
 // ── STAD ──────────────────────────────────────────────────────
-try { const cache=JSON.parse(localStorage.getItem('sl_stad_cache')||'null'); if(cache)huidigeStad=cache.stad; } catch(e) {}
+// V11.23.0: deze lezing stond hier als losse regel op top-level en draaide dus
+// bij het PARSEN van het script - voor startApp, en daarmee voor elke boot die
+// de opslag zou kunnen vullen. Zolang localStorage synchroon is werkt dat, maar
+// het opslagplan haalt die eigenschap er later onderuit. Nu gebeurt hij in
+// herstelOpslagGlobals(), die startApp aanroept zodra de cache gevuld is.
+// Hetzelfde geldt voor sl_conflog (klasseVerdelingLog, r7113).
+function herstelOpslagGlobals() {
+  const conflog = opslagLees('sl_conflog', []);
+  klasseVerdelingLog = Array.isArray(conflog) ? conflog : [];
+  const stad = opslagLees('sl_stad_cache');
+  if (stad && stad.stad) huidigeStad = stad.stad;
+}
 
 async function refreshStadIndienNodig(lat, lon) {
   const nu = Date.now();
@@ -18496,6 +18520,7 @@ async function startApp() {
   // start geen tweede vulronde. Faalt de boot onverhoopt, dan gaat de app
   // gewoon door: in fase 2 leest alles nog uit localStorage.
   try { await startOpslagBoot(); } catch(e) { console.warn('[OPSLAG-BOOT] mislukt:', e); }
+  try { herstelOpslagGlobals(); } catch(e) { console.warn('[OPSLAG] globals herstellen mislukt:', e); }
   initialiseerAudio();
   pGeluid.className = 'pill-dot'+(geluidAan?' g':'');
   pGeluidT.textContent = geluidAan?'SND':'MUTE';

@@ -50,17 +50,23 @@ function testSleutelscan() {
   const zc = (f) => String(f).replace(/\/\*[\s\S]*?\*\//g, ' ').replace(/\/\/.*/g, ' ');
 
   // ── fixture-beheer ────────────────────────────────────────
-  // Elke sleutel die deze suite zet, wordt onthouden en aan het eind exact
-  // weer weggehaald. Nooit localStorage.clear(): dat zou de echte leerdata
-  // van het toestel wissen waarop de suite toevallig draait.
+  // Nooit localStorage.clear(): dat zou de echte leerdata wissen van het
+  // toestel waarop de suite toevallig draait.
+  // Per sleutel de OORSPRONKELIJKE waarde onthouden en exact terugzetten. De
+  // cache-Map wordt met rust gelaten - de omwikkeling van Storage.prototype
+  // houdt hem gelijk. Een momentopname van opslagCache terugzetten zou sleutels
+  // wegvagen die andere suites er intussen in hebben gezet.
+  const origineel = new Map();
   const gezet = [];
-  const zetRuw = (k, v) => { localStorage.setItem(k, v); gezet.push(k); };
+  const zetRuw = (k, v) => {
+    if (!origineel.has(k)) origineel.set(k, localStorage.getItem(k));
+    localStorage.setItem(k, v); gezet.push(k);
+  };
   const zetV5 = (node, aanrij, afrij, dd, metingen) =>
     zetRuw(`sl_v5_${node}_${aanrij}_${afrij}_${dd}`, JSON.stringify(metingen));
   const meting = (duur, tijd) => ({ duur, tijd, gewicht: 1.0, bron: 'test' });
 
   const bewaardBootKlaar = opslagBootKlaar;
-  const bewaardCache = new Map(opslagCache);
 
   const NODE = 880001;          // bestaat niet in echte data
   const LEEG = 880002;
@@ -296,9 +302,11 @@ function testSleutelscan() {
 
   } finally {
     // ── alles exact terugdraaien ──────────────────────────────
-    for (const k of gezet) { try { localStorage.removeItem(k); } catch(e) {} }
-    opslagCache.clear();
-    for (const [k, v] of bewaardCache) opslagCache.set(k, v);
+    for (const k of gezet) if (!origineel.has(k)) origineel.set(k, null);
+    for (const [k, v] of origineel) {
+      try { if (v === null) localStorage.removeItem(k); else localStorage.setItem(k, v); }
+      catch(e) {}
+    }
     opslagBootKlaar = bewaardBootKlaar;
   }
 
