@@ -1052,7 +1052,7 @@ if (typeof ort !== 'undefined') {
 //
 // De stijl volgt de eerdere labels: nummer, kastlijntje, korte omschrijving in
 // kleine letters. De CSS zet hem zelf in kapitalen (text-transform:uppercase).
-const APP_VERSIE = 'V11.31.0 — de spiegel wordt meetbaar';
+const APP_VERSIE = 'V11.32.0 — de tik laat een spoor na';
 
 // ── CONSTANTEN ────────────────────────────────────────────────
 const OSM_RADIUS       = 5000;
@@ -5516,6 +5516,7 @@ function exporteerMeetdata() {
                     // op dit bestand miste daardoor de richtingdataset. sl_pos_
                     // blijft er bewust uit: 942 KB positiecache tegen 8 KB V5.
                     v5:{}, richtingdata:{}, route:{}, tag:{}, v10:{}, neutraal:{}, enkelricht:{}, conflog:{}, zicht:{}, det:{} };
+      uit.tik = {};   // V11.32.0: de tiklog, zie tikLogNoteer
       for (const key of opslagSleutels('')) {                          // V11.23.0
         let doel = null;
         if (key.startsWith('sl_passief_'))       doel = uit.passief;
@@ -5531,6 +5532,7 @@ function exporteerMeetdata() {
         else if (key === 'sl_conflog')           doel = uit.conflog;    // V11.17.33
         else if (key === 'sl_zichtlog')          doel = uit.zicht;      // V11.17.34: zichtbaarheidsdiagnostiek
         else if (key === 'sl_detlog')            doel = uit.det;        // V11.17.46: detectiediagnostiek
+        else if (key === TIKLOG_SLEUTEL)         doel = uit.tik;        // V11.32.0: tik en wat er daarna gebeurde
         // V11.17.33 W2: let op de volgorde — 'sl_richtinglog' begint NIET met
         // 'sl_richting_' (na 'sl_richting' volgt 'l', geen '_'), dus deze twee
         // takken kunnen elkaar niet vangen. Toch staat de exacte match eerst.
@@ -7097,6 +7099,176 @@ function tapZwakPositie() {
   if (stickyDetectie) return { cx: stickyDetectie.cx, cy: stickyDetectie.cy };
   return { cx: bboxOverride.cx, cy: bboxOverride.cy };
 }
+
+// ── V11.32.0: DE TIKLOG ─────────────────────────────────
+// © 2026 StoplichtIQ — Y. Lemaalem
+//
+// WAAROM. De klacht: tik op A, de box springt naar buurlicht B, tik op B, en
+// hij springt terug naar A. Uit de exports was dat niet te reconstrueren.
+// Nergens staat WAAR de box stond, en een tweede tik op dezelfde node logt
+// vergrendelNodeHandmatig bewust niet (zie `alVast` daar). De detlog meet niets onder
+// 20 m, en de stopstreep ligt daar juist onder.
+//
+// WAT HIER KOMT. Drie soorten regels, allemaal in camerapixels, want dat stelsel
+// is hetzelfde voor elke run:
+//   tik   waar je vinger landde, welke detectie de handler koos, hoe ver die in
+//         het ECHTE beeld van je vinger lag, en of de detecties uit een run
+//         kwamen met een ander stelsel dan het stelsel waarmee de tik werd
+//         omgerekend. Dat laatste is de coördinatenval uit de STAP 0.
+//   run   alleen als de tik-tak iets anders deed dan gewoon zijn lamp
+//         terugvinden: een overname, een herstel, de seed, closest, radius_cap,
+//         een eerste misser, of een sticky die in één run verder dan
+//         TIKLOG_SPRONG_CAM verspringt.
+//   los   elke keer dat een levende tik verdwijnt, met de reden.
+//
+// PUUR OBSERVEREND. Niets hieronder beslist iets. Het schrijft zoals de detlog:
+// een vol quotum staakt het log voor deze sessie en wist de eigen sleutel, want
+// een diagnoselog mag nooit een meting kosten. Klein gehouden, omdat de opslag
+// boven 4,0 MiB zit: TIKLOG_MAX regels van ~80-150 tekens.
+const TIKLOG_SLEUTEL    = 'sl_tiklog';
+const TIKLOG_MAX        = 100;
+const TIKLOG_SPRONG_CAM = 60;     // camerapixels in één run, zie hierboven
+const TIKLOG_HERHAAL_MS = 1000;   // dezelfde run-regel niet vaker dan dit
+let tikLogArr  = null;
+let tikLogStop = false;
+let tikLogVorige = { tak: null, t: 0 };
+// Het stelsel waarin laatsteDetecties staan: dat van de run die ze opleverde.
+// Gezet in _verwerkWorkerResultaatKern. Staat hier zodat de tiklog de tik kan
+// vergelijken met wat er echt in beeld stond.
+let laatsteDetectiesStelsel = null;   // { s, px, py, x, y }
+
+function tikLogStelselNu() {
+  return { s: lbScale, px: lbPadX, py: lbPadY,
+           x: cropRegio ? cropRegio.x : 0, y: cropRegio ? cropRegio.y : 0 };
+}
+// Een detectie uit laatsteDetecties terug naar camerapixels, met het stelsel
+// van haar eigen run. Zonder bekend stelsel het huidige, zoals de handler doet.
+function tikLogDetCam(det) {
+  const st = laatsteDetectiesStelsel || tikLogStelselNu();
+  if (!(st.s > 0)) return null;
+  return { x: (det.cx - st.px) / st.s + st.x, y: (det.cy - st.py) / st.s + st.y };
+}
+function tikLogNoteer(soort, velden) {
+  if (tikLogStop) return;
+  try {
+    const rec = { t: Date.now(), s: soort };
+    for (const [k, v] of Object.entries(velden || {})) {
+      if (v === null || v === undefined) continue;
+      rec[k] = (typeof v === 'number') ? Math.round(v) : v;
+    }
+    if (soort !== 'run') {
+      if (dichtstbijOSM) rec.node = String(dichtstbijOSM.id);
+      if (dichtstbijOSM && typeof dichtstbijOSM.afstand === 'number') rec.afst = Math.round(dichtstbijOSM.afstand);
+      if (typeof snelheidKmh === 'number' && !isNaN(snelheidKmh)) rec.kmh = Math.round(snelheidKmh);
+    }
+    if (tikLogArr === null) {
+      try { tikLogArr = JSON.parse(localStorage.getItem(TIKLOG_SLEUTEL)) || []; }
+      catch(_) { tikLogArr = []; }
+      if (!Array.isArray(tikLogArr)) tikLogArr = [];
+    }
+    tikLogArr.push(rec);
+    if (tikLogArr.length > TIKLOG_MAX) tikLogArr = tikLogArr.slice(-TIKLOG_MAX);
+    try {
+      localStorage.setItem(TIKLOG_SLEUTEL, JSON.stringify(tikLogArr));
+    } catch(_) {
+      tikLogStop = true;
+      tikLogArr = null;
+      try { localStorage.removeItem(TIKLOG_SLEUTEL); } catch(__) {}
+    }
+  } catch(e) {}
+}
+// Een run-regel. Zelfde tak binnen TIKLOG_HERHAAL_MS: één keer is genoeg.
+function tikLogRun(tak, velden) {
+  const nu = Date.now();
+  if (tikLogVorige.tak === tak && nu - tikLogVorige.t < TIKLOG_HERHAAL_MS) return;
+  tikLogVorige = { tak, t: nu };
+  tikLogNoteer('run', Object.assign({ tak, skip: cropRegio ? 0 : 1 }, velden || {}));
+}
+// Een levende tik verdwijnt. Alleen als er een tik WAS.
+function tikLogLos(reden) {
+  if (bboxOverride === null) return;
+  const nu = Date.now();
+  tikLogLevend = null;   // deze is gemeld; de wachter hieronder hoeft niet meer
+  tikLogNoteer('los', { reden,
+    duur: bboxOverrideTijd ? nu - bboxOverrideTijd : null,
+    gezien: bboxOverrideLaatsteMatch ? nu - bboxOverrideLaatsteMatch : null });
+}
+// DE WACHTER. updateDichtbij en corrigeerNodeAutomatisch wissen de tik ook,
+// maar die twee staan byte voor byte vast (NB14 in test_naderingsbewijs, sinds
+// V11.27.0). Daar komt dus geen logregel in. In plaats daarvan kijkt deze
+// functie bij elke run of een tik die de vorige keer nog leefde, weg is zonder
+// melding, en leidt de reden af uit de tijdstempels die die twee zetten.
+// corrigeerNodeAutomatisch zet ze allebei, een gewone node-wissel alleen de
+// wisseltijd. GPS-voorbij, resetNeutraal, kwijt en een nieuwe tik melden zich
+// zelf, via tikLogLos.
+let tikLogLevend = null;   // { sinds, gezien, node } zolang er een tik leeft
+function tikLogWaak() {
+  try {
+    if (bboxOverride !== null) {
+      tikLogLevend = { sinds: bboxOverrideTijd, gezien: bboxOverrideLaatsteMatch,
+                       node: dichtstbijOSM ? String(dichtstbijOSM.id) : null };
+      return;
+    }
+    if (!tikLogLevend) return;
+    const w = tikLogLevend, nu = Date.now();
+    tikLogLevend = null;
+    const reden = (laatsteNodeCorrectieTijd >= w.sinds) ? 'correctie'
+                : (laatsteNodeWisselTijd >= w.sinds) ? 'node' : 'onbekend';
+    tikLogNoteer('los', { reden, van: w.node,
+      duur: w.sinds ? nu - w.sinds : null, gezien: w.gezien ? nu - w.gezien : null,
+      bij: laatsteNodeWisselTijd ? nu - laatsteNodeWisselTijd : null });
+  } catch(e) {}
+}
+// Camera-afstand van een detectie tot de plek van de tik (of null).
+function tikLogAfstTotTik(det) {
+  if (!det || bboxOverrideCamX == null) return null;
+  const c = stickyCam(det);
+  return Math.hypot(c.camX - bboxOverrideCamX, c.camY - bboxOverrideCamY);
+}
+// De tik zelf. Aangeroepen vóór de drie paden van de handler, zodat de anchor
+// en een eventuele vorige tik nog staan zoals de gebruiker ze zag.
+function tikLogTik(videoX, videoY, heeftActieveBbox, gekozen, minAfst) {
+  try {
+    tikLogWaak();
+    tikLogLos('nieuw');
+    let pad = 'A';
+    if (heeftActieveBbox) {
+      const d = Math.hypot(videoX - bboxAnchorCx * canvas.width, videoY - bboxAnchorCy * canvas.height);
+      pad = d < 200 ? 'B' : 'C';
+    }
+    // Wat stond er ECHT waar je tikte: elke detectie terug naar camerapixels
+    // met het stelsel van haar eigen run.
+    let dCam = null, dMin = null, echt = null;
+    for (const det of laatsteDetecties) {
+      const c = tikLogDetCam(det);
+      if (!c) continue;
+      const a = Math.hypot(c.x - videoX, c.y - videoY);
+      if (det === gekozen) dCam = a;
+      if (dMin === null || a < dMin) { dMin = a; echt = det; }
+    }
+    const nu = tikLogStelselNu(), st = laatsteDetectiesStelsel;
+    const stelselAnders = !!st && (Math.abs(st.s - nu.s) > 0.02 * Math.max(st.s, nu.s)
+      || Math.abs(st.x - nu.x) > 2 || Math.abs(st.y - nu.y) > 2);
+    const snap = !!gekozen && minAfst <= 200;
+    tikLogNoteer('tik', {
+      pad, cx: videoX, cy: videoY, n: laatsteDetecties.length,
+      snap: snap ? 1 : 0, dY: snap ? minAfst : null,
+      dCam: snap ? dCam : null, dMin,
+      mis: (snap && echt && echt !== gekozen) ? 1 : 0,
+      st: stelselAnders ? 1 : 0, vol: cropRegio ? 0 : 1
+    });
+  } catch(e) {}
+}
+// Verspringt de sticky in één run verder dan TIKLOG_SPRONG_CAM? `voor` is zijn
+// camerapositie van vóór de match (voorspelling nog niet toegepast).
+function tikLogSprong(voor, match) {
+  try {
+    if (!voor || voor.x == null || !match) return;
+    const c = stickyCam(match);
+    const a = Math.hypot(c.camX - voor.x, c.camY - voor.y);
+    if (a > TIKLOG_SPRONG_CAM) tikLogRun('sprong', { sprong: a, dCam: tikLogAfstTotTik(match) });
+  } catch(e) {}
+}
 // V11.15.8: sticky detectie-identiteit voor LOCK 2 — voorkomt dat LOCK 2
 // elke YOLO-run een andere closest kiest bij naburige detecties.
 // KLASSE_MAP (r723) fungeert direct als familie-bron ('rood'/'groen'/'oranje').
@@ -7336,6 +7508,7 @@ canvas.addEventListener('click', (e) => {
   // Heeft de huidige S1 een actieve bbox?
   const heeftActieveBbox = laatsteDetecties.length > 0 && bboxAnchorCx !== null
     && (Date.now() - bboxAnchorTijd) < BBOX_ANCHOR_TIMEOUT;
+  tikLogTik(videoX, videoY, heeftActieveBbox, dichtstbij, minAfst);   // V11.32.0
 
   // Pad A: geen actieve S1 bbox → crop forceren naar taplocatie
   if (!heeftActieveBbox) {
@@ -8775,6 +8948,7 @@ function selecteerBesteDetectie(detecties) {
     // V11.20.1: niet meer "25 s na de tik", maar "TAP_KWIJT_MS niets gezien".
     // Zie tapLockLeeft voor de drie redenen die wél mogen loslaten.
     if (!tapLockLeeft()) {
+      tikLogLos('kwijt');   // V11.32.0
       bboxOverride = null;
       bboxOverrideCamX = null; bboxOverrideCamY = null;
       bboxOverrideMatchTeller = 0;
@@ -8809,9 +8983,11 @@ function selecteerBesteDetectie(detecties) {
       if (stickyDetectie !== null) {
         // V11.21.0: de matchkern staat nu in stickySlotMatch, omdat het slot
         // zonder tap hem ook nodig heeft. Gedrag ongewijzigd — zie daar.
+        const tikLogVoor = { x: stickyDetectie.camX, y: stickyDetectie.camY };   // V11.32.0
         const winner = stickySlotMatch(bruikbaar);
         if (winner) {
           const match = winner.det;
+          tikLogSprong(tikLogVoor, match);   // V11.32.0
           stickyNeemOver(match);
           stickyMissTeller = 0;
           tapGezien();   // V11.20.1: slotje én de kwijt-klok
@@ -8819,6 +8995,7 @@ function selecteerBesteDetectie(detecties) {
         }
         // Geen kandidaat binnen radius
         stickyMissTeller++;
+        if (stickyMissTeller === 1) tikLogRun('mis1', { n: bruikbaar.length });   // V11.32.0
         // V11.17.21: overname-routes vóór de sticky_miss-blokkade. Op korte
         // afstand (c) of bij een sterke detectie (b) adopteert de beste kandidaat
         // de sticky-positie i.p.v. geblokkeerd te worden. Kies de detectie die
@@ -8864,6 +9041,7 @@ function selecteerBesteDetectie(detecties) {
           stickyDetectie.tijd = Date.now();
           stickyMissTeller = 0;
           tapGezien();   // V11.20.1: slotje én de kwijt-klok
+          tikLogRun(overnameReden === 'sticky_overname_dichtbij' ? 'over_c' : 'over_b', { dCam: tikLogAfstTotTik(overname), sprong: lbScale > 0 ? verschuiving / lbScale : null });   // V11.32.0
           return { s1: overname, s2Rest: bruikbaar.filter(d => d !== overname), afwijsReden: overnameReden };
         }
         if (!stickyMagLosgelaten()) {   // V11.18.17: runs EN tijd
@@ -8883,6 +9061,7 @@ function selecteerBesteDetectie(detecties) {
         };
         stickyDetectie = null;
         stickyMissTeller = 0;
+        tikLogRun('sticky_los', {});   // V11.32.0
       }
       // V11.16.5 Fix B W2: herstel-stap. Als sticky net is losgelaten door
       // miss-quotum, zoek eerst binnen STICKY_HERSTEL_PX van de laatste
@@ -8931,6 +9110,7 @@ function selecteerBesteDetectie(detecties) {
           };
           stickyMissTeller = 0;
           tapGezien();   // V11.20.1: slotje én de kwijt-klok
+          tikLogRun('herstel', { dCam: tikLogAfstTotTik(match) });   // V11.32.0
           return { s1: match, s2Rest: bruikbaar.filter(d => d !== match), afwijsReden:'ok' };
         }
         // Geen herstel-match: valt door naar tap-seed voorrang + closest-op-bboxOverride
@@ -8971,6 +9151,7 @@ function selecteerBesteDetectie(detecties) {
           stickyMissTeller = 0;
           tapSeedDetectie = null; // seed verbruikt
           tapGezien();   // V11.20.1: slotje én de kwijt-klok
+          tikLogRun('seed', { dCam: tikLogAfstTotTik(match) });   // V11.32.0
           return { s1: match, s2Rest: bruikbaar.filter(d => d !== match), afwijsReden:'ok' };
         }
       }
@@ -8992,6 +9173,7 @@ function selecteerBesteDetectie(detecties) {
       if (bboxOverrideMatchTeller > 0 && minOvAfst > 180) {
         stickyDetectie = null;
         stickyMissTeller = 0;
+        tikLogRun('cap', { dY: minOvAfst });   // V11.32.0
         return { s1: null, s2Rest: bruikbaar, afwijsReden:'radius_cap' };
       }
       if (besteOv) {
@@ -9005,6 +9187,7 @@ function selecteerBesteDetectie(detecties) {
         stickyMissTeller = 0;
         bboxOverrideMatchTeller++;
         tapGezien();   // V11.20.1: slotje én de kwijt-klok
+        tikLogRun(bboxOverrideMatchTeller > 1 ? 'closest' : 'eerst', { dCam: tikLogAfstTotTik(besteOv), dY: minOvAfst });   // V11.32.0
         return { s1: besteOv, s2Rest: bruikbaar.filter(d => d !== besteOv), afwijsReden:'ok' };
       }
     }
@@ -9352,6 +9535,8 @@ function _verwerkWorkerResultaat(detecties) {
 
 function _verwerkWorkerResultaatKern(detecties) {
   laatsteDetecties = detecties;
+  laatsteDetectiesStelsel = tikLogStelselNu();   // V11.32.0: het stelsel van DEZE run
+  tikLogWaak();   // V11.32.0: verdween de tik via een node-wissel of correctie?
   debugLaatsteRuweBoxen = detecties.length; // V11.17.18 W1: post-postprocess survivors
   const zichtbareKlassen = new Set(detecties.map(d=>d.klasse));
   // V11.17.18 W2: bij een echte detectie normaal opschonen + teller resetten;
@@ -10846,7 +11031,7 @@ function verwerkDetecties() {
     laatsteFaseNodeId = dichtstbijOSM ? String(dichtstbijOSM.id) : null; // V11.17.16
     huidigBevestigdOsmNodeId = null;
     verbergTagUI();
-    resetNeutraal();                                        // wist fase, faseBevestigd
+    resetNeutraal('dropout');                                        // wist fase, faseBevestigd
     if (savedFaseBevestigd !== null) {
       faseBevestigd = savedFaseBevestigd;                  // V11.5.4: herstel flag
       updateUIKleur(savedFaseBevestigd, false);            // V11.5.4: directe HUD herstel (0ms flicker)
@@ -10886,7 +11071,8 @@ function resetUIKleur() {
   cdPill.classList.remove('cd-verborgen'); // V11.17.28 W1c: geen restklasse
 }
 
-function resetNeutraal() {
+function resetNeutraal(reden) {
+  tikLogLos('reset_' + (reden || 'onbekend'));   // V11.32.0: alleen voor de tiklog
   // V11.17.39: leg vast wat de tellers waren VOOR de reset — de zichtlog-sampler
   // draait erna en zag daardoor altijd 0. In de export van 20 aug stond `mis`
   // 26x op nul, wat niet bewees dat er geen missers waren.
@@ -11049,6 +11235,7 @@ function verwerkFase(nieuw, horizontaal, conf=null) {
     // ontkoppelde levensduur-variabele; deze release lost de root cause op).
     // sticky+tapSeed reset blijven staan: die zijn detectie-identiteits-
     // mechanismen die per fase-cyclus mogen resetten.
+    if (bboxOverride !== null && stickyDetectie) tikLogRun('groen_sticky', {});   // V11.32.0
     stickyDetectie = null; stickyMissTeller = 0; // V11.15.8
     tapSeedDetectie = null; // V11.16.4
     // V11.12.2: voorkeursBbox NIET direct resetten bij groen — dit hield de
@@ -13462,7 +13649,7 @@ function importeerData(bestand) {
 // ── STARTSCHERM / TERUG ───────────────────────────────────────
 function naarStartscherm() {
   try { const stream=video.srcObject; if(stream)stream.getTracks().forEach(t=>t.stop()); video.srcObject=null; } catch(e) {}
-  resetNeutraal();
+  resetNeutraal('startscherm');
   document.getElementById('startscherm').classList.remove('weg');
   const n=telKP(), sGeh=document.getElementById('s-geh-info');
   if (n>0) { sGeh.textContent=`💾 ${n} kruispunten opgeslagen`; sGeh.style.color='var(--groen)'; }
@@ -19168,6 +19355,7 @@ async function onGPS(pos) {
     // 15-25s aan het oude stoplicht blijft kleven. Volgorde: eerst state
     // resetten, dan tekenOverlay(null) — anders tekent tekenOverlay de
     // anchor-cirkel/TAP-indicator opnieuw ondanks de wis-intentie.
+    tikLogLos('voorbij');   // V11.32.0
     bboxOverride = null;
     bboxOverrideTijd = 0;
     bboxOverrideCamX = null; bboxOverrideCamY = null;
@@ -19532,7 +19720,7 @@ function lus(mijnGeneratie) {
     else if (Date.now() - staleFaseSinds > STALE_FASE_MAX_MS) {
       staleFaseSinds = null;
       verbergTagUI();
-      resetNeutraal();
+      resetNeutraal('stale');
     }
   } else {
     staleFaseSinds = null;
