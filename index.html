@@ -1052,7 +1052,7 @@ if (typeof ort !== 'undefined') {
 //
 // De stijl volgt de eerdere labels: nummer, kastlijntje, korte omschrijving in
 // kleine letters. De CSS zet hem zelf in kapitalen (text-transform:uppercase).
-const APP_VERSIE = 'V11.32.0 — de tik laat een spoor na';
+const APP_VERSIE = 'V11.33.0 — de tik wint, of de app toont niets';
 
 // ── CONSTANTEN ────────────────────────────────────────────────
 const OSM_RADIUS       = 5000;
@@ -7053,15 +7053,24 @@ let bboxOverrideMatchTeller = 0;
 // heeft geen nut, want (b) vangt het wegrijden al af.
 const TAP_KWIJT_MS = 20000;
 let bboxOverrideLaatsteMatch = 0;   // wanneer de lock voor het laatst iets vond
+// ── V11.33.0: (c) BESTAAT NIET MEER ────────────────────────
+// © 2026 StoplichtIQ — Y. Lemaalem
+//
+// Younes' eis 2: ziet de app het getikte licht niet, dan toont hij NIETS en
+// springt hij niet over, tot er opnieuw getikt wordt. Loslaten na TAP_KWIJT_MS
+// deed precies dat overspringen: de lock viel, en de scorelus koos vrij. Een
+// tik leeft nu tot (a) een nieuwe tik of (b) een ander kruispunt — de
+// node-wissel, de automatische correctie, GPS-voorbij — of het startscherm.
+// TAP_KWIJT_MS blijft alleen nog voor het zoekringetje: na zoveel tijd zonder
+// match wordt het vager (tekenZoekring).
 
 // Leeft de tap-lock nog? Één bron voor elke plek die het wil weten.
 //
 // Math.max en niet `||`: een verse tik moet altijd winnen van een oude
 // matchtijd die van een vorige tap is blijven staan. Zo hoeft geen van de drie
 // tap-handlers bboxOverrideLaatsteMatch te nullen.
-function tapLockLeeft(nu = Date.now()) {
-  if (bboxOverride === null) return false;
-  return (nu - Math.max(bboxOverrideLaatsteMatch, bboxOverrideTijd)) <= TAP_KWIJT_MS;
+function tapLockLeeft() {
+  return bboxOverride !== null;   // V11.33.0: geen klok meer, zie hierboven
 }
 
 // Elke geslaagde LOCK 2-match meldt zich hier: de slot-weergave én de klok.
@@ -7092,12 +7101,18 @@ function tapGezien() {
 // gelegd. Een verkeerde straal kan dus nooit een verkeerde lamp laten volgen —
 // hooguit een handvol kandidaten opleveren die meteen weer afvallen.
 const TAP_CONF_DREMPEL  = 0.04;   // tegen CONF_DREMPEL 0,10 — zie postprocessYOLO
-const TAP_ZWAK_STRAAL_PX = 100;   // gelijk aan STICKY_HERSTEL_PX: precies het
-                                  // gebied waar de tracker straks toch zoekt
+// V11.33.0 F6: de straal is niet meer TAP_ZWAK_STRAAL_PX (100 YOLO-px) maar
+// tikStraalYolo(): dezelfde straal waarbinnen de tik-tak zijn lamp terugvindt.
+// Wat daarbuiten zwak doorkomt, kan nooit jouw lamp worden; het kon alleen een
+// buur binnenlaten. En de plek wordt geprojecteerd vanuit camerapixels, zodat
+// een skipCrop-run hem niet meer verschuift (de val die hierboven stond).
 function tapZwakPositie() {
   if (!tapLockLeeft()) return null;
-  if (stickyDetectie) return { cx: stickyDetectie.cx, cy: stickyDetectie.cy };
-  return { cx: bboxOverride.cx, cy: bboxOverride.cy };
+  if (stickyDetectie) {
+    if (stickyDetectie.camX != null && lbScale > 0) return tikNaarYolo(stickyDetectie.camX, stickyDetectie.camY);
+    return { cx: stickyDetectie.cx, cy: stickyDetectie.cy };
+  }
+  return tikPositieYolo();
 }
 
 // ── V11.32.0: DE TIKLOG ─────────────────────────────────
@@ -7227,7 +7242,7 @@ function tikLogAfstTotTik(det) {
 }
 // De tik zelf. Aangeroepen vóór de drie paden van de handler, zodat de anchor
 // en een eventuele vorige tik nog staan zoals de gebruiker ze zag.
-function tikLogTik(videoX, videoY, heeftActieveBbox, gekozen, minAfst) {
+function tikLogTik(videoX, videoY, heeftActieveBbox, gekozen, rand) {
   try {
     tikLogWaak();
     tikLogLos('nieuw');
@@ -7249,10 +7264,10 @@ function tikLogTik(videoX, videoY, heeftActieveBbox, gekozen, minAfst) {
     const nu = tikLogStelselNu(), st = laatsteDetectiesStelsel;
     const stelselAnders = !!st && (Math.abs(st.s - nu.s) > 0.02 * Math.max(st.s, nu.s)
       || Math.abs(st.x - nu.x) > 2 || Math.abs(st.y - nu.y) > 2);
-    const snap = !!gekozen && minAfst <= 200;
+    const snap = !!gekozen;   // V11.33.0: tikKiesDetectie beslist, in camerapixels
     tikLogNoteer('tik', {
       pad, cx: videoX, cy: videoY, n: laatsteDetecties.length,
-      snap: snap ? 1 : 0, dY: snap ? minAfst : null,
+      snap: snap ? 1 : 0, rand: snap ? rand : null,
       dCam: snap ? dCam : null, dMin,
       mis: (snap && echt && echt !== gekozen) ? 1 : 0,
       st: stelselAnders ? 1 : 0, vol: cropRegio ? 0 : 1
@@ -7268,6 +7283,127 @@ function tikLogSprong(voor, match) {
     const a = Math.hypot(c.camX - voor.x, c.camY - voor.y);
     if (a > TIKLOG_SPRONG_CAM) tikLogRun('sprong', { sprong: a, dCam: tikLogAfstTotTik(match) });
   } catch(e) {}
+}
+
+// ── V11.33.0: DE TIK WINT, OF DE APP TOONT NIETS ────────────
+// © 2026 StoplichtIQ — Y. Lemaalem
+//
+// Younes' twee eisen bij de klacht van 27 september ("tik op A, hij springt
+// naar B; tik op B, hij springt terug naar A"):
+//   1. een tik weegt zwaarder dan de automatische keuze. Wegspringen naar een
+//      ander licht mag alleen als er bij het getikte licht werkelijk niets te
+//      zien is;
+//   2. is er niets te zien, dan géén box — niet overspringen — tot er opnieuw
+//      getikt wordt. Zo komt er geen leerdata bij het verkeerde kruispunt.
+// Samen: na een tik kiest de app nooit meer zelf een ander licht.
+//
+// "NIETS TE ZIEN" betekent hier: geen detectie met familiescore >= 0,04
+// (TAP_CONF_DREMPEL) binnen tikStraalYolo() rond de plek van jouw lamp.
+//
+// ALLES IN CAMERAPIXELS. YOLO-pixels horen bij één run: een crop van 0,6 en een
+// volbeeldrun verschillen een factor drie. De sticky rekent sinds V11.17.45 in
+// camerapixels; de tik zelf, bboxOverride en de zwakke zone deden dat niet. Dat
+// was de coördinatenval uit de STAP 0 (M2 en M5).
+
+// De crop-verhouding onder 70 m. Daar is STICKY_MATCH_PX op afgesteld.
+const TIK_STRAAL_RATIO = 0.6;
+const TIK_ZOEKRING_FRACTIE = 0.02;   // straal van het zoekringetje, als deel van de beeldbreedte
+
+// De identiteitsstraal in camerapixels: zo groot als STICKY_MATCH_PX in een crop
+// van 0,6. Hetzelfde aantal graden, op elk toestel.
+function tikStraalCam() {
+  const vW = video.videoWidth || 0, vH = video.videoHeight || 0;
+  if (!(vW > 0 && vH > 0)) return null;
+  return STICKY_MATCH_PX * Math.min(vW, vH) * TIK_STRAAL_RATIO / YOLO_SIZE;
+}
+// F3. Dezelfde straal in YOLO-pixels van de HUIDIGE run, en nooit ruimer dan
+// STICKY_MATCH_PX. In een crop van 0,6 verandert er dus niets, bij 0,4 ook niet
+// (daar is 80 al de kleinste). Op een volbeeldrun wordt hij smaller: 80 YOLO-px
+// was daar ~480 camerapixels, een kwart van de beeldbreedte, en onder 15 m is
+// ELKE run volbeeld. Zonder beeld (een test) de oude straal.
+function tikStraalYolo() {
+  const c = tikStraalCam();
+  if (c === null || !(lbScale > 0)) return STICKY_MATCH_PX;
+  return Math.min(STICKY_MATCH_PX, c * lbScale);
+}
+function tikNaarYolo(camX, camY) {
+  return { cx: (camX - (cropRegio ? cropRegio.x : 0)) * lbScale + lbPadX,
+           cy: (camY - (cropRegio ? cropRegio.y : 0)) * lbScale + lbPadY };
+}
+// F2. Waar staat jouw tik in DEZE run. bboxOverride zelf staat in het stelsel van
+// het tikmoment; bboxOverrideCamX/Y niet. Zonder camerapositie (een oude of
+// nagebootste lock) de waarde zoals hij is.
+function tikPositieYolo() {
+  if (bboxOverride === null) return null;
+  if (bboxOverrideCamX != null && lbScale > 0) return tikNaarYolo(bboxOverrideCamX, bboxOverrideCamY);
+  return { cx: bboxOverride.cx, cy: bboxOverride.cy };
+}
+// Waar staat jouw lamp in camerapixels: de sticky als die er is, anders de tik.
+function tikPlekCam() {
+  if (bboxOverride === null) return null;
+  if (stickyDetectie && stickyDetectie.camX != null) return { x: stickyDetectie.camX, y: stickyDetectie.camY };
+  if (bboxOverrideCamX != null) return { x: bboxOverrideCamX, y: bboxOverrideCamY };
+  if (!(lbScale > 0)) return null;
+  return { x: (bboxOverride.cx - lbPadX) / lbScale + (cropRegio ? cropRegio.x : 0),
+           y: (bboxOverride.cy - lbPadY) / lbScale + (cropRegio ? cropRegio.y : 0) };
+}
+// F1. Welke detectie bedoelde je vinger? Elke detectie gaat terug naar
+// camerapixels met het stelsel van haar EIGEN run (laatsteDetectiesStelsel).
+// Een detectie telt alleen als je op haar box tikte of er hooguit een halve
+// identiteitsstraal naast (~15 schermpixels op een iPhone). Meerdere: de box
+// die het dichtst bij je vinger ligt. Geen: null, en dan vergrendelt de tik op
+// de plek zelf.
+function tikKiesDetectie(videoX, videoY) {
+  const st = laatsteDetectiesStelsel || tikLogStelselNu();
+  if (!(st.s > 0)) return null;
+  const marge = (tikStraalCam() || (STICKY_MATCH_PX / st.s)) / 2;
+  let beste = null;
+  for (const det of laatsteDetecties) {
+    if (!KLASSE_MAP[det.klasse]) continue;
+    const x1 = (det.x1 - st.px) / st.s + st.x, x2 = (det.x2 - st.px) / st.s + st.x;
+    const y1 = (det.y1 - st.py) / st.s + st.y, y2 = (det.y2 - st.py) / st.s + st.y;
+    const rand = Math.hypot(Math.max(x1 - videoX, 0, videoX - x2), Math.max(y1 - videoY, 0, videoY - y2));
+    if (rand > marge) continue;
+    const mx = (x1 + x2) / 2, my = (y1 + y2) / 2;
+    const midden = Math.hypot(mx - videoX, my - videoY);
+    if (!beste || rand < beste.rand || (rand === beste.rand && midden < beste.midden)) {
+      beste = { det, camX: mx, camY: my, camH: y2 - y1, rand, midden };
+    }
+  }
+  return beste;
+}
+// De lock zetten. Met een gekozen detectie krijgt de tik meteen zijn identiteit
+// (een sticky in camerapixels, bron 'tik'); zonder zoekt de tik-tak rond de plek.
+function tikZet(keuze, videoX, videoY) {
+  const camX = keuze ? keuze.camX : videoX, camY = keuze ? keuze.camY : videoY;
+  bboxOverrideCamX = camX; bboxOverrideCamY = camY;
+  const p = (lbScale > 0) ? tikNaarYolo(camX, camY) : { cx: camX, cy: camY };
+  bboxOverride = { cx: p.cx, cy: p.cy };
+  bboxOverrideTijd = Date.now();
+  bboxOverrideMatchTeller = 0;
+  if (keuze) {
+    const d = keuze.det;
+    stickyDetectie = {
+      cx: p.cx, cy: p.cy, camX, camY, camH: keuze.camH,
+      camAfst: (dichtstbijOSM && typeof dichtstbijOSM.afstand === 'number') ? dichtstbijOSM.afstand : null,
+      familie: KLASSE_MAP[d.klasse] || null,
+      hoogte: keuze.camH * (lbScale > 0 ? lbScale : 1), klasse: d.klasse,
+      tijd: Date.now(), bron: 'tik'
+    };
+    stickyMissTeller = 0;
+  }
+}
+// Het zoekringetje: geen box, geen kleur, geen fase, geen meting.
+function tekenZoekring(p) {
+  const w = overlCanvas.width || 0;
+  const r = Math.max(10, w * TIK_ZOEKRING_FRACTIE);
+  const vaag = (Date.now() - Math.max(bboxOverrideLaatsteMatch, bboxOverrideTijd)) > TAP_KWIJT_MS;
+  octx.save();
+  octx.strokeStyle = vaag ? 'rgba(255,255,255,0.40)' : 'rgba(255,255,255,0.85)';
+  octx.lineWidth = Math.max(1.5, r * 0.14);
+  octx.setLineDash([r * 0.45, r * 0.3]);
+  octx.beginPath(); octx.arc(p.x, p.y, r, 0, Math.PI * 2); octx.stroke();
+  octx.restore();
 }
 // V11.15.8: sticky detectie-identiteit voor LOCK 2 — voorkomt dat LOCK 2
 // elke YOLO-run een andere closest kiest bij naburige detecties.
@@ -7299,27 +7435,15 @@ const STICKY_MISS_MAX = 5;
 const STICKY_HOOGTE_TOLERANTIE = 0.40;   // ±40% bbox-hoogte tolerantie
 const STICKY_KLASSE_PENALTY_PX = 30;     // virtuele afstand-straf per mismatch
 const STICKY_HERSTEL_PX        = 100;    // V11.16.11: 60→100 — 60 was te streng, viel te snel door naar closest-fallback bij rijden. Harde familie-check (V11.16.8) blijft in herstel-tak (r3085-3088) portaal-hop tegenhouden.
-// V11.17.21: sticky-miss overname-routes. (c) close-range: onder STICKY_DICHTBIJ_M
-// vervalt de anti-hop-blokkade (nog maar één stoplicht relevant). (b) sterke-
-// detectie-overname: buiten die zone maar binnen STICKY_STERK_M adopteert een
-// detectie met familiescore >= STICKY_STERK_FAM de sticky. Miss-drempels
-// voorkomen dat één ruis-run al overneemt.
-const STICKY_DICHTBIJ_M        = 15;     // (c) GPS-afstand tot node waaronder blokkade vervalt
-const STICKY_DICHTBIJ_MISS_MIN = 1;      // (c) vanaf dit aantal opeenvolgende misses
-const STICKY_STERK_M           = 40;     // (b) max node-afstand voor sterke-detectie-overname
-const STICKY_STERK_FAM         = 0.35;   // (b) min familiescore (gelijk aan S2/postprocess-grens)
-const STICKY_STERK_MISS_MIN    = 2;      // (b) vanaf dit aantal opeenvolgende misses
+// V11.33.0: de overname-routes van V11.17.21 zijn weg. Ze pakten na één
+// (onder 15 m) of twee (onder 40 m) missers de dichtstbijzijnde detectie ZONDER
+// straal, en dat was aan de stopstreep precies het buurlicht (STAP 0, M3).
 let stickyBLogLaatst = 0;               // throttle voor [STICKY-B] leerLog (1×/s)
-let stickyOvernameLogLaatst = 0;        // V11.17.21: throttle voor [STICKY] overname-log (1×/s)
 
-// V11.16.4 Fix A+C: tap-seed detectie identity. Handler-`dichtstbij`
-// wordt in selecteerBesteDetectie als voorrang-selectie gebruikt boven
-// blinde closest-op-bboxOverride, zodat run 1 na tap gegarandeerd het
-// door de handler gekozen stoplicht pakt (i.p.v. mogelijk ander stoplicht
-// dat toevallig dichter bij bboxOverride ligt op vers frame).
+// V11.16.4 Fix A+C: tap-seed detectie identity. V11.33.0: niet meer gebruikt —
+// de tik zet meteen de sticky (tikZet), in camerapixels. De variabele blijft,
+// omdat tests en wisplekken hem nog noemen.
 let tapSeedDetectie = null;      // { cx, cy, familie, tijd }
-const TAP_SEED_TIMEOUT  = 3000;  // 3s vervalvenster (~6 YOLO-runs)
-const TAP_SEED_MATCH_PX = 50;    // compacter dan STICKY_MATCH_PX: 1× intentie, geen drift
 // ── V11.20.0: WELK SLOT HOUDT DEZE BOX VAST? ───────────
 // © 2026 StoplichtIQ — Y. Lemaalem
 //
@@ -7451,10 +7575,8 @@ canvas.addEventListener('click', (e) => {
   const videoX = normX * canvas.width;
   const videoY = normY * canvas.height;
 
-  const effectiefX = cropRegio ? videoX - cropRegio.x : videoX;
-  const effectiefY = cropRegio ? videoY - cropRegio.y : videoY;
-  const yoloX = effectiefX * lbScale + lbPadX;
-  const yoloY = effectiefY * lbScale + lbPadY;
+  // V11.33.0: geen omrekening naar YOLO-pixels meer hier. Die gebeurde met het
+  // stelsel van de lopende run, en dat was de val (zie F1 hieronder).
 
   cameraTapMarker = { x: videoX, y: videoY, tijd: Date.now() };
 
@@ -7481,69 +7603,58 @@ canvas.addEventListener('click', (e) => {
   // je vinger — dat regelen bboxOverride en de sticky hieronder.
   if (dichtstbijOSM) vergrendelNodeHandmatig(dichtstbijOSM.id, 'beeld');
 
-  // Zoek dichtstbijzijnde detectie
-  let dichtstbij = null;
-  let minAfst = Infinity;
-  for (const det of laatsteDetecties) {
-    const dx = det.cx - yoloX;
-    const dy = det.cy - yoloY;
-    const afst = Math.sqrt(dx*dx + dy*dy);
-    if (afst < minAfst) { minAfst = afst; dichtstbij = det; }
-  }
-
-  // V11.16.4 Fix A+C: bewaar handler-`dichtstbij` als seed voor run 1
-  // van selecteerBesteDetectie. Alleen wanneer handler zeker weet welk
-  // stoplicht bedoeld is (≤200px van tap). Anders seed clearen — geen
-  // zekerheid → geen forcering.
-  if (dichtstbij && minAfst <= 200) {
-    tapSeedDetectie = {
-      cx: dichtstbij.cx, cy: dichtstbij.cy,
-      familie: KLASSE_MAP[dichtstbij.klasse] || null,
-      tijd: Date.now()
-    };
-  } else {
-    tapSeedDetectie = null;
-  }
+  // ── V11.33.0 F1: DE TIK LANDT WAAR JE VINGER LANDDE ──
+  // © 2026 StoplichtIQ — Y. Lemaalem
+  //
+  // Tot V11.32.0 pakte deze handler de dichtstbijzijnde BESTAANDE detectie
+  // binnen 200 YOLO-pixels. Twee fouten, allebei gemeten in test_tiklog TL0:
+  //   - zag het model jouw lamp net niet, dan werd het de buur (M1). Op
+  //     volbeeld is 200 YOLO-pixels 600 camerapixels, een derde van het beeld;
+  //   - de tik werd omgerekend met het stelsel van de LOPENDE run en vergeleken
+  //     met detecties uit de VORIGE. In twee van de vijf overgangen wisselen
+  //     crop en volbeeld, en dan beslist de geometrie en niet je vinger (M2).
+  // Nu: tikKiesDetectie rekent elke detectie terug met het stelsel van haar
+  // eigen run, en kiest alleen een box waar je op of vlak naast tikte. Tikte je
+  // naast alles, dan vergrendelt de tik op de plek zelf en zoekt de tik-tak
+  // daar, met de zwakke drempel van V11.20.1.
+  const keuze = tikKiesDetectie(videoX, videoY);
+  tapSeedDetectie = null;   // vervangen door de sticky die tikZet meteen zet
 
   // Heeft de huidige S1 een actieve bbox?
   const heeftActieveBbox = laatsteDetecties.length > 0 && bboxAnchorCx !== null
     && (Date.now() - bboxAnchorTijd) < BBOX_ANCHOR_TIMEOUT;
-  tikLogTik(videoX, videoY, heeftActieveBbox, dichtstbij, minAfst);   // V11.32.0
+  tikLogTik(videoX, videoY, heeftActieveBbox, keuze ? keuze.det : null, keuze ? keuze.rand : null);
 
-  // Pad A: geen actieve S1 bbox → crop forceren naar taplocatie
-  if (!heeftActieveBbox) {
-    // V11.15.8 Fix 2d: nieuwe tap → sticky reset zodat run 1 opnieuw closest-op-tap kiest
-    stickyDetectie = null; stickyMissTeller = 0;
-    if (dichtstbij && minAfst <= 200) {
-      bboxOverride = { cx: dichtstbij.cx, cy: dichtstbij.cy };
-      bboxOverrideTijd = Date.now();
-      bboxOverrideCamX = videoX; bboxOverrideCamY = videoY;
-      bboxOverrideMatchTeller = 0;
-      // V11.15.8 Fix 1: cropHint ook bij tap OP detectie (was regressie — cirkeltje bleef weg)
-      cropHintPositie = { x: videoX, y: videoY };
-      cropHintTeller = 10;
-    } else {
-      // V11.15.3 FIX B: geen detectie binnen 200px van tap — zet
-      // bboxOverride op de tap-locatie zelf zodat het slotje toch
-      // verschijnt en LOCK 2 de eerstvolgende detectie in de buurt
-      // oppikt. Consistent met V11.14.4 FIX 1a voor Pad B >= 200.
-      bboxOverride = { cx: yoloX, cy: yoloY };
-      bboxOverrideTijd = Date.now();
-      bboxOverrideCamX = videoX; bboxOverrideCamY = videoY;
-      bboxOverrideMatchTeller = 0;
-      if (cropHintPositie) {
-        const hx = cropHintPositie.x - videoX, hy = cropHintPositie.y - videoY;
-        if (Math.sqrt(hx*hx + hy*hy) < 50) {
-          cropHintPositie = null;
-          cropHintTeller = 0;
-        } else {
-          cropHintPositie = { x: videoX, y: videoY };
-          cropHintTeller = 10;
-        }
+  // Tikte je naast elke box: een tweede tik op (bijna) dezelfde plek zet de
+  // crop-hint uit, een tik elders zet hem daar. Ongewijzigd sinds V11.15.3.
+  const cropHintNaastBox = () => {
+    if (cropHintPositie) {
+      const hx = cropHintPositie.x - videoX, hy = cropHintPositie.y - videoY;
+      if (Math.sqrt(hx*hx + hy*hy) < 50) {
+        cropHintPositie = null;
+        cropHintTeller = 0;
       } else {
         cropHintPositie = { x: videoX, y: videoY };
         cropHintTeller = 10;
       }
+    } else {
+      cropHintPositie = { x: videoX, y: videoY };
+      cropHintTeller = 10;
+    }
+  };
+
+  // Pad A: geen actieve S1 bbox → crop forceren naar taplocatie
+  if (!heeftActieveBbox) {
+    // V11.15.8 Fix 2d: nieuwe tap → sticky reset. V11.33.0: tikZet zet hem
+    // daarna meteen op jouw lamp, als je op een box tikte.
+    stickyDetectie = null; stickyMissTeller = 0;
+    tikZet(keuze, videoX, videoY);
+    if (keuze) {
+      // V11.15.8 Fix 1: cropHint ook bij tap OP detectie
+      cropHintPositie = { x: videoX, y: videoY };
+      cropHintTeller = 10;
+    } else {
+      cropHintNaastBox();
     }
     // V11.16.8 Fix 1a: forceer volgende YOLO-run naar cropRegio-actief (niet skipCrop)
     // zodat groene cirkel + stippellijnen zichtbaar zijn bij eerste tap. Teller=3
@@ -7560,69 +7671,25 @@ canvas.addEventListener('click', (e) => {
   );
 
   if (tapToAnchor < 200) {
-    // V11.15.3 FIX A: tap DICHTBIJ anchor — gebruik tap-intentie i.p.v.
-    // dichtstbijOSM (GPS-based). Bij portaal met meerdere stoplichten
-    // dichtbij elkaar in canvas is dichtstbijOSM willekeurig; wees de
-    // tap-locatie dominant. Reset LOCK 1 (vergrendeldNodeId + bboxAnchor)
-    // zodat LOCK 2 (bboxOverride) de closest detectie t.o.v. de tap kiest
-    // — consistent met Pad B >= 200 (V11.14.4 FIX 1a+1b).
+    // V11.15.3 FIX A: tap DICHTBIJ anchor — de tik-intentie wint van
+    // dichtstbijOSM. Reset LOCK 1 (vergrendeldNodeId + bboxAnchor).
     zoomVergrendeld = true;
     vergrendeldNodeId = null;
     bboxAnchorCx = null; bboxAnchorCy = null; bboxAnchorTijd = 0;
-    // V11.15.8 Fix 2d: nieuwe tap → sticky reset (run 1 opnieuw closest)
     stickyDetectie = null; stickyMissTeller = 0;
-    if (dichtstbij && minAfst <= 200) {
-      bboxOverride = { cx: dichtstbij.cx, cy: dichtstbij.cy };
-    } else {
-      bboxOverride = { cx: yoloX, cy: yoloY };
-    }
-    bboxOverrideTijd = Date.now();
-    bboxOverrideCamX = videoX; bboxOverrideCamY = videoY;
-    bboxOverrideMatchTeller = 0;
-    // V11.15.8 Fix 1: cropHint ook bij tap dichtbij anchor (was regressie)
+    tikZet(keuze, videoX, videoY);
+    // V11.15.8 Fix 1: cropHint ook bij tap dichtbij anchor
     cropHintPositie = { x: videoX, y: videoY };
     cropHintTeller = 10;
     cropAlternatieTeller = 1; // V11.16.8 Fix 1a: zie Pad A commentaar
   } else {
     // Tap BUITEN 200px van huidige anchor → expliciete gebruikers-intent
-    // om weg te breken van de vorige lock.
-    // V11.14.4 FIX 1b: reset vergrendeldNodeId + bboxAnchor zodat LOCK 1
-    // in selecteerBesteDetectie (r2668) de nieuwe bboxOverride niet
-    // blokkeert tot BBOX_ANCHOR_TIMEOUT afloopt.
+    // om weg te breken van de vorige lock (V11.14.4 FIX 1b).
     vergrendeldNodeId = null;
     bboxAnchorCx = null; bboxAnchorCy = null; bboxAnchorTijd = 0;
-    // V11.15.8 Fix 2d: nieuwe tap → sticky reset (run 1 opnieuw closest)
     stickyDetectie = null; stickyMissTeller = 0;
-    if (dichtstbij && minAfst <= 200) {
-      // Wissel actieve bbox naar die bbox
-      bboxOverride = { cx: dichtstbij.cx, cy: dichtstbij.cy };
-      bboxOverrideTijd = Date.now();
-      bboxOverrideCamX = videoX; bboxOverrideCamY = videoY;
-      bboxOverrideMatchTeller = 0;
-    } else {
-      // V11.14.4 FIX 1a: geen detectie binnen 200px van tap → zet
-      // bboxOverride op de TAP-locatie zelf. LOCK 2 in selecteerBeste-
-      // Detectie kiest dan de closest detectie t.o.v. tap zodra YOLO
-      // iets vindt (geen afstand-drempel). cropHint blijft ook: helpt
-      // YOLO om de tap-locatie beter te scannen.
-      bboxOverride = { cx: yoloX, cy: yoloY };
-      bboxOverrideTijd = Date.now();
-      bboxOverrideCamX = videoX; bboxOverrideCamY = videoY;
-      bboxOverrideMatchTeller = 0;
-      if (cropHintPositie) {
-        const hx = cropHintPositie.x - videoX, hy = cropHintPositie.y - videoY;
-        if (Math.sqrt(hx*hx + hy*hy) < 50) {
-          cropHintPositie = null;
-          cropHintTeller = 0;
-        } else {
-          cropHintPositie = { x: videoX, y: videoY };
-          cropHintTeller = 10;
-        }
-      } else {
-        cropHintPositie = { x: videoX, y: videoY };
-        cropHintTeller = 10;
-      }
-    }
+    tikZet(keuze, videoX, videoY);
+    if (!keuze) cropHintNaastBox();
     cropAlternatieTeller = 1; // V11.16.8 Fix 1a: zie Pad A commentaar
   }
 });
@@ -8520,7 +8587,7 @@ function postprocessYOLO(outputData, dims) {
   // 5%." Met CONF_DREMPEL op 0,10 haalde die 5% het nooit, en sneuvelde de tik
   // in een laag waar de tik niet eens bekend was.
   //
-  // De ruimere drempel geldt ALLEEN binnen TAP_ZWAK_STRAAL_PX van de gevolgde
+  // De ruimere drempel geldt ALLEEN binnen tikStraalYolo() van de gevolgde
   // positie. Buiten die straal verandert er niets: daar raadt de app nog steeds,
   // en daar horen de vijf filters onverkort te gelden.
   //
@@ -8529,7 +8596,8 @@ function postprocessYOLO(outputData, dims) {
   // nul (w/h, hoogteverhoudingen, de tekenlaag). Vandaar h >= 2 en w > 0, ook
   // binnen de straal.
   const tapZwak = tapZwakPositie();
-  const tapStraal2 = TAP_ZWAK_STRAAL_PX * TAP_ZWAK_STRAAL_PX;
+  const tapStraalZwak = tapZwak ? tikStraalYolo() : 0;   // V11.33.0 F6
+  const tapStraal2 = tapStraalZwak * tapStraalZwak;
   // V11.15.10 DEBUG: reset tracker per run — TIJDELIJK
   let debugBestAnchorIdx = -1;
   let debugBestAnchorScore = 0;
@@ -8669,7 +8737,7 @@ function familieScore(detectie) {
 // daarbij een factor 2,96 tot 4,44 — ver buiten STICKY_HOOGTE_TOLERANTIE (40%),
 // dus bovenop de verschuiving nog eens STICKY_KLASSE_PENALTY_PX strafafstand.
 // De sticky verloor zijn identiteit dus STELSELMATIG op elke volbeeld-run, en
-// boven STICKY_STERK_M (40m) bestaat geen overname-route — daar leverde zo'n
+// boven STICKY_STERK_M (40m; sinds V11.33.0 weg) bestond geen overname-route — daar leverde zo'n
 // run helemaal geen detectie op. Dat is het "bbox raakt de detectie tussentijds
 // kwijt en moet opnieuw vastpakken" dat op afstand het sterkst opvalt.
 //
@@ -8770,7 +8838,7 @@ function stickyProjecteer(s) {
 // Er is aan het gedrag niets veranderd: dezelfde voorspelling, dezelfde
 // projectie, dezelfde matchradius, dezelfde twee penalties, dezelfde sortering.
 // De tap-tak doet er alleen iets anders mee dan het auto-slot.
-function stickySlotMatch(bruikbaar) {
+function stickySlotMatch(bruikbaar, straal = STICKY_MATCH_PX) {   // V11.33.0: de tik-tak geeft tikStraalYolo()
   if (!stickyDetectie) return null;
   // V11.17.45/54: eerst voorspellen waar hij NU hoort te staan, dan pas
   // projecteren. Volgorde is bindend — stickyVoorspel werkt in camerapixels.
@@ -8784,7 +8852,7 @@ function stickySlotMatch(bruikbaar) {
     // V11.17.46: kleinste afstand tot de sticky, VOOR de radiusfilter —
     // alleen zo is zichtbaar of een miss door afstand of door iets anders kwam.
     if (detLogStickyDx === null || afst < detLogStickyDx) detLogStickyDx = afst;
-    if (afst < STICKY_MATCH_PX) {
+    if (afst < straal) {
       let effAfst = afst;
       let penHoogte = false, penKlasse = false;
       if (stickyDetectie.hoogte && stickyDetectie.hoogte > 0) {
@@ -8935,262 +9003,77 @@ function selecteerBesteDetectie(detecties) {
     return { s1: null, s2Rest: bruikbaar, afwijsReden:'lock_afst' };
   }
 
-  // V11.4.5: bbox override — kies dichtstbijzijnde detectie t.o.v. vergrendelde positie
-  // V11.7.0: 30s timeout op override
-  // V11.15.8 Fix 2b: sticky detectie-identiteit i.p.v. closest-per-run.
-  // Eerste run na tap: closest-op-override + sticky opslaan.
-  // Vervolgruns: prefereer kandidaten binnen STICKY_MATCH_PX van sticky-positie
-  // (zelfde familie via KLASSE_MAP wint bij meerdere kandidaten). Geen kandidaat
-  // binnen radius: sticky-miss++. Miss <STICKY_MISS_MAX: return {s1:null} zodat
-  // aiMissRuns/TOLERANTIE_RUNS de bbox kort laten staan (bestaand tolerantie-pad,
-  // sluit aan bij 'ai:filter'-flow). Miss ≥MAX: sticky reset, hervat closest.
+  // V11.4.5: bbox override — de getikte lamp. V11.15.8: met een sticky
+  // detectie-identiteit. V11.33.0: zonder loslaten en zonder overnemen, zie het
+  // blok hieronder.
   if (bboxOverride !== null) {
-    // V11.20.1: niet meer "25 s na de tik", maar "TAP_KWIJT_MS niets gezien".
-    // Zie tapLockLeeft voor de drie redenen die wél mogen loslaten.
-    if (!tapLockLeeft()) {
-      tikLogLos('kwijt');   // V11.32.0
-      bboxOverride = null;
-      bboxOverrideCamX = null; bboxOverrideCamY = null;
-      bboxOverrideMatchTeller = 0;
-      stickyDetectie = null; stickyMissTeller = 0;
-      tapSeedDetectie = null; // V11.16.4
-    } else {
-      // ── V11.21.0: EEN TAP ERFT NOOIT HET AUTO-SLOT ───────
-      // © 2026 StoplichtIQ — Y. Lemaalem
-      //
-      // De drie tap-handlers nullen stickyDetectie al voordat ze bboxOverride
-      // zetten, dus in de praktijk staat hier nooit een auto-sticky. Maar dat
-      // is een afspraak tussen aanroepers, en precies zo'n afspraak is in
-      // V11.15.3 misgegaan: LOCK 1 blokkeerde een nieuwe tap en is daarom
-      // uitgezet in plaats van gerepareerd.
-      //
-      // Zou er toch een auto-sticky blijven staan, dan zou de tap-tak die
-      // hieronder adopteren en stilletjes de lamp volgen die de APP had
-      // gekozen, niet de lamp waar de gebruiker op tikte. Die ene regel maakt
-      // "een tap wint altijd" een eigenschap van deze functie in plaats van
-      // een gewoonte van haar aanroepers.
-      if (stickyDetectie && stickyDetectie.bron === 'auto') {
-        stickyDetectie = null; stickyMissTeller = 0; autoSlotReset();
-      }
-      // V11.16.5 Fix B W2: bewaar-var voor herstel-stap (moet buiten if-block leven).
-      let laatsteStickyPos = null;
-      // Sticky-tak: één keer gekozen detectie behouden mits nog binnen radius.
-      // V11.16.5 Fix B W1: identity-secundairen. Kandidaten binnen STICKY_MATCH_PX
-      // krijgen een effAfst = euclid + penalty bij hoogte-mismatch (>±40%) en/of
-      // familie-mismatch. Winnaar = laagste effAfst (vervangt oude familie-filter).
-      // Penalties zijn zacht — bij echte fase-overgang (rood→groen zelfde stoplicht)
-      // wint 20px+penalty nog steeds van 60px zonder penalty.
-      if (stickyDetectie !== null) {
-        // V11.21.0: de matchkern staat nu in stickySlotMatch, omdat het slot
-        // zonder tap hem ook nodig heeft. Gedrag ongewijzigd — zie daar.
-        const tikLogVoor = { x: stickyDetectie.camX, y: stickyDetectie.camY };   // V11.32.0
-        const winner = stickySlotMatch(bruikbaar);
-        if (winner) {
-          const match = winner.det;
-          tikLogSprong(tikLogVoor, match);   // V11.32.0
-          stickyNeemOver(match);
-          stickyMissTeller = 0;
-          tapGezien();   // V11.20.1: slotje én de kwijt-klok
-          return { s1: match, s2Rest: bruikbaar.filter(d => d !== match), afwijsReden:'ok' };
-        }
-        // Geen kandidaat binnen radius
-        stickyMissTeller++;
-        if (stickyMissTeller === 1) tikLogRun('mis1', { n: bruikbaar.length });   // V11.32.0
-        // V11.17.21: overname-routes vóór de sticky_miss-blokkade. Op korte
-        // afstand (c) of bij een sterke detectie (b) adopteert de beste kandidaat
-        // de sticky-positie i.p.v. geblokkeerd te worden. Kies de detectie die
-        // het dichtst bij de (oude) sticky ligt zodat de identiteit behouden blijft.
-        const afstNodeSticky = (dichtstbijOSM && typeof dichtstbijOSM.afstand === 'number' && !isNaN(dichtstbijOSM.afstand))
-          ? dichtstbijOSM.afstand : 999;
-        let overname = null, overnameReden = null;
-        if (afstNodeSticky < STICKY_DICHTBIJ_M && stickyMissTeller >= STICKY_DICHTBIJ_MISS_MIN) {
-          // (c) close-range: dichtstbijzijnde detectie adopteert de sticky.
-          let dichtstDet = null, dichtstAfst = Infinity;
-          for (const det of bruikbaar) {
-            const dx = det.cx - stickyDetectie.cx, dy = det.cy - stickyDetectie.cy;
-            const a = Math.sqrt(dx*dx + dy*dy);
-            if (a < dichtstAfst) { dichtstAfst = a; dichtstDet = det; }
-          }
-          if (dichtstDet) { overname = dichtstDet; overnameReden = 'sticky_overname_dichtbij'; }
-        } else if (afstNodeSticky < STICKY_STERK_M && stickyMissTeller >= STICKY_STERK_MISS_MIN) {
-          // (b) sterke-detectie-overname: dichtst-bij-sticky kandidaat met
-          // familiescore >= STICKY_STERK_FAM.
-          let sterkDet = null, sterkAfst = Infinity;
-          for (const det of bruikbaar) {
-            if (familieScore(det) < STICKY_STERK_FAM) continue;
-            const dx = det.cx - stickyDetectie.cx, dy = det.cy - stickyDetectie.cy;
-            const a = Math.sqrt(dx*dx + dy*dy);
-            if (a < sterkAfst) { sterkAfst = a; sterkDet = det; }
-          }
-          if (sterkDet) { overname = sterkDet; overnameReden = 'sticky_overname_sterk'; }
-        }
-        if (overname) {
-          const verschuiving = Math.round(Math.sqrt(
-            Math.pow(overname.cx - stickyDetectie.cx, 2) + Math.pow(overname.cy - stickyDetectie.cy, 2)));
-          if (Date.now() - stickyOvernameLogLaatst > 1000) {
-            console.log(`[STICKY] ${overnameReden} afst=${Math.round(afstNodeSticky)}m score=${familieScore(overname).toFixed(2)} h=${Math.round(overname.h)} verschuiving=${verschuiving} overgenomen=ja`);
-            stickyOvernameLogLaatst = Date.now();
-          }
-          stickyDetectie.cx = overname.cx;
-          stickyDetectie.cy = overname.cy;
-          stickyDetectie.hoogte = overname.h;
-          Object.assign(stickyDetectie, stickyCam(overname));   // V11.17.45
-          stickyDetectie.klasse = overname.klasse;
-          const ovFam = KLASSE_MAP[overname.klasse];
-          if (ovFam) stickyDetectie.familie = ovFam;
-          stickyDetectie.tijd = Date.now();
-          stickyMissTeller = 0;
-          tapGezien();   // V11.20.1: slotje én de kwijt-klok
-          tikLogRun(overnameReden === 'sticky_overname_dichtbij' ? 'over_c' : 'over_b', { dCam: tikLogAfstTotTik(overname), sprong: lbScale > 0 ? verschuiving / lbScale : null });   // V11.32.0
-          return { s1: overname, s2Rest: bruikbaar.filter(d => d !== overname), afwijsReden: overnameReden };
-        }
-        if (!stickyMagLosgelaten()) {   // V11.18.17: runs EN tijd
-          if (Date.now() - stickyOvernameLogLaatst > 1000) {
-            console.log(`[STICKY] sticky_miss afst=${Math.round(afstNodeSticky)}m miss=${stickyMissTeller} overgenomen=nee`);
-            stickyOvernameLogLaatst = Date.now();
-          }
-          return { s1: null, s2Rest: bruikbaar, afwijsReden:'sticky_miss' };
-        }
-        // Miss-quotum overschreden: sticky loslaten. V11.16.5 W2: bewaar
-        // eerst de laatste positie/identity zodat de herstel-stap hieronder
-        // drift-continuiteit behoudt ipv terug te vallen op de vaste tap.
-        laatsteStickyPos = {
-          cx: stickyDetectie.cx, cy: stickyDetectie.cy,
-          hoogte: stickyDetectie.hoogte || 0,
-          klasse: (stickyDetectie.klasse !== null && stickyDetectie.klasse !== undefined) ? stickyDetectie.klasse : null
-        };
-        stickyDetectie = null;
-        stickyMissTeller = 0;
-        tikLogRun('sticky_los', {});   // V11.32.0
-      }
-      // V11.16.5 Fix B W2: herstel-stap. Als sticky net is losgelaten door
-      // miss-quotum, zoek eerst binnen STICKY_HERSTEL_PX van de laatste
-      // sticky-positie (met W1 effAfst-berekening). Behoudt continuiteit
-      // bij tijdelijke occlusie zonder terug te vallen op de vaste bboxOverride.
-      if (laatsteStickyPos) {
-        const herKand = [];
-        for (const det of bruikbaar) {
-          const dx = det.cx - laatsteStickyPos.cx;
-          const dy = det.cy - laatsteStickyPos.cy;
-          const afst = Math.sqrt(dx*dx + dy*dy);
-          if (afst < STICKY_HERSTEL_PX) {
-            // V11.16.8 Fix 2a: harde familie-check ipv soft penalty. Herstel-tak
-            // mag NIET meer hoppen naar naburige lamp met andere kleur; alleen
-            // dezelfde-familie kandidaten kwalificeren. Faal → val door naar
-            // closest-op-bboxOverride (bestaand vangnet, ongewijzigd).
-            if (laatsteStickyPos.klasse !== null && KLASSE_MAP[det.klasse] !== KLASSE_MAP[laatsteStickyPos.klasse]) {
-              continue;
-            }
-            let effAfst = afst;
-            if (laatsteStickyPos.hoogte > 0) {
-              const ratio = det.h / laatsteStickyPos.hoogte;
-              if (ratio < (1 - STICKY_HOOGTE_TOLERANTIE) || ratio > (1 + STICKY_HOOGTE_TOLERANTIE)) {
-                effAfst += STICKY_KLASSE_PENALTY_PX;
-              }
-            }
-            herKand.push({ det, afst, effAfst });
-          }
-        }
-        const hersteld = herKand.length > 0;
-        if (hersteld) herKand.sort((a, b) => a.effAfst - b.effAfst);
-        if (Date.now() - stickyBLogLaatst > 1000) {
-          leerLog('[STICKY-B] herstel ' + (hersteld
-            ? 'ok afst=' + herKand[0].afst.toFixed(0)
-            : 'faal geen kand<' + STICKY_HERSTEL_PX + 'px → valt door naar bboxOverride'));
-          stickyBLogLaatst = Date.now();
-        }
-        if (hersteld) {
-          const match = herKand[0].det;
-          stickyDetectie = {
-            cx: match.cx, cy: match.cy,
-            ...stickyCam(match),   // V11.17.45: frame-onafhankelijke kopie
-            familie: KLASSE_MAP[match.klasse] || null,
-            hoogte: match.h, klasse: match.klasse,
-            tijd: Date.now()
-          };
-          stickyMissTeller = 0;
-          tapGezien();   // V11.20.1: slotje én de kwijt-klok
-          tikLogRun('herstel', { dCam: tikLogAfstTotTik(match) });   // V11.32.0
-          return { s1: match, s2Rest: bruikbaar.filter(d => d !== match), afwijsReden:'ok' };
-        }
-        // Geen herstel-match: valt door naar tap-seed voorrang + closest-op-bboxOverride
-      }
-      // V11.16.4 Fix A+C: tap-seed voorrang boven blinde closest-op-bboxOverride.
-      // Als handler een `dichtstbij` binnen 200px van tap koos én de seed is nog
-      // vers (<3s), zoek een detectie binnen TAP_SEED_MATCH_PX van de seed-positie
-      // (zelfde familie prefereert). Winnaar = s1 direct, sticky wordt hierop
-      // geseed → geen 5-run misfire door verkeerd closest-argmin. Seed wordt bij
-      // eerste geslaagde match verbruikt zodat vervolg-runs door de sticky-tak
-      // gaan; blijft anders staan tot verval voor eventuele volgende run.
-      if (tapSeedDetectie && Date.now() - tapSeedDetectie.tijd < TAP_SEED_TIMEOUT) {
-        const seedKand = [];
-        for (const det of bruikbaar) {
-          const dx = det.cx - tapSeedDetectie.cx;
-          const dy = det.cy - tapSeedDetectie.cy;
-          const afst = Math.sqrt(dx*dx + dy*dy);
-          if (afst < TAP_SEED_MATCH_PX) seedKand.push({ det, afst });
-        }
-        if (seedKand.length > 0) {
-          let match;
-          if (tapSeedDetectie.familie) {
-            const zelfdeFam = seedKand.filter(k => KLASSE_MAP[k.det.klasse] === tapSeedDetectie.familie);
-            const pool = zelfdeFam.length > 0 ? zelfdeFam : seedKand;
-            pool.sort((a, b) => a.afst - b.afst);
-            match = pool[0].det;
-          } else {
-            seedKand.sort((a, b) => a.afst - b.afst);
-            match = seedKand[0].det;
-          }
-          stickyDetectie = {
-            cx: match.cx, cy: match.cy,
-            ...stickyCam(match),   // V11.17.45: frame-onafhankelijke kopie
-            familie: KLASSE_MAP[match.klasse] || null,
-            hoogte: match.h, klasse: match.klasse, // V11.16.5 Fix B
-            tijd: Date.now()
-          };
-          stickyMissTeller = 0;
-          tapSeedDetectie = null; // seed verbruikt
-          tapGezien();   // V11.20.1: slotje én de kwijt-klok
-          tikLogRun('seed', { dCam: tikLogAfstTotTik(match) });   // V11.32.0
-          return { s1: match, s2Rest: bruikbaar.filter(d => d !== match), afwijsReden:'ok' };
-        }
-      }
-      // Eerste run OF sticky verlopen: closest-op-override → nieuwe sticky
-      let besteOv = null;
-      let minOvAfst = Infinity;
-      for (const det of bruikbaar) {
-        const dx = det.cx - bboxOverride.cx;
-        const dy = det.cy - bboxOverride.cy;
-        const afst = Math.sqrt(dx*dx + dy*dy);
-        if (afst < minOvAfst) { minOvAfst = afst; besteOv = det; }
-      }
-      // V11.17.2: radius-cap alleen ná eerste succesvolle match op deze tap-lock.
-      // Zonder eerste match (bboxOverrideMatchTeller===0): onbegrensd — geeft
-      // V11.16.10-gedrag terug voor eerste-tap-scenario waar bboxOverride.cx/cy
-      // in stale coord-ruimte staat t.o.v. huidige preprocess-crop. Met ≥1 match:
-      // cap actief tegen bevriezing bij rijden (V11.16.11-gedrag). Semantiek:
-      // "geef tap altijd één kans om te landen; daarna cap tegen drift-bevriezing."
-      if (bboxOverrideMatchTeller > 0 && minOvAfst > 180) {
-        stickyDetectie = null;
-        stickyMissTeller = 0;
-        tikLogRun('cap', { dY: minOvAfst });   // V11.32.0
-        return { s1: null, s2Rest: bruikbaar, afwijsReden:'radius_cap' };
-      }
-      if (besteOv) {
-        stickyDetectie = {
-          cx: besteOv.cx, cy: besteOv.cy,
-          ...stickyCam(besteOv),   // V11.17.45: frame-onafhankelijke kopie
-          familie: KLASSE_MAP[besteOv.klasse] || null,
-          hoogte: besteOv.h, klasse: besteOv.klasse, // V11.16.5 Fix B
-          tijd: Date.now()
-        };
-        stickyMissTeller = 0;
-        bboxOverrideMatchTeller++;
-        tapGezien();   // V11.20.1: slotje én de kwijt-klok
-        tikLogRun(bboxOverrideMatchTeller > 1 ? 'closest' : 'eerst', { dCam: tikLogAfstTotTik(besteOv), dY: minOvAfst });   // V11.32.0
-        return { s1: besteOv, s2Rest: bruikbaar.filter(d => d !== besteOv), afwijsReden:'ok' };
-      }
+    // ── V11.33.0: NA EEN TIK KIEST DEZE TAK NOOIT EEN ANDER LICHT ──
+    // © 2026 StoplichtIQ — Y. Lemaalem
+    //
+    // Wat er weg is, en waarom (STAP 0 van 27 september, M1-M5):
+    //   - de overnames (c) onder 15 m en (b) onder 40 m, die na één of twee
+    //     missers de dichtstbijzijnde detectie pakten ZONDER straal (M3);
+    //   - het loslaten na STICKY_MISS_MAX met daarna herstel, seed en
+    //     closest-op-override (onbegrensd bij de eerste match, daarna 180 px),
+    //     alle drie in het YOLO-stelsel van een vorige run (M5);
+    //   - de klok TAP_KWIJT_MS, zie tapLockLeeft (eis 2).
+    // Wat overblijft is één vraag per run: staat er binnen tikStraalYolo() van
+    // jouw lamp iets? Ja: dat is hij. Nee: niets tonen, de sticky blijft waar
+    // hij het laatst was.
+    //
+    // EEN TAP ERFT NOOIT HET AUTO-SLOT (V11.21.0). De tik-handler nult de sticky
+    // al, maar dit maakt "een tap wint altijd" een eigenschap van deze functie.
+    if (stickyDetectie && stickyDetectie.bron === 'auto') {
+      stickyDetectie = null; stickyMissTeller = 0; autoSlotReset();
     }
+    const straal = tikStraalYolo();
+    if (stickyDetectie !== null) {
+      // stickyVoorspel schrijft zijn verschuiving IN het object, en rekent
+      // telkens vanaf de laatste waarneming. Na een misser zou de volgende run
+      // die verschuiving er nóg eens bij optellen. Voor de tik zetten we hem
+      // daarom na een misser terug; het auto-slot deelt stickySlotMatch en
+      // houdt zijn gedrag.
+      const basis = { x: stickyDetectie.camX, y: stickyDetectie.camY };
+      const winner = stickySlotMatch(bruikbaar, straal);
+      if (winner) {
+        const match = winner.det;
+        tikLogSprong(basis, match);
+        stickyNeemOver(match);
+        stickyMissTeller = 0;
+        tapGezien();   // V11.20.1: slotje én de kwijt-klok
+        return { s1: match, s2Rest: bruikbaar.filter(d => d !== match), afwijsReden:'ok' };
+      }
+      if (basis.x != null) { stickyDetectie.camX = basis.x; stickyDetectie.camY = basis.y; }
+      stickyMissTeller++;
+      if (stickyMissTeller === 1) tikLogRun('leeg', { n: bruikbaar.length });
+      // {s1:null}: de tolerantie laat de laatste box van JOUW lamp nog even
+      // staan, daarna het zoekringetje. Geen fase, geen meting.
+      return { s1: null, s2Rest: bruikbaar, afwijsReden: 'tik_leeg' };
+    }
+    // Nog geen identiteit: je tikte naast elke box, of op een lamp die het model
+    // toen niet zag. Zoek rond de tikplek, in het stelsel van DEZE run.
+    const plek = tikPositieYolo();
+    let eerste = null, minPlek = Infinity;
+    for (const det of bruikbaar) {
+      const a = Math.hypot(det.cx - plek.cx, det.cy - plek.cy);
+      if (a < minPlek) { minPlek = a; eerste = det; }
+    }
+    if (eerste && minPlek < straal) {
+      stickyDetectie = {
+        cx: eerste.cx, cy: eerste.cy,
+        ...stickyCam(eerste),
+        familie: KLASSE_MAP[eerste.klasse] || null,
+        hoogte: eerste.h, klasse: eerste.klasse,
+        tijd: Date.now(), bron: 'tik'
+      };
+      stickyMissTeller = 0;
+      bboxOverrideMatchTeller++;
+      tapGezien();
+      tikLogRun('eerst', { dCam: tikLogAfstTotTik(eerste) });
+      return { s1: eerste, s2Rest: bruikbaar.filter(d => d !== eerste), afwijsReden:'ok' };
+    }
+    tikLogRun('zoekt', { n: bruikbaar.length });
+    return { s1: null, s2Rest: bruikbaar, afwijsReden: 'tik_zoekt' };
   }
 
   const gpsAf = dichtstbijOSM ? dichtstbijOSM.afstand : 999;
@@ -10754,10 +10637,17 @@ function tekenOverlay(box, score, horizontaal) {
   // indicator blijft zelfbeperkend: hij verdwijnt zodra de app de box echt te
   // pakken heeft (aiTeller >= 2 én een box én zoom vergrendeld).
   const tapActief = tapLockLeeft();
-  const toonTapIndicator = tapActief && (aiTeller < 2 || !box || !zoomVergrendeld);
+  // V11.33.0: de plek van jouw lamp in camerapixels. Tot V11.32.0 rekende de
+  // indicator bboxOverride terug met het stelsel van de LOPENDE run, terwijl
+  // die in het stelsel van het tikmoment stond: dezelfde val als bij de tik.
+  const tikPlek = tapActief ? tikPlekCam() : null;
+  // Het zoekringetje (Younes' keuze bij eis 2): zolang de app jouw lamp niet
+  // ziet, geen box maar een klein wit ringetje waar hij zoekt.
+  if (tapActief && !box && tikPlek) tekenZoekring(tikPlek);
+  const toonTapIndicator = tapActief && !!box && !!tikPlek && (aiTeller < 2 || !zoomVergrendeld);
   if (toonTapIndicator) {
-    const indicatorX = (bboxOverride.cx - lbPadX) / lbScale + (cropRegio ? cropRegio.x : 0);
-    const indicatorY = (bboxOverride.cy - lbPadY) / lbScale + (cropRegio ? cropRegio.y : 0);
+    const indicatorX = tikPlek.x;
+    const indicatorY = tikPlek.y;
     octx.save();
     octx.strokeStyle = 'rgba(251,191,36,0.9)';
     octx.lineWidth = 3;
@@ -11072,7 +10962,14 @@ function resetUIKleur() {
 }
 
 function resetNeutraal(reden) {
-  tikLogLos('reset_' + (reden || 'onbekend'));   // V11.32.0: alleen voor de tiklog
+  // V11.33.0 F4: een uitval of een verouderde fase wist de FASE, niet jouw tik.
+  // Tot V11.32.0 was dit de vierde loslaatreden die het commentaar bij
+  // tapLockLeeft ontkende: acht runs zonder s1 (GEEN_RESET, ~3 s) en de tik was
+  // weg, waarna de scorelus en het auto-slot de buur vastzetten (STAP 0, M4).
+  // Het startscherm wist hem wel: dan is de rit voorbij.
+  const tikBlijft = bboxOverride !== null && (reden === 'dropout' || reden === 'stale');
+  if (tikBlijft) tikLogRun('reset_' + reden, {});
+  else tikLogLos('reset_' + (reden || 'onbekend'));
   // V11.17.39: leg vast wat de tellers waren VOOR de reset — de zichtlog-sampler
   // draait erna en zag daardoor altijd 0. In de export van 20 aug stond `mis`
   // 26x op nul, wat niet bewees dat er geen missers waren.
@@ -11084,9 +10981,11 @@ function resetNeutraal(reden) {
   faseBron.textContent=''; randGlow.className=''; vorigeDetectie=null;
   cdPill.classList.remove('cd-verborgen'); // V11.17.28 W1c: geen restklasse
   // V11.4.5: bbox override vrijgeven bij volledige reset
-  bboxOverride = null; bboxOverrideTijd = 0;
-  bboxOverrideCamX = null; bboxOverrideCamY = null;
-  bboxOverrideMatchTeller = 0;
+  if (!tikBlijft) {
+    bboxOverride = null; bboxOverrideTijd = 0;
+    bboxOverrideCamX = null; bboxOverrideCamY = null;
+    bboxOverrideMatchTeller = 0;
+  }
   bboxAnchorCx = null; bboxAnchorCy = null; bboxAnchorTijd = 0;
   richtingBlokVerborgen = false;  // V11.17.4 W3: reset ✕-status bij volledige reset
   // V11.17.5 W3: richtingLock ontbrak in resetNeutraal — vroege keuze bleef
@@ -11096,7 +10995,7 @@ function resetNeutraal(reden) {
   // ook op node-id, dus dit is een tweede slot en geen enkele beveiliging;
   // hij staat hier zodat de staat niet meereist naar het volgende kruispunt.
   getoondeLaag = null;
-  stickyDetectie = null; stickyMissTeller = 0; // V11.15.8
+  if (!tikBlijft) { stickyDetectie = null; stickyMissTeller = 0; } // V11.15.8 — V11.33.0: behalve die van de tik
   tapSeedDetectie = null; // V11.16.4
   correctieMultiframe = null; wachtGroenIntentie = null; // V11.16.3
   // Zoom ontgrendelen
@@ -11235,8 +11134,10 @@ function verwerkFase(nieuw, horizontaal, conf=null) {
     // ontkoppelde levensduur-variabele; deze release lost de root cause op).
     // sticky+tapSeed reset blijven staan: die zijn detectie-identiteits-
     // mechanismen die per fase-cyclus mogen resetten.
-    if (bboxOverride !== null && stickyDetectie) tikLogRun('groen_sticky', {});   // V11.32.0
-    stickyDetectie = null; stickyMissTeller = 0; // V11.15.8
+    // V11.33.0 F4: behalve de identiteit van jouw getikte lamp. Rood naar
+    // groen is DEZELFDE lamp; de klassestraf van 30 px in stickySlotMatch vangt
+    // die kleurwissel al op. Het auto-slot (V11.21.0) houdt zijn reset.
+    if (bboxOverride === null) { stickyDetectie = null; stickyMissTeller = 0; } // V11.15.8
     tapSeedDetectie = null; // V11.16.4
     // V11.12.2: voorkeursBbox NIET direct resetten bij groen — dit hield de
     // detectie instabiel tijdens het bevestig-knoppen venster (15s),

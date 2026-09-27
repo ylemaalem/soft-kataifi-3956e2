@@ -2,31 +2,34 @@
 //  StoplichtIQ — test_tiklog.js
 //  © 2026 StoplichtIQ — Y. Lemaalem
 //
-//  Test bij V11.32.0: de tik laat een spoor na. Een meetlaag, geen
-//  gedragswijziging.
+//  Test bij V11.32.0 (de tik laat een spoor na, een meetlaag) en V11.33.0
+//  (de tik wint, of de app toont niets).
 //
 //  DE KLACHT. Tik op A en de box springt naar buurlicht B. Tik op B en hij
 //  springt terug naar A. In de STAP 0 van 27 september zijn vijf mechanismen
 //  gevonden, en uit de exports was niet te zien welk het was: nergens stond
 //  waar de box stond.
 //
-//  TL0  KERN: het HUIDIGE gedrag vastgelegd, vóór de reparatie. Deze toetsen
-//       slaan in V11.33.0 bewust om. Ze bewijzen dat de mechanismen echt zijn.
-//       a  M1  tik op een lamp die het model niet ziet: de handler pakt de buur
-//       b  M2  crop en volbeeld door elkaar: een tik precies op A landt op B
-//       c  M3  onder 15 m pakt de overname na één misser de buur, zonder straal
-//       d  M4  resetNeutraal wist de tik bij een uitval
-//       e  M5  groen wist de tik-sticky (op de bron: verwerkFase speelt geluid)
-//       f  M5  daarna wint wat het dichtst bij de oude YOLO-positie ligt
-//       g  M3  op volbeeld is de sticky-straal drie keer zo ruim
+//  TL0  KERN, OMGEDRAAID. In V11.32.0 legden deze toetsen het OUDE gedrag vast
+//       (M1-M5 uit de STAP 0), en daar waren ze groen. Sinds V11.33.0 staat
+//       dezelfde opzet er met het tegenovergestelde oordeel. De V11.32.0-versie
+//       van dit bestand faalt op V11.33.0 precies op deze toetsen.
+//       a  M1  tik op een lamp die het model niet ziet: niet de buur, de plek
+//       b  M2  crop en volbeeld door elkaar: een tik op A blijft A
+//       c  M3  onder 15 m: A mist, dan niets tonen, geen overname
+//       d  M4  resetNeutraal bij een uitval laat de tik staan
+//       e  M5  groen wist de tik-sticky niet meer (op de bron)
+//       f  M5  de eerste match zoekt rond de tik in DIT stelsel: A
+//       g  M3  op volbeeld is de straal niet meer drie keer zo ruim
 //  TL1  de tik-regel: pad, keuze, echte afstand, verkeerde keuze, stelsel
 //  TL2  de run-regels: overname, sprong, eerste match, dubbel onderdrukt
 //  TL3  de los-regels: elke reden, en niets als er geen tik was. De node-wissel
 //       en de correctie meldt een wachter, want die twee functies pint NB14.
 //  TL4  de ring, en een vol quotum staakt het log zonder de app te raken
 //  TL5  de tiklog reist mee in de meetdata-export
-//  TL6  KERN: geen gedragswijziging — twaalf functies zijn zonder de
-//       V11.32.0-regels byte-gelijk aan V11.31.0, de handler inbegrepen
+//  TL6  de logfuncties beslissen niets en zijn in V11.33.0 onaangeroerd. Dat
+//       V11.32.0 zelf niets aan het gedrag veranderde, bewees de V11.32.0-versie
+//       van deze toets (elf functies en de handler byte-gelijk aan V11.31.0).
 //  TL7  laatsteDetectiesStelsel volgt de run die de detecties opleverde
 //
 //  DRAAIEN
@@ -66,6 +69,13 @@ async function testTiklog() {
   };
   const zetCrop = () => { lbScale = S_CROP; lbPadX = 0; lbPadY = 0; cropRegio = { ...CROP }; };
   const zetVol  = () => { lbScale = S_VOL; lbPadX = PAD_VOL; lbPadY = 0; cropRegio = null; };
+  // V11.33.0: de identiteitsstraal hangt aan de beeldmaat. Zonder beeld (een
+  // testpagina) valt hij terug op de oude straal; TL0g zet daarom een nep-beeld.
+  const metBeeld = () => {
+    Object.defineProperty(video, 'videoWidth', { get: () => VW, configurable: true });
+    Object.defineProperty(video, 'videoHeight', { get: () => VH, configurable: true });
+  };
+  const zonderBeeld = () => { delete video.videoWidth; delete video.videoHeight; };
 
   // ── Alles wat deze suite aanraakt, en weer terugzet ───────
   const namen = ['bboxOverride', 'bboxOverrideTijd', 'bboxOverrideCamX', 'bboxOverrideCamY',
@@ -136,14 +146,16 @@ async function testTiklog() {
     laatsteDetecties = [det(bCrop)];
     laatsteDetectiesStelsel = { ...ST_CROP };
     tikOp(A);
-    eis('TL0a M1: een tik op A, die niet gedetecteerd is, zet de lock op buur B',
-        !!bboxOverride && Math.abs(bboxOverride.cx - bCrop.cx) < 0.5 && Math.abs(bboxOverride.cy - bCrop.cy) < 0.5,
-        'lock op B (' + r1(bCrop.cx) + ', ' + r1(bCrop.cy) + ')',
-        bboxOverride ? r1(bboxOverride.cx) + ', ' + r1(bboxOverride.cy) : 'geen lock');
+    const aCropTik = naarCrop(A.x, A.y);
+    eis('TL0a M1 omgedraaid: een tik op A, die niet gedetecteerd is, vergrendelt op A, niet op buur B',
+        !!bboxOverride && Math.abs(bboxOverride.cx - aCropTik.cx) < 1 && Math.abs(bboxOverrideCamX - A.x) < 2
+          && stickyDetectie === null,
+        'lock op A (' + r1(aCropTik.cx) + '), geen sticky',
+        bboxOverride ? r1(bboxOverride.cx) + ', cam ' + r1(bboxOverrideCamX) + ', sticky ' + !!stickyDetectie : 'geen lock');
     let tk = regelsVan('tik').pop();
-    eis('TL1a de tik-regel: pad A, gesnapt, op ~91 camerapixels van je vinger',
-        tk && tk.pad === 'A' && tk.snap === 1 && tk.dCam >= 88 && tk.dCam <= 93 && tk.n === 1 && tk.st === 0,
-        'A / 1 / ~91 / n 1 / st 0', tk && `${tk.pad} / ${tk.snap} / ${tk.dCam} / n ${tk.n} / st ${tk.st}`);
+    eis('TL1a de tik-regel: pad A, niet gesnapt, de buur lag ~91 camerapixels verderop',
+        tk && tk.pad === 'A' && tk.snap === 0 && tk.dMin >= 88 && tk.dMin <= 93 && tk.n === 1 && tk.st === 0,
+        'A / 0 / dMin ~91 / n 1 / st 0', tk && `${tk.pad} / ${tk.snap} / ${tk.dMin} / n ${tk.n} / st ${tk.st}`);
     eis('TL1b de tikplek staat er in camerapixels bij', tk && tk.cx === A.x && tk.cy === A.y,
         A.x + ', ' + A.y, tk && tk.cx + ', ' + tk.cy);
 
@@ -155,13 +167,14 @@ async function testTiklog() {
     laatsteDetecties = [det(aCrop), det(bCrop)];
     laatsteDetectiesStelsel = { ...ST_CROP };
     tikOp(A);
-    eis('TL0b M2: een tik precies op A landt op B als crop en volbeeld door elkaar lopen',
-        !!bboxOverride && Math.abs(bboxOverride.cx - bCrop.cx) < 0.5,
-        'lock op B (' + r1(bCrop.cx) + ')', bboxOverride ? r1(bboxOverride.cx) : 'geen lock');
+    const aVol = naarVol(A.x, A.y);
+    eis('TL0b M2 omgedraaid: een tik precies op A blijft A, ook als crop en volbeeld door elkaar lopen',
+        !!bboxOverride && Math.abs(bboxOverride.cx - aVol.cx) < 1 && !!stickyDetectie && Math.abs(stickyDetectie.camX - A.x) < 2,
+        'lock en sticky op A (' + r1(aVol.cx) + ')', bboxOverride ? r1(bboxOverride.cx) + ', sticky ' + (stickyDetectie ? r1(stickyDetectie.camX) : '-') : 'geen lock');
     tk = regelsVan('tik').pop();
-    eis('TL1c de tik-regel ziet het: ander stelsel, verkeerde keuze, echte afstand tot A ~0',
-        tk && tk.st === 1 && tk.mis === 1 && tk.dMin <= 1 && tk.vol === 1 && tk.dCam >= 88,
-        'st 1 / mis 1 / dMin 0 / vol 1', tk && `st ${tk.st} / mis ${tk.mis} / dMin ${tk.dMin} / vol ${tk.vol} / dCam ${tk.dCam}`);
+    eis('TL1c de tik-regel: ander stelsel gezien, en toch de goede keuze, op de box zelf',
+        tk && tk.st === 1 && tk.mis === 0 && tk.dMin <= 1 && tk.vol === 1 && tk.snap === 1 && tk.rand === 0,
+        'st 1 / mis 0 / dMin 0 / vol 1 / snap 1 / rand 0', tk && `st ${tk.st} / mis ${tk.mis} / dMin ${tk.dMin} / vol ${tk.vol} / snap ${tk.snap} / rand ${tk.rand}`);
 
     // ═══ TL0c — M3: overname onder 15 m, zonder straal ══════
     schoon({ afst: 10 }); leegTik(); zetVol();
@@ -169,58 +182,67 @@ async function testTiklog() {
     stickyDetectie = stickyOp(A);
     const ver = naarVol(900, 450);                // 310 camerapixels van A
     const rc = selecteerBesteDetectie([det(ver)]);
-    eis('TL0c M3: onder 15 m pakt de overname na één misser een lamp op 310 camerapixels',
-        !!rc.s1 && Math.abs(rc.s1.cx - ver.cx) < 0.5 && rc.afwijsReden === 'sticky_overname_dichtbij',
-        'B + sticky_overname_dichtbij', (rc.s1 ? r1(rc.s1.cx) : 'geen') + ' + ' + rc.afwijsReden);
+    eis('TL0c M3 omgedraaid: onder 15 m, A mist, een lamp op 310 camerapixels — niets tonen, geen overname',
+        rc.s1 === null && rc.afwijsReden === 'tik_leeg' && Math.abs(stickyDetectie.camX - A.x) < 0.01,
+        'null + tik_leeg, sticky op A', (rc.s1 ? r1(rc.s1.cx) : 'null') + ' + ' + rc.afwijsReden);
     let rn = regelsVan('run');
-    eis('TL2a de run-regels: eerst de misser, dan de overname, met afstand tot de tik',
-        rn.length >= 2 && rn[rn.length - 2].tak === 'mis1' && rn[rn.length - 1].tak === 'over_c'
-          && rn[rn.length - 1].dCam >= 305 && rn[rn.length - 1].dCam <= 315 && rn[rn.length - 1].skip === 1,
-        'mis1, over_c, dCam ~310, skip 1', JSON.stringify(rn.slice(-2)));
+    eis('TL2a de run-regel zegt: leeg, met het aantal kandidaten in beeld',
+        rn.length === 1 && rn[0].tak === 'leeg' && rn[0].n === 1 && rn[0].skip === 1,
+        'leeg, n 1, skip 1', JSON.stringify(rn));
 
     // ═══ TL0g — M3: op volbeeld is de straal drie keer zo ruim ═
     // Dezelfde verschuiving van 200 camerapixels: op volbeeld een geldige
     // match (67 YOLO-px < 80), in de crop niet (197 YOLO-px).
-    schoon({ afst: 40 }); leegTik(); zetVol();
+    metBeeld();
+    let rg;
+    const opzij = { x: A.x + 200, y: A.y };
+    try {
+      schoon({ afst: 40 }); leegTik(); zetVol();
+      bboxOverride = { cx: 0, cy: 0 }; bboxOverrideCamX = A.x; bboxOverrideCamY = A.y;
+      stickyDetectie = stickyOp(A);
+      rg = selecteerBesteDetectie([det(naarVol(opzij.x, opzij.y))]);
+    } finally { zonderBeeld(); }
+    eis('TL0g M3 omgedraaid: op volbeeld is 200 camerapixels naast A geen match meer',
+        !rg.s1 && rg.afwijsReden === 'tik_leeg', 'geen + tik_leeg',
+        (rg.s1 ? 'match' : 'geen') + ' + ' + rg.afwijsReden);
+    // een sprong BINNEN de straal (70 camerapixels in de crop) wordt nog gelogd
+    schoon({ afst: 40 }); leegTik(); zetCrop();
     bboxOverride = { cx: 0, cy: 0 }; bboxOverrideCamX = A.x; bboxOverrideCamY = A.y;
     stickyDetectie = stickyOp(A);
-    const opzij = { x: A.x + 200, y: A.y };
-    const rg = selecteerBesteDetectie([det(naarVol(opzij.x, opzij.y))]);
-    eis('TL0g M3: op volbeeld verhuist de sticky 200 camerapixels, naar een andere lamp',
-        !!rg.s1 && rg.afwijsReden === 'ok' && bboxSlot === 'tap',
-        'match + tap-slotje', (rg.s1 ? 'match' : 'geen') + ' + ' + rg.afwijsReden + ' + ' + bboxSlot);
+    selecteerBesteDetectie([det(naarCrop(A.x + 70, A.y))]);
     rn = regelsVan('run');
-    eis('TL2b en dat heet in de log een sprong van ~200 camerapixels',
-        rn.length && rn[rn.length - 1].tak === 'sprong' && rn[rn.length - 1].sprong >= 195 && rn[rn.length - 1].sprong <= 205,
-        'sprong ~200', JSON.stringify(rn.slice(-1)));
+    eis('TL2b een verschuiving van 70 camerapixels binnen de straal heet in de log een sprong',
+        rn.length && rn[rn.length - 1].tak === 'sprong' && rn[rn.length - 1].sprong >= 68 && rn[rn.length - 1].sprong <= 72,
+        'sprong ~70', JSON.stringify(rn.slice(-1)));
     schoon({ afst: 40 }); zetCrop();
     bboxOverride = { cx: 0, cy: 0 }; bboxOverrideCamX = A.x; bboxOverrideCamY = A.y;
     stickyDetectie = stickyOp(A);
     const rg2 = selecteerBesteDetectie([det(naarCrop(opzij.x, opzij.y))]);
-    eis('TL0g2 ... terwijl dezelfde 200 camerapixels in de crop géén match zijn',
-        !rg2.s1 && rg2.afwijsReden === 'sticky_miss', 'geen + sticky_miss',
+    eis('TL0g2 ... en in de crop evenmin',
+        !rg2.s1 && rg2.afwijsReden === 'tik_leeg', 'geen + tik_leeg',
         (rg2.s1 ? 'match' : 'geen') + ' + ' + rg2.afwijsReden);
 
     // ═══ TL0d — M4: resetNeutraal wist de tik ═══════════════
     schoon({ tap: { cx: 300, cy: 200 }, camX: A.x, camY: A.y, afst: 12 }); leegTik();
     stickyDetectie = { cx: 300, cy: 200, familie: 'rood', hoogte: 40, klasse: 0, tijd: Date.now() };
     resetNeutraal('dropout');
-    eis('TL0d M4: resetNeutraal wist de levende tik bij een uitval',
-        bboxOverride === null && stickyDetectie === null, 'tik weg', 'bboxOverride=' + JSON.stringify(bboxOverride));
+    eis('TL0d M4 omgedraaid: resetNeutraal bij een uitval laat de tik en zijn sticky staan',
+        bboxOverride !== null && stickyDetectie !== null, 'tik staat', 'bboxOverride=' + JSON.stringify(bboxOverride));
     let los = regelsVan('los').pop();
-    eis('TL3a de los-regel noemt de reden en de duur', los && los.reden === 'reset_dropout' && los.duur >= 0 && los.node === '860541',
-        'reset_dropout, duur, node', JSON.stringify(los));
+    rn = regelsVan('run');
+    eis('TL3a geen los-regel, wel een run-regel reset_dropout',
+        !los && rn.length && rn[rn.length - 1].tak === 'reset_dropout', 'geen los, run reset_dropout',
+        JSON.stringify(los) + ' / ' + JSON.stringify(rn.slice(-1)));
 
     // ═══ TL0e — M5: groen wist de tik-sticky (op de bron) ═══
     const fase5 = zc(verwerkFase);
     const groenBlok = fase5.slice(fase5.indexOf("if (nieuw === 'groen') {"), fase5.indexOf("if (nieuw === 'groen') {") + 2200);
-    eis('TL0e M5: in de groene tak staat een onvoorwaardelijke stickyDetectie = null',
-        /\n\s*stickyDetectie = null; stickyMissTeller = 0;/.test(groenBlok)
-          && !/if \(bboxOverride === null\)\s*\{?\s*stickyDetectie = null/.test(groenBlok),
-        'onvoorwaardelijk', /if \(bboxOverride === null\)/.test(groenBlok) ? 'voorwaardelijk' : 'onvoorwaardelijk');
-    eis('TL3b en de tiklog meldt het, alleen als er een tik leeft',
-        /bboxOverride !== null && stickyDetectie\) tikLogRun\('groen_sticky'/.test(String(verwerkFase)),
-        'aanwezig', 'ok');
+    eis('TL0e M5 omgedraaid: in de groene tak wist alleen een sticky zonder tik',
+        /if \(bboxOverride === null\)\s*\{\s*stickyDetectie = null/.test(groenBlok)
+          && !/\n\s*stickyDetectie = null; stickyMissTeller = 0;/.test(groenBlok),
+        'voorwaardelijk', /if \(bboxOverride === null\)/.test(groenBlok) ? 'voorwaardelijk' : 'onvoorwaardelijk');
+    eis('TL3b de groen_sticky-logregel is weg: dat gebeurt niet meer',
+        !/groen_sticky/.test(String(verwerkFase)), 'weg', 'ok');
 
     // ═══ TL0f — M5: closest op de oude YOLO-positie ═════════
     // Getikt op A in een crop-run; bboxOverride staat in die YOLO-ruimte. Nu
@@ -228,12 +250,12 @@ async function testTiklog() {
     schoon({ tap: { ...aCrop }, camX: A.x, camY: A.y, afst: 20 }); leegTik(); zetVol();
     const bLaag = naarVol(560, 780);
     const rf = selecteerBesteDetectie([det(naarVol(A.x, A.y)), det(bLaag)]);
-    eis('TL0f M5: de eerste match na een verloren sticky kiest B, die dicht bij de oude YOLO-positie ligt',
-        !!rf.s1 && Math.abs(rf.s1.cx - bLaag.cx) < 0.5, 'B', rf.s1 ? r1(rf.s1.cx) : 'geen');
+    eis('TL0f M5 omgedraaid: de eerste match zoekt rond de tik in DIT stelsel, en vindt A',
+        !!rf.s1 && Math.abs(rf.s1.cx - naarVol(A.x, A.y).cx) < 0.5, 'A ' + r1(naarVol(A.x, A.y).cx), rf.s1 ? r1(rf.s1.cx) : 'geen');
     rn = regelsVan('run');
-    eis('TL2c de log zegt: eerste match, op ~331 camerapixels van de tik',
-        rn.length && rn[rn.length - 1].tak === 'eerst' && rn[rn.length - 1].dCam >= 325 && rn[rn.length - 1].dCam <= 335,
-        'eerst, ~331', JSON.stringify(rn.slice(-1)));
+    eis('TL2c de log zegt: eerste match, op de tik zelf',
+        rn.length && rn[rn.length - 1].tak === 'eerst' && rn[rn.length - 1].dCam <= 2,
+        'eerst, ~0', JSON.stringify(rn.slice(-1)));
 
     // ═══ TL2 — dubbele run-regels ═══════════════════════════
     leegTik();
@@ -297,10 +319,11 @@ async function testTiklog() {
     schoon({ tap: { cx: 1, cy: 1 } }); leegTik();
     bboxOverrideLaatsteMatch = Date.now() - (TAP_KWIJT_MS + 500);
     bboxOverrideTijd = Date.now() - (TAP_KWIJT_MS + 500);
-    selecteerBesteDetectie([det({ cx: 320, cy: 200 })]);
+    const r3f = selecteerBesteDetectie([det({ cx: 320, cy: 200 })]);
     los = regelsVan('los').pop();
-    eis('TL3f na TAP_KWIJT_MS zonder match: los-regel kwijt', los && los.reden === 'kwijt' && los.gezien >= TAP_KWIJT_MS,
-        'kwijt, gezien > 20000', JSON.stringify(los));
+    eis('TL3f na TAP_KWIJT_MS zonder match: geen los, de tik zoekt verder',
+        !los && bboxOverride !== null && r3f.s1 === null && r3f.afwijsReden === 'tik_zoekt',
+        'geen los, tik_zoekt', JSON.stringify(los) + ' / ' + r3f.afwijsReden);
     schoon({ tap: { cx: 1, cy: 1 }, camX: 10, camY: 10 }); leegTik(); zetCrop();
     laatsteDetecties = []; laatsteDetectiesStelsel = { ...ST_CROP };
     tikOp(A);
@@ -359,37 +382,24 @@ async function testTiklog() {
         !!meet && meet.tik && Array.isArray(meet.tik[TIKLOG_SLEUTEL]) && meet.tik[TIKLOG_SLEUTEL].some(r => r.reden === 'proef'),
         'tik.sl_tiklog met de proefregel', meet ? Object.keys(meet.tik || {}).join(',') : 'geen export');
 
-    // ═══ TL6 — geen gedragswijziging ════════════════════════
-    // V11.31.0-vingerafdrukken (fase_c, gemeten met scratchpad/vgl_fn.js).
-    const V1131 = {
-      _verwerkWorkerResultaatKern: ['82b0bdd1', 5976], selecteerBesteDetectie: ['99ca03f6', 23733],
-      resetNeutraal: ['6151984b', 2858], verwerkFase: ['e63ae990', 12374],
-      verwerkDetecties: ['33ab2523', 8715], naarStartscherm: ['6ec33ce9', 402],
-      updateDichtbij: ['e82d3c0', 11914], corrigeerNodeAutomatisch: ['afe7b427', 4118],
-      onGPS: ['ece04644', 14206], lus: ['fd02fb0', 3160], exporteerMeetdata: ['fd647e17', 7686]
-    };
-    const zonder = (s) => s.split('\n').filter(l => !l.includes('V11.32.0')).join('\n')
-      .replace(/resetNeutraal\('[a-z]+'\)/g, 'resetNeutraal()').replace('function resetNeutraal(reden) {', 'function resetNeutraal() {');
-    const afwijkend = [];
-    for (const [naam, [h, len]] of Object.entries(V1131)) {
-      const z = zonder(String(eval(naam)));
-      if (fnv(z) !== h || z.length !== len) afwijkend.push(naam + ' ' + fnv(z) + '/' + z.length);
-    }
-    eis('TL6a elf functies zijn zonder de V11.32.0-regels byte-gelijk aan V11.31.0',
-        afwijkend.length === 0, 'geen afwijking', afwijkend.join('; ') || 'geen');
+    // ═══ TL6 — de logfuncties ═════════════════════════════
+    // Onaangeroerd door V11.33.0 (gemeten op fase_d, V11.32.0).
+    const LOG = { tikLogNoteer: ['d9f96f8', 1154], tikLogWaak: ['25490478', 714], tikLogRun: ['2f4dd880', 262],
+                  tikLogLos: ['790260fe', 342], tikLogSprong: ['7eebe753', 303], tikLogAfstTotTik: ['712b95b9', 190],
+                  tikLogStelselNu: ['4a961775', 154], tikLogDetCam: ['4cc27fb2', 204] };
+    const logAnders = Object.entries(LOG).filter(([n, [h, l]]) => fnv(String(eval(n))) !== h || String(eval(n)).length !== l).map(x => x[0]);
+    eis('TL6a acht logfuncties zijn byte-gelijk aan V11.32.0', logAnders.length === 0, 'geen afwijking', logAnders.join(', ') || 'geen');
     let handler = null;
     try {
       const src = await (await fetch('/index.html?' + Date.now())).text();
-      const i = src.indexOf("canvas.addEventListener('click', (e) => {");
-      handler = src.slice(i, src.indexOf('\n});', i) + 4);
+      const i6 = src.indexOf("canvas.addEventListener('click', (e) => {");
+      handler = src.slice(i6, src.indexOf('\n});', i6) + 4);
     } catch (e) {}
-    const hz = handler ? zonder(handler) : '';
-    eis('TL6b de tik-handler is zonder de V11.32.0-regel byte-gelijk aan V11.31.0',
-        !!handler && fnv(hz) === '9c1fd772' && hz.length === 8320, '9c1fd772 / 8320', handler ? fnv(hz) + ' / ' + hz.length : 'niet gelezen');
-    eis('TL6c de handler kreeg precies één regel: de tiklog-aanroep',
-        !!handler && handler.split('\n').filter(l => l.includes('V11.32.0')).length === 1
-          && /tikLogTik\(videoX, videoY, heeftActieveBbox, dichtstbij, minAfst\)/.test(handler),
-        '1 regel', handler ? handler.split('\n').filter(l => l.includes('V11.32.0')).length : '-');
+    eis('TL6b de handler logt de keuze die hij maakte: de detectie en de rand-afstand',
+        !!handler && /tikLogTik\(videoX, videoY, heeftActieveBbox, keuze \? keuze\.det : null, keuze \? keuze\.rand : null\)/.test(handler),
+        'aanwezig', handler ? 'gelezen' : 'niet gelezen');
+    eis('TL6c ... vóór hij de lock zet (tikZet), zodat een vorige tik nog als los meetelt',
+        !!handler && handler.indexOf('tikLogTik(') < handler.indexOf('tikZet('), 'eerst loggen', 'ok');
     eis('TL6d de logfuncties beslissen niets: ze schrijven geen tik-toestand',
         !/(bboxOverride|stickyDetectie|tapSeedDetectie|bboxSlot)\s*=[^=]/.test(
           zc(tikLogNoteer) + zc(tikLogRun) + zc(tikLogLos) + zc(tikLogTik) + zc(tikLogSprong) + zc(tikLogAfstTotTik)),

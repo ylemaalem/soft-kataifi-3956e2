@@ -13,10 +13,14 @@
 //  Younes' woorden bij deze klacht: "Al is de bbox maar 5%."
 //
 //  H1  de lock verloopt niet meer op een klok vanaf de tik
-//  H2  maar wel als de lamp TAP_KWIJT_MS lang onvindbaar is
-//  H3  drie loslaatredenen, en geen vierde
+//  H2  V11.33.0 HEEFT DEZE TOETS OMGEDRAAID, EN DAT IS DE BEDOELING. Tot en met
+//      V11.32.0 viel de lock na TAP_KWIJT_MS zonder match, en dan koos de app
+//      vrij — precies het overspringen waar Younes' eis 2 vanaf wil. Nu blijft
+//      hij staan en toont de app niets (een zoekringetje) tot de volgende tik.
+//  H3  de loslaatredenen: een nieuwe tik, een ander kruispunt, het startscherm
 //  H4  KERN: 5% binnen de straal komt door, 5% zonder tap niet
-//  H5  de straal is begrensd — buiten TAP_ZWAK_STRAAL_PX gelden de vijf filters
+//  H5  de straal is begrensd — buiten tikStraalYolo() gelden de vijf filters
+//      (V11.33.0: dezelfde straal als waarin de tik zijn lamp terugvindt)
 //  H6  de ondergrens tegen ontaarde boxen blijft ook binnen de straal
 //  H7  REGRESSIE: zonder tap is postprocessYOLO ongewijzigd
 //  H8  REGRESSIE: de app zoekt nooit over het hele beeld
@@ -111,30 +115,29 @@ function testTapHeilig() {
     eis('H1c ook tien minuten voor rood blijft de lock staan',
         tapLockLeeft() === true, 'true', String(tapLockLeeft()));
 
-    // ═══ H2 — WÉL LOSLATEN ALS DE LAMP WEG IS ═════════════════
+    // ═══ H2 — V11.33.0: OOK NA TAP_KWIJT_MS GEEN VRIJE KEUZE ══
     opzet({ tap: { cx: 320, cy: 200 }, tapTijd: nu - 60000,
             gezien: nu - (TAP_KWIJT_MS + 1000), matches: 3 });
-    eis('H2 vooraf: de lock geldt als kwijt',
-        tapLockLeeft() === false, 'false', String(tapLockLeeft()));
+    eis('H2 ook na TAP_KWIJT_MS zonder match leeft de lock',
+        tapLockLeeft() === true, 'true', String(tapLockLeeft()));
     const r2 = selecteerBesteDetectie([det(500, 210)]);
-    eis('H2b de lock wordt losgelaten en de app kiest weer vrij',
-        bboxOverride === null && stickyDetectie === null
-          && bboxSlot === 'vrij' && !!r2.s1,
-        'lock weg, slot vrij',
-        'override=' + bboxOverride + ', slot=' + bboxSlot);
-    // de grens zelf
+    eis('H2b ... en de app kiest NIET vrij: niets tonen, verder zoeken rond de tik',
+        bboxOverride !== null && r2.s1 === null && r2.afwijsReden === 'tik_zoekt',
+        'lock staat, null + tik_zoekt',
+        'override=' + (bboxOverride !== null) + ', ' + (r2.s1 ? 'box' : 'null') + ' + ' + r2.afwijsReden);
+    // er is geen grens meer
     const leeft = (sinds) => { opzet({ tap: { cx: 320, cy: 200 }, tapTijd: nu - 60000, gezien: Date.now() - sinds }); return tapLockLeeft(); };
-    eis('H2c net binnen TAP_KWIJT_MS leeft hij, net erbuiten niet',
-        leeft(TAP_KWIJT_MS - 500) === true && leeft(TAP_KWIJT_MS + 500) === false,
-        'true / false', leeft(TAP_KWIJT_MS - 500) + ' / ' + leeft(TAP_KWIJT_MS + 500));
+    eis('H2c net binnen én net buiten TAP_KWIJT_MS leeft hij',
+        leeft(TAP_KWIJT_MS - 500) === true && leeft(TAP_KWIJT_MS + 500) === true,
+        'true / true', leeft(TAP_KWIJT_MS - 500) + ' / ' + leeft(TAP_KWIJT_MS + 500));
 
     // ═══ H3 — DRIE REDENEN, GEEN VIERDE ══════════════════════
     // (a) een nieuwe tik: verse bboxOverrideTijd wint van een oude matchtijd,
     //     zodat de vorige tap de nieuwe niet meteen dood verklaart.
     opzet({ tap: { cx: 100, cy: 100 }, tapTijd: nu - (TAP_KWIJT_MS + 5000),
             gezien: nu - (TAP_KWIJT_MS + 5000) });
-    eis('H3 vooraf: de oude tap is kwijt',
-        tapLockLeeft() === false, 'false', String(tapLockLeeft()));
+    eis('H3 vooraf: ook een oude tap zonder match leeft nog (V11.33.0)',
+        tapLockLeeft() === true, 'true', String(tapLockLeeft()));
     bboxOverride = { cx: 400, cy: 300 }; bboxOverrideTijd = Date.now();
     eis('H3a (a) een nieuwe tik leeft meteen, ondanks de oude matchtijd',
         tapLockLeeft() === true, 'true', String(tapLockLeeft()));
@@ -145,12 +148,13 @@ function testTapHeilig() {
         'beide wissen', 'updateDichtbij: '
           + /bboxOverride = null/.test(zc(updateDichtbij)) + ', corrigeer: '
           + /bboxOverride = null/.test(zc(corrigeerNodeAutomatisch)));
-    // (c) is H2. En er is geen vierde: de oude klok staat niet meer in de bron.
-    eis('H3c (c) en er is geen vierde reden — selecteerBesteDetectie kent geen ' +
-        'klok vanaf de tik meer',
-        !/bboxOverrideTijd\s*>\s*TAP/.test(zc(selecteerBesteDetectie))
-          && /tapLockLeeft\(\)/.test(zc(selecteerBesteDetectie)),
-        'alleen tapLockLeeft', 'ok');
+    // (c) bestaat sinds V11.33.0 niet meer: er is geen klok, ook niet vanaf de
+    // laatste waarneming.
+    eis('H3c (c) er is geen klok: tapLockLeeft en selecteerBesteDetectie kennen ' +
+        'TAP_KWIJT_MS niet',
+        !/TAP_KWIJT_MS/.test(zc(tapLockLeeft)) && !/TAP_KWIJT_MS/.test(zc(selecteerBesteDetectie))
+          && !/bboxOverrideTijd\s*>\s*TAP/.test(zc(selecteerBesteDetectie)),
+        'geen klok', 'ok');
 
     // ═══ H4 — DE KERN: 5% BINNEN DE STRAAL ═══════════════════
     // Twee ankers: een sterke in het midden, een zwakke van 5% ernaast.
@@ -175,22 +179,27 @@ function testTapHeilig() {
     eis('H4c de straal volgt de sticky, niet de bevroren tik-positie',
         viaSticky.some(d => d.cx === 360 && d.score === 0.05),
         '360 komt door', JSON.stringify(viaSticky));
-    // een dode lock verruimt niets
+    // V11.33.0: een lock die lang niets zag, leeft; zijn zwakke zone dus ook.
+    // Jouw lamp kan terugkomen, en dan moet hij er zwak doorheen kunnen.
     opzet({ tap: { cx: 360, cy: 220 }, tapTijd: nu - 60000, gezien: nu - 60000 });
-    eis('H4d een kwijtgeraakte lock verruimt niets meer',
-        tapZwakPositie() === null && doorFilter(ankers).length === 1,
-        'null + 1 detectie',
-        tapZwakPositie() + ' + ' + doorFilter(ankers).length);
+    eis('H4d ook een lock die een minuut niets zag, houdt zijn zwakke zone',
+        tapZwakPositie() !== null && doorFilter(ankers).length === 2,
+        'positie + 2 detecties',
+        JSON.stringify(tapZwakPositie()) + ' + ' + doorFilter(ankers).length);
+    // zonder tik verruimt er niets
+    opzet();
+    eis('H4e zonder tik verruimt er niets', tapZwakPositie() === null && doorFilter(ankers).length === 1,
+        'null + 1 detectie', tapZwakPositie() + ' + ' + doorFilter(ankers).length);
 
     // ═══ H5 — DE STRAAL IS BEGRENSD ══════════════════════════
     const zwakOp = (dx) => {
       opzet({ tap: { cx: 320, cy: 200 }, tapTijd: Date.now() });
       return doorFilter([{ cx: 320 + dx, cy: 200, w: 18, h: 45, klasse: 0, score: 0.05 }]).length;
     };
-    eis('H5 binnen TAP_ZWAK_STRAAL_PX komt de zwakke detectie door',
-        zwakOp(TAP_ZWAK_STRAAL_PX - 5) === 1, '1', String(zwakOp(TAP_ZWAK_STRAAL_PX - 5)));
+    eis('H5 binnen tikStraalYolo() komt de zwakke detectie door',
+        zwakOp(tikStraalYolo() - 5) === 1, '1', String(zwakOp(tikStraalYolo() - 5)));
     eis('H5b erbuiten niet — daar raadt de app nog steeds en gelden de vijf filters',
-        zwakOp(TAP_ZWAK_STRAAL_PX + 5) === 0, '0', String(zwakOp(TAP_ZWAK_STRAAL_PX + 5)));
+        zwakOp(tikStraalYolo() + 5) === 0, '0', String(zwakOp(tikStraalYolo() + 5)));
     // de vier geometrische filters gelden binnen de straal ook niet
     opzet({ tap: { cx: 320, cy: 560 }, tapTijd: Date.now(), kmh: 50 });
     eis('H5c binnen de straal vervalt ook de horizonfilter — jouw lamp mag ' +
@@ -238,14 +247,14 @@ function testTapHeilig() {
         nogGeweigerd.map(g => g.naam).join(', ') || 'geen');
 
     // ═══ H8 — NOOIT OVER HET HELE BEELD ══════════════════════
-    // Na de eerste geslaagde match is de blinde closest-fallback afgekapt op
-    // 180 px. Een detectie aan de andere kant van het beeld wordt dus nooit
-    // geadopteerd, ook niet als het de enige is.
+    // V11.33.0: er is geen closest-fallback meer. De tik zoekt alleen binnen
+    // tikStraalYolo() rond zijn eigen plek. Een detectie aan de andere kant van
+    // het beeld wordt dus nooit geadopteerd, ook niet als het de enige is.
     opzet({ tap: { cx: 100, cy: 100 }, tapTijd: Date.now(), gezien: Date.now(), matches: 4 });
     const r8 = selecteerBesteDetectie([det(600, 120)]);
     eis('H8 een detectie ver buiten bereik wordt niet geadopteerd',
-        r8.s1 === null && r8.afwijsReden === 'radius_cap',
-        'null + radius_cap', (r8.s1 ? 'een box' : 'null') + ' + ' + r8.afwijsReden);
+        r8.s1 === null && r8.afwijsReden === 'tik_zoekt',
+        'null + tik_zoekt', (r8.s1 ? 'een box' : 'null') + ' + ' + r8.afwijsReden);
     eis('H8b en de lock blijft daarbij gewoon staan — niets gevonden is niet ' +
         'hetzelfde als kwijt',
         bboxOverride !== null && tapLockLeeft() === true,

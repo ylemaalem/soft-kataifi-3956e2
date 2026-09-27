@@ -273,10 +273,13 @@ function testBboxAutoslot() {
         String(ZIJ), 'ok');
 
     // ═══ A7 — REGRESSIE ══════════════════════════════════════
+    // V11.33.0: die ene overgebleven verwijzing zat in de herstelstap van de
+    // tik-tak, en die stap bestaat niet meer. Nul is dus de nieuwe telling: er
+    // staat nergens meer een kopie van de matchkern.
     eis('A7 de matchkern staat nog maar op één plek',
         typeof stickySlotMatch === 'function'
           && /stickySlotMatch\(bruikbaar\)/.test(zc(selecteerBesteDetectie))
-          && (zc(selecteerBesteDetectie).match(/STICKY_KLASSE_PENALTY_PX/g) || []).length === 1,
+          && (zc(selecteerBesteDetectie).match(/STICKY_KLASSE_PENALTY_PX/g) || []).length === 0,
         'één gedeelde kern',
         'penalty-verwijzingen in selecteerBesteDetectie: '
           + (zc(selecteerBesteDetectie).match(/STICKY_KLASSE_PENALTY_PX/g) || []).length);
