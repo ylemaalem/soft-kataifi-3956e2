@@ -1052,7 +1052,7 @@ if (typeof ort !== 'undefined') {
 //
 // De stijl volgt de eerdere labels: nummer, kastlijntje, korte omschrijving in
 // kleine letters. De CSS zet hem zelf in kapitalen (text-transform:uppercase).
-const APP_VERSIE = 'V11.28.0 — elke meting telt één keer';
+const APP_VERSIE = 'V11.29.0 — de opruimrem laat zien wat hij doet';
 
 // ── CONSTANTEN ────────────────────────────────────────────────
 const OSM_RADIUS       = 5000;
@@ -3067,6 +3067,9 @@ function logOpslagMis(reden, extra) {
     // sl_opslaglog loopt in het stabiliteitsprotocol op grootte mee.
     if (e.dwarsM != null)   rec.dwarsM   = Math.round(e.dwarsM * 10) / 10;
     if (e.voorbijM != null) rec.voorbijM = Math.round(e.voorbijM * 10) / 10;
+    // V11.29.0: hetzelfde patroon voor wat de opruimrem deed. Alleen een
+    // 'opruim'-regel draagt dit veld; zie logOpruiming.
+    if (e.opruim != null)   rec.opruim   = e.opruim;
     let arr;
     try { arr = JSON.parse(localStorage.getItem('sl_opslaglog')) || []; } catch(_) { arr = []; }
     if (!Array.isArray(arr)) arr = [];
@@ -5419,6 +5422,7 @@ function exporteerMeetdata() {
         else if (key.startsWith('sl_s2_'))       doel = uit.s2;   // V11.17.15: eigen bucket
         else if (key.startsWith('sl_klok_'))     doel = uit.klok; // V11.17.20: eigen bucket
         else if (key === 'sl_opslaglog')         doel = uit.opslag; // V11.17.23: opslag-diagnostiek
+        else if (key === 'sl_opruimstat')        doel = uit.opslag; // V11.29.0: teller van de opruimrem
         else if (key === 'sl_richtinglog')       doel = uit.richting; // V11.17.28: afrij-diagnostiek
         else if (key === 'sl_schaduwlog')        doel = uit.schaduw;  // V11.17.30: R-schatter-vergelijking
         else if (key === 'sl_herzieninglog')     doel = uit.herziening; // V11.17.32: wachttijdherziening
@@ -14020,7 +14024,7 @@ function kiesBesteWeg(wegen, gpsHeading) {
   return besteWeg||wegen.find(w=>w.tags&&w.tags.name)||null;
 }
 
-// V11.17.41: de zes opruimpassen zijn uit checkLocalStorageRuimte gelicht zodat
+// V11.17.41: de zeven opruimpassen zijn uit checkLocalStorageRuimte gelicht zodat
 // ze ook HANDMATIG uitvoerbaar zijn. De inhoud is byte-identiek overgenomen;
 // alleen de drempelcontrole bleef achter in de aanroeper. Reden: de bewaking
 // had precies een aanroeper (slaOpIntern r1707) en draaide dus uitsluitend bij
@@ -14150,7 +14154,31 @@ function trimDiagnostiekV1() {
   } catch(e) { console.warn('[TRIM-V1] overgeslagen:', e); }
 }
 
+// ── V11.29.0: DE OPRUIMREM TELT WAT HIJ DOET ──────────────────
+// © 2026 StoplichtIQ — Y. Lemaalem
+//
+// Tot hier logde deze functie niets. Op de exports van 26 september stond de
+// opslag op 4,09 MiB tegen een grens van 4,0: de rem vuurde dus bij elke
+// V4-schrijving, en pas 5 halveerde dezelfde oude emmer telkens opnieuw
+// (15 -> 8 -> 4 bij twee schrijvingen achter elkaar). Dat was alleen achteraf
+// te reconstrueren, door exports naast elkaar te leggen.
+//
+// WAT ER BIJKOMT, EN ALLEEN DAT. Elke pas telt wat hij doet, en de functie
+// geeft die telling terug. De tellers staan naast de bestaande removeItem en
+// setItem; geen voorwaarde, volgorde of schrijving is veranderd.
+// test_opruimrem OL1 vergelijkt dat byte voor byte met een kopie van
+// V11.28.0. Wat er met de telling gebeurt, staat bij logOpruiming.
+//
+// DE VELDEN. p1-p4 en p6: verwijderde sleutels. p5geschikt: emmers met twee of
+// meer records waarvan de nieuwste meting ouder is dan 180 dagen. p5emmers,
+// p5weg, p5echt: gehalveerde emmers, weggehaalde records, en hoeveel daarvan
+// een gemeten roodduur droegen (heeftGemetenDuur) - de rest zijn lege
+// S2-markeringen van vóór V11.2.0. p7weg: sl_s2_-records boven de vijf,
+// p7kapot: onleesbare sl_s2_-sleutels die wegvielen. emmers: de eerste tien
+// gehalveerde emmers als [sleutel zonder sl_v4_, voor, na].
 function voerOpruimPassenUit() {
+  const tel = { p1: 0, p2: 0, p3: 0, p4: 0, p5geschikt: 0, p5emmers: 0, p5weg: 0,
+                p5echt: 0, p6: 0, p7weg: 0, p7kapot: 0, emmers: [] };
   try {
       const nu = Date.now();
       const DAG_MS = 86400000;
@@ -14166,8 +14194,8 @@ function voerOpruimPassenUit() {
         try {
           const data = JSON.parse(localStorage.getItem(key) || '[]');
           const recentste = data.length ? Math.max(...data.map(x => x.timestamp || 0)) : 0;
-          if (nu - recentste > 30 * DAG_MS) localStorage.removeItem(key);
-        } catch(e) { localStorage.removeItem(key); }
+          if (nu - recentste > 30 * DAG_MS) { localStorage.removeItem(key); tel.p1++; }
+        } catch(e) { localStorage.removeItem(key); tel.p1++; }
       }
       // 2. sl_v10_..._rood_partieel ouder dan 60 dagen
       for (const key of opslagSleutels('')) {
@@ -14175,16 +14203,16 @@ function voerOpruimPassenUit() {
         try {
           const data = JSON.parse(localStorage.getItem(key) || '[]');
           const recentste = data.length ? Math.max(...data.map(x => x.tijd || 0)) : 0;
-          if (nu - recentste > 60 * DAG_MS) localStorage.removeItem(key);
-        } catch(e) { localStorage.removeItem(key); }
+          if (nu - recentste > 60 * DAG_MS) { localStorage.removeItem(key); tel.p2++; }
+        } catch(e) { localStorage.removeItem(key); tel.p2++; }
       }
       // 3. sl_v10_..._bezoek met 0 bezoeken
       for (const key of opslagSleutels('')) {
         if (!key.includes('_bezoek')) continue;
         try {
           const b = JSON.parse(localStorage.getItem(key) || '{}');
-          if ((b.groen||0) + (b.oranje||0) + (b.rood||0) === 0) localStorage.removeItem(key);
-        } catch(e) { localStorage.removeItem(key); }
+          if ((b.groen||0) + (b.oranje||0) + (b.rood||0) === 0) { localStorage.removeItem(key); tel.p3++; }
+        } catch(e) { localStorage.removeItem(key); tel.p3++; }
       }
       // 4. V11.17.40 stap 2: sl_pos_ met bron:'osm'. Dit is 52% van de totale
       //    opslag (1423 KB over 14.235 sleutels, gemeten 20 aug) en daarvan
@@ -14203,22 +14231,31 @@ function voerOpruimPassenUit() {
       //    eenmalige trim bij het opstarten hem kan draaien ZONDER pas 5 (die
       //    leerdata halveert) mee te nemen. Zuivere extractie: zelfde toets,
       //    zelfde uitkomst, zelfde plek in de volgorde.
-      ruimRedundantePosCache();
+      tel.p4 = ruimRedundantePosCache();
       // 5. sl_v4_ metingen ouder dan 180 dagen (oudste helft per kruispunt)
+      //    V11.29.0: geteld NA de schrijving, zodat een schrijving die op een
+      //    vol quotum stukloopt ook niet als gehalveerd meetelt.
       for (const key of opslagSleutels('sl_v4_')) {
         try {
           const data = JSON.parse(localStorage.getItem(key) || '[]');
           if (!Array.isArray(data) || !data.length) continue;
           const recentste = Math.max(...data.map(x => x.tijd || 0));
           if (nu - recentste > 180 * DAG_MS) {
+            if (data.length > 1) tel.p5geschikt++;
             const helft = Math.ceil(data.length / 2);
             const behouden = data.sort((a,b) => (b.tijd||0) - (a.tijd||0)).slice(0, helft);
             localStorage.setItem(key, JSON.stringify(behouden));
+            if (helft < data.length) {
+              tel.p5emmers++;
+              tel.p5weg += data.length - helft;
+              tel.p5echt += data.slice(helft).filter(heeftGemetenDuur).length;
+              if (tel.emmers.length < 10) tel.emmers.push([key.slice(6), data.length, helft]);
+            }
           }
         } catch(e) {}
       }
       // 6. sl_v3_ prefixen altijd verwijderen als vol
-      for (const key of opslagSleutels('sl_v3_')) localStorage.removeItem(key);
+      for (const key of opslagSleutels('sl_v3_')) { localStorage.removeItem(key); tel.p6++; }
       // V11.17.15 (correctie): S2-aanwezigheid staat in eigen sl_s2_-sleutels
       // (presence-only, lage prioriteit). Bij vol geheugen tot de nieuwste 5
       // per node terugbrengen. (Voorheen: s2 uit sl_v4_ strippen — die data
@@ -14229,10 +14266,12 @@ function voerOpruimPassenUit() {
           if (Array.isArray(arr) && arr.length > 5) {
             arr.sort((a,b)=>gew(b.tijd)-gew(a.tijd));
             localStorage.setItem(key, JSON.stringify(arr.slice(0,5)));
+            tel.p7weg += arr.length - 5;
           }
-        } catch(e) { localStorage.removeItem(key); }
+        } catch(e) { localStorage.removeItem(key); tel.p7kapot++; }
       }
       } catch(e) {}
+  return tel;
 }
 
 function checkLocalStorageRuimte() {
@@ -14241,7 +14280,63 @@ function checkLocalStorageRuimte() {
     // eenheid als berekenLocalStorageKB en de dashboardteller.
     let totaal=0;
     for (const key of opslagSleutels('')) totaal += (opslagLeesRuw(key) || '').length * 2;
-    if (totaal/(1024*1024) > 4.0) voerOpruimPassenUit();
+    if (totaal/(1024*1024) > 4.0) {
+      // V11.29.0: de telling gaat naar logOpruiming. De grens en de passen
+      // zelf zijn ongewijzigd.
+      const tel = voerOpruimPassenUit();
+      logOpruiming('auto', Math.round(totaal / 1024), tel);
+    }
+  } catch(e) {}
+}
+
+// ── V11.29.0: WAT DE REM DEED, BEWAARD ──────────────────────────
+// © 2026 StoplichtIQ — Y. Lemaalem
+//
+// Twee plekken, elk met een eigen taak.
+//
+// sl_opruimstat is een teller van een paar honderd bytes die bij ELKE vuring
+// wordt bijgewerkt: sinds wanneer, hoe vaak (automatisch of via de knop), de
+// laatste vuring met de opslag ervoor en erna in KB (UTF-16, dezelfde eenheid
+// als de grens), en per pas het totaal. Hij reist mee in de backup en in de
+// meetdata-export (uit.opslag), zodat het stabiliteitsprotocol per dag kan
+// aflezen wat de rem weghaalde. De import neemt hem niet over: het is een
+// teller van dit toestel.
+//
+// Een regel 'opruim' in sl_opslaglog komt er alleen bij de knop, bij de
+// eerste automatische vuring van een sessie, en als pas 5 echt een emmer
+// halveerde. Niet bij elke vuring: op 26 september besloegen de 150 regels
+// van dat log maar 12,7 uur, en boven de grens vuurt de rem na elke
+// V4-schrijving. Een regel per vuring zou dat venster halveren. Nullen gaan
+// niet mee in de regel; de teller heeft ze wel.
+//
+// Alles staat in een try/catch: meten mag het opruimen nooit breken.
+let opruimGelogdDezeSessie = false;
+function logOpruiming(bron, kbVoor, tel) {
+  if (!tel) return;
+  try {
+    const kbNa = berekenLocalStorageKB();
+    let st = null;
+    try { st = JSON.parse(localStorage.getItem('sl_opruimstat')); } catch(_) { st = null; }
+    if (!st || typeof st !== 'object' || Array.isArray(st)) {
+      st = { sinds: Date.now(), vuringen: 0, auto: 0, knop: 0, perPas: {} };
+    }
+    if (!st.perPas || typeof st.perPas !== 'object') st.perPas = {};
+    st.vuringen = (st.vuringen || 0) + 1;
+    st[bron] = (st[bron] || 0) + 1;
+    st.laatste = Date.now();
+    st.kbVoor = kbVoor;
+    st.kbNa = kbNa;
+    for (const [k, v] of Object.entries(tel)) {
+      if (typeof v === 'number') st.perPas[k] = (st.perPas[k] || 0) + v;
+    }
+    try { localStorage.setItem('sl_opruimstat', JSON.stringify(st)); } catch(_) {}
+    if (bron === 'knop' || tel.p5emmers > 0 || !opruimGelogdDezeSessie) {
+      if (bron === 'auto') opruimGelogdDezeSessie = true;
+      const kort = { bron, kbVoor, kbNa };
+      for (const [k, v] of Object.entries(tel)) if (typeof v === 'number' && v) kort[k] = v;
+      if (Array.isArray(tel.emmers) && tel.emmers.length) kort.emmers = tel.emmers;
+      logOpslagMis('opruim', { opruim: kort });
+    }
   } catch(e) {}
 }
 
@@ -14291,7 +14386,7 @@ function opslagOverzicht() {
 
 // V11.17.41: handmatige opruiming. De bewaking (r7021) draait alleen bij een
 // geslaagde V4-schrijving, dus wie al over de drempel zit maar niet rijdt kan
-// er niet bij. Deze knop voert dezelfde zes passen uit, ongeacht de drempel.
+// er niet bij. Deze knop voert dezelfde zeven passen uit, ongeacht de drempel.
 // Toont eerst wat er staat, vraagt bevestiging, en toont daarna het resultaat.
 // ── V11.17.61: OPRUIMING BEVESTIG-LUS ─────────────────────────
 // Tot V11.17.60 las verwerkBevestigLeren `gem` uit de complete emmer, inclusief
@@ -14406,14 +14501,18 @@ function ruimOpslagNuOp() {
     const rijen = opslagOverzicht();
     const regels = rijen.map(r =>
       `${r.naam.padEnd(26)} ${String(r.kb).padStart(7)} KB  (${r.n}x)`).join('\n');
+    // V11.29.0: alleen pas 4 en 6 halen hun hele categorie weg. Hier stonden
+    // ook pas 1-3 in, maar die ruimen alleen op wat aan hun voorwaarde voldoet
+    // (ouder dan 30 of 60 dagen, nul bezoeken). Op de export van 26 september
+    // beloofde de regel daardoor 202 KB, terwijl er 76 KB vrij zou komen.
     const teVerwachten = rijen
-      .filter(r => /pas [1-4]|pas 6/.test(r.naam))
+      .filter(r => /pas [46]\)/.test(r.naam))
       .reduce((s, r) => s + r.kb, 0);
     const akkoord = confirm(
       'OPSLAG NU OPRUIMEN\n\n' +
       `Totaal: ${voor} KB (UTF-16, zelfde maat als de teller op het dashboard)\n\n` +
       regels + '\n\n' +
-      'De zes passen ruimen op:\n' +
+      'De zeven passen ruimen op:\n' +
       '  1. sl_route_ ouder dan 30 dagen\n' +
       '  2. v10 partieel ouder dan 60 dagen\n' +
       '  3. v10 bezoek met 0 bezoeken\n' +
@@ -14421,20 +14520,31 @@ function ruimOpslagNuOp() {
       '  5. sl_v4_ ouder dan 180 dagen: oudste helft\n' +
       '  6. sl_v3_ volledig\n' +
       '  7. sl_s2_ terug naar 5 per node\n\n' +
-      `Direct vrij te maken zonder leeftijdsgrens: ~${Math.round(teVerwachten)} KB\n` +
+      `Zeker vrij te maken (pas 4 en 6, zonder voorwaarde): ~${Math.round(teVerwachten)} KB\n` +
+      'De andere passen ruimen alleen op wat aan hun voorwaarde voldoet.\n' +
       'Je leerdata (sl_v4_) blijft staan tenzij ouder dan 180 dagen.\n\n' +
       'Doorgaan?');
     if (!akkoord) return;
     if (btn) { btn.textContent = '⏳ Bezig...'; btn.disabled = true; }
     setTimeout(() => {
       try {
-        voerOpruimPassenUit();
+        const tel = voerOpruimPassenUit();          // V11.29.0: met telling
         const na = berekenLocalStorageKB();
+        logOpruiming('knop', voor, tel);
         try { laadDashboard(); } catch(e) {}
         alert('✅ Opruiming klaar\n\n' +
           `voor : ${voor} KB\n` +
           `na   : ${na} KB\n` +
-          `vrij : ${voor - na} KB`);
+          `vrij : ${voor - na} KB\n\n` +
+          'Weggehaald per pas:\n' +
+          `  1. routes          ${tel.p1} sleutels\n` +
+          `  2. v10 partieel    ${tel.p2} sleutels\n` +
+          `  3. v10 bezoek      ${tel.p3} sleutels\n` +
+          `  4. osm-posities    ${tel.p4} sleutels\n` +
+          `  5. sl_v4_ halveren ${tel.p5emmers} emmers, ${tel.p5weg} records`
+            + ` (${tel.p5echt} echte metingen)\n` +
+          `  6. sl_v3_          ${tel.p6} sleutels\n` +
+          `  7. sl_s2_          ${tel.p7weg} records`);
       } catch(e) { alert('Opruiming mislukt: ' + e.message); }
       herstelBtn();
     }, 0);
