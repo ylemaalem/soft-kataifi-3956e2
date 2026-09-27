@@ -1052,7 +1052,7 @@ if (typeof ort !== 'undefined') {
 //
 // De stijl volgt de eerdere labels: nummer, kastlijntje, korte omschrijving in
 // kleine letters. De CSS zet hem zelf in kapitalen (text-transform:uppercase).
-const APP_VERSIE = 'V11.30.0 — oude leerdata blijft staan';
+const APP_VERSIE = 'V11.31.0 — de spiegel wordt meetbaar';
 
 // ── CONSTANTEN ────────────────────────────────────────────────
 const OSM_RADIUS       = 5000;
@@ -2395,6 +2395,85 @@ let idbMigratieUitslag = null;
 const idbWachtrij = new Map();     // sleutel -> ruwe string, of null = verwijderen
 let idbFlushTimer = null;
 
+// -- V11.31.0: DE SPIEGEL WORDT MEETBAAR ----------------------
+// (c) 2026 StoplichtIQ - Y. Lemaalem
+//
+// WAT ER MIS WAS. idbHerstel() trekt de spiegel bij elke start gelijk met
+// localStorage, en meldt wat hij deed alleen aan de console. Een vergelijking
+// na de start is daardoor altijd groen, ook als er de sessie ervoor records
+// verloren gingen. Het stabiliteitsprotocol, dat juist de spiegel moet
+// beoordelen voor fase 3, kon zo niets zien. Op een iPhone is de console
+// zonder Mac erachter niet eens te lezen.
+//
+// WAT HET LOG VASTLEGT. Per start een regel met de stand VÓÓR het herstel:
+// hoeveel sleutels in de spiegel ontbraken, afweken of er te veel stonden, met
+// hooguit SPIEGELLOG_VOORBEELDEN sleutelnamen verdeeld over die drie soorten.
+// Daarna wat het herstel deed. Elke regel beschrijft dus wat er in de sessie
+// DAARVOOR uit de pas liep, want de start daarvoor heeft alles gelijkgetrokken.
+//
+// HOE JE EEN REGEL LEEST. Niet elk verschil is verlies. De spiegel gaat pas
+// open in startApp. Wordt de app geopend en weer gesloten zonder op Start te
+// tikken, dan blijven schrijvingen uit die sessie (een import, de opruimknop,
+// een migratie bij het laden) in de wachtrij hangen, en verschijnen ze hier bij
+// de volgende start als verschil. De sleutelnamen in `vb` laten zien welk soort
+// het is.
+//
+// GEEN GEDRAGSWIJZIGING. Het herstel doet precies wat het deed. Er komt alleen
+// een eigen sleutel bij, SPIEGELLOG_MAX regels groot, die meegaat in
+// stoplichtiq_opslag_*.json. Alles staat in een try: een log mag een start
+// nooit breken.
+const SPIEGELLOG_SLEUTEL     = 'sl_spiegellog';
+const SPIEGELLOG_MAX         = 30;    // ~30 starts; een regel zonder verschil is ~110 tekens
+const SPIEGELLOG_VOORBEELDEN = 10;    // sleutelnamen per regel, over de drie soorten samen
+let idbHerstelVoor = null;            // opslagIdbVergelijk() van het laatste herstel, VÓÓR het herstel
+let idbHerstelNa   = null;            // wat dat herstel deed, of null als er niets te doen was
+
+// Hooguit `max` namen, om de beurt uit mist, anders en teveel. Zo verdringt
+// een lange lijst van één soort de andere twee niet.
+function spiegelVoorbeelden(lijsten, max) {
+  const uit = { mist: [], anders: [], teveel: [] };
+  if (!lijsten) return uit;
+  const soorten = ['mist', 'anders', 'teveel'];
+  let n = 0;
+  for (let i = 0; n < max; i++) {
+    let iets = false;
+    for (const s of soorten) {
+      const l = lijsten[s] || [];
+      if (i < l.length && n < max) { uit[s].push(l[i]); n++; iets = true; }
+    }
+    if (!iets) break;
+  }
+  return uit;
+}
+
+function spiegelLogStart(soort, t0, gegevens) {
+  try {
+    const rec = { t: Date.now(), ver: String(APP_VERSIE).split(' ')[0], soort,
+                  ms: Date.now() - t0 };
+    const g = gegevens || {};
+    if (soort === 'herstel' && g.voor) {
+      const v = g.voor;
+      rec.opslag = v.inOpslag; rec.spiegel = v.inSpiegel;
+      rec.mist = v.mistInSpiegel; rec.anders = v.anders; rec.teveel = v.teveelInSpiegel;
+      if (rec.mist || rec.anders || rec.teveel) {
+        rec.vb = spiegelVoorbeelden(v.lijsten, SPIEGELLOG_VOORBEELDEN);
+      }
+      if (g.na) { rec.hersteld = g.na.hersteld; rec.restant = g.na.restant; }
+    } else if (soort === 'overzet' && g.overzet) {
+      const o = g.overzet;
+      rec.opslag = o.bron; rec.gelijk = o.gelijk; rec.mist = o.mist; rec.anders = o.anders;
+      rec.vlag = o.vlag === 'gezet' ? 'gezet' : 'niet';
+    }
+    if (g.fout) rec.fout = String((g.fout && g.fout.name) || g.fout);
+    if (idbFouten) rec.fouten = idbFouten;
+    let arr = opslagLees(SPIEGELLOG_SLEUTEL, []);
+    if (!Array.isArray(arr)) arr = [];
+    arr.push(rec);
+    if (arr.length > SPIEGELLOG_MAX) arr = arr.slice(-SPIEGELLOG_MAX);
+    opslagSchrijf(SPIEGELLOG_SLEUTEL, arr);
+  } catch(e) { /* een log mag de start nooit breken */ }
+}
+
 function idbOpen() {
   return new Promise((klaar, mis) => {
     let v;
@@ -2535,6 +2614,11 @@ async function opslagIdbVergelijk() {
     mistInSpiegel: mist.length, teveelInSpiegel: teveel.length, anders: anders.length,
     gelijk: hier.size - mist.length - anders.length,
     voorbeelden: mist.slice(0, 3).concat(anders.slice(0, 3)).concat(teveel.slice(0, 3)),
+    // V11.31.0: per soort, voor het startlog. `voorbeelden` hierboven blijft
+    // zoals hij was; die mengt de drie soorten zonder te zeggen welke welke is.
+    lijsten: { mist: mist.slice(0, SPIEGELLOG_VOORBEELDEN),
+               anders: anders.slice(0, SPIEGELLOG_VOORBEELDEN),
+               teveel: teveel.slice(0, SPIEGELLOG_VOORBEELDEN) },
     geschreven: idbGeschreven, verwijderd: idbVerwijderd, fouten: idbFouten,
     migratie: idbMigratieUitslag
   };
@@ -2554,6 +2638,7 @@ async function opslagIdbVergelijk() {
 // verder niets.
 async function idbHerstel() {
   const v = await opslagIdbVergelijk();
+  idbHerstelVoor = v; idbHerstelNa = null;   // V11.31.0: vastleggen VÓÓR het herstel
   if (v.fout) return v;
   if (v.mistInSpiegel === 0 && v.anders === 0 && v.teveelInSpiegel === 0) {
     return { hersteld: 0, gecontroleerd: v.inOpslag };
@@ -2572,6 +2657,7 @@ async function idbHerstel() {
   const na = await opslagIdbVergelijk();
   const uitslag = { hersteld: bij + weg, bijgewerkt: bij, verwijderd: weg,
                     restant: na.mistInSpiegel + na.anders + na.teveelInSpiegel };
+  idbHerstelNa = uitslag;                    // V11.31.0
   console.log('[IDB] spiegel bijgewerkt:', uitslag);
   return uitslag;
 }
@@ -2580,14 +2666,20 @@ async function idbHerstel() {
 // op te wachten, want ze leest er niets uit. Tot de database open is blijven
 // wijzigingen in de wachtrij staan.
 async function startIdbSpiegel() {
+  const spiegelT0 = Date.now();   // V11.31.0
   try {
     idbDb = await idbOpen();
   } catch(e) {
     idbFouten++;
     console.warn('[IDB] openen mislukt - de app draait gewoon door:', e && e.name);
+    spiegelLogStart('open_mislukt', spiegelT0, { fout: e });   // V11.31.0
     return null;
   }
   idbKlaar = true;
+  // V11.31.0: zo is na afloop te zien of DEZE start de overzet deed of het herstel.
+  const spiegelMigVoor = idbMigratieUitslag;
+  idbHerstelVoor = null; idbHerstelNa = null;
+  let spiegelFout = null;
   try {
     if (opslagLeesRuw(IDB_MIG_VLAG) !== 'done') {
       idbMigratieUitslag = await idbMigratie();
@@ -2599,6 +2691,16 @@ async function startIdbSpiegel() {
   } catch(e) {
     idbFouten++;
     console.warn('[IDB] overzet mislukt:', e && e.name);
+    spiegelFout = e;   // V11.31.0
+  }
+  // V11.31.0: één regel per start. De overzet gaat voor: die draait alleen als
+  // de vlag nog niet op done stond, en dan draait het herstel niet.
+  if (idbMigratieUitslag && idbMigratieUitslag !== spiegelMigVoor) {
+    spiegelLogStart('overzet', spiegelT0, { overzet: idbMigratieUitslag, fout: spiegelFout });
+  } else if (idbHerstelVoor && !idbHerstelVoor.fout) {
+    spiegelLogStart('herstel', spiegelT0, { voor: idbHerstelVoor, na: idbHerstelNa, fout: spiegelFout });
+  } else {
+    spiegelLogStart('fout', spiegelT0, { fout: spiegelFout || (idbHerstelVoor && idbHerstelVoor.fout) || 'onbekend' });
   }
   return idbMigratieUitslag;
 }
@@ -5465,7 +5567,13 @@ function exporteerMeetdata() {
       const opslagUit = {
         versie:'V11.17.15', geexporteerd:new Date().toISOString(),
         totaalKb: Math.round(opslagSleutelLijst.reduce((s,x) => s+x.kb, 0) * 10) / 10,
-        sleutels: opslagSleutelLijst
+        sleutels: opslagSleutelLijst,
+        // V11.31.0: de stand van de IndexedDB-spiegel bij elke start, VÓÓR het
+        // herstel. Dit bestand is puur diagnostiek, en dit log ook.
+        spiegelStarts: (() => {
+          const s = opslagLees(SPIEGELLOG_SLEUTEL, []);
+          return Array.isArray(s) ? s : [];
+        })()
       };
       const opslagJson = JSON.stringify(opslagUit);
       const opslagBestandsnaam = `stoplichtiq_opslag_${datum}.json`;
