@@ -2,34 +2,39 @@
 //  StoplichtIQ — test_opruimrem.js
 //  © 2026 StoplichtIQ — Y. Lemaalem
 //
-//  Test bij V11.29.0: de opruimrem laat zien wat hij doet.
+//  Test bij V11.29.0 (de opruimrem laat zien wat hij doet) en V11.30.0 (pas 5
+//  staat uit tot fase 3).
 //
 //  HOE DEZE TEST TOT STAND KWAM
-//  OR0 is eerst geschreven op V11.28.0, voordat er iets veranderde, en was
-//  daar 7 van 7 groen. OR0 legt het gedrag vast dat V11.29.0 NIET mag
-//  veranderen - en dat V11.30.0 wel verandert. In deze release moet OR0 dus
-//  groen blijven.
+//  OR0 is eerst geschreven op de ongewijzigde V11.28.0 en was daar 7 van 7
+//  groen. In V11.29.0 bleef hij groen: die release telt alleen. In V11.30.0
+//  slaat hij om. Hieronder staat OR0 omgedraaid: de juiste waarde, én de eis
+//  dat het niet meer de oude is. De oude uitkomsten staan als OUD_* in de code.
 //
-//  OR0a  een emmer waarvan de nieuwste meting 181 dagen oud is, gaat bij elke
-//        vuring opnieuw naar de helft: 10 -> 5 -> 3 -> 2 -> 1
-//  OR0b  een geschikte emmer met 1 record wordt bij elke vuring herschreven,
-//        een verse emmer nooit
-//  OR0c  is de echte meting ouder dan de lege S2-markeringen, dan gaat bij
-//        halveren de echte meting als eerste weg
+//  OR0a  een emmer waarvan de nieuwste meting 181 dagen oud is, blijft na vier
+//        vuringen 10 records (was 10 -> 5 -> 3 -> 2 -> 1)
+//  OR0b  een geschikte emmer met 1 record wordt niet meer herschreven (was bij
+//        elke vuring), een verse emmer nooit
+//  OR0c  de echte meting blijft staan (ging vroeger als eerste weg, vóór de
+//        lege S2-markeringen)
 //  OR0d  boven 4,0 MiB vuurt checkLocalStorageRuimte bij elke aanroep, eronder
-//        niet (getuige: een sl_pos_ met bron osm, pas 4)
+//        niet (getuige: een sl_pos_ met bron osm, pas 4) - ongewijzigd
 //
-//  OL1   byte-gelijk: op een fixture waarin alle zeven passen iets te doen
-//        hebben, geeft de nieuwe voerOpruimPassenUit exact dezelfde opslag als
-//        een letterlijke kopie van V11.28.0 (OL1b: ook via de grens)
+//  OL1   op een fixture waarin alle zeven passen iets te doen hebben, zijn alle
+//        sleutels behalve sl_v4_ byte-gelijk aan een letterlijke kopie van
+//        V11.28.0, en blijft elke sl_v4_ precies zoals hij was (OL1b: ook via
+//        de grens)
 //  OL2   de telling per pas klopt met wat er echt veranderde
-//  OL3   sl_opruimstat telt op over vuringen
+//  OL3   sl_opruimstat telt op over vuringen, met p5geschiktNu als momentopname
 //  OL4   een 'opruim'-regel alleen bij de eerste vuring van een sessie en als
-//        pas 5 echt halveerde; nullen gaan niet mee; andere regels krijgen het
-//        veld niet
-//  OL5   de knop: "zeven passen", een eerlijke schatting, telling in de
-//        uitslag, en een regel met bron 'knop'
+//        pas 5 echt halveerde (dat gebeurt nu niet meer); nullen gaan niet mee;
+//        andere regels krijgen het veld niet
+//  OL5   de knop: "zeven passen", een eerlijke schatting, pas 5 "staat uit",
+//        telling in de uitslag, en een regel met bron 'knop'
 //  OL6   de teller gaat mee in de meetdata-export en niet terug via de import
+//  OR2   haal de schakelregel uit voerOpruimPassenUit en de rest is byte-gelijk
+//        aan V11.29.0: de schakelaar is de enige wijziging
+//  OR3   de schakelaar staat uit
 //
 //  DE PASSEN WERKEN OP ALLE SLEUTELS. Pas 4 zou dus ook de osm-posities van
 //  deze testpagina wissen. Daarom bewaart de suite eerst de hele opslag, haalt
@@ -46,6 +51,12 @@ async function testOpruimrem() {
   const DAG = 86400000;
   const echtNu = Date.now;
   const NU = Date.parse('2026-10-01T12:00:00Z');
+  // De uitkomsten van V11.28.0 en V11.29.0, zoals OR0 ze vastlegde.
+  const OUD_OR0A = '5>3>2>1', OUD_OR0B = 3, OUD_OR0C = 2;
+  // voerOpruimPassenUit van V11.29.0: FNV-1a over String(fn), en de lengte.
+  const V11290_OPRUIM = ['f3d3e4a7', 5427];
+  const fnv = (s) => { let h = 0x811c9dc5; for (let i = 0; i < s.length; i++) { h ^= s.charCodeAt(i); h = Math.imul(h, 0x01000193) >>> 0; } return h.toString(16); };
+  const zc = (f) => String(f).replace(/\/\*[\s\S]*?\*\//g, ' ').replace(/\/\/.*/g, ' ');
   const alleSleutels = () => { const ks = []; for (let i = 0; i < localStorage.length; i++) ks.push(localStorage.key(i)); return ks; };
   const leeg = () => { for (const k of alleSleutels()) localStorage.removeItem(k); };
   const bewaard = alleSleutels().map(k => [k, localStorage.getItem(k)]);
@@ -169,11 +180,10 @@ async function testOpruimrem() {
     zet(A, a0);
     const lengtes = [];
     for (let i = 0; i < 4; i++) { voerOpruimPassenUit(); lengtes.push((lees(A) || []).length); }
-    eis('OR0a vier vuringen halveren dezelfde emmer telkens opnieuw', lengtes.join('>') === '5>3>2>1',
-        '5>3>2>1', lengtes.join('>'));
-    const a4 = lees(A) || [];
-    eis('OR0a2 wat overblijft is de nieuwste meting', a4.length === 1 && a4[0].tijd === a0[0].tijd,
-        'tijd ' + a0[0].tijd, a4.map(x => x.tijd).join(','));
+    eis('OR0a na vier vuringen staan er nog alle 10', lengtes.join('>') === '10>10>10>10' && lengtes.join('>') !== OUD_OR0A,
+        '10>10>10>10 (was ' + OUD_OR0A + ')', lengtes.join('>'));
+    eis('OR0a2 en de emmer is byte-gelijk aan wat er stond', localStorage.getItem(A) === JSON.stringify(a0),
+        'onveranderd', localStorage.getItem(A) === JSON.stringify(a0) ? 'onveranderd' : 'GEWIJZIGD');
 
     // ══ OR0b — HERSCHRIJVEN ZONDER VERANDERING ════════════════
     leeg();
@@ -181,8 +191,8 @@ async function testOpruimrem() {
     zet(B, [meting(200, 30)]);
     zet(BV, [meting(10, 30)]);
     const perB = telSchrijvingen(() => { for (let i = 0; i < 3; i++) voerOpruimPassenUit(); });
-    eis('OR0b een geschikte emmer met 1 record wordt bij elke vuring herschreven', (perB[B] || 0) === 3,
-        '3 schrijvingen', String(perB[B] || 0));
+    eis('OR0b een geschikte emmer met 1 record wordt niet meer herschreven', (perB[B] || 0) === 0 && (perB[B] || 0) !== OUD_OR0B,
+        '0 schrijvingen (was ' + OUD_OR0B + ')', String(perB[B] || 0));
     eis('OR0b2 een verse emmer wordt nooit herschreven', !perB[BV], '0', String(perB[BV] || 0));
 
     // ══ OR0c — DE ECHTE METING GAAT ALS EERSTE ════════════════
@@ -191,8 +201,9 @@ async function testOpruimrem() {
     zet(C, [meting(200, 40), markering(190), markering(189), markering(188)]);
     voerOpruimPassenUit();
     const c1 = lees(C) || [];
-    eis('OR0c na één halvering is de echte meting weg en staan er alleen lege markeringen',
-        c1.length === 2 && !c1.some(x => x.duur > 0), '2 records, geen met duur > 0',
+    eis('OR0c de echte meting blijft staan, met de drie markeringen',
+        c1.length === 4 && c1.length !== OUD_OR0C && c1.filter(x => x.duur > 0).length === 1,
+        '4 records, 1 met duur > 0 (was ' + OUD_OR0C + ' records, 0 echt)',
         c1.length + ' records, ' + c1.filter(x => x.duur > 0).length + ' met duur > 0');
 
     // ══ OR0d — DE GRENS ═══════════════════════════════════════
@@ -212,37 +223,46 @@ async function testOpruimrem() {
     eis('OR0d2 erboven vuurt hij bij elke aanroep', eerste && tweede, 'twee keer gevuurd',
         (eerste ? 'ja' : 'nee') + ', ' + (tweede ? 'ja' : 'nee'));
 
-    // ══ OL1 — BYTE-GELIJK AAN V11.28.0 ════════════════════════
-    leeg(); fixtuur(); oudeOpruim();
-    const oud = momentopname();
+    // ══ OL1 — ALLES BEHALVE PAS 5 BYTE-GELIJK AAN V11.28.0 ════
+    // sl_v4_ wordt apart vergeleken: met de invoer, niet met de oude uitkomst.
+    const v4Sleutels = () => alleSleutels().filter(k => k.startsWith('sl_v4_'));
+    leeg(); fixtuur();
+    const v4Invoer = momentopname(alleSleutels().filter(k => !k.startsWith('sl_v4_')));
+    oudeOpruim();
+    const oud = momentopname(v4Sleutels());
     leeg(); fixtuur();
     const tel = voerOpruimPassenUit();
-    const nieuw = momentopname();
-    eis('OL1 alle sleutels byte-gelijk aan de kopie van V11.28.0', nieuw === oud,
+    const nieuw = momentopname(v4Sleutels());
+    const nieuwV4 = momentopname(alleSleutels().filter(k => !k.startsWith('sl_v4_')));
+    eis('OL1 alle sleutels behalve sl_v4_ byte-gelijk aan de kopie van V11.28.0', nieuw === oud,
         'gelijk', nieuw === oud ? 'gelijk' : 'VERSCHILT');
+    eis('OR1 en elke sl_v4_-sleutel staat er precies zoals hij stond', nieuwV4 === v4Invoer,
+        'onveranderd', nieuwV4 === v4Invoer ? 'onveranderd' : 'GEWIJZIGD');
     eis('OL1a en de functie zelf schrijft geen log of teller',
         localStorage.getItem('sl_opslaglog') === null && localStorage.getItem('sl_opruimstat') === null,
         'geen sl_opslaglog, geen sl_opruimstat',
         [localStorage.getItem('sl_opslaglog') ? 'log' : '', localStorage.getItem('sl_opruimstat') ? 'teller' : ''].join(' ') || 'geen');
     leeg(); fixtuur(); ballast(true); oudeGrens(); ballast(false);
-    const oudG = momentopname();
+    const oudG = momentopname(v4Sleutels());
     leeg(); fixtuur(); ballast(true); opruimGelogdDezeSessie = false; checkLocalStorageRuimte(); ballast(false);
-    const nieuwG = momentopname(['sl_opslaglog', 'sl_opruimstat']);
-    eis('OL1b via de grens ook: op log en teller na byte-gelijk', nieuwG === oudG,
+    const nieuwG = momentopname(['sl_opslaglog', 'sl_opruimstat'].concat(v4Sleutels()));
+    const nieuwGV4 = momentopname(alleSleutels().filter(k => !k.startsWith('sl_v4_')));
+    eis('OL1b via de grens ook: op log, teller en sl_v4_ na byte-gelijk', nieuwG === oudG,
         'gelijk', nieuwG === oudG ? 'gelijk' : 'VERSCHILT');
+    eis('OR1b en ook via de grens blijft elke sl_v4_ onveranderd', nieuwGV4 === v4Invoer,
+        'onveranderd', nieuwGV4 === v4Invoer ? 'onveranderd' : 'GEWIJZIGD');
 
     // ══ OL2 — DE TELLING ══════════════════════════════════════
-    const verwacht = { p1: 2, p2: 1, p3: 1, p4: 1, p5geschikt: 2, p5emmers: 2, p5weg: 7, p5echt: 3, p6: 1, p7weg: 3, p7kapot: 1 };
+    const verwacht = { p1: 2, p2: 1, p3: 1, p4: 1, p5geschikt: 2, p5emmers: 0, p5weg: 0, p5echt: 0, p6: 1, p7weg: 3, p7kapot: 1 };
     const kreeg = {}; for (const k of Object.keys(verwacht)) kreeg[k] = tel[k];
-    eis('OL2 elke pas telt wat hij deed', JSON.stringify(kreeg) === JSON.stringify(verwacht),
+    eis('OL2 elke pas telt wat hij deed; pas 5 telt alleen wat hij zou doen', JSON.stringify(kreeg) === JSON.stringify(verwacht),
         JSON.stringify(verwacht), JSON.stringify(kreeg));
-    const emmers = (tel.emmers || []).map(e => e.join(':')).sort().join(' ');
-    eis('OL2b de gehalveerde emmers met voor en na', emmers === '996130_dag:10:5 996133_dag_groen:4:2',
-        '996130_dag:10:5 996133_dag_groen:4:2', emmers);
+    eis('OL2b er zijn geen gehalveerde emmers', Array.isArray(tel.emmers) && tel.emmers.length === 0,
+        '[]', JSON.stringify(tel.emmers));
     const n1 = lees('sl_v4_996130_dag') || [];
-    eis('OL2c p5echt telt de weggehaalde echte metingen, niet de overgebleven',
-        n1.length === 5 && n1.every(x => x.duur > 0), '5 echte blijven, 1 echte + 4 leeg weg',
-        n1.length + ' over, ' + n1.filter(x => x.duur > 0).length + ' echt');
+    eis('OL2c de emmer met 6 echte metingen en 4 markeringen is heel',
+        n1.length === 10 && n1.filter(x => x.duur > 0).length === 6, '10 records, 6 echt',
+        n1.length + ' records, ' + n1.filter(x => x.duur > 0).length + ' echt');
 
     // ══ OL3 — DE TELLER ═══════════════════════════════════════
     leeg(); fixtuur(); ballast(true); opruimGelogdDezeSessie = false;
@@ -252,9 +272,11 @@ async function testOpruimrem() {
     eis('OL3 twee vuringen, allebei automatisch', st.vuringen === 2 && st.auto === 2 && st.knop === 0,
         'vuringen 2, auto 2, knop 0', `vuringen ${st.vuringen}, auto ${st.auto}, knop ${st.knop}`);
     const pp = st.perPas || {};
-    eis('OL3b per pas opgeteld: routes alleen de eerste keer, halveren twee keer',
-        pp.p1 === 2 && pp.p5emmers === 4 && pp.p5weg === 10,
-        'p1 2, p5emmers 4, p5weg 10', `p1 ${pp.p1}, p5emmers ${pp.p5emmers}, p5weg ${pp.p5weg}`);
+    eis('OL3b per pas opgeteld: routes alleen de eerste keer, halveren nooit',
+        pp.p1 === 2 && pp.p5emmers === 0 && pp.p5weg === 0,
+        'p1 2, p5emmers 0, p5weg 0', `p1 ${pp.p1}, p5emmers ${pp.p5emmers}, p5weg ${pp.p5weg}`);
+    eis('OL3d p5geschiktNu is een momentopname, geen som', st.p5geschiktNu === 2 && pp.p5geschikt === 4,
+        'p5geschiktNu 2 (de som over twee vuringen is 4)', `p5geschiktNu ${st.p5geschiktNu}, som ${pp.p5geschikt}`);
     eis('OL3c sinds, laatste en de opslag erboven', st.sinds === NU && st.laatste === NU && st.kbVoor > 4096 && typeof st.kbNa === 'number',
         'sinds = laatste = nu, kbVoor > 4096', `sinds ${st.sinds === NU}, laatste ${st.laatste === NU}, kbVoor ${st.kbVoor}, kbNa ${st.kbNa}`);
 
@@ -270,11 +292,12 @@ async function testOpruimrem() {
     const na4 = opruimRegels();
     eis('OL4 drie vuringen zonder halvering: één regel, de eerste van de sessie', na3.length === 1 && na3[0].opruim.bron === 'auto' && na3[0].opruim.p4 === 1,
         '1 regel, bron auto, p4 1', na3.length + ' regel(s)' + (na3[0] ? ', ' + JSON.stringify(na3[0].opruim) : ''));
-    const r4 = na4[na4.length - 1] || {};
-    eis('OL4b een halvering geeft wel een regel, met de emmer erin', na4.length === 2 && JSON.stringify((r4.opruim || {}).emmers) === '[["996161_dag",4,2]]',
-        '2 regels, emmers [["996161_dag",4,2]]', na4.length + ' regels, ' + JSON.stringify((r4.opruim || {}).emmers));
-    eis('OL4c nullen gaan niet mee in de regel', r4.opruim && !('p6' in r4.opruim) && !('p1' in r4.opruim) && r4.opruim.p5emmers === 1,
-        'geen p1/p6, p5emmers 1', JSON.stringify(r4.opruim));
+    eis('OL4b een oude emmer geeft geen regel meer, want hij wordt niet gehalveerd',
+        na4.length === 1 && (lees('sl_v4_996161_dag') || []).length === 4,
+        '1 regel, emmer 4 records', na4.length + ' regels, emmer ' + (lees('sl_v4_996161_dag') || []).length);
+    const r1 = na3[0] || {};
+    eis('OL4c nullen gaan niet mee in de regel', r1.opruim && !('p6' in r1.opruim) && !('p1' in r1.opruim) && !('p5emmers' in r1.opruim),
+        'geen p1/p6/p5emmers', JSON.stringify(r1.opruim));
     eis('OL4d de teller telde alle vier de vuringen', (lees('sl_opruimstat') || {}).vuringen === 4,
         '4', String((lees('sl_opruimstat') || {}).vuringen));
     logOpslagMis('te_kort', { node: 996162, dur: 2 });
@@ -304,19 +327,38 @@ async function testOpruimrem() {
         '~' + verwachtKB + ' KB (de oude formule gaf ~' + oudKB + ')', (vraag.match(/Zeker vrij te maken[^\n]*/) || (vraag.match(/vrij te maken[^\n]*/) || ['GEEN']))[0]);
     eis('OL5c de uitslag toont de telling per pas', /Weggehaald per pas:/.test(uitslag) && /4\. osm-posities\s+1 sleutels/.test(uitslag)
           && /6\. sl_v3_\s+2 sleutels/.test(uitslag)
-          && /5\. sl_v4_ halveren 2 emmers, 7 records \(3 echte metingen\)/.test(uitslag),
-        'per pas, osm 1, halveren 2/7/3', uitslag.split('\n').filter(l => /^\s+[45]\./.test(l)).join(' | ') || 'GEEN');
+          && /5\. sl_v4_ halveren staat uit \(2 emmers bewaard\)/.test(uitslag),
+        'per pas, osm 1, v3 2, pas 5 uit met 2 bewaard', uitslag.split('\n').filter(l => /^\s+[456]\./.test(l)).join(' | ') || 'GEEN');
+    eis('OL5e de vraag zegt dat pas 5 uit staat en de leerdata blijft',
+        /5\. sl_v4_ ouder dan 180 dagen: staat uit tot fase 3/.test(vraag) && /Je leerdata \(sl_v4_\) blijft staan\.\n/.test(vraag) && !/oudste helft/.test(vraag),
+        'staat uit tot fase 3; blijft staan.', (vraag.match(/5\. sl_v4_[^\n]*/) || ['GEEN'])[0] + ' | ' + (vraag.match(/Je leerdata[^\n]*/) || ['GEEN'])[0]);
     const kst = lees('sl_opruimstat') || {};
     const kr = opruimRegels().slice(-1)[0] || {};
     eis('OL5d de knop telt als knop en schrijft een regel', kst.knop === 1 && kst.auto === 0 && (kr.opruim || {}).bron === 'knop',
         'knop 1, auto 0, regel bron knop', `knop ${kst.knop}, auto ${kst.auto}, regel ${(kr.opruim || {}).bron}`);
 
     // ══ OL6 — EXPORT EN IMPORT ════════════════════════════════
-    const zc = (f) => String(f).replace(/\/\*[\s\S]*?\*\//g, ' ').replace(/\/\/.*/g, ' ');
     eis('OL6 de teller gaat mee in de meetdata-export', /key === 'sl_opruimstat'\)\s*doel = uit\.opslag/.test(zc(exporteerMeetdata)),
         "sl_opruimstat -> uit.opslag", /sl_opruimstat/.test(zc(exporteerMeetdata)) ? 'staat erin' : 'ONTBREEKT');
     eis('OL6b en komt niet terug via de import', !/sl_opruimstat/.test(zc(importeerData)),
         'niet in de import', /sl_opruimstat/.test(zc(importeerData)) ? 'WEL' : 'niet');
+
+    // ══ OR2 — DE SCHAKELAAR IS DE ENIGE WIJZIGING ═════════════
+    const bron = String(voerOpruimPassenUit);
+    const schakel = bron.match(/\n[ ]*if \(!OPRUIM_V4_HALVEREN\) continue;[^\n]*/g) || [];
+    const zonder = bron.replace(/\n[ ]*if \(!OPRUIM_V4_HALVEREN\) continue;[^\n]*/, '');
+    eis('OR2 er is precies één schakelregel', schakel.length === 1, '1', String(schakel.length));
+    eis('OR2b zonder die regel is voerOpruimPassenUit byte-gelijk aan V11.29.0',
+        fnv(zonder) === V11290_OPRUIM[0] && zonder.length === V11290_OPRUIM[1],
+        V11290_OPRUIM.join(' / '), fnv(zonder) + ' / ' + zonder.length);
+    eis('OR2c en de schakelregel staat NA het tellen van p5geschikt en VÓÓR de eerste schrijving',
+        bron.indexOf('tel.p5geschikt++') < bron.indexOf('OPRUIM_V4_HALVEREN')
+          && bron.indexOf('OPRUIM_V4_HALVEREN') < bron.indexOf('localStorage.setItem(key, JSON.stringify(behouden))'),
+        'tellen < schakelaar < schrijven', 'posities ' + [bron.indexOf('tel.p5geschikt++'), bron.indexOf('OPRUIM_V4_HALVEREN'),
+          bron.indexOf('localStorage.setItem(key, JSON.stringify(behouden))')].join(' < '));
+
+    // ══ OR3 — DE SCHAKELAAR STAAT UIT ═════════════════════════
+    eis('OR3 OPRUIM_V4_HALVEREN is false', OPRUIM_V4_HALVEREN === false, 'false', String(OPRUIM_V4_HALVEREN));
 
   } finally {
     Date.now = echtNu;

@@ -1052,7 +1052,7 @@ if (typeof ort !== 'undefined') {
 //
 // De stijl volgt de eerdere labels: nummer, kastlijntje, korte omschrijving in
 // kleine letters. De CSS zet hem zelf in kapitalen (text-transform:uppercase).
-const APP_VERSIE = 'V11.29.0 — de opruimrem laat zien wat hij doet';
+const APP_VERSIE = 'V11.30.0 — oude leerdata blijft staan';
 
 // ── CONSTANTEN ────────────────────────────────────────────────
 const OSM_RADIUS       = 5000;
@@ -14154,6 +14154,34 @@ function trimDiagnostiekV1() {
   } catch(e) { console.warn('[TRIM-V1] overgeslagen:', e); }
 }
 
+// ── V11.30.0: PAS 5 STAAT UIT TOT FASE 3 ──────────────────────
+// © 2026 StoplichtIQ — Y. Lemaalem
+//
+// Pas 5 halveerde een sl_v4_-emmer zodra de nieuwste meting ouder was dan 180
+// dagen. Niets onthield dat hij al geweest was, dus hij deed het bij elke
+// vuring opnieuw - en boven 4,0 MiB vuurt de rem na elke V4-schrijving. Een
+// emmer zakte zo binnen een paar metingen naar één record.
+//
+// WAAROM UIT, EN NIET EEN STEMPEL. Gemeten op de exports van 26 september:
+// één keer halveren maakt tot eind oktober 26 KB vrij, terwijl de opslag zo'n
+// 30 KB per rijdag groeit. Pas 5 haalt de grens dus nooit, en is tegelijk de
+// enige pas die leerdata weggooit. Een stempel per emmer zou het verlies tot
+// één keer beperken (24 echte metingen tot eind oktober, 110 tot eind
+// december); uit is nul, met één voorwaarde in plaats van een register.
+//
+// WAT BLIJFT. De code van pas 5 staat er nog, byte voor byte: test_opruimrem
+// OR2 haalt de schakelregel weg en vergelijkt de rest met V11.29.0. Hij telt
+// nog steeds hoeveel emmers hij zou halveren (p5geschikt), zodat
+// sl_opruimstat laat zien wat er nu bewaard blijft. Emmers met één record
+// worden ook niet meer bij elke vuring herschreven. De andere passen en de
+// grens zijn ongewijzigd.
+//
+// WANNEER DIT WEER TER SPRAKE KOMT. Fase 3 (releases D en E) maakt IndexedDB
+// de opslag en dan valt de 5 MB-grens weg. Dan moet de hele rem opnieuw
+// bekeken worden, niet alleen deze schakelaar - zie het commentaar bovenin
+// voerOpruimPassenUit.
+const OPRUIM_V4_HALVEREN = false;
+
 // ── V11.29.0: DE OPRUIMREM TELT WAT HIJ DOET ──────────────────
 // © 2026 StoplichtIQ — Y. Lemaalem
 //
@@ -14242,6 +14270,7 @@ function voerOpruimPassenUit() {
           const recentste = Math.max(...data.map(x => x.tijd || 0));
           if (nu - recentste > 180 * DAG_MS) {
             if (data.length > 1) tel.p5geschikt++;
+            if (!OPRUIM_V4_HALVEREN) continue;   // V11.30.0: uit tot fase 3, zie boven
             const helft = Math.ceil(data.length / 2);
             const behouden = data.sort((a,b) => (b.tijd||0) - (a.tijd||0)).slice(0, helft);
             localStorage.setItem(key, JSON.stringify(behouden));
@@ -14326,6 +14355,9 @@ function logOpruiming(bron, kbVoor, tel) {
     st.laatste = Date.now();
     st.kbVoor = kbVoor;
     st.kbNa = kbNa;
+    // V11.30.0: hoeveel emmers pas 5 NU zou halveren. Een momentopname, geen
+    // som: opgeteld over vuringen zou elke emmer bij elke vuring meetellen.
+    st.p5geschiktNu = tel.p5geschikt;
     for (const [k, v] of Object.entries(tel)) {
       if (typeof v === 'number') st.perPas[k] = (st.perPas[k] || 0) + v;
     }
@@ -14517,12 +14549,16 @@ function ruimOpslagNuOp() {
       '  2. v10 partieel ouder dan 60 dagen\n' +
       '  3. v10 bezoek met 0 bezoeken\n' +
       '  4. sl_pos_ met bron osm (redundante positiecache)\n' +
-      '  5. sl_v4_ ouder dan 180 dagen: oudste helft\n' +
+      (OPRUIM_V4_HALVEREN
+        ? '  5. sl_v4_ ouder dan 180 dagen: oudste helft\n'
+        : '  5. sl_v4_ ouder dan 180 dagen: staat uit tot fase 3\n') +
       '  6. sl_v3_ volledig\n' +
       '  7. sl_s2_ terug naar 5 per node\n\n' +
       `Zeker vrij te maken (pas 4 en 6, zonder voorwaarde): ~${Math.round(teVerwachten)} KB\n` +
       'De andere passen ruimen alleen op wat aan hun voorwaarde voldoet.\n' +
-      'Je leerdata (sl_v4_) blijft staan tenzij ouder dan 180 dagen.\n\n' +
+      (OPRUIM_V4_HALVEREN
+        ? 'Je leerdata (sl_v4_) blijft staan tenzij ouder dan 180 dagen.\n\n'
+        : 'Je leerdata (sl_v4_) blijft staan.\n\n') +
       'Doorgaan?');
     if (!akkoord) return;
     if (btn) { btn.textContent = '⏳ Bezig...'; btn.disabled = true; }
@@ -14541,8 +14577,10 @@ function ruimOpslagNuOp() {
           `  2. v10 partieel    ${tel.p2} sleutels\n` +
           `  3. v10 bezoek      ${tel.p3} sleutels\n` +
           `  4. osm-posities    ${tel.p4} sleutels\n` +
-          `  5. sl_v4_ halveren ${tel.p5emmers} emmers, ${tel.p5weg} records`
-            + ` (${tel.p5echt} echte metingen)\n` +
+          (OPRUIM_V4_HALVEREN
+            ? `  5. sl_v4_ halveren ${tel.p5emmers} emmers, ${tel.p5weg} records`
+              + ` (${tel.p5echt} echte metingen)\n`
+            : `  5. sl_v4_ halveren staat uit (${tel.p5geschikt} emmers bewaard)\n`) +
           `  6. sl_v3_          ${tel.p6} sleutels\n` +
           `  7. sl_s2_          ${tel.p7weg} records`);
       } catch(e) { alert('Opruiming mislukt: ' + e.message); }
