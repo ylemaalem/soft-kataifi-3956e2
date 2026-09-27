@@ -291,9 +291,16 @@ function testRichtingPct() {
     // Dezelfde koppeling die test_richting_ui T2c bewaakt, hier op een regel
     // die TWEE V5-sleutels samenvat — het geval waarin de oude middeling en de
     // nieuwe pooling het verst uit elkaar lopen.
+    //
+    // V11.28.0: DE FIXTURE MAT NIET WAT HIJ BELOOFDE. Hier stonden N_NW en
+    // NO_W. Die vallen in TWEE regels: N_NW is Rechtsaf in nadering 0, NO_W is
+    // Rechtdoor, en NO (45 graden) ligt 44 graden van deze nadering en valt er
+    // dus buiten. T11c slaagde alleen omdat laagMetingen via laadMV5Geclusterd
+    // de Rechtdoor-meting voor de helft meeleende. Nu N_W en N_NW: allebei
+    // aanrij N en allebei Rechtsaf, dus echt één regel met twee sleutels.
     wisNode();
-    zetLS('sl_v5_' + NODE + '_N_NW_' + DD_NU, JSON.stringify(v5rec(1)));
-    zetLS('sl_v5_' + NODE + '_NO_W_' + DD_NU, JSON.stringify(v5rec(1)));
+    const T11_SLEUTELS = ['N_W', 'N_NW'];
+    for (const s of T11_SLEUTELS) zetLS('sl_v5_' + NODE + '_' + s + '_' + DD_NU, JSON.stringify(v5rec(1)));
     zetLS('sl_v4_' + NODE + '_' + DD_NU, JSON.stringify(v4rec(3)));
     zetLS('sl_richting_' + NODE, JSON.stringify({
       headings: [0, 2, 1, 3, 0, 1, 2, 1], laatste_update: nu, bevestigingen: 8 }));
@@ -306,6 +313,15 @@ function testRichtingPct() {
     const richtRij = rijen.find(r => !r.querySelector('.rb-label').textContent.trim().startsWith('Rond licht'));   // V11.18.11
     eis('T11 er staat een samengevatte richtingregel', !!richtRij, 'een richtingregel',
         rijen.map(r => r.querySelector('.rb-label').textContent.trim()).join(' | '));
+    // V11.28.0: de eis waar de oude fixture ongemerkt aan faalde. Het aantal
+    // zichtbare regels zegt dat niet: het naderingsfilter verbergt een regel
+    // van een andere nadering, het voegt hem niet samen. Daarom de paren van
+    // de regel zelf, zoals renderRichtingBlok ze aan de klikafhandelaar geeft.
+    const rijLaag = laatsteRichtingRijen.find(x => x.paren.some(p => p.aanrij + '_' + p.afrij === T11_SLEUTELS[0]));
+    const rijParen = rijLaag ? rijLaag.paren.map(p => p.aanrij + '_' + p.afrij).sort().join(',') : '';
+    const verwachtParen = [...T11_SLEUTELS].sort().join(',');
+    eis('T11d en de twee sleutels staan op ÉÉN regel, niet op twee',
+        rijParen === verwachtParen, verwachtParen, rijParen || 'geen regel met ' + T11_SLEUTELS[0]);
     if (richtRij) {
       const regelPct = richtRij.querySelector('.rb-pct').textContent.trim();
       richtRij.onclick();

@@ -1052,7 +1052,7 @@ if (typeof ort !== 'undefined') {
 //
 // De stijl volgt de eerdere labels: nummer, kastlijntje, korte omschrijving in
 // kleine letters. De CSS zet hem zelf in kapitalen (text-transform:uppercase).
-const APP_VERSIE = 'V11.27.0 — bewijs uit de nadering';
+const APP_VERSIE = 'V11.28.0 — elke meting telt één keer';
 
 // ── CONSTANTEN ────────────────────────────────────────────────
 const OSM_RADIUS       = 5000;
@@ -4228,8 +4228,17 @@ function richtingLeerPct(metingen, nodeId = null) {
   return Math.min(95, obsPct + zwak(b.s2) + zwak(b.gpsTik) + zwak(b.bevestig));
 }
 
+// ── V11.28.0: ALLEEN DE EIGEN EMMER ────────────────────────────
+// © 2026 StoplichtIQ — Y. Lemaalem
+//
+// Zelfde reden als bij laagMetingen (r12750): dit las laadMV5Geclusterd, dus
+// telden de acht buuremmers mee — voor de helft in het percentage en VOLUIT
+// in het aantal. Het kruispuntvenster toonde daardoor op 4626468927 een emmer
+// met één meting als "58% (10x)". Dit is de bron van dat venster, van de
+// dashboardlijst per rijrichting en van de aantallen waarmee het richtingblok
+// sorteert en de Terug-regels filtert. Nu: één emmer, één keer.
 function berekenRichtingPct(nodeId, aanrij, afrij, dd) {
-  const m = laadMV5Geclusterd(nodeId, aanrij, afrij, dd);
+  const m = laadMV5(nodeId, aanrij, afrij, dd);
   // Leeg blijft null en niet 0: de aanroepers gebruiken dat om een regel
   // helemaal weg te laten in plaats van hem op nul te tonen.
   if (!m.length) return null;
@@ -12708,12 +12717,47 @@ function laagGeldigVoor(nodeId) {
 // laagMetingen is de gedeelde verzamelaar. Het richtingblok gebruikt hem ook
 // (r8231), zodat de balk bovenaan per constructie hetzelfde getal toont als de
 // regel eronder — test_richting_ui T2c bewaakt dat.
+//
+// ── V11.28.0: ELKE METING TELT ÉÉN KEER ────────────────────────
+// © 2026 StoplichtIQ — Y. Lemaalem
+//
+// Hier stond laadMV5Geclusterd per paar. Die leest niet één emmer maar een
+// blok van 3x3: het eigen paar voor 1, de acht buren (aanrij en afrij elk 45
+// graden ernaast) voor 0,5. Voor de COUNTDOWN is dat bewust: een dunne
+// richting leent cyclustijd van haar buren. Voor een PERCENTAGE ging het op
+// twee manieren mis:
+//
+//   1. Liggen twee paren van dezelfde regel binnen 45 graden van elkaar, dan
+//      leest het ene het andere nog eens als buur. Elke meting stond dan twee
+//      of drie keer in de pool. Gemeten op de export van 26 september:
+//      Surinameplein (297021347) Linksaf, drie paren, 4 metingen die 9 keer
+//      telden — 81% op het scherm waar 60% hoorde.
+//   2. Een buuremmer die bij een ANDERE regel hoort telde voor de helft mee.
+//      Sinds V11.17.81 is een regel per definitie één manoeuvre (nadering en
+//      bocht); wat daar niet in valt, is volgens de app zelf een andere
+//      manoeuvre. Op 3330495184 leenden twee Rechtsaf-regels in twee
+//      naderingen elkaars meting: 23% en 27% waar 14% en 21% hoorde.
+//
+// Nu dezelfde regel die algemeenMetingen al volgde (r1853): per sleutel één
+// keer inlezen, en alleen de eigen emmers van de regel. Een paar dat twee
+// keer in `paren` staat wordt ook maar één keer gelezen.
+//
+// WAT NIET VERANDERT. Geen enkele opgeslagen meting: dit leest alleen. Er
+// wordt nergens een percentage bewaard, dus alle historie telt vanaf deze
+// release vanzelf goed. De countdown leest laadMV5Geclusterd rechtstreeks
+// (kiesCountdownBron, berekenSchaduwWaarden, bepaalRichtingTekort, de
+// cyclustijd van de regel) en blijft precies zoals hij was.
 function laagMetingen(nodeId, laag, dd = null) {
   let m = [];
   const dagdelen = dd ? [dd] : Object.keys(DD);
+  const gelezen = new Set();
   for (const p of (laag.paren || []))
-    for (const d of dagdelen)
-      m = m.concat(laadMV5Geclusterd(nodeId, p.aanrij, p.afrij, d));
+    for (const d of dagdelen) {
+      const sleutel = v5Sleutel(nodeId, p.aanrij, p.afrij, d);
+      if (gelezen.has(sleutel)) continue;
+      gelezen.add(sleutel);
+      m = m.concat(laadMV5(nodeId, p.aanrij, p.afrij, d));
+    }
   return m;
 }
 
