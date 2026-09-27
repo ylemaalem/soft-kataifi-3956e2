@@ -1052,7 +1052,7 @@ if (typeof ort !== 'undefined') {
 //
 // De stijl volgt de eerdere labels: nummer, kastlijntje, korte omschrijving in
 // kleine letters. De CSS zet hem zelf in kapitalen (text-transform:uppercase).
-const APP_VERSIE = 'V11.26.0 — meetstanden apart geteld';
+const APP_VERSIE = 'V11.27.0 — bewijs uit de nadering';
 
 // ── CONSTANTEN ────────────────────────────────────────────────
 const OSM_RADIUS       = 5000;
@@ -3058,6 +3058,15 @@ function logOpslagMis(reden, extra) {
       cdDoel:    (e.cdDoel    != null) ? e.cdDoel    : null,
       cdVenster: (e.cdVenster != null) ? e.cdVenster : null
     };
+    // ── V11.27.0: twee meetvelden, alleen waar ze iets betekenen ──
+    // dwarsM is de gemiddelde dwarsafstand van de kandidaat tijdens het
+    // naderen, voorbijM hoeveel verder de auto reed dan de kandidaat toen vóór
+    // hem lag. Met die twee zijn NODE_NADER_DWARS_M en NODE_NADER_VOORBIJ_M in
+    // het veld na te rekenen. Ze komen als SLEUTEL alleen in een nadering_*-
+    // regel: een vast veld zou elke andere regel een null breder maken, en
+    // sl_opslaglog loopt in het stabiliteitsprotocol op grootte mee.
+    if (e.dwarsM != null)   rec.dwarsM   = Math.round(e.dwarsM * 10) / 10;
+    if (e.voorbijM != null) rec.voorbijM = Math.round(e.voorbijM * 10) / 10;
     let arr;
     try { arr = JSON.parse(localStorage.getItem('sl_opslaglog')) || []; } catch(_) { arr = []; }
     if (!Array.isArray(arr)) arr = [];
@@ -7694,6 +7703,24 @@ const NODE_HOEK_KMH            = 5;    // gelijk aan de scoretak-drempel r8423
 const NODE_HOEK_STABIEL_N      = 3;    // opeenvolgende GPS-updates met hetzelfde oordeel
 let hoekStabielSleutel = null;         // "gekozenId>altId" van het lopende oordeel
 let hoekStabielTeller  = 0;            // hoe vaak dat oordeel al op rij gezien is
+
+// ── V11.27.0: DE DRIE GETALLEN VAN HET NADERINGSBEWIJS ──────
+// Uitleg en onderbouwing staan bij verzamelNaderingsBewijs. Waar een bestaand
+// getal hetzelfde betekent, wordt dat getal gebruikt en niet gekopieerd:
+// NODE_CHK_CORRECTIE_MARGE_M (8), NODE_CHK_HEADING_MAX_GRAD (60),
+// NODE_HOEK_MIN_AFSTAND_M (12), V9_NADERING_AFSTAND (60), CLUSTER_AFSTAND_M (5)
+// en NODE_WISSEL_MIN_INTERVAL_MS (10 s).
+const NODE_NADER_STABIEL_N    = 3;      // telbare tikken; gelijk aan HANDTAP_VERVAL_STABIEL_N
+const NODE_NADER_STIL_MS      = 1000;   // stilstand vóór de beslissing (de oude routes: 3000)
+const NODE_NADER_GELDIG_MS    = 15000;  // zo oud mag de laatste telbare tik zijn
+const NODE_NADER_DWARS_M      = 4;      // max. dwarsafstand als het licht dichter dan 12 m staat
+const NODE_NADER_VOORBIJ_M    = 3;      // marge van beide voorbij-toetsen
+const NODE_NADER_ROL_KMH      = 1;      // vanaf hier rolt de auto: de passage telt mee, zie NB4d
+const NADERING_TERUG_TOAST_MS = 6000;   // gelijk aan CLUSTER_TAP_TOAST_MS: er hoort een keuze bij
+let naderBewijs        = null;          // het lopende bewijs, of null
+let naderWeigerSleutel = null;          // "gekozen>kandidaat" van de laatste weigering in het log
+let naderWeigerTijd    = 0;
+function naderBewijsReset() { naderBewijs = null; }
 
 let dichtstbijOSMTwijfel   = false;        // W1: huidige twijfel-vlag (edge-getriggerd log)
 // ── V11.18.12: DE MARKERING HEEFT NU TWEE BRONNEN ────────────
@@ -16435,6 +16462,10 @@ function vergrendelNodeHandmatig(nodeId, element) {
   handmatigLockActief = true;
   stilstandAutoLock = false;
   handLockVervalReset();   // een verse tap begint met een schone vervalteller
+  // V11.27.0: en met een leeg naderingsbewijs. Zo is het bewijs altijd nieuwer
+  // dan de laatste menselijke keuze: wie op 8 m nog tikt, heeft het laatste
+  // woord, en daar kan geen bewijs van ervóór overheen.
+  naderBewijsReset();
   if (!alVast) logOpslagMis('node_vergrendeld', { node: n, element: element || 'onbekend' });
   // V11.18.22: alleen bij een NIEUWE tik op het camerabeeld — zie het blok
   // hierboven voor waarom niet bij 'lijst' en niet bij een herhaalde tik.
@@ -18560,6 +18591,216 @@ function corrigeerNodeAutomatisch(nieuweNode, reden) {
   });
 }
 
+// ══ V11.27.0: BEWIJS VERZAMELEN TIJDENS HET NADEREN ══════════
+// © 2026 StoplichtIQ — Y. Lemaalem
+//
+// HET GEMETEN PROBLEEM. Op 25 en 26 september stond de app 10 keer bij
+// stilstand op het verkeerde licht, en alle 10 begonnen met een tik op het
+// camerabeeld tijdens het naderen. Die tik zet de node vast die de app op dat
+// moment toont (r7189), vaak nog op meer dan 100 m. Daarna gold de vervalroute:
+// 3 s stilstand en 3 bevestigingen, dus precies 5 s. Stond het juiste licht op
+// 1-4 m, dan kwam er soms nooit een wissel: op het Bentinckplein (26 sept
+// 14:04) lag de peiling naar het juiste licht op -131 graden en weigerde de
+// koerstoets elke tik. Op 1-3 m is de peiling ruis — dezelfde reden waarom de
+// hoekroute onder NODE_HOEK_MIN_AFSTAND_M weigert (r7683).
+//
+// HET IDEE. De koerstoets blijft, maar wordt gemeten waar hij iets zegt: tijdens
+// het naderen, met het licht op 12 m of verder. Drie keer ja daar is het bewijs.
+// Bij stilstand beslist de app na 1 s. Staat het licht dan dichter dan 12 m,
+// dan komt de koers niet uit de laatste fix maar uit de nadering, en vervangen
+// twee geometrische toetsen de peiling die daar niet meer te meten valt.
+//
+// WAT NIET VERANDERT. checkHandLockVerval en checkNodeCorrectieStilstand staan
+// er letter voor letter hetzelfde (test_naderingsbewijs NB14). Zonder
+// naderingsbewijs doet de app exact wat hij deed.
+//
+// PER TIK, RIJDEND (>= 3 km/u), voor het paar getoond W > dichtstbij C:
+//   C op 12-60 m, W - C >= 8 m, koers naar C <= 60   telt (n+1)
+//   C op 12-60 m, koers > 60                         nult: geen bewijs is geen
+//                                                    bewijs, zoals r18163
+//   C dichter dan 12 m, W - C >= 8 m                 neutraal: telt niet, nult niet
+//   W - C < 8 m, of W of C een andere node           nult
+//   koers onbekend                                   neutraal: zonder koers geen bewijs
+// Een nieuwe C binnen CLUSTER_AFSTAND_M van de vorige is dezelfde kandidaat:
+// twee masten van één kruising die om de beurt de dichtstbijzijnde zijn, zouden
+// de teller anders elke tik op nul zetten.
+//
+// DE TWEE VOORBIJ-TOETSEN, en waarom twee. isStoplichtVoorbij is zelf een
+// peilingtoets (> 90 graden) en daarmee op 1-4 m net zo onbetrouwbaar als de koers.
+// Daarom hier twee signalen die geen peiling op korte afstand gebruiken:
+//   gestegen  de afstand tot C liep tijdens het RIJDEN >= 3 m op boven zijn
+//             minimum. Stilstaande tikken tellen niet mee: daar verspringt de
+//             positie, maar rijdt de auto niet.
+//   weg       de afgelegde weg sinds de laatste telbare tik (snelheid x tijd, dus
+//             ruisvrij bij stilstand), tegen hoe ver C toen vóór je lag.
+// Ze hebben verschillende foutbronnen: 'weg' mist een passage als iOS een te
+// lage snelheid meldt, 'gestegen' als je vlak na de passage al stilstaat.
+//
+// HET RESTRISICO, bewust aanvaard (Younes, 27 sept). Een node op de stopstreep
+// die 1-2 m achter de telefoon gemeten wordt — het Bentinckplein — is met
+// telefoon-GPS niet te onderscheiden van een licht dat je 2 m geleden passeerde.
+// Sta je binnen ~3 m ná een licht op je pad stil dat 8 m dichterbij ligt dan het
+// getoonde, dan kan deze route onterecht wisselen. Kwam in geen van de 10
+// gemeten gevallen voor. Het vangnet is de knop 'Terug' in de melding.
+function verzamelNaderingsBewijs(lat, lon) {
+  const nu = Date.now();
+  const W = dichtstbijOSM, C = puurDichtsteNodeCache;
+  // De afgelegde weg loopt elke tik door, ook stilstaand; dan is de snelheid
+  // nul en komt er niets bij. Trapezium over het interval, dus exact bij een
+  // gelijkmatige vertraging.
+  if (naderBewijs) {
+    const v = (typeof snelheidKmh === 'number' && snelheidKmh > 0) ? snelheidKmh / 3.6 : 0;
+    const dt = Math.max(0, (nu - naderBewijs.vorigeT) / 1000);
+    naderBewijs.weg += dt * (v + naderBewijs.vorigeV) / 2;
+    naderBewijs.vorigeT = nu;
+    naderBewijs.vorigeV = v;
+  }
+  if (!W || !C || String(W.id) === String(C.id)) { naderBewijsReset(); return; }
+  // Een andere getoonde node is een ander verhaal, ook als dat bij stilstand
+  // gebeurt (een correctie of een keuze uit de lijst).
+  if (naderBewijs && naderBewijs.gekozen !== String(W.id)) naderBewijsReset();
+  // Stilstaand (onder 1 km/u) doet deze functie niets: de positie verspringt
+  // daar wel, maar de auto rijdt niet. GPS-ruis bij stilstand mag bewijs uit de
+  // nadering niet weggooien; checkNaderingsCorrectie toetst zelf.
+  if (!(snelheidKmh >= NODE_NADER_ROL_KMH)) return;
+
+  const gekozenAf = afstand(lat, lon, W.lat, W.lon);
+  const closestAf = afstand(lat, lon, C.lat, C.lon);
+  // Uitrollen (1-3 km/u): niet tellen, niet nullen en geen nieuw bewijs
+  // beginnen — maar de passage wel zien. In precies deze laatste meters rijdt
+  // een auto langs een licht vlak voor de stopstreep, en juist hier meldt iOS
+  // de snelheid het slechtst. Met alleen tikken vanaf 3 km/u wisselde de route
+  // in test NB4d naar een licht dat 6 m achter de auto lag: bij een gemelde
+  // halve snelheid onderschatte de afgelegde weg de passage, en de stijging
+  // van 4,4 m viel op een tik van 1,6 km/u.
+  const uitrollen = snelheidKmh < NODE_CHK_STANDSTILL_KMH;
+  let b = naderBewijs;
+  const zelfde = b && (b.kandidaat.id === String(C.id)
+    || afstand(b.kandidaat.lat, b.kandidaat.lon, C.lat, C.lon) <= CLUSTER_AFSTAND_M);
+  if (!zelfde && uitrollen) return;
+  if (!zelfde) {
+    b = naderBewijs = {
+      gekozen: String(W.id), kandidaat: { id: String(C.id), lat: C.lat, lon: C.lon },
+      n: 0, dwarsSom: 0, voorAf: null, laatsteKoers: null, laatsteVolT: 0,
+      weg: 0, vorigeT: nu, vorigeV: Math.max(0, snelheidKmh / 3.6),
+      minAf: closestAf, gestegen: false
+    };
+  } else if (b.kandidaat.id !== String(C.id)) {
+    // De buurmast van dezelfde kruising neemt het over. Afstanden tot twee
+    // verschillende masten zijn niet te vergelijken, dus het minimum begint hier
+    // opnieuw.
+    b.kandidaat = { id: String(C.id), lat: C.lat, lon: C.lon };
+    b.minAf = closestAf;
+  }
+  if (!uitrollen && gekozenAf - closestAf < NODE_CHK_CORRECTIE_MARGE_M) { naderBewijsReset(); return; }
+
+  if (closestAf < b.minAf) b.minAf = closestAf;
+  else if (closestAf >= b.minAf + NODE_NADER_VOORBIJ_M) b.gestegen = true;
+
+  if (uitrollen) return;
+  if (closestAf > V9_NADERING_AFSTAND || closestAf < NODE_HOEK_MIN_AFSTAND_M) return;
+  const k = koersAfwijkingNaar({ lat, lon }, C);
+  if (k == null) return;
+  if (k > NODE_CHK_HEADING_MAX_GRAD) { naderBewijsReset(); return; }
+  b.n++;
+  b.dwarsSom += closestAf * Math.sin(k * Math.PI / 180);
+  b.voorAf = closestAf * Math.cos(k * Math.PI / 180);
+  b.laatsteKoers = k;
+  b.laatsteVolT = nu;
+  // Beide voorbij-toetsen meten vanaf de laatste telbare tik: tot hier lag C
+  // aantoonbaar vóór je.
+  b.weg = 0;
+  b.minAf = closestAf;
+  b.gestegen = false;
+}
+
+// De beslissing, bij stilstand. Wisselt alleen als ALLES klopt; elke weigering
+// komt eenmaal per episode in het log, met in poortReden welke eis het was —
+// zonder dat zou een nee in het veld even onzichtbaar zijn als vóór deze release.
+function checkNaderingsCorrectie(lat, lon) {
+  const b = naderBewijs;
+  if (!b || b.n === 0) return;          // niets verzameld: de bestaande routes gaan hun gang
+  if (!(snelheidKmh < NODE_CHK_STANDSTILL_KMH) || stilstandSinds === 0
+      || (Date.now() - stilstandSinds) < NODE_NADER_STIL_MS) return;
+  const W = dichtstbijOSM, C = puurDichtsteNodeCache;
+  if (!W || !C || String(W.id) === String(C.id)) return;
+
+  const nu = Date.now();
+  const gekozenAf = afstand(lat, lon, W.lat, W.lon);
+  const closestAf = afstand(lat, lon, C.lat, C.lon);
+  const dwars   = b.n ? b.dwarsSom / b.n : null;
+  const voorbij = (b.voorAf != null) ? b.weg - b.voorAf : null;
+  const route   = closestAf >= NODE_HOEK_MIN_AFSTAND_M ? 'ver' : 'dichtbij';
+  const velden = {
+    node: String(W.id), afst: gekozenAf, afwM: Math.round(gekozenAf - closestAf),
+    hoekN: b.n, hoekVoordeel: (b.laatsteKoers != null) ? Math.round(b.laatsteKoers) : null,
+    vermRoute: route, dwarsM: dwars, voorbijM: voorbij,
+    dur: stilstandSinds > 0 ? (nu - stilstandSinds) / 1000 : null
+  };
+  const weiger = (reden) => {
+    const sleutel = String(W.id) + '>' + String(C.id);
+    if (sleutel === naderWeigerSleutel && (nu - naderWeigerTijd) < STILSTAND_AFWIJKING_HERHAAL_MS) return;
+    naderWeigerSleutel = sleutel;
+    naderWeigerTijd = nu;
+    logOpslagMis('nadering_geweigerd', { ...velden, poortReden: reden });
+  };
+
+  const zelfde = b.kandidaat.id === String(C.id)
+    || afstand(b.kandidaat.lat, b.kandidaat.lon, C.lat, C.lon) <= CLUSTER_AFSTAND_M;
+  if (b.gekozen !== String(W.id) || !zelfde) return weiger('paar');
+  if (b.n < NODE_NADER_STABIEL_N) return weiger('te_weinig');
+  if (nu - b.laatsteVolT > NODE_NADER_GELDIG_MS) return weiger('verlopen');
+  if (nu - laatsteNodeCorrectieTijd < NODE_WISSEL_MIN_INTERVAL_MS) return weiger('bounce');
+  if (gekozenAf - closestAf < NODE_CHK_CORRECTIE_MARGE_M) return weiger('marge');
+  if (route === 'ver') {
+    // Op 12 m of verder zegt de peiling nog iets: exact poort 8, ook in hoe
+    // hij met een onbekende koers omgaat.
+    const k = koersAfwijkingNaar({ lat, lon }, C);
+    if (k != null && k > NODE_CHK_HEADING_MAX_GRAD) return weiger('koers');
+  } else {
+    // Dichterbij vervangen twee toetsen uit de nadering de peiling.
+    if (dwars > NODE_NADER_DWARS_M) return weiger('dwars');
+    if (b.gestegen) return weiger('voorbij_afstand');
+    if (voorbij != null && voorbij > NODE_NADER_VOORBIJ_M) return weiger('voorbij_weg');
+  }
+
+  // Alles klopt. Een tik-lock gaat eerst los, met dezelfde drie velden als de
+  // vervalroute (r18199) — anders zou corrigeerNodeAutomatisch een auto-lock
+  // zetten terwijl de vlag van een echte tap nog aan staat.
+  const oude = W;
+  if (handmatigLockActief && !stilstandAutoLock) {
+    handLockVervalReset();
+    logOpslagMis('handlock_vervallen', {
+      node: String(oude.id), afst: gekozenAf, afwM: velden.afwM,
+      hoekN: b.n, hoekVoordeel: velden.hoekVoordeel, vermRoute: 'nadering'
+    });
+    handmatigLockActief = false;
+    handmatigGeselecteerdNodeId = null;
+    stilstandAutoLock = false;
+  }
+  logOpslagMis('nadering_correctie', { ...velden, nieuw: String(C.id) });
+  naderBewijsReset();
+  corrigeerNodeAutomatisch(C, 'nadering-' + route);
+  toonToast(naderingToastTekst(closestAf),
+    { label: 'Terug', duurMs: NADERING_TERUG_TOAST_MS, fn: () => naderingTerug(oude.id, C.id) });
+}
+
+function naderingToastTekst(meter) {
+  return '✓ Gewisseld naar licht op ' + Math.round(meter) + ' m';
+}
+
+// 'Terug' betekent: de mens kiest het oude licht, precies alsof hij het uit de
+// correctielijst koos. Dus selecteerNodeHandmatig, met zijn tik-lock, en daarmee
+// ook een leeg naderingsbewijs — deze route kan niet meteen opnieuw wisselen.
+// Alleen zolang de app nog op de node staat waar deze route naartoe wisselde:
+// is er intussen iets anders gebeurd, dan is 'terug' niet meer eenduidig.
+function naderingTerug(oudeId, nieuwId) {
+  if (!dichtstbijOSM || String(dichtstbijOSM.id) !== String(nieuwId)) return false;
+  logOpslagMis('nadering_teruggedraaid', { node: String(nieuwId), nieuw: String(oudeId) });
+  selecteerNodeHandmatig(oudeId);
+  return true;
+}
+
 // ── GPS ───────────────────────────────────────────────────────
 let eersteGPSVerwerkt = false;
 async function onGPS(pos) {
@@ -18660,6 +18901,12 @@ async function onGPS(pos) {
   pGPS.className='pill-dot b'; pGPST.textContent='GPS';
   if (!cacheGeladen && !cacheBezig) downloadOSM(lat, lon);
   else if (cacheGeladen) updateDichtbij(lat, lon);
+  // V11.27.0: bewijs uit de nadering, en de beslissing daarover. NA
+  // updateDichtbij, want beide lezen de verse puurDichtsteNodeCache; VÓÓR de
+  // hercontrole hieronder, die na een wissel van deze route 'zelfde_node' ziet
+  // en dus niets dubbel doet. De twee bestaande routes blijven letterlijk gelijk.
+  if (cacheGeladen) verzamelNaderingsBewijs(lat, lon);
+  if (cacheGeladen) checkNaderingsCorrectie(lat, lon);
   // V11.17.9 W3: hercontrole ná updateDichtbij zodat puurDichtsteNodeCache
   // en dichtstbijOSM.afstand vers zijn. Zelf gated op stilstand + duur +
   // veiligheidsregel — draait vaak leeg maar is goedkoop.

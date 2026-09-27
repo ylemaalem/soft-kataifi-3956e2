@@ -90,7 +90,10 @@ function testToastPast() {
     ['cluster na beeld-tik',  (typeof CLUSTER_TAP_TEKST !== 'undefined' ? CLUSTER_TAP_TEKST : '⚠ Meerdere masten — klopt deze?'), KNOP('Wissel')],
     ['cluster bij nadering',  '⚠ Meerdere stoplichten dicht bij elkaar', null],
     ['vermoeden afstand',     '⚠ Ander stoplicht ligt 12m dichterbij — tik op de naam', null],
-    ['vermoeden hoek',        '⚠ Ander stoplicht staat rechter vooruit — tik op de naam', null]
+    ['vermoeden hoek',        '⚠ Ander stoplicht staat rechter vooruit — tik op de naam', null],
+    // V11.27.0: de melding na een wissel via het naderingsbewijs, met het
+    // grootste getal dat hij in de praktijk draagt (tot 60 m).
+    ['nadering + knop',       (typeof naderingToastTekst === 'function' ? naderingToastTekst(59) : '✓ Gewisseld naar licht op 59 m'), KNOP('Terug')]
   ];
 
   const breedte = (tekst, actie) => {
