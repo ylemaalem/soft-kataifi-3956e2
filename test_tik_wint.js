@@ -2,7 +2,8 @@
 //  StoplichtIQ — test_tik_wint.js
 //  © 2026 StoplichtIQ — Y. Lemaalem
 //
-//  Test bij V11.33.0: de tik wint, of de app toont niets.
+//  Test bij V11.33.0: de tik wint, of de app toont niets. Plus V11.34.0: de
+//  tik klopt ook aan de rand (TW10).
 //
 //  YOUNES' TWEE EISEN (27 september 2026):
 //   1. een tik weegt zwaarder dan de automatische keuze; wegspringen naar een
@@ -24,6 +25,14 @@
 //  TW7  het zoekringetje, en de indicator op de goede plek
 //  TW8  leeg is echt leeg: geen fase, geen meting
 //  TW9  REGRESSIE: zonder tik en in het auto-slot verandert niets
+//  TW10 V11.34.0 (M6): de tik klopt ook aan de rand. Het canvas staat op
+//       object-fit: cover, dus op het scherm valt links en rechts een strook
+//       van het beeld weg. De tik rekent daar nu mee (schermNaarCamera).
+//
+//  DE TIK-HELPER (tikOp) tikt sinds V11.34.0 waar de lamp OP HET SCHERM staat,
+//  met dezelfde cover-regel als de browser. Tot en met V11.33.0 rekende hij met
+//  dezelfde uitgerekte formule als de app. Daardoor kon geen enkele toets de
+//  randfout zien: de helper maakte de fout van de handler precies ongedaan.
 //
 //  DRAAIEN
 //    python -m http.server 8765 --bind 127.0.0.1     (in de repo-map)
@@ -108,11 +117,20 @@ async function testTikWint() {
     stickyDetectie = { cx: q.cx, cy: q.cy, camX: p.x, camY: p.y, camH: 40 / lbScale, camAfst: null,
                        familie: 'rood', hoogte: 40, klasse: 0, tijd: Date.now(), bron: 'tik' };
   };
+  // Waar staat camerapunt p op het scherm? Dezelfde regel als object-fit: cover
+  // (één schaal, de grootste, gecentreerd), hier los van de app uitgeschreven.
+  const opScherm = (p) => {
+    const cssW = canvas.offsetWidth, cssH = canvas.offsetHeight;
+    const s = Math.max(cssW / canvas.width, cssH / canvas.height);
+    return { x: (cssW - canvas.width * s) / 2 + p.x * s, y: (cssH - canvas.height * s) / 2 + p.y * s };
+  };
   const tikOp = (p) => {
-    const r = canvas.getBoundingClientRect();
+    const r = canvas.getBoundingClientRect(), q = opScherm(p);
+    const kx = r.width / canvas.offsetWidth, ky = r.height / canvas.offsetHeight;   // de zoom
+    // Hele schermpixels, zoals een echte klik: Chromium kapt clientX en clientY
+    // van een MouseEvent af op gehele getallen.
     canvas.dispatchEvent(new MouseEvent('click', {
-      clientX: r.left + (p.x / canvas.width) * r.width,
-      clientY: r.top + (p.y / canvas.height) * r.height, bubbles: true }));
+      clientX: Math.round(r.left + q.x * kx), clientY: Math.round(r.top + q.y * ky), bubbles: true }));
   };
   const dicht = (a, b, tol = 2) => Math.abs(a - b) <= tol;
 
@@ -370,6 +388,105 @@ async function testTikWint() {
     const anders = Object.entries(ONGEWIJZIGD).filter(([n, [h, l]]) => fnv(String(eval(n))) !== h || String(eval(n)).length !== l).map(x => x[0]);
     eis('TW9d vijftien functies die V11.33.0 niet raakt, zijn byte-gelijk aan V11.32.0 (NB14 inbegrepen)',
         anders.length === 0, 'geen afwijking', anders.join(', ') || 'geen');
+
+    // ═══ TW10 — V11.34.0: DE TIK KLOPT OOK AAN DE RAND ═════
+    // Een vaste schermmaat, zodat het runnervenster niet uitmaakt: 393x852
+    // CSS-px, het scherm van de iPhone 15 Pro. Dat is dezelfde geometrie als de
+    // proefpagina van 27 september: daar stond een lamp op camera-x 300 op de
+    // schermafdruk op CSS-x 90,0. De oude omrekening maakte daar 247,3 van.
+    const oudeStijl = canvas.getAttribute('style');
+    const zetScherm = (w, h) => { canvas.style.width = w + 'px'; canvas.style.height = h + 'px'; };
+    const heeftFn = typeof schermNaarCamera === 'function';
+    const naarCam = (x, y) => heeftFn ? schermNaarCamera(x, y) : { x: NaN, y: NaN };
+    const txt = (c) => c ? r1(c.x) + ', ' + r1(c.y) : 'null';
+    try {
+      canvas.style.transform = ''; canvas.style.objectFit = '';
+      canvas.width = VW; canvas.height = VH; zetScherm(393, 852);
+      const cs = getComputedStyle(canvas), co = getComputedStyle(overlCanvas);
+      eis('TW10a beide canvassen staan op object-fit: cover, gecentreerd: de aanname van schermNaarCamera',
+          cs.objectFit === 'cover' && cs.objectPosition === '50% 50%' && co.objectFit === 'cover' && co.objectPosition === '50% 50%',
+          'cover / 50% 50% (twee keer)', cs.objectFit + ' / ' + cs.objectPosition + ' | ' + co.objectFit + ' / ' + co.objectPosition);
+      eis('TW10a2 schermNaarCamera bestaat', heeftFn, 'functie', typeof schermNaarCamera);
+      let c = naarCam(90, 426);
+      eis('TW10b de gemeten lamp: CSS-x 90,0 is camera-x 300 (de oude omrekening gaf 247,3)',
+          dicht(c.x, 300, 0.01) && dicht(c.y, 960, 0.01), '300, 960', txt(c));
+      const links = naarCam(0, 0), rechts = naarCam(393, 852), mid = naarCam(196.5, 426);
+      eis('TW10c midden blijft midden; links en rechts valt 97,2 camerapixels weg (9,0%), boven en onder niets',
+          dicht(mid.x, 540, 0.01) && dicht(mid.y, 960, 0.01) && dicht(links.x, 97.18, 0.01) && dicht(rechts.x, 982.82, 0.01)
+            && dicht(links.y, 0, 0.01) && dicht(rechts.y, 1920, 0.01),
+          '540, 960 / 97,2, 0 / 982,8, 1920', txt(mid) + ' / ' + txt(links) + ' / ' + txt(rechts));
+      // het echte beeld van het toestel (detlog 26 sept), op beide kandidaat-viewports
+      canvas.width = 2160; canvas.height = 3840;
+      zetScherm(393, 793); const s793 = naarCam(0, 0);
+      zetScherm(393, 852); const s852 = naarCam(0, 0);
+      eis('TW10d het echte beeld 2160x3840: per kant valt 128,5 px weg op 393x793 en 194,4 px op 393x852',
+          dicht(s793.x, 128.47, 0.05) && dicht(s852.x, 194.37, 0.05), '128,5 / 194,4', r1(s793.x) + ' / ' + r1(s852.x));
+      // liggend: dan valt er boven en onder een strook weg
+      canvas.width = 1920; canvas.height = 1080; zetScherm(852, 393);
+      c = naarCam(426, 90);
+      eis('TW10e liggend (1920x1080 op 852x393): de verticale as wordt gecorrigeerd, de horizontale niet',
+          dicht(c.x, 960, 0.01) && dicht(c.y, 300, 0.01), '960, 300', txt(c));
+      canvas.width = VW; canvas.height = VH; zetScherm(393, 852);
+      // de andere object-fit-waarden: de functie volgt de CSS
+      canvas.style.objectFit = 'fill';
+      const fill = naarCam(90, 100);   // niet het midden: daar geven alle regels hetzelfde
+      canvas.style.objectFit = 'contain';
+      const cont = naarCam(196.5, 100), balk = naarCam(0, 0);
+      canvas.style.objectFit = '';
+      eis('TW10f fill rekent per as (de oude formule, daar was hij goed); contain gebruikt de kleinste schaal, en een tik in de balk klemt op de rand',
+          dicht(fill.x, 247.33, 0.01) && dicht(fill.y, 225.35, 0.01)
+            && dicht(cont.x, 540, 0.01) && dicht(cont.y, 64.12, 0.01) && dicht(balk.x, 0, 0.01) && dicht(balk.y, 0, 0.01),
+          'fill 247,3, 225,4 / contain 540, 64,1 / balk 0, 0', txt(fill) + ' / ' + txt(cont) + ' / ' + txt(balk));
+
+      // de echte handler, met zoom: de lamp op camera-x 300 staat bij scale(1,5)
+      // op scherm-x 196,5 + (90 - 196,5) x 1,5 = 36,75. Een klik valt op een heel
+      // schermpixel (37); wat daar hoort, rekent deze toets los van de app uit.
+      schoon(); leegTik(); zetCrop(); laatsteDetecties = []; laatsteDetectiesStelsel = { ...ST_CROP };
+      canvas.style.transform = 'scale(1.5)'; canvas.style.transformOrigin = 'center center';
+      const rz = canvas.getBoundingClientRect();
+      const kx10 = Math.round(rz.left + 90 * 1.5), ky10 = Math.round(rz.top + 426 * 1.5);
+      const verwX = ((kx10 - rz.left) / 1.5 + 43.125) / 0.44375, verwY = ((ky10 - rz.top) / 1.5) / 0.44375;
+      canvas.dispatchEvent(new MouseEvent('click', { clientX: kx10, clientY: ky10, bubbles: true }));
+      canvas.style.transform = '';
+      eis('TW10g de handler met zoom 1,5: een tik op de lamp bij de rand vergrendelt op camera-x ~300',
+          !!bboxOverride && dicht(bboxOverrideCamX, verwX, 0.05) && dicht(bboxOverrideCamY, verwY, 0.05) && dicht(verwX, 300, 1),
+          r1(verwX) + ', ' + r1(verwY), bboxOverride ? r1(bboxOverrideCamX) + ', ' + r1(bboxOverrideCamY) : 'geen lock');
+
+      // de klacht zelf: A op driekwart van de beeldbreedte, buur B 95 camerapixels
+      // verder naar de rand (buiten de identiteitsstraal van 81, dus alleen M6
+      // speelt). Tot en met V11.33.0 kwam de tik op 869 uit: B's box lag dan
+      // dichterbij (rand 15) dan die van A (rand 38), en F1 koos B.
+      const A3 = { x: 810, y: 450 }, B3 = { x: 905, y: 450 };
+      schoon(); leegTik(); zetVol();
+      laatsteDetecties = [det(naarVol(A3.x, A3.y)), det(naarVol(B3.x, B3.y), 1, 0.8)];
+      laatsteDetectiesStelsel = { s: S_VOL, px: PAD_VOL, py: 0, x: 0, y: 0 };
+      tikOp(A3);
+      eis('TW10h een tik op lamp A bij de rand kiest A, niet de buur aan de randkant',
+          !!stickyDetectie && stickyDetectie.bron === 'tik' && dicht(stickyDetectie.camX, A3.x, 1),
+          'sticky op A (810)', stickyDetectie ? r1(stickyDetectie.camX) + ' (' + stickyDetectie.bron + ')' : 'geen sticky');
+      r = selecteerBesteDetectie([det(naarVol(A3.x, A3.y)), det(naarVol(B3.x, B3.y), 1, 0.8)]);
+      eis('TW10i ... en de volgende run toont A', !!r.s1 && dicht(r.s1.cx, naarVol(A3.x, A3.y).cx, 0.5),
+          'A ' + r1(naarVol(A3.x, A3.y).cx), r.s1 ? r1(r.s1.cx) : 'geen');
+
+      // een canvas zonder maat (verborgen): niets vergrendelen, geen NaN
+      schoon(); zetCrop(); laatsteDetecties = [];
+      const markerVoor = cameraTapMarker;
+      canvas.style.display = 'none';
+      canvas.dispatchEvent(new MouseEvent('click', { clientX: 10, clientY: 10, bubbles: true }));
+      canvas.style.display = '';
+      eis('TW10j een tik op een canvas zonder schermmaat doet niets (geen lock op NaN)',
+          bboxOverride === null && cameraTapMarker === markerVoor, 'geen lock',
+          'override=' + JSON.stringify(bboxOverride));
+
+      const src = await fetch('/index.html?' + Date.now()).then(x => x.text()).catch(() => '');
+      const i10 = src.indexOf("canvas.addEventListener('click', (e) => {");
+      const handler = i10 >= 0 ? src.slice(i10, src.indexOf('\n});', i10) + 4) : '';
+      eis('TW10k de handler rekent via schermNaarCamera, niet meer uitgerekt (normX * canvas.width)',
+          /schermNaarCamera\(tapCssX, tapCssY\)/.test(zc(handler)) && !/normX \* canvas\.width/.test(zc(handler)),
+          'via schermNaarCamera', handler ? 'gelezen' : 'niet gelezen');
+    } finally {
+      if (oudeStijl === null) canvas.removeAttribute('style'); else canvas.setAttribute('style', oudeStijl);
+    }
 
   } finally {
     for (const n of namen) { try { eval(n + ' = bewaard[n]'); } catch (e) {} }

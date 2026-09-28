@@ -1052,7 +1052,7 @@ if (typeof ort !== 'undefined') {
 //
 // De stijl volgt de eerdere labels: nummer, kastlijntje, korte omschrijving in
 // kleine letters. De CSS zet hem zelf in kapitalen (text-transform:uppercase).
-const APP_VERSIE = 'V11.33.0 — de tik wint, of de app toont niets';
+const APP_VERSIE = 'V11.34.0 — de tik klopt ook aan de rand';
 
 // ── CONSTANTEN ────────────────────────────────────────────────
 const OSM_RADIUS       = 5000;
@@ -7270,7 +7270,8 @@ function tikLogTik(videoX, videoY, heeftActieveBbox, gekozen, rand) {
       snap: snap ? 1 : 0, rand: snap ? rand : null,
       dCam: snap ? dCam : null, dMin,
       mis: (snap && echt && echt !== gekozen) ? 1 : 0,
-      st: stelselAnders ? 1 : 0, vol: cropRegio ? 0 : 1
+      st: stelselAnders ? 1 : 0, vol: cropRegio ? 0 : 1,
+      sw: canvas.offsetWidth, sh: canvas.offsetHeight   // V11.34.0: de viewport, zie schermNaarCamera
     });
   } catch(e) {}
 }
@@ -7555,6 +7556,45 @@ let autoFocusTijd  = 0;
 let isOnscherp     = false;
 let leerToastTimer = null;
 
+// ── V11.34.0: DE TIK KLOPT OOK AAN DE RAND ───────────────────
+// © 2026 StoplichtIQ — Y. Lemaalem
+//
+// M6 uit de STAP 0 van 27 september. #camera-canvas en #overlay-canvas staan
+// op object-fit: cover (r24-27). Staand is het scherm smaller dan het
+// 9:16-camerabeeld, dus links en rechts valt een strook van het beeld weg. De
+// handler rekende de tik om alsof het beeld uitgerekt was
+// (videoX = tapCssX / cssW * canvas.width) en kwam daardoor naast de lamp uit,
+// richting de schermrand: 0 in het midden, aan de rand tot 9% van de
+// beeldbreedte. De identiteitsstraal is 7,5% en de F1-marge 3,75%. Een tik op
+// een lamp bij de rand kon zo meteen de buur aan de randkant kiezen.
+//
+// Het tekenen klopte altijd al: de overlay heeft dezelfde maat, dezelfde CSS en
+// dezelfde zoom als het camerabeeld. Alleen de ingang, de tik, rekende verkeerd.
+//
+// DE REGEL: precies wat object-fit zelf doet. Bij cover één schaal voor beide
+// assen, de grootste; bij contain de kleinste; bij fill een schaal per as. Het
+// beeld staat gecentreerd, want object-position staat op de standaard 50% 50%
+// (test_tik_wint TW10 pint dat). Eruit komt de ware cameracoördinaat, waar op
+// het scherm er ook getikt wordt. De zoom (een CSS-transform) haalt de handler
+// er vooraf al af, met rect en offsetWidth.
+//
+// Gemeten op het echte beeld (2160x3840, detlog van 26 september): op een
+// viewport van 393x852 viel aan elke kant 194 camerapixels weg (9,0%), op
+// 393x793 128,5 (5,95%). Welke van de twee het toestel heeft, legt de
+// tik-regel voortaan vast (sw/sh in tikLogTik).
+function schermNaarCamera(cssX, cssY) {
+  const cssW = canvas.offsetWidth, cssH = canvas.offsetHeight;
+  const W = canvas.width, H = canvas.height;
+  if (!(cssW > 0 && cssH > 0 && W > 0 && H > 0)) return null;
+  const fit = getComputedStyle(canvas).objectFit;
+  let sx, sy;
+  if (fit === 'fill') { sx = cssW / W; sy = cssH / H; }
+  else { sx = sy = (fit === 'contain' ? Math.min : Math.max)(cssW / W, cssH / H); }
+  const ox = (cssW - W * sx) / 2, oy = (cssH - H * sy) / 2;
+  return { x: Math.max(0, Math.min(W, (cssX - ox) / sx)),
+           y: Math.max(0, Math.min(H, (cssY - oy) / sy)) };
+}
+
 // V11.10.0: Tap scheiding — crop vs bbox vergrendelen
 // Pad A: geen actieve S1 bbox → crop forceren naar taplocatie
 // Pad B: wel actieve S1 bbox → vergrendel of wissel bbox
@@ -7569,11 +7609,11 @@ canvas.addEventListener('click', (e) => {
   const tapCssX = (e.clientX - rect.left) / scaleX;
   const tapCssY = (e.clientY - rect.top) / scaleY;
 
-  const normX = tapCssX / cssW;
-  const normY = tapCssY / cssH;
-
-  const videoX = normX * canvas.width;
-  const videoY = normY * canvas.height;
+  // V11.34.0: object-fit: cover. Was normX * canvas.width, zie schermNaarCamera.
+  const cam = schermNaarCamera(tapCssX, tapCssY);
+  if (!cam) return;
+  const videoX = cam.x;
+  const videoY = cam.y;
 
   // V11.33.0: geen omrekening naar YOLO-pixels meer hier. Die gebeurde met het
   // stelsel van de lopende run, en dat was de val (zie F1 hieronder).

@@ -21,7 +21,8 @@
 //       e  M5  groen wist de tik-sticky niet meer (op de bron)
 //       f  M5  de eerste match zoekt rond de tik in DIT stelsel: A
 //       g  M3  op volbeeld is de straal niet meer drie keer zo ruim
-//  TL1  de tik-regel: pad, keuze, echte afstand, verkeerde keuze, stelsel
+//  TL1  de tik-regel: pad, keuze, echte afstand, verkeerde keuze, stelsel, en
+//       sinds V11.34.0 de viewport (sw/sh) en de ware coördinaat aan de rand
 //  TL2  de run-regels: overname, sprong, eerste match, dubbel onderdrukt
 //  TL3  de los-regels: elke reden, en niets als er geen tik was. De node-wissel
 //       en de correctie meldt een wachter, want die twee functies pint NB14.
@@ -123,12 +124,19 @@ async function testTiklog() {
     return { cx: c.cx, cy: c.cy, camX: p.x, camY: p.y, camH: h / lbScale, camAfst: null,
              familie: 'rood', hoogte: h, klasse: 0, tijd: Date.now() };
   };
-  // Een echte tik op het canvas, op camerapositie p.
+  // Een echte tik op het canvas, op camerapositie p: daar waar p OP HET SCHERM
+  // staat. Het canvas staat op object-fit: cover (één schaal, de grootste,
+  // gecentreerd). V11.34.0: tot dan rekende deze helper uitgerekt, net als de
+  // app, en maakte hij de randfout van de handler precies ongedaan.
   const tikOp = (p) => {
     const r = canvas.getBoundingClientRect();
+    const cssW = canvas.offsetWidth, cssH = canvas.offsetHeight;
+    const s = Math.max(cssW / canvas.width, cssH / canvas.height);
+    const qx = (cssW - canvas.width * s) / 2 + p.x * s, qy = (cssH - canvas.height * s) / 2 + p.y * s;
+    // Hele schermpixels, zoals een echte klik: Chromium kapt clientX en clientY
+    // van een MouseEvent af op gehele getallen.
     canvas.dispatchEvent(new MouseEvent('click', {
-      clientX: r.left + (p.x / canvas.width) * r.width,
-      clientY: r.top + (p.y / canvas.height) * r.height, bubbles: true }));
+      clientX: Math.round(r.left + qx * (r.width / cssW)), clientY: Math.round(r.top + qy * (r.height / cssH)), bubbles: true }));
   };
 
   try {
@@ -156,7 +164,8 @@ async function testTiklog() {
     eis('TL1a de tik-regel: pad A, niet gesnapt, de buur lag ~91 camerapixels verderop',
         tk && tk.pad === 'A' && tk.snap === 0 && tk.dMin >= 88 && tk.dMin <= 93 && tk.n === 1 && tk.st === 0,
         'A / 0 / dMin ~91 / n 1 / st 0', tk && `${tk.pad} / ${tk.snap} / ${tk.dMin} / n ${tk.n} / st ${tk.st}`);
-    eis('TL1b de tikplek staat er in camerapixels bij', tk && tk.cx === A.x && tk.cy === A.y,
+    eis('TL1b de tikplek staat er in camerapixels bij (op één schermpixel na)',
+        tk && Math.abs(tk.cx - A.x) <= 2 && Math.abs(tk.cy - A.y) <= 2,
         A.x + ', ' + A.y, tk && tk.cx + ', ' + tk.cy);
 
     // ═══ TL0b — M2: de coördinatenval ═══════════════════════
@@ -175,6 +184,23 @@ async function testTiklog() {
     eis('TL1c de tik-regel: ander stelsel gezien, en toch de goede keuze, op de box zelf',
         tk && tk.st === 1 && tk.mis === 0 && tk.dMin <= 1 && tk.vol === 1 && tk.snap === 1 && tk.rand === 0,
         'st 1 / mis 0 / dMin 0 / vol 1 / snap 1 / rand 0', tk && `st ${tk.st} / mis ${tk.mis} / dMin ${tk.dMin} / vol ${tk.vol} / snap ${tk.snap} / rand ${tk.rand}`);
+    eis('TL1d V11.34.0: de tik-regel legt de viewport vast (sw/sh), zodat de weggevallen strook uit de export te halen is',
+        tk && tk.sw === canvas.offsetWidth && tk.sh === canvas.offsetHeight && tk.sw > 0,
+        canvas.offsetWidth + ' x ' + canvas.offsetHeight, tk && tk.sw + ' x ' + tk.sh);
+    // Het iPhone-scherm (393x852 CSS-px) en een lamp op camera-x 300: die staat
+    // op het scherm op CSS-x 90,0. Tot en met V11.33.0 kwam daar 247 in het log.
+    const stijl1 = canvas.getAttribute('style');
+    try {
+      canvas.style.width = '393px'; canvas.style.height = '852px'; canvas.style.transform = '';
+      schoon(); leegTik(); zetCrop(); laatsteDetecties = []; laatsteDetectiesStelsel = { ...ST_CROP };
+      tikOp({ x: 300, y: 960 });   // op het scherm precies (90, 426): hele pixels
+      tk = regelsVan('tik').pop();
+      eis('TL1e V11.34.0: bij de schermrand staat de ware cameracoördinaat in het log (300, niet 247), met 393 x 852',
+          tk && tk.cx === 300 && tk.cy === 960 && tk.sw === 393 && tk.sh === 852,
+          '300, 960 / 393 x 852', tk && `${tk.cx}, ${tk.cy} / ${tk.sw} x ${tk.sh}`);
+    } finally {
+      if (stijl1 === null) canvas.removeAttribute('style'); else canvas.setAttribute('style', stijl1);
+    }
 
     // ═══ TL0c — M3: overname onder 15 m, zonder straal ══════
     schoon({ afst: 10 }); leegTik(); zetVol();
