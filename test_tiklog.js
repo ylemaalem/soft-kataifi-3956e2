@@ -2,8 +2,8 @@
 //  StoplichtIQ — test_tiklog.js
 //  © 2026 StoplichtIQ — Y. Lemaalem
 //
-//  Test bij V11.32.0 (de tik laat een spoor na, een meetlaag) en V11.33.0
-//  (de tik wint, of de app toont niets).
+//  Test bij V11.32.0 (de tik laat een spoor na, een meetlaag), V11.33.0
+//  (de tik wint, of de app toont niets) en V11.34.1 (de telling per tik, TL8).
 //
 //  DE KLACHT. Tik op A en de box springt naar buurlicht B. Tik op B en hij
 //  springt terug naar A. In de STAP 0 van 27 september zijn vijf mechanismen
@@ -32,6 +32,10 @@
 //       V11.32.0 zelf niets aan het gedrag veranderde, bewees de V11.32.0-versie
 //       van deze toets (elf functies en de handler byte-gelijk aan V11.31.0).
 //  TL7  laatsteDetectiesStelsel volgt de run die de detecties opleverde
+//  TL8  V11.34.1: de telling per tik (meetregel voor M7). Eén regel 'tel' als
+//       de tik voorbij is: runs met en zonder jouw lamp, hoe vaak er een tweede
+//       detectie binnen de straal stond (k), en hoe dicht (d2). Hij beslist
+//       niets: dezelfde runs geven met en zonder telling dezelfde keuze.
 //
 //  DRAAIEN
 //    python -m http.server 8765 --bind 127.0.0.1     (in de repo-map)
@@ -87,7 +91,7 @@ async function testTiklog() {
     'cropHintPositie', 'cropHintTeller', 'cropAlternatieTeller', 'lbScale', 'lbPadX', 'lbPadY',
     'cropRegio', 'laatsteDetecties', 'laatsteDetectiesStelsel', 'zoomVergrendeld',
     'cameraTapMarker', 'tikLogArr', 'tikLogStop', 'tikLogVorige', 'autoSlotUitdager',
-    'tikLogLevend', 'laatsteNodeWisselTijd', 'laatsteNodeCorrectieTijd'];
+    'tikLogLevend', 'laatsteNodeWisselTijd', 'laatsteNodeCorrectieTijd', 'tikTel'];
   const bewaard = {};
   for (const n of namen) bewaard[n] = eval(n);
   const cw = canvas.width, ch = canvas.height;
@@ -450,6 +454,108 @@ async function testTiklog() {
     laatsteAI = bewAi.laatsteAI; nieuwAIResultaat = bewAi.nieuwAIResultaat; debugWaarden.ai = bewAi.debugWaardenAi;
     eis('TL7b een gewone run meldt een tik die via een node-wissel verdween',
         regelsVan('los').map(r => r.reden).join(',') === 'node', 'node', regelsVan('los').map(r => r.reden).join(','));
+
+    // ═══ TL8 — V11.34.1: de telling per tik ═══════════════════
+    // Met beeld, zodat de straal de echte is: 81 camerapixels, in crop 80
+    // YOLO-px. C staat 60 camerapixels naast A, dus binnen de straal. Een tik op
+    // A kiest A: de box van C ligt 53 camerapixels van je vinger, verder dan de
+    // F1-marge van 40.
+    const C = { x: 530, y: 450 }, VER = { x: 800, y: 450 };
+    const telRegels = () => tiklog().filter(r => r.s === 'run' && r.tak === 'tel');
+    const beeldAan = () => { laatsteDetecties = [det(naarCrop(A.x, A.y)), det(naarCrop(C.x, C.y))]; laatsteDetectiesStelsel = { ...ST_CROP }; };
+    metBeeld();
+    try {
+      schoon(); leegTik(); tikTel = null; zetCrop(); beeldAan();
+      tikOp(A);
+      eis('TL8 vooraf: de tik op A kiest A, en de telling loopt',
+          !!stickyDetectie && Math.abs(stickyDetectie.camX - A.x) < 1 && !!tikTel && tikTel.voor === bboxOverride,
+          'sticky op A, telling', (stickyDetectie ? r1(stickyDetectie.camX) : 'geen') + ', ' + !!tikTel);
+      const s1s = [];
+      s1s.push(selecteerBesteDetectie([det(naarCrop(A.x, A.y)), det(naarCrop(C.x, C.y))]).s1);   // match, C binnen de straal
+      s1s.push(selecteerBesteDetectie([det(naarCrop(A.x, A.y))]).s1);                            // match, alleen A
+      s1s.push(selecteerBesteDetectie([det(naarCrop(VER.x, VER.y))]).s1);                        // leeg: 210 px verderop
+      eis('TL8a de drie runs: A, A, leeg', !!s1s[0] && !!s1s[1] && s1s[2] === null
+          && Math.abs(s1s[0].cx - naarCrop(A.x, A.y).cx) < 0.01, 'A / A / leeg', s1s.map(x => x ? r1(x.cx) : 'leeg').join(' / '));
+      eis('TL8b zolang de tik leeft, staat er nog geen telling in de tiklog', telRegels().length === 0, '0', telRegels().length);
+      tikOp(A);   // een nieuwe tik sluit de vorige af
+      let tel = telRegels();
+      eis('TL8c een nieuwe tik schrijft de telling van de vorige: m 2, l 1, z 0, k 1, d2 60',
+          tel.length === 1 && tel[0].m === 2 && tel[0].l === 1 && tel[0].z === 0 && tel[0].k === 1 && tel[0].d2 === 60,
+          '1 regel, 2/1/0/1/60', tel.map(r => `${r.m}/${r.l}/${r.z}/${r.k}/${r.d2}`).join(' ; ') || 'geen');
+      const volg = tiklog().slice(-3).map(r => r.s === 'run' ? r.tak : r.s).join(',');
+      eis('TL8d ... in de goede volgorde: eerst de telling, dan los (nieuw), dan de nieuwe tik',
+          volg === 'tel,los,tik', 'tel,los,tik', volg);
+      eis('TL8e de regel is klein (< 100 tekens) en draagt geen node of snelheid',
+          tel.length === 1 && JSON.stringify(tel[0]).length < 100 && tel[0].node === undefined && tel[0].kmh === undefined,
+          '< 100, zonder node', tel.length ? JSON.stringify(tel[0]).length + ' ' + JSON.stringify(tel[0]) : 'geen');
+      // een tik die op een andere manier verdwijnt: de eerste run met detecties daarna
+      selecteerBesteDetectie([det(naarCrop(A.x, A.y))]);
+      bboxOverride = null;
+      selecteerBesteDetectie([det(naarCrop(A.x, A.y))]);
+      tel = telRegels();
+      eis('TL8f verdwijnt de tik zonder nieuwe tik, dan schrijft de eerste run daarna zijn telling (m 1, zonder d2)',
+          tel.length === 2 && tel[1].m === 1 && tel[1].l === 0 && tel[1].k === 0 && !('d2' in tel[1]) && tikTel === null,
+          '2 regels, de tweede 1/0/0/0 zonder d2', tel.map(r => JSON.stringify(r)).join(' ; '));
+      // via de kern en een node-wissel: eerst los (de wachter), dan de telling
+      schoon({ afst: 30 }); leegTik(); tikTel = null; zetCrop(); beeldAan();
+      laatsteNodeWisselTijd = 0; laatsteNodeCorrectieTijd = 0;
+      tikOp(A);
+      const bewAi8 = { laatsteAI, nieuwAIResultaat, debugWaardenAi: debugWaarden.ai };
+      try { _verwerkWorkerResultaatKern([det(naarCrop(A.x, A.y))]); } catch (e) {}
+      bboxOverride = null; laatsteNodeWisselTijd = Date.now();
+      try { _verwerkWorkerResultaatKern([det(naarCrop(A.x, A.y))]); } catch (e) {}
+      laatsteAI = bewAi8.laatsteAI; nieuwAIResultaat = bewAi8.nieuwAIResultaat; debugWaarden.ai = bewAi8.debugWaardenAi;
+      const volg2 = tiklog().filter(r => r.s !== 'tik').map(r => r.s === 'run' ? r.tak : r.s + ':' + r.reden).join(',');
+      eis('TL8g na een node-wissel: los (node) van de wachter, daarna de telling',
+          volg2 === 'los:node,tel' && telRegels()[0].m === 1, 'los:node,tel', volg2);
+      // een tik zonder één run schrijft niets
+      schoon(); leegTik(); tikTel = null; zetCrop(); beeldAan();
+      tikOp(A); tikOp(A);
+      eis('TL8h een tik zonder één run van de tik-tak schrijft geen telling', telRegels().length === 0, '0', telRegels().length);
+      // naast elke box getikt: eerst zoeken, dan de eerste match, met C binnen de straal van de tikplek
+      schoon(); leegTik(); tikTel = null; zetCrop(); laatsteDetecties = []; laatsteDetectiesStelsel = { ...ST_CROP };
+      tikOp(A);
+      const z1 = selecteerBesteDetectie([det(naarCrop(VER.x, VER.y))]);
+      const z2 = selecteerBesteDetectie([det(naarCrop(A.x + 5, A.y)), det(naarCrop(C.x, C.y))]);
+      tikOp(A);
+      tel = telRegels();
+      eis('TL8i zoeken en de eerste match tellen mee: z 1, m 1, k 1, d2 60 (van de tikplek)',
+          z1.afwijsReden === 'tik_zoekt' && !!z2.s1 && tel.length === 1
+            && tel[0].z === 1 && tel[0].m === 1 && tel[0].l === 0 && tel[0].k === 1 && tel[0].d2 === 60,
+          'zoekt, A, 0/1/1/60', z1.afwijsReden + ', ' + (z2.s1 ? r1(z2.s1.cx) : 'geen') + ', ' + tel.map(r => `${r.l}/${r.z}/${r.m}/${r.k}/${r.d2}`).join(' ; '));
+      // volbeeld: d2 blijft in camerapixels (de straal is daar 27 YOLO-px)
+      schoon(); leegTik(); tikTel = null; zetVol();
+      laatsteDetecties = [det(naarVol(A.x, A.y)), det(naarVol(C.x, C.y))]; laatsteDetectiesStelsel = { s: S_VOL, px: PAD_VOL, py: 0, x: 0, y: 0 };
+      tikOp(A);
+      selecteerBesteDetectie([det(naarVol(A.x, A.y)), det(naarVol(C.x, C.y))]);
+      tikOp(A);
+      tel = telRegels();
+      eis('TL8j op volbeeld staat d2 ook in camerapixels: 60, en C telt binnen de straal',
+          tel.length === 1 && tel[0].d2 === 60 && tel[0].k === 1, '60 / k 1', tel.map(r => `${r.d2} / k ${r.k}`).join(' ; ') || 'geen');
+      // de telling beslist niets: dezelfde reeks runs, met en zonder telling
+      const reeks = () => {
+        schoon(); leegTik(); zetCrop(); beeldAan();
+        tikOp(A);
+        const uit = [];
+        const runs = [[A, C], [A], [VER], [C], [A, C], [C], [VER, C], [A]];
+        for (const r of runs) {
+          const res = selecteerBesteDetectie(r.map(p => det(naarCrop(p.x, p.y))));
+          uit.push(res.s1 ? r1(res.s1.cx) : res.afwijsReden);
+          uit.push(stickyDetectie ? r1(stickyDetectie.camX) + ':' + r1(stickyDetectie.camY) : '-');
+        }
+        return uit.join(',');
+      };
+      const metTel = reeks();
+      const bewStart = tikTelStart;
+      let zonderTel;
+      try { tikTelStart = () => { tikTel = null; }; zonderTel = reeks(); } finally { tikTelStart = bewStart; }
+      eis('TL8k de telling beslist niets: acht runs geven met en zonder telling dezelfde keuze en dezelfde sticky',
+          metTel === zonderTel && metTel.length > 0, 'gelijk', metTel === zonderTel ? 'gelijk' : metTel + ' || ' + zonderTel);
+      eis('TL8l de telfuncties schrijven geen tik-toestand',
+          !/(bboxOverride|stickyDetectie|tapSeedDetectie|bboxSlot|stickyMissTeller)\s*=[^=]/.test(
+            zc(tikTelStart) + zc(tikTelRun) + zc(tikTelAf) + zc(tikTelWaak)),
+          'geen toewijzing', 'ok');
+    } finally { zonderBeeld(); }
 
   } finally {
     for (const n of namen) { try { eval(n + ' = bewaard[n]'); } catch (e) {} }

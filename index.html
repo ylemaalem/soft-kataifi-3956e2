@@ -1052,7 +1052,7 @@ if (typeof ort !== 'undefined') {
 //
 // De stijl volgt de eerdere labels: nummer, kastlijntje, korte omschrijving in
 // kleine letters. De CSS zet hem zelf in kapitalen (text-transform:uppercase).
-const APP_VERSIE = 'V11.34.0 — de tik klopt ook aan de rand';
+const APP_VERSIE = 'V11.34.1 — de tiklog telt de buren binnen de straal';
 
 // ── CONSTANTEN ────────────────────────────────────────────────
 const OSM_RADIUS       = 5000;
@@ -7135,6 +7135,9 @@ function tapZwakPositie() {
 //         een eerste misser, of een sticky die in één run verder dan
 //         TIKLOG_SPRONG_CAM verspringt.
 //   los   elke keer dat een levende tik verdwijnt, met de reden.
+//   run met tak 'tel' (sinds V11.34.1): één regel per tik, als hij voorbij is.
+//         Hoe vaak de tik-tak jouw lamp vond, hoe vaak niet, en hoe vaak er
+//         nog een tweede detectie binnen de straal stond. Zie tikTelRun.
 //
 // PUUR OBSERVEREND. Niets hieronder beslist iets. Het schrijft zoals de detlog:
 // een vol quotum staakt het log voor deze sessie en wist de eigen sleutel, want
@@ -7245,6 +7248,7 @@ function tikLogAfstTotTik(det) {
 function tikLogTik(videoX, videoY, heeftActieveBbox, gekozen, rand) {
   try {
     tikLogWaak();
+    tikTelAf();   // V11.34.1: de telling van de vorige tik
     tikLogLos('nieuw');
     let pad = 'A';
     if (heeftActieveBbox) {
@@ -7284,6 +7288,69 @@ function tikLogSprong(voor, match) {
     const a = Math.hypot(c.camX - voor.x, c.camY - voor.y);
     if (a > TIKLOG_SPRONG_CAM) tikLogRun('sprong', { sprong: a, dCam: tikLogAfstTotTik(match) });
   } catch(e) {}
+}
+
+// ── V11.34.1: DE TELLING PER TIK (meetregel voor M7) ────────
+// © 2026 StoplichtIQ — Y. Lemaalem
+//
+// M7 uit de STAP 0 van 28 september: staat er naast jouw lamp nog een detectie
+// binnen de identiteitsstraal, en mist het model jouw lamp één run, dan pakt de
+// tik-tak die buur. Met de regels hierboven is dat niet te zien: een overname
+// ziet eruit als een gewone match. Deze telling laat zien hoe vaak die situatie
+// zich voordoet, en hoe dicht de buur stond.
+//
+// Eén regel per tik, niet per run: een run-regel per match zou de tiklog
+// (TIKLOG_MAX regels) bij één rood licht al vullen. De regel komt als de tik
+// voorbij is: bij een nieuwe tik (tikLogTik), of bij de eerste run met
+// detecties nadat de tik op een andere manier verdween (tikTelWaak). Een tik
+// die nog leeft tijdens een export, staat er dus nog niet in.
+//
+//   m   runs waarin de tik-tak jouw lamp vond
+//   l   runs waarin hij hem niet vond (tik_leeg)
+//   z   runs waarin een tik zonder box nog zocht (tik_zoekt)
+//   k   runs met een match waarin nog een tweede detectie binnen de straal stond:
+//       mist jouw lamp in zo'n run, dan kan de tik-tak de buur nemen
+//   d2  de kleinste afstand van zo'n andere detectie tot de plek van jouw lamp,
+//       in camerapixels (de straal is 162 op een beeld van 2160 breed)
+//
+// PUUR OBSERVEREND, net als de rest van de tiklog: niets hieronder beslist iets.
+let tikTel = null;   // { voor: bboxOverride, m, l, z, k, d2 } zolang er een tik leeft
+
+// Bij elke tik opnieuw, vanuit tikZet. `voor` is het bboxOverride-object van
+// deze tik: een tik die op een andere manier ontstond, telt hier niet mee.
+function tikTelStart() {
+  tikTel = { voor: bboxOverride, m: 0, l: 0, z: 0, k: 0, d2: null };
+}
+// Eén run van de tik-tak. `ref` is de plek waar de tik-tak jouw lamp zocht, in
+// YOLO-pixels van deze run, en `straal` de straal waarmee hij zocht.
+function tikTelRun(soort, ref, straal, bruikbaar, gekozen) {
+  try {
+    const T = tikTel;
+    if (!T || T.voor !== bboxOverride) return;
+    T[soort]++;
+    if (!gekozen || !ref || !(lbScale > 0)) return;
+    let nK = 0, d2 = null;
+    for (const det of bruikbaar) {
+      const a = Math.hypot(det.cx - ref.cx, det.cy - ref.cy);
+      if (a < straal) nK++;
+      if (det !== gekozen && (d2 === null || a < d2)) d2 = a;
+    }
+    if (nK > 1) T.k++;
+    if (d2 !== null && (T.d2 === null || d2 / lbScale < T.d2)) T.d2 = d2 / lbScale;
+  } catch(e) {}
+}
+// De telling wegschrijven. Een tik zonder één run van de tik-tak schrijft niets.
+function tikTelAf() {
+  try {
+    const T = tikTel;
+    tikTel = null;
+    if (!T || T.m + T.l + T.z === 0) return;
+    tikLogNoteer('run', { tak: 'tel', m: T.m, l: T.l, z: T.z, k: T.k, d2: T.d2 });
+  } catch(e) {}
+}
+// Verdween de tik zonder nieuwe tik (een node-wissel, GPS-voorbij, een reset)?
+function tikTelWaak() {
+  if (tikTel && tikTel.voor !== bboxOverride) tikTelAf();
 }
 
 // ── V11.33.0: DE TIK WINT, OF DE APP TOONT NIETS ────────────
@@ -7393,6 +7460,7 @@ function tikZet(keuze, videoX, videoY) {
     };
     stickyMissTeller = 0;
   }
+  tikTelStart();   // V11.34.1
 }
 // Het zoekringetje: geen box, geen kleur, geen fase, geen meting.
 function tekenZoekring(p) {
@@ -9018,6 +9086,7 @@ function autoSlotZet(det) {
 }
 
 function selecteerBesteDetectie(detecties) {
+  tikTelWaak();   // V11.34.1: meetregel, beslist niets
   // V11.17.7 W1: laatsteAfwijsReden houdt bij welke filter/tak het beste-kandidaat
   // laat vallen. Alleen loggen, geen gedragswijziging.
   let laatsteAfwijsReden = null;
@@ -9075,9 +9144,11 @@ function selecteerBesteDetectie(detecties) {
       // houdt zijn gedrag.
       const basis = { x: stickyDetectie.camX, y: stickyDetectie.camY };
       const winner = stickySlotMatch(bruikbaar, straal);
+      const ref = { cx: stickyDetectie.cx, cy: stickyDetectie.cy };   // V11.34.1: waar hij zocht, in deze run
       if (winner) {
         const match = winner.det;
         tikLogSprong(basis, match);
+        tikTelRun('m', ref, straal, bruikbaar, match);
         stickyNeemOver(match);
         stickyMissTeller = 0;
         tapGezien();   // V11.20.1: slotje én de kwijt-klok
@@ -9086,6 +9157,7 @@ function selecteerBesteDetectie(detecties) {
       if (basis.x != null) { stickyDetectie.camX = basis.x; stickyDetectie.camY = basis.y; }
       stickyMissTeller++;
       if (stickyMissTeller === 1) tikLogRun('leeg', { n: bruikbaar.length });
+      tikTelRun('l', ref, straal, bruikbaar, null);
       // {s1:null}: de tolerantie laat de laatste box van JOUW lamp nog even
       // staan, daarna het zoekringetje. Geen fase, geen meting.
       return { s1: null, s2Rest: bruikbaar, afwijsReden: 'tik_leeg' };
@@ -9110,9 +9182,11 @@ function selecteerBesteDetectie(detecties) {
       bboxOverrideMatchTeller++;
       tapGezien();
       tikLogRun('eerst', { dCam: tikLogAfstTotTik(eerste) });
+      tikTelRun('m', plek, straal, bruikbaar, eerste);
       return { s1: eerste, s2Rest: bruikbaar.filter(d => d !== eerste), afwijsReden:'ok' };
     }
     tikLogRun('zoekt', { n: bruikbaar.length });
+    tikTelRun('z', plek, straal, bruikbaar, null);
     return { s1: null, s2Rest: bruikbaar, afwijsReden: 'tik_zoekt' };
   }
 
