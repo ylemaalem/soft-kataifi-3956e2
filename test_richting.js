@@ -239,6 +239,16 @@ function testRichting() {
   const pNode = dichtstbijOSM, pPre = v9PreSelectieAfrij;
   const pTekort = richtingTekort, pOsm = osmVoorspellingActief;
   const pBereikt = cdBereikteNul, pNul = countdownNulTijd;
+  // Ook wat tickCd zelf aanraakt. Zonder dit bleven de pill en het
+  // bevestigpaneel na deze suite zichtbaar ('actief'). In een browser die
+  // tekent liepen de CSS-overgangen van de bevestigknoppen dan echt, en las
+  // test_knopkleur tussenwaarden van filter en box-shadow. Gevonden op
+  // 29 september in een headless ronde (willekeurig, zaad 1234567); in het
+  // verborgen paneel wordt niets getekend en viel het niet op.
+  const pWall = cdWallStart, pCond = [cdCondSleutel, cdCondTab, cdCondDoel, cdCondDoelVer];
+  const pWeerg = cdWeergaveNulTijd, pGetoond = cdLaatstGetoond, pHerz = herzTel;
+  const pBev = bevestigActief, pBevNode = bevestigVoorNodeId;
+  const pDom = [cdPill.className, bevestigWrap.className, cdPillGetal.textContent, cdPillLabel.textContent];
   try {
     const getal = () => document.getElementById('cd-pill-getal').textContent;
     const heeftPijl = t => ['←', '↑', '→'].some(p => t.startsWith(p));
@@ -302,6 +312,10 @@ function testRichting() {
     dichtstbijOSM = pNode; v9PreSelectieAfrij = pPre;
     richtingTekort = pTekort; osmVoorspellingActief = pOsm;
     cdBereikteNul = pBereikt; countdownNulTijd = pNul;
+    cdWallStart = pWall; [cdCondSleutel, cdCondTab, cdCondDoel, cdCondDoelVer] = pCond;
+    cdWeergaveNulTijd = pWeerg; cdLaatstGetoond = pGetoond; herzTel = pHerz;
+    bevestigActief = pBev; bevestigVoorNodeId = pBevNode;
+    [cdPill.className, bevestigWrap.className, cdPillGetal.textContent, cdPillLabel.textContent] = pDom;
   }
 
   const gefaald = regels.filter(r => r.uitslag === 'GEFAALD');
