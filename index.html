@@ -1052,7 +1052,7 @@ if (typeof ort !== 'undefined') {
 //
 // De stijl volgt de eerdere labels: nummer, kastlijntje, korte omschrijving in
 // kleine letters. De CSS zet hem zelf in kapitalen (text-transform:uppercase).
-const APP_VERSIE = 'V11.34.2 — de app meet zichzelf: camera, model en elke minuut';
+const APP_VERSIE = 'V11.34.3 — meetregels voor correctie, richting en versie';
 
 // ── CONSTANTEN ────────────────────────────────────────────────
 const OSM_RADIUS       = 5000;
@@ -3172,6 +3172,13 @@ function logOpslagMis(reden, extra) {
     // V11.29.0: hetzelfde patroon voor wat de opruimrem deed. Alleen een
     // 'opruim'-regel draagt dit veld; zie logOpruiming.
     if (e.opruim != null)   rec.opruim   = e.opruim;
+    // V11.34.3: drie meetvelden, alleen op de regels die ze dragen: resetAf en
+    // V11.34.3: resetNa op nadering_leeg, rPct (het richtingpercentage van de
+    // V11.34.3: rij) op richting_tik en v5_vroeg_geschreven. Geen vaste velden,
+    // V11.34.3: om dezelfde reden als dwarsM en voorbijM hierboven.
+    if (e.resetAf != null)  rec.resetAf  = Math.round(e.resetAf);              // V11.34.3
+    if (e.resetNa != null)  rec.resetNa  = Math.round(e.resetNa * 10) / 10;    // V11.34.3
+    if (e.rPct != null)     rec.rPct     = e.rPct;                             // V11.34.3
     let arr;
     try { arr = JSON.parse(localStorage.getItem('sl_opslaglog')) || []; } catch(_) { arr = []; }
     if (!Array.isArray(arr)) arr = [];
@@ -5517,6 +5524,7 @@ function exporteerMeetdata() {
                     // blijft er bewust uit: 942 KB positiecache tegen 8 KB V5.
                     v5:{}, richtingdata:{}, route:{}, tag:{}, v10:{}, neutraal:{}, enkelricht:{}, conflog:{}, zicht:{}, det:{} };
       uit.tik = {};   // V11.32.0: de tiklog, zie tikLogNoteer
+      uit.appVersie = appVersieKort();   // V11.34.3: de echte appversie; 'versie' hierboven is het formaat
       uit.camcap = {}; uit.model = {}; uit.minuut = {};   // V11.34.2: zie camcapNoteer
       for (const key of opslagSleutels('')) {                          // V11.23.0
         let doel = null;
@@ -5572,6 +5580,7 @@ function exporteerMeetdata() {
       opslagSleutelLijst.sort((a,b) => b.kb - a.kb);
       const opslagUit = {
         versie:'V11.17.15', geexporteerd:new Date().toISOString(),
+        appVersie: appVersieKort(),   // V11.34.3: de echte appversie; 'versie' hierboven is het formaat
         totaalKb: Math.round(opslagSleutelLijst.reduce((s,x) => s+x.kb, 0) * 10) / 10,
         sleutels: opslagSleutelLijst,
         // V11.31.0: de stand van de IndexedDB-spiegel bij elke start, VÓÓR het
@@ -5831,8 +5840,9 @@ function schrijfV5DirectBijGroen(nodeId, dur, dd, afstandM, stempels) {
   slaOpV5(nodeId, aanrijRichting, tik.afrij, dd, dur, gewicht, v9KandidaatZagOvergang,
           'tik', tikHerkomstEcht(nodeId));
   const paar = aanrijRichting + '_' + tik.afrij;
+  const rPct = richtingRijPct(nodeId, aanrijRichting, tik.afrij);   // V11.34.3: het nieuwe percentage van de rij
   logOpslagMis('v5_vroeg_geschreven', { node: nodeId, dur,
-    aanrij: aanrijRichting, afrij: tik.afrij, afst: afstandM, v5Reden: tik.bron });
+    aanrij: aanrijRichting, afrij: tik.afrij, afst: afstandM, v5Reden: tik.bron, rPct });
 
   // Het stempel hoort bij dezelfde gebeurtenis. Zijn er nog geen tijdstempels
   // — verwerkFase kon de V4-schrijving niet doen omdat de delayed write al
@@ -8193,7 +8203,66 @@ const NADERING_TERUG_TOAST_MS = 6000;   // gelijk aan CLUSTER_TAP_TOAST_MS: er h
 let naderBewijs        = null;          // het lopende bewijs, of null
 let naderWeigerSleutel = null;          // "gekozen>kandidaat" van de laatste weigering in het log
 let naderWeigerTijd    = 0;
-function naderBewijsReset() { naderBewijs = null; }
+function naderBewijsReset(reden) { if (reden) naderLeegMerk(reden); naderBewijs = null; }
+
+// ── V11.34.3: WAAROM WAS HET BEWIJS LEEG? ────────────────────
+// © 2026 StoplichtIQ — Y. Lemaalem
+//
+// ALLEEN METEN. Op 27 september nam V11.27.0 in negen uur log nul keer een
+// beslissing: checkNaderingsCorrectie stapt stil uit zodra er geen bewijs is
+// (b.n === 0), en dan schrijft hij niets. Uit de tiklog viel af te leiden dat
+// een tik op het beeld het bewijs had gewist, maar per geval bewijzen kon niet.
+//
+// Nu onthoudt elke nulling van het bewijs WAAROM (tik, lijst, paar, marge,
+// koers, zelfde), bij hoeveel telbare tikken en op welke afstand van het
+// kandidaatlicht. Staat de auto daarna stil op een licht terwijl een ander
+// minstens 8 m dichterbij ligt, en is er geen bewijs, dan komt er één regel
+// 'nadering_leeg' per episode:
+//   poortReden  de reden van de laatste nulling voor DIT paar; 'nul' als er
+//               wel een verzameling liep maar niets telde; 'nooit' als er voor
+//               dit paar nooit iets verzameld is
+//   hoekN       hoeveel telbare tikken er vóór die nulling waren
+//   resetAf     hoe ver het kandidaatlicht toen weg was, in meters
+//   resetNa     hoeveel seconden die nulling vóór deze regel lag
+// Onder de 8 m zou de route toch niets doen; die gevallen telt
+// stilstand_node_afwijking al.
+let naderLeeg        = null;   // { reden, gekozen, kandidaat, n, af, t } van de laatste nulling
+let naderLeegSleutel = null;   // "gekozen>kandidaat" van de laatste leeg-regel
+let naderLeegTijd    = 0;
+function naderLeegMerk(reden) {
+  try {
+    const b = naderBewijs;
+    if (!b || !b.kandidaat) return;
+    const af = huidigePos ? afstand(huidigePos.lat, huidigePos.lon, b.kandidaat.lat, b.kandidaat.lon) : null;
+    naderLeeg = { reden, gekozen: b.gekozen, kandidaat: b.kandidaat, n: b.n, af, t: Date.now() };
+  } catch (e) {}
+}
+function naderLeegMeet(lat, lon, b) {
+  try {
+    if (!(snelheidKmh < NODE_CHK_STANDSTILL_KMH) || stilstandSinds === 0
+        || (Date.now() - stilstandSinds) < NODE_NADER_STIL_MS) return;
+    const W = dichtstbijOSM, C = puurDichtsteNodeCache;
+    if (!W || !C || String(W.id) === String(C.id)) return;
+    const gekozenAf = afstand(lat, lon, W.lat, W.lon), closestAf = afstand(lat, lon, C.lat, C.lon);
+    if (gekozenAf - closestAf < NODE_CHK_CORRECTIE_MARGE_M) return;
+    const nu = Date.now();
+    const sleutel = String(W.id) + '>' + String(C.id);
+    if (sleutel === naderLeegSleutel && (nu - naderLeegTijd) < STILSTAND_AFWIJKING_HERHAAL_MS) return;
+    naderLeegSleutel = sleutel; naderLeegTijd = nu;
+    const L = naderLeeg;
+    const zelfdePaar = !!(L && L.gekozen === String(W.id) && L.kandidaat
+      && (L.kandidaat.id === String(C.id) || afstand(L.kandidaat.lat, L.kandidaat.lon, C.lat, C.lon) <= CLUSTER_AFSTAND_M));
+    const metLeeg = !b && zelfdePaar;
+    logOpslagMis('nadering_leeg', {
+      node: String(W.id), afst: gekozenAf, afwM: Math.round(gekozenAf - closestAf),
+      poortReden: b ? 'nul' : (zelfdePaar ? L.reden : 'nooit'),
+      hoekN: b ? 0 : (zelfdePaar ? L.n : null),
+      dur: (nu - stilstandSinds) / 1000,
+      resetAf: (metLeeg && L.af != null) ? L.af : null,
+      resetNa: metLeeg ? (nu - L.t) / 1000 : null
+    });
+  } catch (e) {}
+}
 
 let dichtstbijOSMTwijfel   = false;        // W1: huidige twijfel-vlag (edge-getriggerd log)
 // ── V11.18.12: DE MARKERING HEEFT NU TWEE BRONNEN ────────────
@@ -13250,6 +13319,31 @@ function laagMetingen(nodeId, laag, dd = null) {
   return m;
 }
 
+// ── V11.34.3: HET PERCENTAGE VAN ÉÉN RIJ, ZOALS HET OP HET SCHERM STAAT ──
+// Alleen voor de logregels richting_tik en v5_vroeg_geschreven (het 47%-geval
+// van 27 september moest met een tijdmachine worden nagerekend). Dezelfde
+// indeling als renderRichtingBlok: een rij is een nadering plus een bocht, en
+// alle paren van de node die daar samenvallen, tellen mee. Rekent alleen.
+function richtingRijPct(nodeId, aanrij, afrij) {
+  try {
+    if (nodeId == null || !aanrij || !afrij) return null;
+    const id = String(nodeId);
+    const naderingen = naderingenVoorNode(id);
+    const sleutelVan = (a, f) => {
+      const i = naderingVoorWindrichting(naderingen, a);
+      return (i != null ? 'A' + i : 'w' + a) + '|' + rijdersPijlLabel(a, f).tekst;
+    };
+    const doel = sleutelVan(aanrij, afrij);
+    const paren = [{ aanrij, afrij }], gezien = new Set([aanrij + '_' + afrij]);
+    for (const r of verzamelV5Richtingen(id)) {
+      const k = r.aanrij + '_' + r.afrij;
+      if (gezien.has(k) || sleutelVan(r.aanrij, r.afrij) !== doel) continue;
+      gezien.add(k); paren.push({ aanrij: r.aanrij, afrij: r.afrij });
+    }
+    return richtingLeerPct(laagMetingen(id, { paren }), id);
+  } catch (e) { return null; }
+}
+
 function laagLeerPct(nodeId, laag) {
   if (!laag) return berekenLeerPct(nodeId);
   // V11.18.19: nodeId mee. De Algemeen-tak hierboven telt de drie node-brede
@@ -13361,7 +13455,8 @@ function kiesLaagRichting(idx) {
   if (dichtstbijOSM) getoondeLaag = {
     node: String(dichtstbijOSM.id), key: rij.key, paren: rij.paren, richt: rij.richt
   };
-  tikRichting(rij.richt, 'rij');   // V11.18.11
+  const rijPct = dichtstbijOSM ? richtingLeerPct(laagMetingen(String(dichtstbijOSM.id), { paren: rij.paren }), String(dichtstbijOSM.id)) : null;   // V11.34.3: alleen meten
+  tikRichting(rij.richt, 'rij', rijPct);   // V11.18.11
   if (dichtstbijOSM) bijwerkLeerkaart(dichtstbijOSM);
 }
 
@@ -13769,6 +13864,7 @@ function exporteerData() {
   setTimeout(() => {
     try {
       const exportData = { versie:'11.4.4', exportDatum:new Date().toISOString(), app:'StoplichtIQ', data:{}, scores:{} };
+      exportData.appVersie = appVersieKort();   // V11.34.3: de echte appversie; 'versie' hierboven is het formaat
       exportData.data = verzamelBackupData();   // V11.18.15: elke sl_-sleutel, zie daar
       const aantalItems = Object.keys(exportData.data).length;
       if (!aantalItems) { alert('Geen data om te exporteren.'); herstelBtn(); return; }
@@ -15339,7 +15435,7 @@ function heropenRichtingKeuze() {
 //   'rij'     een tik op een bestaande richting-rij (kiesLaagRichting)
 // Een aanroep zonder element logt 'onbekend', zodat een nieuwe, niet-gelabelde
 // ingang in een export meteen opvalt in plaats van weg te vallen.
-function tikRichting(richting, element) {
+function tikRichting(richting, element, rijPct = null) {
   const nodeId = richtingKnoppenNodeId || huidigBevestigdOsmNodeId;
   if (!nodeId) return;
   const sleutel = `sl_richting_${nodeId}`;
@@ -15364,7 +15460,16 @@ function tikRichting(richting, element) {
   richtingTikTijd = Date.now();
   richtingTikElement = (element === 'vraag' || element === 'toevoeg' || element === 'rij')
     ? element : 'onbekend';
-  logOpslagMis('richting_tik', { node: String(nodeId), element: richtingTikElement });
+  // V11.34.3: het percentage van de rij, zoals het op het scherm stond. Bij een
+  // V11.34.3: tik op een rij geeft kiesLaagRichting het mee; anders de rij van
+  // V11.34.3: het paar dat deze tik oplevert (0 = nog geen data), of niets als
+  // V11.34.3: de aanrij nog onbekend is. Alleen meten: dit leest en rekent.
+  let rPct = (typeof rijPct === 'number') ? rijPct : null;   // V11.34.3
+  if (rPct == null && (v9AanrijSnelheidHeading ?? v9AanrijHeading) != null) {   // V11.34.3
+    const hR = v9AanrijSnelheidHeading ?? v9AanrijHeading;   // V11.34.3
+    rPct = richtingRijPct(nodeId, gpsHeadingNaarWindrichting(hR), berekenAfrijRichtingViaTik(hR, richting));   // V11.34.3
+  }   // V11.34.3
+  logOpslagMis('richting_tik', { node: String(nodeId), element: richtingTikElement, rPct });
 
   // V9.0: Pre-selectie afrijrichting berekenen voor countdown
   if (v9AanrijHeading != null || v9AanrijSnelheidHeading != null) {
@@ -17139,6 +17244,7 @@ function vergrendelNodeHandmatig(nodeId, element) {
   handmatigLockActief = true;
   stilstandAutoLock = false;
   handLockVervalReset();   // een verse tap begint met een schone vervalteller
+  naderLeegMerk(element === 'beeld' ? 'tik' : (element || 'keuze'));   // V11.34.3: alleen onthouden waarom
   // V11.27.0: en met een leeg naderingsbewijs. Zo is het bewijs altijd nieuwer
   // dan de laatste menselijke keuze: wie op 8 m nog tikt, heeft het laatste
   // woord, en daar kan geen bewijs van ervóór overheen.
@@ -17946,6 +18052,7 @@ async function exporteerTrainframes() {
       if (!frames.length) { alert('Geen trainframes om te exporteren.'); herstelBtn(); return; }
       const exportData = {
         versie:'8.5', app:'StoplichtIQ', exportDatum:new Date().toISOString(),
+        appVersie: appVersieKort(),   // V11.34.3: de echte appversie; 'versie' hierboven is het formaat
         aantalFrames:frames.length,
         frames:frames.map(f => {
           const klasseNr = parseInt((f.label || '').split(' ')[0]);
@@ -18016,6 +18123,7 @@ function exporteerConfLog() {
       }
       const exportData = {
         versie: '11.15.10-debug',
+        appVersie: appVersieKort(),   // V11.34.3: de echte appversie; 'versie' hierboven is het formaat
         exportDatum: new Date().toISOString(),
         app: 'StoplichtIQ',
         aantalEntries: klasseVerdelingLog.length,
@@ -18083,6 +18191,7 @@ function exporteerZichtLog() {
       }
       const exportData = {
         versie: 'V11.17.34-meetinstrument',
+        appVersie: appVersieKort(),   // V11.34.3: de echte appversie; 'versie' hierboven is het formaat
         exportDatum: new Date().toISOString(),
         app: 'StoplichtIQ',
         aantalEntries: arr.length,
@@ -18216,6 +18325,7 @@ function exporteerHerzieningLog() {
       }
       const exportData = {
         versie: 'V11.17.57-herziening', exportDatum: new Date().toISOString(),
+        appVersie: appVersieKort(),   // V11.34.3: de echte appversie; 'versie' hierboven is het formaat
         app: 'StoplichtIQ', aantalEntries: arr.length,
         gestaakt: herzieningLogStop ? 1 : 0,
         fractie: CD_COND_FRACTIE, overschrMax: CD_OVERSCHR_MAX_S,
@@ -18277,6 +18387,7 @@ function exporteerDetLog() {
       }
       const exportData = {
         versie: 'V11.17.46-meetinstrument',
+        appVersie: appVersieKort(),   // V11.34.3: de echte appversie; 'versie' hierboven is het formaat
         exportDatum: new Date().toISOString(),
         app: 'StoplichtIQ',
         aantalEntries: arr.length,
@@ -19337,10 +19448,10 @@ function verzamelNaderingsBewijs(lat, lon) {
     naderBewijs.vorigeT = nu;
     naderBewijs.vorigeV = v;
   }
-  if (!W || !C || String(W.id) === String(C.id)) { naderBewijsReset(); return; }
+  if (!W || !C || String(W.id) === String(C.id)) { naderBewijsReset('zelfde'); return; }
   // Een andere getoonde node is een ander verhaal, ook als dat bij stilstand
   // gebeurt (een correctie of een keuze uit de lijst).
-  if (naderBewijs && naderBewijs.gekozen !== String(W.id)) naderBewijsReset();
+  if (naderBewijs && naderBewijs.gekozen !== String(W.id)) naderBewijsReset('paar');
   // Stilstaand (onder 1 km/u) doet deze functie niets: de positie verspringt
   // daar wel, maar de auto rijdt niet. GPS-ruis bij stilstand mag bewijs uit de
   // nadering niet weggooien; checkNaderingsCorrectie toetst zelf.
@@ -19374,7 +19485,7 @@ function verzamelNaderingsBewijs(lat, lon) {
     b.kandidaat = { id: String(C.id), lat: C.lat, lon: C.lon };
     b.minAf = closestAf;
   }
-  if (!uitrollen && gekozenAf - closestAf < NODE_CHK_CORRECTIE_MARGE_M) { naderBewijsReset(); return; }
+  if (!uitrollen && gekozenAf - closestAf < NODE_CHK_CORRECTIE_MARGE_M) { naderBewijsReset('marge'); return; }
 
   if (closestAf < b.minAf) b.minAf = closestAf;
   else if (closestAf >= b.minAf + NODE_NADER_VOORBIJ_M) b.gestegen = true;
@@ -19383,7 +19494,7 @@ function verzamelNaderingsBewijs(lat, lon) {
   if (closestAf > V9_NADERING_AFSTAND || closestAf < NODE_HOEK_MIN_AFSTAND_M) return;
   const k = koersAfwijkingNaar({ lat, lon }, C);
   if (k == null) return;
-  if (k > NODE_CHK_HEADING_MAX_GRAD) { naderBewijsReset(); return; }
+  if (k > NODE_CHK_HEADING_MAX_GRAD) { naderBewijsReset('koers'); return; }
   b.n++;
   b.dwarsSom += closestAf * Math.sin(k * Math.PI / 180);
   b.voorAf = closestAf * Math.cos(k * Math.PI / 180);
@@ -19401,6 +19512,7 @@ function verzamelNaderingsBewijs(lat, lon) {
 // zonder dat zou een nee in het veld even onzichtbaar zijn als vóór deze release.
 function checkNaderingsCorrectie(lat, lon) {
   const b = naderBewijs;
+  if (!b || b.n === 0) naderLeegMeet(lat, lon, b);   // V11.34.3: alleen meten, zie daar
   if (!b || b.n === 0) return;          // niets verzameld: de bestaande routes gaan hun gang
   if (!(snelheidKmh < NODE_CHK_STANDSTILL_KMH) || stilstandSinds === 0
       || (Date.now() - stilstandSinds) < NODE_NADER_STIL_MS) return;
