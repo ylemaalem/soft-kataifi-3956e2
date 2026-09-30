@@ -385,7 +385,11 @@ async function testTikWint() {
       autoSlotZet: ['4e12277f', 313], preprocessVoorYOLO: ['f379eecc', 2733], runIsKansloos: ['d631b73b', 1660],
       tikLogNoteer: ['d9f96f8', 1154], tikLogWaak: ['25490478', 714]
     };
-    const anders = Object.entries(ONGEWIJZIGD).filter(([n, [h, l]]) => fnv(String(eval(n))) !== h || String(eval(n)).length !== l).map(x => x[0]);
+    // V11.34.2: exporteerMeetdata kreeg drie meetbakken erbij (camcap, model,
+    // minuut). Meetregels vanaf V11.34.2 dragen hun versie als merkteken op de
+    // regel zelf; zonder die regels moet de functie nog steeds byte-gelijk zijn.
+    const zonderMeet = (s) => s.split('\n').filter(l => !/V11\.34\.[2-9]/.test(l)).join('\n');
+    const anders = Object.entries(ONGEWIJZIGD).filter(([n, [h, l]]) => fnv(zonderMeet(String(eval(n)))) !== h || zonderMeet(String(eval(n))).length !== l).map(x => x[0]);
     eis('TW9d vijftien functies die V11.33.0 niet raakt, zijn byte-gelijk aan V11.32.0 (NB14 inbegrepen)',
         anders.length === 0, 'geen afwijking', anders.join(', ') || 'geen');
 

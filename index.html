@@ -1052,7 +1052,7 @@ if (typeof ort !== 'undefined') {
 //
 // De stijl volgt de eerdere labels: nummer, kastlijntje, korte omschrijving in
 // kleine letters. De CSS zet hem zelf in kapitalen (text-transform:uppercase).
-const APP_VERSIE = 'V11.34.1 — de tiklog telt de buren binnen de straal';
+const APP_VERSIE = 'V11.34.2 — de app meet zichzelf: camera, model en elke minuut';
 
 // ── CONSTANTEN ────────────────────────────────────────────────
 const OSM_RADIUS       = 5000;
@@ -5517,6 +5517,7 @@ function exporteerMeetdata() {
                     // blijft er bewust uit: 942 KB positiecache tegen 8 KB V5.
                     v5:{}, richtingdata:{}, route:{}, tag:{}, v10:{}, neutraal:{}, enkelricht:{}, conflog:{}, zicht:{}, det:{} };
       uit.tik = {};   // V11.32.0: de tiklog, zie tikLogNoteer
+      uit.camcap = {}; uit.model = {}; uit.minuut = {};   // V11.34.2: zie camcapNoteer
       for (const key of opslagSleutels('')) {                          // V11.23.0
         let doel = null;
         if (key.startsWith('sl_passief_'))       doel = uit.passief;
@@ -5533,6 +5534,9 @@ function exporteerMeetdata() {
         else if (key === 'sl_zichtlog')          doel = uit.zicht;      // V11.17.34: zichtbaarheidsdiagnostiek
         else if (key === 'sl_detlog')            doel = uit.det;        // V11.17.46: detectiediagnostiek
         else if (key === TIKLOG_SLEUTEL)         doel = uit.tik;        // V11.32.0: tik en wat er daarna gebeurde
+        else if (key === CAMCAP_SLEUTEL)         doel = uit.camcap;     // V11.34.2: wat de camera levert
+        else if (key === MODELLOG_SLEUTEL)       doel = uit.model;      // V11.34.2: welk model er laadde
+        else if (key === MINUUTLOG_SLEUTEL)      doel = uit.minuut;     // V11.34.2: runs en rAF per minuut
         // V11.17.33 W2: let op de volgorde — 'sl_richtinglog' begint NIET met
         // 'sl_richting_' (na 'sl_richting' volgt 'l', geen '_'), dus deze twee
         // takken kunnen elkaar niet vangen. Toch staat de exacte match eerst.
@@ -8223,6 +8227,162 @@ let sessieFasenGezien       = {};     // { nodeId: { roodVolledig: bool, groenVo
 // V8.7: Camera exposure compensatie bij nacht
 let nachtExposureActief=false;
 
+// ══ V11.34.2: DE APP MEET ZICHZELF — CAMERA, MODEL EN ELKE MINUUT ══
+// © 2026 StoplichtIQ — Y. Lemaalem
+//
+// Stap 1 uit de efficiëntie-STAP 0 van 28 september, plus de modelregel uit
+// het "ongevraagd gevonden" daarvan. ALLEEN METEN: niets hieronder beslist iets,
+// en geen enkele functie die een keuze maakt, leest deze waarden.
+//
+// DRIE KLEINE RINGEN, alle drie in de meetdata-export:
+//   sl_camcap     één regel per sessie: wat de camera ECHT levert
+//                 (getSettings, getCapabilities, getConstraints), de schermmaat
+//                 en of de app als thuisschermapp draait. Nu staat de beeldsnelheid
+//                 nergens: de app vraagt geen frameRate en Safari kiest zelf.
+//   sl_modellog   één regel per laadpoging: welk bestand, hoe groot, de eerste
+//                 16 tekens van de SHA-256, en of het de terugval was. Lukt
+//                 ./model.onnx niet, dan laadt laadONNXModel stil het oude model
+//                 van 26 maart en meldt gewoon "YOLOv8 klaar". Die fout ging tot nu
+//                 toe verloren; hier blijft hij staan (de eerste 80 tekens).
+//   sl_minuutlog  één regel per minuut: hoe vaak de animatielus liep (rAF-Hz),
+//                 hoeveel runs, gemiddelde inferentie- en voorbewerkingstijd, en
+//                 per afstandsband de runs, de sterke detecties (familie >= 0,35)
+//                 en de gegate pogingen. Precies de cijfers waarop de GPS-poort
+//                 (stap 2) straks te bewijzen of te verwerpen is.
+//
+// De banden: 0 = onder GATE_MIN_AFSTAND_M (130 m), 1 = 130-250, 2 = 250-400,
+// 3 = 400 m en verder, 4 = geen node. Dezelfde indeling als de tabel in de
+// STAP 0, zodat de veldcijfers er direct naast te leggen zijn.
+//
+// KLEIN, omdat de opslag boven 4 MiB zit: 5 x ~1 KB, 10 x ~150 en 120 x ~130
+// tekens. Samen ~23 K tekens. Een vol quotum staakt alleen dat ene log voor de
+// sessie en wist zijn eigen sleutel, net als de detlog: een meetlog mag nooit
+// een meting kosten.
+const CAMCAP_SLEUTEL   = 'sl_camcap';
+const CAMCAP_MAX       = 5;
+const MODELLOG_SLEUTEL = 'sl_modellog';
+const MODELLOG_MAX     = 10;
+const MINUUTLOG_SLEUTEL = 'sl_minuutlog';
+const MINUUTLOG_MAX    = 120;   // twee uur rijden
+const MINUUT_MS        = 60000;
+const MINUUT_STERK     = 0.35;  // dezelfde grens als "sterk" in de STAP 0
+const meetRingGestopt = new Set();
+
+function appVersieKort() { return String(APP_VERSIE).split(' ')[0]; }
+
+function meetRingSchrijf(sleutel, max, rec) {
+  if (meetRingGestopt.has(sleutel)) return;
+  try {
+    let arr = opslagLees(sleutel, []);
+    if (!Array.isArray(arr)) arr = [];
+    arr.push(rec);
+    if (arr.length > max) arr = arr.slice(-max);
+    if (!opslagSchrijf(sleutel, arr)) throw new Error('vol');
+  } catch (e) {
+    meetRingGestopt.add(sleutel);
+    try { localStorage.removeItem(sleutel); } catch (_) {}
+  }
+}
+
+// De camera, één keer per sessie. deviceId en groupId gaan er bewust uit: die
+// zeggen niets over het beeld en zijn per toestel herkenbaar.
+function camcapNoteer(track) {
+  const schoon = (f) => {
+    try {
+      const o = (track && typeof track[f] === 'function') ? track[f]() : null;
+      if (!o || typeof o !== 'object') return null;
+      const k = { ...o }; delete k.deviceId; delete k.groupId;
+      return k;
+    } catch (e) { return null; }
+  };
+  const rec = { t: Date.now(), ver: appVersieKort(),
+    set: schoon('getSettings'), cap: schoon('getCapabilities'), con: schoon('getConstraints'),
+    scherm: [innerWidth, innerHeight, screen.width, screen.height, devicePixelRatio],
+    sa: (navigator.standalone === true
+         || !!(window.matchMedia && matchMedia('(display-mode: standalone)').matches)) ? 1 : 0 };
+  // ~1 KB per regel. Wordt het meer, dan eerst de wensen eruit, dan van de
+  // mogelijkheden alleen de namen: de instellingen zijn het belangrijkst.
+  if (JSON.stringify(rec).length > 1200) delete rec.con;
+  if (JSON.stringify(rec).length > 1200 && rec.cap) rec.cap = Object.keys(rec.cap);
+  meetRingSchrijf(CAMCAP_SLEUTEL, CAMCAP_MAX, rec);
+}
+
+// Het geladen model. De buffer wordt hier alleen gekopieerd, vóór laadONNXModel
+// hem aan de worker overdraagt; de hash wordt daarna op de achtergrond
+// uitgerekend, zodat het laden er niet op wacht.
+function modelLogNoteer(pad, buf, fout) {
+  const rec = { t: Date.now(), ver: appVersieKort(), pad: pad || null, terug: fout ? 1 : 0 };
+  if (fout) rec.fout = String(fout).slice(0, 80);
+  if (buf && typeof buf.byteLength === 'number') rec.bytes = buf.byteLength;
+  const schrijf = () => meetRingSchrijf(MODELLOG_SLEUTEL, MODELLOG_MAX, rec);
+  let kopie = null;
+  try { if (buf && window.crypto && crypto.subtle) kopie = buf.slice(0); } catch (e) { kopie = null; }
+  if (!kopie) { schrijf(); return Promise.resolve(rec); }
+  return crypto.subtle.digest('SHA-256', kopie)
+    .then(h => { rec.sha = [...new Uint8Array(h)].slice(0, 8).map(b => b.toString(16).padStart(2, '0')).join(''); })
+    .catch(() => {})
+    .then(() => { schrijf(); return rec; });
+}
+
+// De minuutstatistiek. frameT telt de animatielus zelf al (lus, r~19700), dus
+// die functie hoeft er niet voor open. Er loopt bewust GEEN timer: een minuut
+// sluit bij het eerstvolgende meetmoment nadat hij vol is. Valt er een gat van
+// meer dan MINUUT_GAT_MS (de app lag weg, of het model draaide niet), dan sluit
+// hij op het LAATSTE meetmoment, zodat een weggelegde telefoon de rAF-Hz niet
+// omlaag trekt.
+const MINUUT_GAT_MS = 10000;
+let minStat = null;
+function minBand(afst) {
+  if (typeof afst !== 'number' || isNaN(afst)) return 4;
+  return afst < GATE_MIN_AFSTAND_M ? 0 : afst < 250 ? 1 : afst < 400 ? 2 : 3;
+}
+function minBandNu() { return minBand(dichtstbijOSM ? dichtstbijOSM.afstand : null); }
+function minStatNieuw(nu) {
+  minStat = { t0: nu, f0: frameT, tL: nu, fL: frameT, n: 0, inf: 0, infN: 0, pre: 0, preN: 0,
+              kmh: 0, kmhN: 0, r: [0, 0, 0, 0, 0], s: [0, 0, 0, 0, 0], g: [0, 0, 0, 0, 0] };
+}
+function minStatZeker() {
+  const nu = Date.now();
+  if (minStat && nu - minStat.tL > MINUUT_GAT_MS) minStatSluit(minStat.tL, minStat.fL);
+  else if (minStat && nu - minStat.t0 >= MINUUT_MS) minStatSluit(nu, frameT);
+  if (!minStat) minStatNieuw(nu);
+  minStat.tL = nu; minStat.fL = frameT;
+}
+// Eén afgeronde run: de worker of de synchrone terugval.
+function minStatRun(ms, detecties) {
+  try {
+    minStatZeker();
+    const b = minBandNu();
+    minStat.n++; minStat.r[b]++;
+    if (typeof ms === 'number' && ms >= 0) { minStat.inf += ms; minStat.infN++; }
+    if (typeof snelheidKmh === 'number' && !isNaN(snelheidKmh)) { minStat.kmh += snelheidKmh; minStat.kmhN++; }
+    if (Array.isArray(detecties) && detecties.some(d => familieScore(d) >= MINUUT_STERK)) minStat.s[b]++;
+  } catch (e) {}
+}
+function minStatPre(ms) {
+  try { minStatZeker(); if (ms >= 0) { minStat.pre += ms; minStat.preN++; } } catch (e) {}
+}
+function minStatGegate() {
+  try { minStatZeker(); minStat.g[minBandNu()]++; } catch (e) {}
+}
+function minStatSluit(eind, fEind) {
+  try {
+    if (!minStat) return;
+    const m = minStat;
+    minStat = null;
+    const frames = fEind - m.f0, ms = eind - m.t0;
+    const gegate = m.g.reduce((a, b) => a + b, 0);
+    if (m.n === 0 && gegate === 0) return;   // geen run en geen poging: niets schrijven
+    const gem = (som, n) => n > 0 ? Math.round(som / n) : null;
+    meetRingSchrijf(MINUUTLOG_SLEUTEL, MINUUTLOG_MAX, {
+      t: m.t0, ms, hz: ms > 0 ? Math.round(frames / (ms / 1000) * 10) / 10 : null,
+      n: m.n, inf: gem(m.inf, m.infN), pre: gem(m.pre, m.preN), kmh: gem(m.kmh, m.kmhN),
+      r: m.r, s: m.s, g: m.g
+    });
+  } catch (e) {}
+}
+let modelTerugvalFout = null;   // de fout van de eerste laadpoging, als die er was
+
 // Web Worker code
 const YOLO_WORKER_CODE=`
 importScripts('https://cdn.jsdelivr.net/npm/onnxruntime-web@1.17.1/dist/ort.min.js');
@@ -8267,6 +8427,7 @@ async function laadONNXModel() {
     try {
       onnxSession = await ort.InferenceSession.create(modelPad, { executionProviders:['wasm'], graphOptimizationLevel:'all' });
     } catch(e1) {
+      modelTerugvalFout = (e1 && e1.message) ? e1.message : String(e1);   // V11.34.2: alleen onthouden
       modelPad = './model/model.onnx';
       onnxSession = await ort.InferenceSession.create(modelPad, { executionProviders:['wasm'], graphOptimizationLevel:'all' });
     }
@@ -8286,6 +8447,8 @@ async function laadONNXModel() {
     // Worker starten
     try {
       const modelArrayBuffer = await fetch(modelPad).then(r=>r.arrayBuffer());
+      // V11.34.2: vóór de overdracht hieronder, die de buffer leegmaakt.
+      try { modelLogNoteer(modelPad, modelArrayBuffer, modelTerugvalFout); } catch (_) {}   // V11.34.2
       const blob = new Blob([YOLO_WORKER_CODE], { type:'application/javascript' });
       const workerUrl = URL.createObjectURL(blob);
       yoloWorker = new Worker(workerUrl);
@@ -8300,6 +8463,7 @@ async function laadONNXModel() {
           updateStaleMax(); // V8.7: stale max bijwerken op basis van inferentietijd
           const detecties = postprocessYOLO(msg.data, msg.dims);
           _verwerkWorkerResultaat(detecties);
+          minStatRun(inferentieTijd, detecties);   // V11.34.2: alleen tellen
           aiBezig = false;
           // V11.18.8-TEST: pas NA de echte verwerking, en in een eigen try,
           // zodat de meting het app-pad onmogelijk kan breken.
@@ -8338,6 +8502,8 @@ async function laadONNXModel() {
     sModelLabel.style.color = 'var(--oranje)';
     modelLijn.classList.add('weg');
     pAI.className='pill-dot o'; debugWaarden.ai='ai:fout';
+    // V11.34.2: ook deze fout bleef tot nu toe nergens staan.
+    try { modelLogNoteer(null, null, (modelTerugvalFout ? modelTerugvalFout + ' | ' : '') + ((e && e.message) ? e.message : String(e))); } catch (_) {}   // V11.34.2
   }
 }
 laadONNXModel();
@@ -9719,8 +9885,13 @@ function runIsKansloos() {
 
 // De gegate populatie moet zichtbaar blijven, anders is na deze wijziging niet
 // te zien of de drempel te streng staat — dezelfde les als nodeChkLog, dat
-// alleen naar de console schreef. Zelfde recordvorm als elke andere
-// detlog-regel; alleen afst en afwijs dragen hier betekenis.
+// alleen naar de console schreef.
+// ── V11.34.2: TELLEN IN PLAATS VAN ELK WEGSCHRIJVEN ──────────
+// Tot nu toe schreef elke gegate poging een eigen detlog-regel, en dus de hele
+// ring van 500 opnieuw. In het veld was dat ~8 keer per seconde, 63-67% van de
+// ring was 'gegate', en de ring besloeg nog maar 3 minuten (27 sept 23:47-23:50).
+// Nu telt de poging alleen: de volgende run-regel draagt het aantal in `gN`, en
+// de minuutlog telt ze per afstandsband. De poort zelf verandert niet.
 function slaKanslozeRunOver() {
   cropAlternatieTeller++;   // zie waarborg 1 in runIsKansloos
   detLogSkip = false;
@@ -9730,7 +9901,8 @@ function slaKanslozeRunOver() {
   detLogVdx = null; detLogVdy = null;
   debugLaatsteAfwijsReden = 'gegate';
   debugLaatsteKandH = null;
-  detLogSchrijf();
+  detLogGegate++;
+  minStatGegate();
 }
 
 // ══ V11.18.8-TEST: TWEE MODELLEN OP HETZELFDE FRAME ═════
@@ -10625,7 +10797,9 @@ async function voerAIUit() {
   aiBezig = true;
   const aiTimeout = setTimeout(() => { if (aiBezig) aiBezig=false; }, 3000);
   try {
+    const tPre = performance.now();   // V11.34.2: alleen meten
     const inputTensor = preprocessVoorYOLO();
+    minStatPre(performance.now() - tPre);   // V11.34.2
     if (yoloWorker && workerKlaar) {
       const pixelKopie = new Float32Array(yoloFloat32);
       // V11.18.8-TEST: eigen kopie van EXACT dezelfde pixels, gemaakt voor de
@@ -10660,6 +10834,7 @@ async function voerAIUit() {
     updateStaleMax();
     const detecties = postprocessYOLO(outputTensor.data, outputTensor.dims);
     _verwerkWorkerResultaat(detecties);
+    minStatRun(inferentieTijd, detecties);   // V11.34.2: alleen tellen
   } catch(e) {
     debugWaarden.ai = 'ai:err';
   } finally {
@@ -17960,8 +18135,12 @@ const DETLOG_MIN_M = 20;
 const DETLOG_MAX_M = 400;
 let detLogStop = false;   // true na quota-fout: schrijven definitief gestaakt
 let detLogArr  = null;    // in-memory buffer; pas gevuld bij de eerste schrijfactie
+let detLogGegate = 0;     // V11.34.2: gegate pogingen sinds de vorige run
 
 function detLogSchrijf() {
+  // V11.34.2: het aantal gaat met DEZE run mee en begint daarna opnieuw, ook
+  // (V11.34.2) als deze run buiten het venster valt en dus niet geschreven wordt.
+  const gN = detLogGegate; detLogGegate = 0;   // V11.34.2
   if (detLogStop) return;
   try {
     const afst = detLogAfst;
@@ -17996,6 +18175,7 @@ function detLogSchrijf() {
       kmh:    num(typeof snelheidKmh === 'number' ? snelheidKmh : null),
       inf:    num(gemiddeldeInferentieTijd)
     };
+    if (gN > 0) rec.gN = gN;   // V11.34.2: alleen als er gegate pogingen waren
     if (detLogArr === null) {
       try { detLogArr = JSON.parse(localStorage.getItem('sl_detlog')) || []; }
       catch(_) { detLogArr = []; }
@@ -19965,6 +20145,7 @@ async function startApp() {
     });
     video.srcObject = stream;
     cameraTrack = stream.getVideoTracks()[0] || null;
+    try { camcapNoteer(cameraTrack); } catch (_) {}   // V11.34.2: alleen vastleggen
     await forceerVerreFocus(stream);
     await video.play();
   } catch(e) {

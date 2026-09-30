@@ -16,7 +16,9 @@
 //  spiegeling van die conditie gooit de gate precies de runs weg die de
 //  gebruiker zojuist heeft aangewezen.
 //
-//  T9-T11 toetsen dat de gate het stale-mechanisme niet kan versnellen.
+//  T9 (V11.34.2) toetst dat een gegate poging alleen telt en dat de volgende
+//  run het aantal draagt (gN). T10-T11 toetsen dat de gate het stale-mechanisme
+//  niet kan versnellen.
 //
 //  DRAAIEN
 //    python -m http.server 8765 --bind 127.0.0.1     (in de repo-map)
@@ -115,21 +117,43 @@ function testGate() {
       runIsKansloos() === true, 'true', String(runIsKansloos()));
 
   // ══ T9 — de logregel ═════════════════════════════════════════
+  // V11.34.2: tot V11.34.1 schreef elke gegate poging een eigen record, en
+  // daarmee de hele ring van 500 opnieuw (~8 keer per seconde in het veld; de
+  // ring besloeg op 27 sept nog maar 3 minuten). Sinds V11.34.2 telt de poging
+  // alleen, en draagt de volgende run het aantal in `gN`. Deze toetsen stonden
+  // tot V11.34.1 op het omgekeerde: "gegate run schrijft een detlog-record".
+  const leesDet = () => { try { return JSON.parse(localStorage.getItem('sl_detlog')) || []; } catch (e) { return []; } };
+  const alsRun = (afst) => {   // wat preprocessVoorYOLO voor een echte run zet
+    detLogAfst = afst; detLogSkip = true; detLogRatio = null; detLogHintBron = null;
+    debugLaatsteAfwijsReden = 'weg'; detLogFam = null; debugLaatsteKandH = null;
+  };
   localStorage.removeItem('sl_detlog');
-  detLogArr = null; detLogStop = false;
+  detLogArr = null; detLogStop = false; detLogGegate = 0;
   opzet(214);
   gemiddeldeInferentieTijd = 1100;
+  slaKanslozeRunOver(); slaKanslozeRunOver(); slaKanslozeRunOver();
+  eis('T9 V11.34.2: een gegate poging schrijft geen detlog-record meer',
+      leesDet().length === 0, '0 records na 3 pogingen', leesDet().length + ' records');
+  alsRun(214); detLogSchrijf();
+  let rec = leesDet().slice(-1)[0] || null;
+  eis('T9b ... de volgende run draagt het aantal (gN = 3), en is een gewone run-regel',
+      !!rec && rec.gN === 3 && rec.afwijs === 'weg' && rec.afst === 214 && leesDet().length === 1,
+      'gN 3, afwijs weg, 1 record', rec ? ('gN=' + rec.gN + ' afwijs=' + rec.afwijs + ' n=' + leesDet().length) : 'GEEN RECORD');
+  alsRun(214); detLogSchrijf();
+  rec = leesDet().slice(-1)[0] || null;
+  eis('T9c een run zonder pogingen ervoor draagt geen gN',
+      !!rec && !('gN' in rec), 'geen gN', rec ? JSON.stringify(rec.gN) : 'GEEN RECORD');
+  slaKanslozeRunOver(); slaKanslozeRunOver();
+  alsRun(5); detLogSchrijf();          // buiten het venster: niet geschreven
+  alsRun(214); detLogSchrijf();
+  rec = leesDet().slice(-1)[0] || null;
+  eis('T9d een run buiten het venster zet de teller óók op nul: niets schuift door',
+      !!rec && !('gN' in rec) && leesDet().length === 3, 'geen gN, 3 records',
+      rec ? ('gN=' + rec.gN + ' n=' + leesDet().length) : 'GEEN RECORD');
   slaKanslozeRunOver();
-  let rec = null;
-  try { rec = (JSON.parse(localStorage.getItem('sl_detlog')) || []).slice(-1)[0] || null; } catch (e) {}
-  eis('T9 gegate run schrijft een detlog-record',
-      rec !== null && rec.afwijs === 'gegate' && rec.afst === 214,
-      "afwijs 'gegate', afst 214",
-      rec ? (rec.afwijs + ', afst=' + rec.afst) : 'GEEN RECORD');
-  eis('T9b het record draagt geen verzonnen detectiegegevens',
-      rec && rec.fam === null && rec.h === null && rec.hint === null && rec.ratio === null,
-      'fam/h/hint/ratio allemaal null',
-      rec ? ('fam=' + rec.fam + ' h=' + rec.h + ' hint=' + rec.hint + ' ratio=' + rec.ratio) : '-');
+  alsRun(214); detLogSchrijf();
+  rec = leesDet().slice(-1)[0] || null;
+  eis('T9e één poging telt ook: gN = 1', !!rec && rec.gN === 1, 'gN 1', rec ? String(rec.gN) : 'GEEN RECORD');
 
   // ══ T10 — de alternatie blijft lopen ═════════════════════════
   // Zonder de ophoging in slaKanslozeRunOver zou de teller boven de drempel
@@ -162,7 +186,8 @@ function testGate() {
 
   // ── opruimen ──────────────────────────────────────────────────
   localStorage.removeItem('sl_detlog');
-  detLogArr = null;
+  detLogArr = null; detLogGegate = 0;
+  if (typeof minStat !== 'undefined') minStat = null;   // V11.34.2: de minuutteller van deze pogingen
   if (bewaardLog !== null) localStorage.setItem('sl_detlog', bewaardLog);
   dichtstbijOSM = null; cropAlternatieTeller = 0;
   cropHintPositie = null; cropHintTeller = 0;
