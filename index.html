@@ -1052,7 +1052,7 @@ if (typeof ort !== 'undefined') {
 //
 // De stijl volgt de eerdere labels: nummer, kastlijntje, korte omschrijving in
 // kleine letters. De CSS zet hem zelf in kapitalen (text-transform:uppercase).
-const APP_VERSIE = 'V11.34.3 — meetregels voor correctie, richting en versie';
+const APP_VERSIE = 'V11.36.0 — een tik op het beeld wist het bewijs niet meer';
 
 // ── CONSTANTEN ────────────────────────────────────────────────
 const OSM_RADIUS       = 5000;
@@ -17244,11 +17244,29 @@ function vergrendelNodeHandmatig(nodeId, element) {
   handmatigLockActief = true;
   stilstandAutoLock = false;
   handLockVervalReset();   // een verse tap begint met een schone vervalteller
-  naderLeegMerk(element === 'beeld' ? 'tik' : (element || 'keuze'));   // V11.34.3: alleen onthouden waarom
-  // V11.27.0: en met een leeg naderingsbewijs. Zo is het bewijs altijd nieuwer
-  // dan de laatste menselijke keuze: wie op 8 m nog tikt, heeft het laatste
-  // woord, en daar kan geen bewijs van ervóór overheen.
-  naderBewijsReset();
+  // ── V11.36.0 A1: EEN TIK OP HET BEELD WIST HET NADERINGSBEWIJS NIET MEER ──
+  // © 2026 StoplichtIQ — Y. Lemaalem
+  //
+  // V11.27.0 wiste hier bij ELKE vergrendeling het bewijs: "wie op 8 m nog
+  // tikt, heeft het laatste woord". Dat klopt voor een keuze uit de lijst, want
+  // die zegt welk kruispunt het is. Een tik op het BEELD zegt dat niet: die zegt
+  // welke LAMP het is, en zet als bijwerking de node vast die de app op dat
+  // moment toont (de handler, r~7712, en het commentaar daar: "niet per se de
+  // mast waarop je tikte"). Op 27 september 13 van de 25 keer een node die toen
+  // niet de dichtstbijzijnde was, op mediaan 104 m.
+  //
+  // In het veld maakte dat V11.27.0 onbruikbaar. Younes tikt tot in de laatste
+  // meters, vaker als het model zijn lamp niet ziet (het zoekringetje): zes
+  // tikken in 21 s, de laatste op 24 m bij 3 km/u (27 sept 23:48:27-48). Elke
+  // tik wiste het bewijs, dus bij stilstand was er nooit bewijs, en de oude route
+  // wisselde pas na 6 s. In negen uur log nam V11.27.0 nul keer een beslissing.
+  //
+  // Nu wist alleen een keuze uit de lijst (en 'Terug', dat daarlangs loopt) het
+  // bewijs. Het bewijs zelf is niet ruimer geworden: het licht moet nog steeds
+  // drie tikken lang vóór je liggen op 12-60 m, 8 m dichterbij zijn, en niet
+  // gepasseerd of opzij (NB4, NB5). Een tik op het beeld beschermt de LAMP; dat
+  // doet V11.33.0, en V11.36.0 A2 laat die lamp ook een correctie overleven.
+  if (element !== 'beeld') naderBewijsReset(element || 'keuze');
   if (!alVast) logOpslagMis('node_vergrendeld', { node: n, element: element || 'onbekend' });
   // V11.18.22: alleen bij een NIEUWE tik op het camerabeeld — zie het blok
   // hierboven voor waarom niet bij 'lijst' en niet bij een herhaalde tik.
@@ -19574,13 +19592,51 @@ function checkNaderingsCorrectie(lat, lon) {
   }
   logOpslagMis('nadering_correctie', { ...velden, nieuw: String(C.id) });
   naderBewijsReset();
+  const lamp = lampStaatBewaar();                  // V11.36.0 A2: zie daar
   corrigeerNodeAutomatisch(C, 'nadering-' + route);
+  lampStaatTerug(lamp);                            // V11.36.0 A2
   toonToast(naderingToastTekst(closestAf),
     { label: 'Terug', duurMs: NADERING_TERUG_TOAST_MS, fn: () => naderingTerug(oude.id, C.id) });
 }
 
 function naderingToastTekst(meter) {
   return '✓ Gewisseld naar licht op ' + Math.round(meter) + ' m';
+}
+
+// ── V11.36.0 A2: DE GETIKTE LAMP OVERLEEFT DE CORRECTIE ─────────
+// © 2026 StoplichtIQ — Y. Lemaalem
+//
+// corrigeerNodeAutomatisch wist de tik op de lamp (bboxOverride, de sticky en
+// tapSeed), net als een echte node-wissel. Dat is juist als je doorrijdt naar
+// een ander kruispunt. Deze route beslist echter alleen BIJ STILSTAND: het beeld
+// is hetzelfde, de lamp staat op dezelfde plek, alleen de naam van het
+// kruispunt verandert. Gemeten op 27 september om 23:48:55: de correctie liet de
+// tik los (tiklog 'los', reden 'correctie'), Younes tikte een seconde later
+// opnieuw, en DIE tik zette een harde vergrendeling op het nieuwe licht die 66 m
+// meereed naar het volgende. Twee regels die elk juist lijken, samen een fout.
+//
+// Daarom bewaart deze route de tik vóór de correctie en zet hem erna terug —
+// hetzelfde OBJECT, niet een kopie. Alles wat aan de tik hangt via
+// `voor: bboxOverride` (de telling van V11.34.1, straks de buren van V11.35.0)
+// blijft daardoor vanzelf geldig; test_naderingsbewijs NB16c zoekt die
+// toestanden in de bron op, zodat een nieuwe er niet stil buiten valt.
+// corrigeerNodeAutomatisch zelf blijft letter voor letter gelijk (NB14).
+//
+// Zonder tik (bboxOverride null) gebeurt er niets: de correctie doet wat hij
+// altijd deed. De twee oude routes (checkHandLockVerval, checkNodeCorrectieStilstand)
+// laten de lamp nog steeds los; die zijn gepind en na A1 zelden nog aan de beurt.
+function lampStaatBewaar() {
+  if (bboxOverride === null) return null;
+  return { bboxOverride, bboxOverrideTijd, bboxOverrideCamX, bboxOverrideCamY, bboxOverrideMatchTeller,
+           stickyDetectie, stickyMissTeller, tapSeedDetectie };
+}
+function lampStaatTerug(s) {
+  if (!s) return;
+  bboxOverride = s.bboxOverride; bboxOverrideTijd = s.bboxOverrideTijd;
+  bboxOverrideCamX = s.bboxOverrideCamX; bboxOverrideCamY = s.bboxOverrideCamY;
+  bboxOverrideMatchTeller = s.bboxOverrideMatchTeller;
+  stickyDetectie = s.stickyDetectie; stickyMissTeller = s.stickyMissTeller;
+  tapSeedDetectie = s.tapSeedDetectie;
 }
 
 // 'Terug' betekent: de mens kiest het oude licht, precies alsof hij het uit de

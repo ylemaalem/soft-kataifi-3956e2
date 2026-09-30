@@ -12,8 +12,9 @@
 //  MC2  richting_tik draagt het percentage van de getikte rij (rPct)
 //  MC3  v5_vroeg_geschreven draagt het nieuwe percentage van die rij
 //  MC4  appVersie in alle acht exports; de bestaande versievelden blijven
-//  MC5  ALLEEN METEN: zonder de V11.34.3-regels zijn de elf geraakte functies
-//       byte-gelijk aan V11.34.1
+//  MC5  ALLEEN METEN: zonder de V11.34.3-regels zijn de geraakte functies
+//       byte-gelijk aan V11.34.1 (sinds V11.36.0 zonder vergrendelNodeHandmatig,
+//       dat A1 bewust verandert, en zonder de twee A2-regels)
 //
 //  DRAAIEN
 //    python -m http.server 8765 --bind 127.0.0.1     (in de repo-map)
@@ -33,7 +34,8 @@ async function testMeetregelsCorrectie() {
   const zc = (f) => String(f).replace(/\/\*[\s\S]*?\*\//g, ' ').replace(/\/\/.*/g, ' ');
   const fnv = (s) => { let h = 0x811c9dc5; for (let i = 0; i < s.length; i++) { h ^= s.charCodeAt(i); h = Math.imul(h, 0x01000193) >>> 0; } return h.toString(16); };
   const slaap = (ms) => new Promise(r => setTimeout(r, ms));
-  const zonderMeet = (f) => String(f).split('\n').filter(l => !/V11\.34\.[3-9]/.test(l)).join('\n');
+  // V11.36.0: ook de twee A2-regels (gedrag, getoetst in test_naderingsbewijs NB16) gaan eruit.
+  const zonderMeet = (f) => String(f).split('\n').filter(l => !/V11\.34\.[3-9]|V11\.36\.0 A2/.test(l)).join('\n');
 
   // De opslag van deze pagina gaat sleutel voor sleutel terug.
   const snap = {};
@@ -75,16 +77,18 @@ async function testMeetregelsCorrectie() {
     localStorage.setItem('sl_opslaglog', '[]');
 
     // ═══ MC1 — nadering_leeg ══════════════════════════════════
+    // V11.36.0 A1: een tik op het beeld wist het bewijs niet meer. Tot en met
+    // V11.34.3 stond hier die tik, met de reden 'tik'; nu de keuze uit de lijst.
     zetStil(); naderLeeg = null; naderBewijs = bewijs(4);
-    vergrendelNodeHandmatig(W.id, 'beeld');           // V11.34.3: wist nog (dat is A1, V11.36.0)
+    vergrendelNodeHandmatig(W.id, 'lijst');
     zetStil();
     checkNaderingsCorrectie(P.lat, P.lon);
     const l1 = regelsVan('nadering_leeg');
     const r1 = l1[0] || {};
-    eis('MC1a stilstand, 12 m verschil, bewijs gewist door een tik op het beeld: één regel met reden en stand',
-        l1.length === 1 && r1.poortReden === 'tik' && r1.hoekN === 4 && r1.afwM === 12 && r1.node === String(W.id)
+    eis('MC1a stilstand, 12 m verschil, bewijs gewist door een keuze uit de lijst: één regel met reden en stand',
+        l1.length === 1 && r1.poortReden === 'lijst' && r1.hoekN === 4 && r1.afwM === 12 && r1.node === String(W.id)
           && r1.resetAf === 10 && typeof r1.resetNa === 'number' && r1.resetNa >= 0 && r1.resetNa < 5 && r1.dur === 2,
-        'tik, hoekN 4, afwM 12, resetAf 10, dur 2',
+        'lijst, hoekN 4, afwM 12, resetAf 10, dur 2',
         `${r1.poortReden}, hoekN ${r1.hoekN}, afwM ${r1.afwM}, resetAf ${r1.resetAf}, resetNa ${r1.resetNa}, dur ${r1.dur}`);
     eis('MC1b de keuze verandert niet: W blijft getoond, geen correctie',
         String(dichtstbijOSM.id) === String(W.id) && regelsVan('nadering_correctie').length === 0 && regelsVan('node_auto_correctie').length === 0,
@@ -95,12 +99,11 @@ async function testMeetregelsCorrectie() {
         log().filter(x => x.reden !== 'nadering_leeg').every(x => !('resetAf' in x) && !('resetNa' in x) && !('rPct' in x)),
         'schoon', log().filter(x => x.reden !== 'nadering_leeg').map(x => x.reden).join(','));
 
-    localStorage.setItem('sl_opslaglog', '[]');
     zetStil(); naderLeeg = null; naderBewijs = bewijs(2);
-    vergrendelNodeHandmatig(W.id, 'lijst');
-    zetStil(); checkNaderingsCorrectie(P.lat, P.lon);
-    eis('MC1e een lijstkeuze heet "lijst"', (regelsVan('nadering_leeg')[0] || {}).poortReden === 'lijst', 'lijst',
-        (regelsVan('nadering_leeg')[0] || {}).poortReden);
+    vergrendelNodeHandmatig(W.id, 'beeld');
+    eis('MC1e V11.36.0: een tik op het beeld laat het bewijs staan en geeft dus geen reden',
+        !!naderBewijs && naderBewijs.n === 2 && naderLeeg === null, 'bewijs n 2, geen reden',
+        (naderBewijs ? 'n ' + naderBewijs.n : 'leeg') + ', ' + JSON.stringify(naderLeeg && naderLeeg.reden));
 
     localStorage.setItem('sl_opslaglog', '[]');
     zetStil(); naderBewijs = bewijs(0); checkNaderingsCorrectie(P.lat, P.lon);
@@ -224,12 +227,13 @@ async function testMeetregelsCorrectie() {
       .replace('element: richtingTikElement, rPct }', 'element: richtingTikElement }')
       .replace('v5Reden: tik.bron, rPct }', 'v5Reden: tik.bron }');
     const V1134_1 = { verzamelNaderingsBewijs: ['676603d', 3498], checkNaderingsCorrectie: ['c0518fc8', 3364],
-      vergrendelNodeHandmatig: ['59bd19e1', 1006], tikRichting: ['46018e5', 3399], kiesLaagRichting: ['a54c371e', 325],
+      tikRichting: ['46018e5', 3399], kiesLaagRichting: ['a54c371e', 325],
       schrijfV5DirectBijGroen: ['39231693', 1752], logOpslagMis: ['8349c424', 14867], exporteerData: ['98e982aa', 2442],
       exporteerTrainframes: ['f14cc38', 2858], exporteerConfLog: ['c676834b', 2627], exporteerZichtLog: ['c832f61e', 2550],
       exporteerHerzieningLog: ['d695ac8a', 2239], exporteerDetLog: ['81778b21', 2537] };
     const afw = Object.entries(V1134_1).filter(([n, [h, l]]) => { const s = norm(n); return fnv(s) !== h || s.length !== l; }).map(x => x[0]);
-    eis('MC5a zonder de meetregels zijn de dertien geraakte functies byte-gelijk aan V11.34.1',
+    // V11.36.0: vergrendelNodeHandmatig is eruit — A1 verandert zijn gedrag; NB14c toetst dat.
+    eis('MC5a zonder de meetregels zijn de twaalf geraakte functies byte-gelijk aan V11.34.1',
         afw.length === 0, 'geen afwijking', afw.join(', ') || 'geen');
     eis('MC5b de nieuwe meetfuncties schrijven geen toestand waar een keuze op leunt',
         !/\b(dichtstbijOSM|naderBewijs|handmatigLockActief|stilstandAutoLock|vorigOsmId|laatsteNodeCorrectieTijd|richtingLockKeuze|v9PreSelectieAfrij)\s*=[^=]/
