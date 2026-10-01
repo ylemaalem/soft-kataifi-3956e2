@@ -366,9 +366,12 @@ async function testTiklog() {
     for (let i = 0; i < TIKLOG_MAX + 7; i++) tikLogNoteer('run', { tak: 'x' + i });
     const ring = tiklog();
     const achter = ring.length ? ring[ring.length - 1].tak : '-';
-    eis('TL4a de ring houdt TIKLOG_MAX regels, de nieuwste achteraan',
-        ring.length === TIKLOG_MAX && achter === 'x' + (TIKLOG_MAX + 6),
-        TIKLOG_MAX, ring.length + ' / ' + achter);
+    // V11.36.2: alleen run-regels, dus alleen het ruisbudget (TIKLOG_RUIS_MAX)
+    // vult zich; tot en met V11.36.1 hield dezelfde reeks TIKLOG_MAX regels.
+    // De budgetten zelf staan in test_tiklog_budget.
+    eis('TL4a de ring houdt TIKLOG_RUIS_MAX run-regels, de nieuwste achteraan',
+        ring.length === TIKLOG_RUIS_MAX && achter === 'x' + (TIKLOG_MAX + 6),
+        TIKLOG_RUIS_MAX, ring.length + ' / ' + achter);
     eis('TL4b TIKLOG_MAX is 100 en een run-regel blijft onder de 90 tekens',
         TIKLOG_MAX === 100 && JSON.stringify({ t: Date.now(), s: 'run', tak: 'over_c', skip: 1, dCam: 310, sprong: 310 }).length < 90,
         '100 / < 90', TIKLOG_MAX);
@@ -417,7 +420,10 @@ async function testTiklog() {
     const LOG = { tikLogNoteer: ['d9f96f8', 1154], tikLogWaak: ['25490478', 714], tikLogRun: ['2f4dd880', 262],
                   tikLogLos: ['790260fe', 342], tikLogSprong: ['7eebe753', 303], tikLogAfstTotTik: ['712b95b9', 190],
                   tikLogStelselNu: ['4a961775', 154], tikLogDetCam: ['4cc27fb2', 204] };
-    const logAnders = Object.entries(LOG).filter(([n, [h, l]]) => fnv(String(eval(n))) !== h || String(eval(n)).length !== l).map(x => x[0]);
+    // V11.36.2: tikLogNoteer kreeg één regel (de twee budgetten, merkteken
+    // V11.36.2); zonder die regel moet hij nog steeds byte-gelijk zijn.
+    const zonderBudget = (s) => s.split('\n').filter(l => !/V11\.36\.2/.test(l)).join('\n');
+    const logAnders = Object.entries(LOG).filter(([n, [h, l]]) => fnv(zonderBudget(String(eval(n)))) !== h || zonderBudget(String(eval(n))).length !== l).map(x => x[0]);
     eis('TL6a acht logfuncties zijn byte-gelijk aan V11.32.0', logAnders.length === 0, 'geen afwijking', logAnders.join(', ') || 'geen');
     let handler = null;
     try {

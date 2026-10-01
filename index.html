@@ -1052,7 +1052,7 @@ if (typeof ort !== 'undefined') {
 //
 // De stijl volgt de eerdere labels: nummer, kastlijntje, korte omschrijving in
 // kleine letters. De CSS zet hem zelf in kapitalen (text-transform:uppercase).
-const APP_VERSIE = 'V11.36.1 — de app meet de opslag zoals Safari hem telt';
+const APP_VERSIE = 'V11.36.2 — het tikoverzicht bewaart de tikken apart van de run-regels';
 
 // ── CONSTANTEN ────────────────────────────────────────────────
 const OSM_RADIUS       = 5000;
@@ -7204,6 +7204,7 @@ function tikLogNoteer(soort, velden) {
       if (!Array.isArray(tikLogArr)) tikLogArr = [];
     }
     tikLogArr.push(rec);
+    tikLogArr = tikLogBudget(tikLogArr);   // V11.36.2: twee budgetten, zie daar
     if (tikLogArr.length > TIKLOG_MAX) tikLogArr = tikLogArr.slice(-TIKLOG_MAX);
     try {
       localStorage.setItem(TIKLOG_SLEUTEL, JSON.stringify(tikLogArr));
@@ -7214,6 +7215,46 @@ function tikLogNoteer(soort, velden) {
     }
   } catch(e) {}
 }
+// ── V11.36.2: TWEE BUDGETTEN IN DE TIKLOG ───────────────────
+// © 2026 StoplichtIQ — Y. Lemaalem
+//
+// WAAROM. Eén ring van TIKLOG_MAX regels voor alles liet de run-regels de
+// tikken wegdrukken. In de export van 30 september waren 75 van de 100 regels
+// run-regels. Samen besloegen ze 4,7 minuut van twee ritten, en van de rit van
+// 16:28 stond geen enkele tik meer in het log, alleen nog negen run-regels.
+//
+// WAT. Dezelfde sleutel en samen nog steeds TIKLOG_MAX regels, maar in twee
+// budgetten:
+//   kern  tik, los en de telling per tik (run met tak 'tel'): TIKLOG_KERN_MAX
+//   ruis  alle andere run-regels: TIKLOG_RUIS_MAX
+// Is een budget vol, dan valt de oudste regel van DAT budget weg. De volgorde
+// in het log blijft die van de tijd. Een ring uit een eerdere versie, met te
+// veel regels van één soort, komt bij de eerste schrijving op zijn budgetten.
+// Een tik kost drie kernregels (tik, los, tel): de kern bewaart zo'n twintig
+// tikken, tegen twaalf in de export van 30 september.
+//
+// GROOTTE. ~60 x 118 + 40 x 64 tekens, ~9,6 K: ongeveer wat de ring al kost
+// (8,5 K op 30 september). Alle regels zijn Latin-1 (test_opslag_safari LA3).
+//
+// PUUR OBSERVEREND. Er verandert alleen welke regels bewaard blijven; niets
+// hieronder beslist iets over de tik.
+const TIKLOG_KERN_MAX = 60;
+const TIKLOG_RUIS_MAX = 40;   // samen TIKLOG_MAX
+function tikLogIsKern(r) {
+  return !!r && (r.s === 'tik' || r.s === 'los' || (r.s === 'run' && r.tak === 'tel'));
+}
+function tikLogBudget(arr) {
+  let kern = 0, ruis = 0;
+  for (const r of arr) { if (tikLogIsKern(r)) kern++; else ruis++; }
+  let wegK = Math.max(0, kern - TIKLOG_KERN_MAX), wegR = Math.max(0, ruis - TIKLOG_RUIS_MAX);
+  if (!wegK && !wegR) return arr;
+  return arr.filter(r => {
+    if (tikLogIsKern(r)) { if (wegK > 0) { wegK--; return false; } return true; }
+    if (wegR > 0) { wegR--; return false; }
+    return true;
+  });
+}
+
 // Een run-regel. Zelfde tak binnen TIKLOG_HERHAAL_MS: één keer is genoeg.
 function tikLogRun(tak, velden) {
   const nu = Date.now();
