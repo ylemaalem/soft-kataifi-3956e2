@@ -35,7 +35,8 @@ async function testMeetregels() {
   const zc = (f) => String(f).replace(/\/\*[\s\S]*?\*\//g, ' ').replace(/\/\/.*/g, ' ');
   const fnv = (s) => { let h = 0x811c9dc5; for (let i = 0; i < s.length; i++) { h ^= s.charCodeAt(i); h = Math.imul(h, 0x01000193) >>> 0; } return h.toString(16); };
   const slaap = (ms) => new Promise(r => setTimeout(r, ms));
-  const zonderMeet = (f) => String(f).split('\n').filter(l => !/V11\.34\.[2-9]/.test(l)).join('\n');
+  // V11.36.1: ook de Safari-meetregels (merkteken V11.36.1) gaan eruit.
+  const zonderMeet = (f) => String(f).split('\n').filter(l => !/V11\.34\.[2-9]|V11\.36\.1/.test(l)).join('\n');
   const lees = (k) => { try { return JSON.parse(localStorage.getItem(k)) || []; } catch (e) { return []; } };
 
   const sleutels = [CAMCAP_SLEUTEL, MODELLOG_SLEUTEL, MINUUTLOG_SLEUTEL];

@@ -1052,7 +1052,7 @@ if (typeof ort !== 'undefined') {
 //
 // De stijl volgt de eerdere labels: nummer, kastlijntje, korte omschrijving in
 // kleine letters. De CSS zet hem zelf in kapitalen (text-transform:uppercase).
-const APP_VERSIE = 'V11.36.0 — een tik op het beeld wist het bewijs niet meer';
+const APP_VERSIE = 'V11.36.1 — de app meet de opslag zoals Safari hem telt';
 
 // ── CONSTANTEN ────────────────────────────────────────────────
 const OSM_RADIUS       = 5000;
@@ -5578,10 +5578,15 @@ function exporteerMeetdata() {
         opslagSleutelLijst.push({ sleutel: k, kb });
       }
       opslagSleutelLijst.sort((a,b) => b.kb - a.kb);
+      const sfExport = berekenSafariOpslag();   // V11.36.1
       const opslagUit = {
         versie:'V11.17.15', geexporteerd:new Date().toISOString(),
         appVersie: appVersieKort(),   // V11.34.3: de echte appversie; 'versie' hierboven is het formaat
         totaalKb: Math.round(opslagSleutelLijst.reduce((s,x) => s+x.kb, 0) * 10) / 10,
+        // V11.36.1: naast totaalKb (UTF-8 per waarde, zonder namen) de opslag
+        // V11.36.1: zoals Safari hem telt; zie berekenSafariOpslag.
+        kbSafari: sfExport ? sfExport.kb : null,   // V11.36.1
+        safari: sfExport,                          // V11.36.1
         sleutels: opslagSleutelLijst,
         // V11.31.0: de stand van de IndexedDB-spiegel bij elke start, VÓÓR het
         // herstel. Dit bestand is puur diagnostiek, en dit log ook.
@@ -14886,6 +14891,7 @@ function voerOpruimPassenUit() {
 
 function checkLocalStorageRuimte() {
   try {
+    const t0 = performance.now();   // V11.36.1: de duur van een vuring, meten plus passen
     // V11.23.0: via de opslaglaag. Meet nog steeds in UTF-16-bytes, dezelfde
     // eenheid als berekenLocalStorageKB en de dashboardteller.
     let totaal=0;
@@ -14894,7 +14900,7 @@ function checkLocalStorageRuimte() {
       // V11.29.0: de telling gaat naar logOpruiming. De grens en de passen
       // zelf zijn ongewijzigd.
       const tel = voerOpruimPassenUit();
-      logOpruiming('auto', Math.round(totaal / 1024), tel);
+      logOpruiming('auto', Math.round(totaal / 1024), tel, performance.now() - t0);   // V11.36.1: plus de duur
     }
   } catch(e) {}
 }
@@ -14920,11 +14926,19 @@ function checkLocalStorageRuimte() {
 // niet mee in de regel; de teller heeft ze wel.
 //
 // Alles staat in een try/catch: meten mag het opruimen nooit breken.
+//
+// V11.36.1: DRIE GETALLEN ERBIJ, ALLEEN METEN. `ms` is de duur van de vuring
+// V11.36.1: (de UTF-16-telling plus de zeven passen), msMax/msSom/msN laten het
+// V11.36.1: verloop zien. msMeet is wat de metingen hieronder zelf kosten.
+// V11.36.1: kbSafari is de opslag zoals Safari hem telt; zie berekenSafariOpslag.
+// V11.36.1: De grens, de passen en wat er weggaat, veranderen niet.
 let opruimGelogdDezeSessie = false;
-function logOpruiming(bron, kbVoor, tel) {
+function logOpruiming(bron, kbVoor, tel, ms) {   // V11.36.1: ms erbij
   if (!tel) return;
   try {
+    const tMeet = performance.now();   // V11.36.1
     const kbNa = berekenLocalStorageKB();
+    const sf = berekenSafariOpslag();   // V11.36.1
     let st = null;
     try { st = JSON.parse(localStorage.getItem('sl_opruimstat')); } catch(_) { st = null; }
     if (!st || typeof st !== 'object' || Array.isArray(st)) {
@@ -14942,12 +14956,29 @@ function logOpruiming(bron, kbVoor, tel) {
     for (const [k, v] of Object.entries(tel)) {
       if (typeof v === 'number') st.perPas[k] = (st.perPas[k] || 0) + v;
     }
+    if (typeof ms === 'number' && isFinite(ms)) {                               // V11.36.1
+      st.ms = Math.round(ms);                                                   // V11.36.1
+      st.msMax = Math.max(st.msMax || 0, st.ms);                                // V11.36.1
+      st.msSom = (st.msSom || 0) + st.ms;                                       // V11.36.1
+      st.msN = (st.msN || 0) + 1;                                               // V11.36.1
+    }                                                                           // V11.36.1
+    st.msMeet = Math.round(performance.now() - tMeet);                          // V11.36.1
+    if (sf) {                                                                   // V11.36.1
+      st.kbSafari = sf.kb;                                                      // V11.36.1
+      st.safari = { namenKb: sf.namenKb, pct: sf.pct, n16: sf.n16, kb16: sf.kb16, ms: sf.ms };   // V11.36.1
+      if (sf.top16) st.safari.top16 = sf.top16;                                 // V11.36.1
+    }                                                                           // V11.36.1
     try { localStorage.setItem('sl_opruimstat', JSON.stringify(st)); } catch(_) {}
     if (bron === 'knop' || tel.p5emmers > 0 || !opruimGelogdDezeSessie) {
       if (bron === 'auto') opruimGelogdDezeSessie = true;
       const kort = { bron, kbVoor, kbNa };
       for (const [k, v] of Object.entries(tel)) if (typeof v === 'number' && v) kort[k] = v;
       if (Array.isArray(tel.emmers) && tel.emmers.length) kort.emmers = tel.emmers;
+      // V11.36.1: Safari-getal, duur en het aantal brede sleutels; geen namen,
+      // V11.36.1: want dit is een regel in het opslaglog (zie berekenSafariOpslag).
+      if (sf) kort.kbSafari = sf.kb;                                            // V11.36.1
+      if (st.ms) kort.ms = st.ms;                                               // V11.36.1
+      if (sf && sf.n16) kort.n16 = sf.n16;                                      // V11.36.1
       logOpslagMis('opruim', { opruim: kort });
     }
   } catch(e) {}
@@ -14958,6 +14989,68 @@ function berekenLocalStorageKB() {
   let totaal = 0;
   for (const key of opslagSleutels('')) totaal += (opslagLeesRuw(key) || '').length * 2;   // V11.23.0
   return Math.round(totaal / 1024);
+}
+
+// ── V11.36.1: DE OPSLAG ZOALS SAFARI HEM TELT ───────────────────
+// © 2026 StoplichtIQ — Y. Lemaalem
+//
+// WAAROM. berekenLocalStorageKB hierboven telt elke waarde in UTF-16, twee
+// bytes per teken, en laat de sleutelnamen weg. Safari telt anders. In de
+// WebKit-bron (StorageMap::setItem, SQLiteStorageArea::requestSpace) is het
+// naam plus waarde, elk als String::sizeInBytes(): één byte per teken zolang
+// de hele string Latin-1 is (niets boven U+00FF), anders twee - voor de HELE
+// string. De grens is 5 MiB per herkomst (localStorageQuotaInBytes in
+// LocalStorageManager.cpp). Een meting op de iPhone (iOS 18.7) bevestigde dat
+// één teken boven U+00FF een hele sleutel dubbel laat tellen.
+//
+// Op de backup van 30 september: 2.595,5 KB zoals Safari telt, 4.691,8 KB
+// zoals de rem telt. De rem vuurt dus op een getal dat ~1,8 keer te hoog is.
+// Dit verandert daar NIETS aan. Het meet alleen, zodat een latere drempel op
+// een gemeten getal kan staan.
+//
+// DE BEWAKING. Dezelfde lus telt de sleutels waarin een teken boven U+00FF
+// staat (n16), wat dat extra kost (kb16), en noemt de drie grootste (top16),
+// met de code van het eerste brede teken. Op 30 september waren dat er nul.
+// Kan het? Ja: een straatnaam met een ’ of een niet-Latijnse letter komt via
+// `naam` in ELKE regel van het opslaglog, en een foutmelding van de browser
+// komt in sl_modellog en sl_modelvgl. APP_VERSIE heeft een streepje (—),
+// maar wordt alleen kort opgeslagen (appVersieKort, spiegelLogStart).
+//
+// ZELF SCHRIJFT DEZE METING NOOIT EEN BREED TEKEN. Een sleutelnaam in top16
+// gaat door latin1Veilig (elk breed teken wordt \uXXXX); anders zou juist
+// deze meting sl_opruimstat breed maken.
+const SAFARI_QUOTUM_BYTES = 5 * 1024 * 1024;   // 5.242.880, zie hierboven
+const TEKEN_BOVEN_LATIN1 = /[^\u0000-\u00ff]/;
+function latin1Veilig(s) {
+  return String(s).replace(/[^\u0000-\u00ff]/g, c => '\\u' + c.charCodeAt(0).toString(16).padStart(4, '0'));
+}
+function berekenSafariOpslag() {
+  try {
+    const t0 = performance.now();
+    const r1 = (x) => Math.round(x * 10) / 10;
+    let bytes = 0, namen = 0, n16 = 0, extra = 0;
+    const breed = [];
+    for (const k of opslagSleutels('')) {
+      const ruw = opslagLeesRuw(k);
+      if (ruw === null) continue;
+      const iNaam = k.search(TEKEN_BOVEN_LATIN1), iWaarde = ruw.search(TEKEN_BOVEN_LATIN1);
+      const nb = k.length * (iNaam < 0 ? 1 : 2);
+      namen += nb;
+      bytes += nb + ruw.length * (iWaarde < 0 ? 1 : 2);
+      if (iNaam >= 0 || iWaarde >= 0) {
+        const x = (iNaam < 0 ? 0 : k.length) + (iWaarde < 0 ? 0 : ruw.length);
+        const code = iWaarde >= 0 ? ruw.charCodeAt(iWaarde) : k.charCodeAt(iNaam);
+        n16++; extra += x; breed.push([k, x, code]);
+      }
+    }
+    const uit = { kb: r1(bytes / 1024), namenKb: r1(namen / 1024), pct: r1(100 * bytes / SAFARI_QUOTUM_BYTES),
+                  n16, kb16: r1(extra / 1024), ms: Math.round(performance.now() - t0) };
+    if (breed.length) {
+      breed.sort((a, b) => b[1] - a[1]);
+      uit.top16 = breed.slice(0, 3).map(([k, x, c]) => latin1Veilig(k) + ':' + r1(x / 1024) + ':u' + c.toString(16).padStart(4, '0'));
+    }
+    return uit;
+  } catch (e) { return null; }
 }
 
 // V11.17.41: opslagoverzicht per categorie, in dezelfde indeling als de
@@ -15145,9 +15238,10 @@ function ruimOpslagNuOp() {
     if (btn) { btn.textContent = '⏳ Bezig...'; btn.disabled = true; }
     setTimeout(() => {
       try {
+        const tKnop = performance.now();            // V11.36.1: de duur, passen plus meten
         const tel = voerOpruimPassenUit();          // V11.29.0: met telling
         const na = berekenLocalStorageKB();
-        logOpruiming('knop', voor, tel);
+        logOpruiming('knop', voor, tel, performance.now() - tKnop);   // V11.36.1: plus de duur
         try { laadDashboard(); } catch(e) {}
         alert('✅ Opruiming klaar\n\n' +
           `voor : ${voor} KB\n` +

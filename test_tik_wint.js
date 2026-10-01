@@ -388,7 +388,8 @@ async function testTikWint() {
     // V11.34.2: exporteerMeetdata kreeg drie meetbakken erbij (camcap, model,
     // minuut). Meetregels vanaf V11.34.2 dragen hun versie als merkteken op de
     // regel zelf; zonder die regels moet de functie nog steeds byte-gelijk zijn.
-    const zonderMeet = (s) => s.split('\n').filter(l => !/V11\.34\.[2-9]/.test(l)).join('\n');
+    // V11.36.1: ook de Safari-meetregels in exporteerMeetdata (merkteken V11.36.1).
+    const zonderMeet = (s) => s.split('\n').filter(l => !/V11\.34\.[2-9]|V11\.36\.1/.test(l)).join('\n');
     const anders = Object.entries(ONGEWIJZIGD).filter(([n, [h, l]]) => fnv(zonderMeet(String(eval(n)))) !== h || zonderMeet(String(eval(n))).length !== l).map(x => x[0]);
     eis('TW9d vijftien functies die V11.33.0 niet raakt, zijn byte-gelijk aan V11.32.0 (NB14 inbegrepen)',
         anders.length === 0, 'geen afwijking', anders.join(', ') || 'geen');
