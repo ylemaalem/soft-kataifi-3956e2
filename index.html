@@ -1052,7 +1052,7 @@ if (typeof ort !== 'undefined') {
 //
 // De stijl volgt de eerdere labels: nummer, kastlijntje, korte omschrijving in
 // kleine letters. De CSS zet hem zelf in kapitalen (text-transform:uppercase).
-const APP_VERSIE = 'V11.36.3 — de tik houdt vast: bij stilstand en in de volbeeld-run neemt hij geen buurlicht meer';
+const APP_VERSIE = 'V11.36.4 — de wissellog: elke wissel naar een ander licht, met de reden en hoe laat hij kwam';
 
 // ── CONSTANTEN ────────────────────────────────────────────────
 const OSM_RADIUS       = 5000;
@@ -5526,6 +5526,7 @@ function exporteerMeetdata() {
       uit.tik = {};   // V11.32.0: de tiklog, zie tikLogNoteer
       uit.appVersie = appVersieKort();   // V11.34.3: de echte appversie; 'versie' hierboven is het formaat
       uit.camcap = {}; uit.model = {}; uit.minuut = {};   // V11.34.2: zie camcapNoteer
+      uit.wissel = {};   // V11.36.4: zie wisselLogNoteer
       for (const key of opslagSleutels('')) {                          // V11.23.0
         let doel = null;
         if (key.startsWith('sl_passief_'))       doel = uit.passief;
@@ -5545,6 +5546,7 @@ function exporteerMeetdata() {
         else if (key === CAMCAP_SLEUTEL)         doel = uit.camcap;     // V11.34.2: wat de camera levert
         else if (key === MODELLOG_SLEUTEL)       doel = uit.model;      // V11.34.2: welk model er laadde
         else if (key === MINUUTLOG_SLEUTEL)      doel = uit.minuut;     // V11.34.2: runs en rAF per minuut
+        else if (key === WISSELLOG_SLEUTEL)      doel = uit.wissel;     // V11.36.4: elke wissel naar een ander licht
         // V11.17.33 W2: let op de volgorde — 'sl_richtinglog' begint NIET met
         // 'sl_richting_' (na 'sl_richting' volgt 'l', geen '_'), dus deze twee
         // takken kunnen elkaar niet vangen. Toch staat de exacte match eerst.
@@ -8514,6 +8516,142 @@ function meetRingSchrijf(sleutel, max, rec) {
     meetRingGestopt.add(sleutel);
     try { localStorage.removeItem(sleutel); } catch (_) {}
   }
+}
+
+// ── V11.36.4: DE WISSELLOG (ALLEEN METEN) ────────────────────
+// © 2026 StoplichtIQ — Y. Lemaalem
+//
+// WAAROM. Younes' prioriteitsklacht: na het voorbijrijden houdt de app het oude
+// licht te lang vast, en het volgende licht staat te laat klaar. Uit de exports
+// was een wissel maar half na te rekenen: de zichtlog ziet alleen wissels met
+// een fase in beeld, het tik-slot dat na 100 m loslaat schrijft niets, en er is
+// geen GPS-spoor (STAP 0 van 1 oktober). A3, het loslaten na het passeren, hoort
+// een nulmeting te hebben. Dit is die meting.
+//
+// WAT. Eén regel per wissel van het getoonde licht, in een ring van
+// WISSELLOG_MAX regels (sl_wissellog, via meetRingSchrijf):
+//   t     tijdstip (ms)
+//   van   het oude licht, naar het nieuwe (OSM-nummers, geen namen)
+//   kmh   snelheid
+//   eta   seconden tot aankomst bij het nieuwe licht (afstand / snelheid);
+//         leeg onder 3 km/u
+//   vb    afstand van de auto tot het oude licht bij de wissel (m)
+//   pl    peiling van het oude licht ten opzichte van de rijrichting, in graden:
+//         0 is recht vooruit, 180 of -180 recht achter je
+//   d     afstand tussen het oude en het nieuwe licht (m)
+//   zk    1 als die afstand onder WISSEL_KRUISPUNT_M ligt: een andere mast van
+//         hetzelfde kruispunt
+//   r     de reden:
+//           vrij       er stond geen slot; de voorsprongregel liet los
+//           tik100     het tik- of lijstslot liet los, rijdend (na 100 m voorbij)
+//           stil       dat slot liet los bij stilstand (een ander licht dichterbij)
+//           auto       het stilstandslot liet los bij het wegrijden
+//           nadering   de naderingscorrectie koos een ander licht
+//           correctie  de stilstandscorrectie koos een ander licht
+//           lijst      een keuze uit de lijst, tussen twee GPS-tikken in
+//           kaart      een wissel tussen twee GPS-tikken in zonder lijstkeuze
+//                      (het laden van de kaart roept updateDichtbij ook aan)
+//   uit   leefde er een tik op de lamp: seconden dat de lamp al niet gezien was
+//   min   de kleinste afstand die de auto tot het OUDE licht bereikte zolang dat
+//         getoond werd (m). Zo staat in de regel van de vólgende wissel of het
+//         nieuwe licht echt gehaald werd, zonder tweede schrijfactie.
+//
+// HOE. Een wachter, zoals tikLogWaak. wisselVoor() kijkt in onGPS vóór de
+// beslisketen (auto-slot, checkHandLockVerval, updateDichtbij, de twee
+// correcties), wisselTussen() na de naderingscorrectie en wisselNa() erna. De
+// vastgepinde functies (NB14) blijven byte-gelijk. Een wissel buiten onGPS om
+// ziet wisselVoor() bij de volgende GPS-tik.
+//
+// PUUR OBSERVEREND. Niets hieronder verandert een keuze. Een vol quotum staakt
+// alleen dit log (meetRingSchrijf). ~130 tekens per regel, Latin-1: ~8 K voor
+// de hele ring.
+const WISSELLOG_SLEUTEL  = 'sl_wissellog';
+const WISSELLOG_MAX      = 60;
+const WISSEL_KRUISPUNT_M = 60;   // masten van één kruispunt, zie de STAP 0 van 1 oktober
+let wisselStaat = null;   // het getoonde licht na de vorige tik: { id, t, lat, lon, min }
+let wisselTik   = null;   // binnen één GPS-tik: { t, id, hand, auto, uit, tussenCorr }
+let wisselNaTijd = 0;     // wanneer wisselNa voor het laatst liep
+
+function wisselLogNoteer(oud, nieuw, reden, uitMs, lat, lon) {
+  try {
+    if (!oud || !nieuw) return;
+    const heel = (x) => (typeof x === 'number' && isFinite(x)) ? Math.round(x) : null;
+    const plek = (o) => !!o && typeof o.lat === 'number' && typeof o.lon === 'number';
+    const pos = (typeof lat === 'number' && typeof lon === 'number') ? { lat, lon } : null;
+    const d = (plek(oud) && plek(nieuw)) ? afstand(oud.lat, oud.lon, nieuw.lat, nieuw.lon) : null;
+    const vb = (plek(oud) && pos) ? afstand(lat, lon, oud.lat, oud.lon) : null;
+    const nAf = (plek(nieuw) && pos) ? afstand(lat, lon, nieuw.lat, nieuw.lon) : null;
+    const kmh = (typeof snelheidKmh === 'number' && !isNaN(snelheidKmh)) ? snelheidKmh : null;
+    const rec = {
+      t: Date.now(), van: Number(oud.id), naar: Number(nieuw.id), kmh: heel(kmh),
+      eta: (kmh !== null && kmh >= 3 && nAf !== null) ? Math.round(nAf / (kmh / 3.6) * 10) / 10 : null,
+      vb: heel(vb), pl: (pos && plek(oud)) ? peilingTovRijrichting(pos, oud, getSmoothedHeading()) : null,
+      d: heel(d), zk: d === null ? null : (d < WISSEL_KRUISPUNT_M ? 1 : 0), r: reden,
+      uit: (typeof uitMs === 'number' && isFinite(uitMs)) ? Math.round(uitMs / 100) / 10 : null,
+      min: heel(oud.min)
+    };
+    for (const k of Object.keys(rec)) if (rec[k] === null || rec[k] === undefined) delete rec[k];
+    meetRingSchrijf(WISSELLOG_SLEUTEL, WISSELLOG_MAX, rec);
+  } catch (e) {}
+}
+
+// Vóór de beslisketen. Een wissel sinds de vorige tik die buiten onGPS om
+// gebeurde, wordt hier eerst genoteerd.
+function wisselVoor(lat, lon) {
+  try {
+    const nu = Date.now();
+    const id = dichtstbijOSM ? String(dichtstbijOSM.id) : null;
+    if (wisselStaat && id && id !== wisselStaat.id) {
+      wisselLogNoteer(wisselStaat, dichtstbijOSM,
+        handmatigGeselecteerdTimestamp > wisselNaTijd ? 'lijst' : 'kaart', null, lat, lon);
+      wisselStaat = { id, t: nu, lat: dichtstbijOSM.lat, lon: dichtstbijOSM.lon, min: null, los: null };
+    }
+    wisselTik = { t: nu, id,
+      hand: handmatigLockActief && !stilstandAutoLock, auto: !!(handmatigLockActief && stilstandAutoLock),
+      uit: bboxOverride !== null ? nu - Math.max(bboxOverrideLaatsteMatch, bboxOverrideTijd) : null,
+      tussenCorr: null };
+  } catch (e) {}
+}
+
+// Na de naderingscorrectie: welke correctie was van haar?
+function wisselTussen() {
+  if (wisselTik) wisselTik.tussenCorr = laatsteNodeCorrectieTijd;
+}
+
+// Na de beslisketen: wisselde het licht in deze tik, en waarom?
+function wisselNa(lat, lon) {
+  try {
+    const T = wisselTik;
+    wisselTik = null;
+    if (!T) return;
+    wisselNaTijd = Date.now();
+    const id = dichtstbijOSM ? String(dichtstbijOSM.id) : null;
+    const nuHand = handmatigLockActief && !stilstandAutoLock;
+    const nuAuto = !!(handmatigLockActief && stilstandAutoLock);
+    // Liet een slot in deze tik los? Dan is dat de reden, ook als de wissel
+    // zelf pas een tik later komt (de voorsprongregel kan het oude licht nog
+    // even houden).
+    const los = (T.hand && !nuHand && !nuAuto)
+      ? ((typeof snelheidKmh === 'number' && snelheidKmh > 5) ? 'tik100' : 'stil')
+      : (T.auto && !nuAuto && !nuHand) ? 'auto' : null;
+    if (id && T.id && id !== T.id && wisselStaat && wisselStaat.id === T.id) {
+      const reden = (laatsteNodeCorrectieTijd >= T.t)
+        ? ((T.tussenCorr !== null && laatsteNodeCorrectieTijd === T.tussenCorr) ? 'nadering' : 'correctie')
+        : (los || wisselStaat.los || 'vrij');
+      wisselLogNoteer(wisselStaat, dichtstbijOSM, reden, T.uit, lat, lon);
+    } else if (wisselStaat && wisselStaat.id === id) {
+      if (los) wisselStaat.los = los;
+      else if (nuHand || nuAuto) wisselStaat.los = null;   // een nieuw slot: de oude reden vervalt
+    }
+    if (!id) return;
+    if (!wisselStaat || wisselStaat.id !== id) {
+      wisselStaat = { id, t: Date.now(), lat: dichtstbijOSM.lat, lon: dichtstbijOSM.lon, min: null, los: null };
+    }
+    if (typeof dichtstbijOSM.lat === 'number' && typeof lat === 'number') {
+      const af = afstand(lat, lon, dichtstbijOSM.lat, dichtstbijOSM.lon);
+      if (wisselStaat.min === null || af < wisselStaat.min) wisselStaat.min = af;
+    }
+  } catch (e) {}
 }
 
 // De camera, één keer per sessie. deviceId en groupId gaan er bewust uit: die
@@ -19946,6 +20084,7 @@ async function onGPS(pos) {
   } else {
     stilstandSinds = 0;
   }
+  wisselVoor(lat, lon);   // V11.36.4: meetregel, beslist niets
   // V11.0.1: Auto-lock bij stilstand >5s
   if (!handmatigLockActief && dichtstbijOSM && snelheidKmh < 3
       && stilstandSinds > 0 && (Date.now() - stilstandSinds) > 5000) {
@@ -20014,6 +20153,7 @@ async function onGPS(pos) {
   // en dus niets dubbel doet. De twee bestaande routes blijven letterlijk gelijk.
   if (cacheGeladen) verzamelNaderingsBewijs(lat, lon);
   if (cacheGeladen) checkNaderingsCorrectie(lat, lon);
+  wisselTussen();   // V11.36.4: meetregel, beslist niets
   // V11.17.9 W3: hercontrole ná updateDichtbij zodat puurDichtsteNodeCache
   // en dichtstbijOSM.afstand vers zijn. Zelf gated op stilstand + duur +
   // veiligheidsregel — draait vaak leeg maar is goedkoop.
@@ -20025,6 +20165,7 @@ async function onGPS(pos) {
   // tussen komen te staan. Ze leest alleen de al berekende caches en verandert
   // niets aan de keuze.
   if (cacheGeladen) meldNodeVermoeden(lat, lon);    // V11.18.12: zie daar
+  wisselNa(lat, lon);   // V11.36.4: meetregel, beslist niets
   refreshStadIndienNodig(lat, lon);
 
   // V9.0: Nadering detectie + delayed write

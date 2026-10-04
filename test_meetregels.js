@@ -36,7 +36,7 @@ async function testMeetregels() {
   const fnv = (s) => { let h = 0x811c9dc5; for (let i = 0; i < s.length; i++) { h ^= s.charCodeAt(i); h = Math.imul(h, 0x01000193) >>> 0; } return h.toString(16); };
   const slaap = (ms) => new Promise(r => setTimeout(r, ms));
   // V11.36.1: ook de Safari-meetregels (merkteken V11.36.1) gaan eruit.
-  const zonderMeet = (f) => String(f).split('\n').filter(l => !/V11\.34\.[2-9]|V11\.36\.1/.test(l)).join('\n');
+  const zonderMeet = (f) => String(f).split('\n').filter(l => !/V11\.34\.[2-9]|V11\.36\.[14]/.test(l)).join('\n');   // V11.36.4: ook de wissellog
   const lees = (k) => { try { return JSON.parse(localStorage.getItem(k)) || []; } catch (e) { return []; } };
 
   const sleutels = [CAMCAP_SLEUTEL, MODELLOG_SLEUTEL, MINUUTLOG_SLEUTEL];
@@ -244,7 +244,9 @@ async function testMeetregels() {
     const terugV11363 = (s) => s.split('\n').filter(l => !/V11\.36\.3/.test(l)).join('\n')
       .replace('const winner = tikSlotMatch(bruikbaar, straalVast);', 'const winner = stickySlotMatch(bruikbaar, straal);');
     const af2 = Object.entries(ONGEMOEID).filter(([n, [h, l]]) => {
-      const s = n === 'selecteerBesteDetectie' ? terugV11363(String(eval(n))) : String(eval(n));
+      // V11.36.4: onGPS kreeg drie meetregels (de wissellog), met merkteken.
+      const s = n === 'selecteerBesteDetectie' ? terugV11363(String(eval(n)))
+              : n === 'onGPS' ? String(eval(n)).split('\n').filter(l => !/V11\.36\.4/.test(l)).join('\n') : String(eval(n));
       return fnv(s) !== h || s.length !== l; }).map(x => x[0]);
     eis('ML7b de keuze, de run, de poort, de lus en de GPS: negen functies byte-gelijk aan V11.34.1 (selecteerBesteDetectie zonder de V11.36.3-regels)',
         af2.length === 0, 'geen afwijking', af2.join(', ') || 'geen');
