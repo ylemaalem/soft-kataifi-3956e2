@@ -584,9 +584,10 @@ async function testNaderingsbewijs() {
           h + ' / ' + len, fnv(src) + ' / ' + src.length);
     }
     const g = zc(onGPS);
-    const pos = ['updateDichtbij(lat, lon)', 'verzamelNaderingsBewijs(lat, lon)',
+    // V11.37.0: A3 (checkHandLockPassage) direct na checkHandLockVerval, vóór updateDichtbij.
+    const pos = ['checkHandLockVerval(lat, lon)', 'checkHandLockPassage(lat, lon)', 'updateDichtbij(lat, lon)', 'verzamelNaderingsBewijs(lat, lon)',
                  'checkNaderingsCorrectie(lat, lon)', 'checkNodeCorrectieStilstand(lat, lon)'].map(x => g.indexOf(x));
-    eis('NB14b onGPS: updateDichtbij -> bewijs -> beslissing -> de bestaande hercontrole',
+    eis('NB14b onGPS: checkHandLockVerval -> A3 -> updateDichtbij -> bewijs -> beslissing -> de bestaande hercontrole',
         pos.every(p => p > 0) && pos.every((p, i) => i === 0 || p > pos[i - 1]), 'op volgorde', pos.join(','));
     // V11.36.0 A1: tot en met V11.34.3 stond hier "een tik (vergrendelNodeHandmatig)
     // wist het naderingsbewijs", op de bron. Nu op het gedrag, en per soort tik.

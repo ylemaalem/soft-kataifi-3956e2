@@ -1052,7 +1052,7 @@ if (typeof ort !== 'undefined') {
 //
 // De stijl volgt de eerdere labels: nummer, kastlijntje, korte omschrijving in
 // kleine letters. De CSS zet hem zelf in kapitalen (text-transform:uppercase).
-const APP_VERSIE = 'V11.36.4 — de wissellog: elke wissel naar een ander licht, met de reden en hoe laat hij kwam';
+const APP_VERSIE = 'V11.37.0 — na een tik laat de app het licht los zodra je het kruispunt 30 m voorbij bent';
 
 // ── CONSTANTEN ────────────────────────────────────────────────
 const OSM_RADIUS       = 5000;
@@ -8544,6 +8544,7 @@ function meetRingSchrijf(sleutel, max, rec) {
 //   r     de reden:
 //           vrij       er stond geen slot; de voorsprongregel liet los
 //           tik100     het tik- of lijstslot liet los, rijdend (na 100 m voorbij)
+//           passage    V11.37.0: A3 liet het slot los na het passeren (30 m)
 //           stil       dat slot liet los bij stilstand (een ander licht dichterbij)
 //           auto       het stilstandslot liet los bij het wegrijden
 //           nadering   de naderingscorrectie koos een ander licht
@@ -8552,6 +8553,7 @@ function meetRingSchrijf(sleutel, max, rec) {
 //           kaart      een wissel tussen twee GPS-tikken in zonder lijstkeuze
 //                      (het laden van de kaart roept updateDichtbij ook aan)
 //   uit   leefde er een tik op de lamp: seconden dat de lamp al niet gezien was
+//   a3    V11.37.0: 1 als A3 aan stond (A3_ACTIEF), anders 0
 //   min   de kleinste afstand die de auto tot het OUDE licht bereikte zolang dat
 //         getoond werd (m). Zo staat in de regel van de vólgende wissel of het
 //         nieuwe licht echt gehaald werd, zonder tweede schrijfactie.
@@ -8588,7 +8590,8 @@ function wisselLogNoteer(oud, nieuw, reden, uitMs, lat, lon) {
       vb: heel(vb), pl: (pos && plek(oud)) ? peilingTovRijrichting(pos, oud, getSmoothedHeading()) : null,
       d: heel(d), zk: d === null ? null : (d < WISSEL_KRUISPUNT_M ? 1 : 0), r: reden,
       uit: (typeof uitMs === 'number' && isFinite(uitMs)) ? Math.round(uitMs / 100) / 10 : null,
-      min: heel(oud.min)
+      min: heel(oud.min),
+      a3: A3_ACTIEF ? 1 : 0   // V11.37.0
     };
     for (const k of Object.keys(rec)) if (rec[k] === null || rec[k] === undefined) delete rec[k];
     meetRingSchrijf(WISSELLOG_SLEUTEL, WISSELLOG_MAX, rec);
@@ -8632,7 +8635,8 @@ function wisselNa(lat, lon) {
     // zelf pas een tik later komt (de voorsprongregel kan het oude licht nog
     // even houden).
     const los = (T.hand && !nuHand && !nuAuto)
-      ? ((typeof snelheidKmh === 'number' && snelheidKmh > 5) ? 'tik100' : 'stil')
+      ? (a3LosTijd >= T.t ? 'passage'   // V11.37.0: A3 liet los, zie checkHandLockPassage
+        : (typeof snelheidKmh === 'number' && snelheidKmh > 5) ? 'tik100' : 'stil')
       : (T.auto && !nuAuto && !nuHand) ? 'auto' : null;
     if (id && T.id && id !== T.id && wisselStaat && wisselStaat.id === T.id) {
       const reden = (laatsteNodeCorrectieTijd >= T.t)
@@ -19407,6 +19411,99 @@ function checkHandLockVerval(lat, lon) {
   }
 }
 
+// ── V11.37.0: A3 — LOSLATEN NA HET PASSEREN ──────────────────
+// © 2026 StoplichtIQ — Y. Lemaalem
+//
+// DE KLACHT. Na een tik (of een keuze uit de lijst) houdt de app het licht vast
+// tot je meer dan 100 m voorbij bent (checkHandLockVerval, route 1). Bij 40 km/u
+// kijkt de app dan ~9 s naar een licht dat al achter je ligt, en het volgende
+// licht komt te laat. Zonder slot laat de app gemiddeld 5 m na het licht los.
+// Gemeten (STAP 0 van 1 oktober): met een slot stond het volgende kruispunt in
+// 7 van de 18 gevallen op tijd klaar (8 s of meer vooraf), zonder slot in 17 van
+// de 26. De lamp was bij het loslaten na 100 m al 11-14 s uit beeld.
+//
+// DE REGEL. Het slot gaat eerder los, zodra alle zes voorwaarden gelden:
+//   1. er staat een echt slot: een tik of een lijstkeuze, niet het stilstandslot;
+//   2. het vastgezette licht én elke mast binnen A3_KRUISPUNT_M ervan liggen
+//      meer dan 90 graden van de rijrichting af: het HELE kruispunt is voorbij,
+//      niet alleen de eerste mast;
+//   3. de auto is minstens A3_AFSTAND_M van het vastgezette licht;
+//   4. dat geldt A3_TIKKEN GPS-tikken op rij, en de afstand groeit ertussen;
+//   5. de snelheid is minstens A3_MIN_KMH (5 km/u geeft geen betrouwbare koers);
+//   6. leeft er een tik op de lamp, dan is die lamp minstens A3_LAMP_WEG_MS niet
+//      meer gezien.
+// Dan gaan de drie slotvelden uit, zoals in checkHandLockVerval, en eindigt de
+// tik op de lamp met de tiklog-reden 'passage'. updateDichtbij kiest in dezelfde
+// GPS-tik het volgende licht. checkHandLockVerval, updateDichtbij en
+// isStoplichtVoorbij blijven onaangeroerd (NB14); de oude routes bestaan nog,
+// A3 is alleen een eerdere uitgang.
+//
+// GEEN isStoplichtVoorbij. Die leest `!rijrichting` en ziet een koers van precies
+// 0 graden (pal noord) als 'geen koers'. peilingTovRijrichting heeft dat gat niet.
+//
+// UIT MET ÉÉN REGEL: A3_ACTIEF. De beslissing zelf staat in de pure functie
+// a3Beoordeel, zodat de toetsen hem kunnen nalopen los van de schakelaar.
+const A3_ACTIEF      = true;
+const A3_AFSTAND_M   = 30;
+const A3_MIN_KMH     = 10;
+const A3_TIKKEN      = 2;
+const A3_LAMP_WEG_MS = 2000;
+const A3_KRUISPUNT_M = 60;   // masten van één kruispunt, zoals WISSEL_KRUISPUNT_M
+let a3Reeks   = null;        // { id, n, afst }: de tikken op rij die aan alles voldeden
+let a3LosTijd = 0;           // wanneer A3 voor het laatst losliet (de wissellog leest dit)
+
+// t: { slot, id, afst, achter, kmh, lampWegMs } van deze GPS-tik; lampWegMs is
+// null als er geen tik op de lamp leeft. Geeft de nieuwe reeks en of het slot los mag.
+function a3Beoordeel(t, reeks) {
+  if (!t || !t.slot || typeof t.afst !== 'number' || !t.achter
+      || !(t.afst >= A3_AFSTAND_M) || !(t.kmh >= A3_MIN_KMH)
+      || (t.lampWegMs !== null && t.lampWegMs !== undefined && !(t.lampWegMs >= A3_LAMP_WEG_MS))) {
+    return { reeks: null, los: false };
+  }
+  const n = (reeks && reeks.id === t.id && t.afst > reeks.afst) ? reeks.n + 1 : 1;
+  return { reeks: { id: t.id, n, afst: t.afst }, los: n >= A3_TIKKEN };
+}
+
+function checkHandLockPassage(lat, lon) {
+  if (!A3_ACTIEF) return;
+  const slot = handmatigLockActief && !!handmatigGeselecteerdNodeId && !stilstandAutoLock;
+  const node = slot ? osmCache.find(s => String(s.id) === String(handmatigGeselecteerdNodeId)) : null;
+  if (!node) { a3Reeks = null; return; }
+  const pos = { lat, lon };
+  const koers = getSmoothedHeading();
+  const isAchter = (n) => { const p = peilingTovRijrichting(pos, n, koers); return p !== null && Math.abs(p) > 90; };
+  let achter = isAchter(node);
+  if (achter) {
+    for (const m of osmCache) {
+      if (String(m.id) === String(node.id)) continue;
+      if (typeof m.lat !== 'number' || afstand(node.lat, node.lon, m.lat, m.lon) >= A3_KRUISPUNT_M) continue;
+      if (!isAchter(m)) { achter = false; break; }
+    }
+  }
+  const b = a3Beoordeel({
+    slot: true, id: String(node.id), afst: afstand(lat, lon, node.lat, node.lon), achter,
+    kmh: (typeof snelheidKmh === 'number' && !isNaN(snelheidKmh)) ? snelheidKmh : 0,
+    lampWegMs: bboxOverride !== null ? Date.now() - Math.max(bboxOverrideLaatsteMatch, bboxOverrideTijd) : null
+  }, a3Reeks);
+  a3Reeks = b.reeks;
+  if (!b.los) return;
+  a3Reeks = null;
+  a3LosTijd = Date.now();
+  handLockVervalReset();
+  // Dezelfde drie velden als checkHandLockVerval.
+  handmatigLockActief = false;
+  handmatigGeselecteerdNodeId = null;
+  stilstandAutoLock = false;
+  // De tik op de lamp eindigt hier zelf, met zijn eigen reden. Bleef hij staan,
+  // dan schreef de wachter (tikLogWaak) bij de wissel nog een tweede los-regel.
+  tikLogLos('passage');
+  bboxOverride = null; bboxOverrideTijd = 0;
+  bboxOverrideCamX = null; bboxOverrideCamY = null;
+  bboxOverrideMatchTeller = 0;
+  stickyDetectie = null; stickyMissTeller = 0;
+  tapSeedDetectie = null;
+}
+
 // ── V11.18.6: DE WEIGERING VASTLEGGEN, ALLEEN BIJ AUTO-LOCK ──
 // (c) 2026 StoplichtIQ - Y. Lemaalem
 //
@@ -20100,6 +20197,7 @@ async function onGPS(pos) {
   }
   // V10.0.3 / V11.18.7: handmatig lock — twee onafhankelijke vervalroutes.
   checkHandLockVerval(lat, lon);
+  checkHandLockPassage(lat, lon);   // V11.37.0 A3: loslaten na het passeren, zie daar
   // Zoom unlock via GPS-voorbij
   if (zoomVergrendeld && huidigActiefStoplichtPositie &&
       isStoplichtVoorbij(huidigActiefStoplichtPositie, {lat,lon}, getSmoothedHeading()) &&

@@ -380,7 +380,7 @@ async function testTikWint() {
     const ONGEWIJZIGD = {   // V11.32.0 (fase_d), volledige tekst
       _verwerkWorkerResultaatKern: ['23a782f3', 6144], verwerkDetecties: ['caa90b0a', 8724],
       naarStartscherm: ['6fcbf8b7', 415], updateDichtbij: ['e82d3c0', 11914],
-      corrigeerNodeAutomatisch: ['afe7b427', 4118], onGPS: ['58346b1c', 14246], lus: ['251a0dd1', 3167],
+      corrigeerNodeAutomatisch: ['afe7b427', 4118], onGPS: ['c767e2a3', 14333], lus: ['251a0dd1', 3167],   // onGPS: V11.37.0 A3, nieuwe pin
       exporteerMeetdata: ['ef1e19bb', 7864], stickyVoorspel: ['f5cc4e22', 1864], stickyNeemOver: ['c06db2ce', 386],
       autoSlotZet: ['4e12277f', 313], preprocessVoorYOLO: ['f379eecc', 2733], runIsKansloos: ['d631b73b', 1660],
       tikLogNoteer: ['d9f96f8', 1154], tikLogWaak: ['25490478', 714]

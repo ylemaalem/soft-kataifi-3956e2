@@ -237,7 +237,9 @@ async function testMeetregels() {
     const ONGEMOEID = { selecteerBesteDetectie: ['79a403fa', 14376], postprocessYOLO: ['42b30c6', 4725],
       _verwerkWorkerResultaatKern: ['23a782f3', 6144], _verwerkWorkerResultaat: ['16e601a6', 201],
       verwerkDetecties: ['caa90b0a', 8724], preprocessVoorYOLO: ['f379eecc', 2733], runIsKansloos: ['d631b73b', 1660],
-      lus: ['251a0dd1', 3167], onGPS: ['58346b1c', 14246] };
+      // V11.37.0: onGPS kreeg de aanroep van A3 (checkHandLockPassage). Dat is gedrag, geen meetregel,
+      // dus een eerlijke nieuwe pin. Zonder die ene regel is hij nog 58346b1c / 14246 (test_passage PS9).
+      lus: ['251a0dd1', 3167], onGPS: ['c767e2a3', 14333] };
     // V11.36.3: de tik-tak van selecteerBesteDetectie kreeg de vaste straal en een
     // eigen matchkern. Zonder de gemarkeerde regels, en met de oude aanroep terug,
     // is hij nog steeds V11.34.1. De rest van de functie is dus onaangeroerd.

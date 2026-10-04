@@ -297,8 +297,11 @@ async function testWissellog() {
       w9a.length === 1 && w9a[0].r === 'vrij' && w9a[0].van === 9100001 && w9a[0].naar === 9100002
         && w9a[0].vb < 30 && Math.abs(w9a[0].pl) > 90 && w9a[0].min < 10, 'vrij A->B', kort(vrij));
   const w9b = getikt.wissel;
-  eis('WL9b rit met een tik op A: één regel A->B, reden tik100, pas na 100 m voorbij',
-      w9b.length === 1 && w9b[0].r === 'tik100' && w9b[0].vb > 100, 'tik100, vb > 100', kort(getikt));
+  // V11.37.0: met A3 laat het slot los zodra het kruispunt 30 m voorbij is (twee tikken op rij),
+  // niet meer pas na 100 m. Zonder A3 was dit: tik100, vb 105.
+  eis('WL9b rit met een tik op A: één regel A->B, reden passage (A3), tussen 30 en 60 m voorbij, a3 1',
+      w9b.length === 1 && w9b[0].r === 'passage' && w9b[0].vb >= 30 && w9b[0].vb < 60 && w9b[0].a3 === 1,
+      'passage, 30 <= vb < 60, a3 1', kort(getikt));
   eis('WL9c met en zonder de wachter: in elke tik hetzelfde licht (zonder slot en met een tik)',
       !vrij.fout && !getikt.fout && vrij.gekozen.length > 20 && vrij.gekozen.join() === vrijZ.gekozen.join()
         && getikt.gekozen.join() === getiktZ.gekozen.join() && vrij.gekozen.join() !== getikt.gekozen.join(),
