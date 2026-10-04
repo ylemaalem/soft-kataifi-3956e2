@@ -1052,7 +1052,7 @@ if (typeof ort !== 'undefined') {
 //
 // De stijl volgt de eerdere labels: nummer, kastlijntje, korte omschrijving in
 // kleine letters. De CSS zet hem zelf in kapitalen (text-transform:uppercase).
-const APP_VERSIE = 'V11.36.2 — het tikoverzicht bewaart de tikken apart van de run-regels';
+const APP_VERSIE = 'V11.36.3 — de tik houdt vast: bij stilstand en in de volbeeld-run neemt hij geen buurlicht meer';
 
 // ── CONSTANTEN ────────────────────────────────────────────────
 const OSM_RADIUS       = 5000;
@@ -7108,17 +7108,20 @@ function tapGezien() {
 // als er geen levende tap is. De sticky gaat voor: die is elke run bijgewerkt
 // en meebewogen, terwijl bboxOverride op de tik-positie blijft staan.
 //
-// DE COÖRDINATENVAL, EN WAAROM HIJ HIER ONSCHADELIJK IS. Zowel stickyDetectie
-// als bboxOverride staat in de YOLO-ruimte van een VORIGE preprocess-crop; op
-// een skipCrop-run (elke vijfde) is dat een ander stelsel dan het huidige. De
-// straal kan daardoor op de verkeerde plek in beeld liggen.
+// DE COÖRDINATENVAL. Zowel stickyDetectie als bboxOverride staat in de
+// YOLO-ruimte van een VORIGE preprocess-crop; op een skipCrop-run (elke vijfde)
+// is dat een ander stelsel dan het huidige. Sinds V11.33.0 F6 wordt de plek
+// daarom uit camerapixels geprojecteerd (zie hieronder).
 //
-// Dat is hier geen probleem, en dat is een eigenschap van waar deze toets
-// staat. Ze VERRUIMT alleen een filter; ze kiest niets. Ligt de straal
-// verkeerd, dan overleven een paar zwakke detecties die daarna alsnog door
-// selecteerBesteDetectie tegen de sticky (80 px) of de override moeten worden
-// gelegd. Een verkeerde straal kan dus nooit een verkeerde lamp laten volgen —
-// hooguit een handvol kandidaten opleveren die meteen weer afvallen.
+// V11.36.3: HIER STOND DAT DEZE TOETS "NOOIT EEN VERKEERDE LAMP KAN LATEN
+// VOLGEN", omdat hij alleen een filter verruimt en zelf niets kiest. Dat klopte
+// niet. Wat hier doorkomt, valt niet vanzelf weer af: binnen de straal is het
+// voor de tik-tak een gewone kandidaat. Gemeten op 3 oktober 2026, 13:32:31,
+// Schipholweg (3909607095): in een volbeeld-run zag het model jouw lamp niet,
+// en een buurlicht op ~100 camerapixels kwam met 6% alleen door DEZE drempel
+// door. De tik-tak nam het als jouw lamp en bleef daarna bij de buur. Sinds
+// V11.36.3 houdt tikStraalVast() zo'n buur tegen in de tik-tak zelf, bij
+// stilstand en in elke volbeeld-run. Dit filter zelf is niet veranderd.
 const TAP_CONF_DREMPEL  = 0.04;   // tegen CONF_DREMPEL 0,10 — zie postprocessYOLO
 // V11.33.0 F6: de straal is niet meer TAP_ZWAK_STRAAL_PX (100 YOLO-px) maar
 // tikStraalYolo(): dezelfde straal waarbinnen de tik-tak zijn lamp terugvindt.
@@ -7372,6 +7375,11 @@ function tikLogSprong(voor, match) {
 //       mist jouw lamp in zo'n run, dan kan de tik-tak de buur nemen
 //   d2  de kleinste afstand van zo'n andere detectie tot de plek van jouw lamp,
 //       in camerapixels (de straal is 162 op een beeld van 2160 breed)
+//   v   V11.36.3: runs waarin de tik-tak niets vond binnen de vaste straal, maar
+//       binnen de gewone straal wel een detectie stond. V11.36.2 had die als
+//       jouw lamp genomen; nu is de run leeg. Zie tikWeiger.
+//   vs  waarvan in een volbeeld-run (alleen als v > 0)
+//   vd  de kleinste afstand van zo'n geweigerde detectie, in camerapixels
 //
 // PUUR OBSERVEREND, net als de rest van de tiklog: niets hieronder beslist iets.
 let tikTel = null;   // { voor: bboxOverride, m, l, z, k, d2 } zolang er een tik leeft
@@ -7379,7 +7387,7 @@ let tikTel = null;   // { voor: bboxOverride, m, l, z, k, d2 } zolang er een tik
 // Bij elke tik opnieuw, vanuit tikZet. `voor` is het bboxOverride-object van
 // deze tik: een tik die op een andere manier ontstond, telt hier niet mee.
 function tikTelStart() {
-  tikTel = { voor: bboxOverride, m: 0, l: 0, z: 0, k: 0, d2: null };
+  tikTel = { voor: bboxOverride, m: 0, l: 0, z: 0, k: 0, d2: null, v: 0, vs: 0, vd: null };   // V11.36.3: v, vs, vd
 }
 // Eén run van de tik-tak. `ref` is de plek waar de tik-tak jouw lamp zocht, in
 // YOLO-pixels van deze run, en `straal` de straal waarmee hij zocht.
@@ -7405,7 +7413,8 @@ function tikTelAf() {
     const T = tikTel;
     tikTel = null;
     if (!T || T.m + T.l + T.z === 0) return;
-    tikLogNoteer('run', { tak: 'tel', m: T.m, l: T.l, z: T.z, k: T.k, d2: T.d2 });
+    tikLogNoteer('run', { tak: 'tel', m: T.m, l: T.l, z: T.z, k: T.k, d2: T.d2,
+      v: T.v, vs: T.v ? T.vs : null, vd: T.vd });   // V11.36.3: de weigeringen, zie tikWeiger
   } catch(e) {}
 }
 // Verdween de tik zonder nieuwe tik (een node-wissel, GPS-voorbij, een reset)?
@@ -7453,6 +7462,110 @@ function tikStraalYolo() {
   const c = tikStraalCam();
   if (c === null || !(lbScale > 0)) return STICKY_MATCH_PX;
   return Math.min(STICKY_MATCH_PX, c * lbScale);
+}
+
+// ── V11.36.3: DE TIK HOUDT VAST ─────────────────────────────
+// © 2026 StoplichtIQ — Y. Lemaalem
+//
+// DE KLACHT (3 oktober 2026, 13:32, Schipholweg 3909607095). Twee rode lichten,
+// tik op het rechter. Na ~2 s keek de app naar het linker en bleef daar, ook
+// toen het rechter groen werd. Opnieuw tikken: hetzelfde. Younes: "Het maakt
+// niet uit welke kleur, als hij maar mijn tik vasthoudt."
+//
+// DE OORZAAK, GEMETEN. Elke vijfde run kijkt het model naar het hele beeld
+// (skipCrop), en door de tik-handler is dat altijd de vierde run na een tik
+// (cropAlternatieTeller = 1). Op 68 m is jouw lamp daar drie keer kleiner dan
+// in de crop: het model zag hem niet, ook niet boven TAP_CONF_DREMPEL. Het
+// buurlicht op ~100 camerapixels zag het wel, met 6%. Dat lag binnen
+// tikStraalYolo() (162 camerapixels), dus nam de tik-tak het als jouw lamp.
+// Daarna lag jouw lamp 100 px van de sticky en verloor hij elke run op
+// afstand. Over alle exports: stilstaand vond het model jouw lamp in 14 van
+// de 22 volbeeld-runs niet; in de crop lag hij op p90 22 camerapixels van de
+// verwachte plek, hooguit 45.
+//
+// DE REGEL: DICHTBIJ OF NIETS. Bij stilstand en in elke volbeeld-run telt
+// alleen een detectie binnen de VASTE straal: 0,75 x de hoogte van jouw lamp,
+// minstens TIK_VAST_MIN_FRACTIE van tikStraalCam() (60 camerapixels op een
+// beeld van 2160 breed) en nooit meer dan de gewone straal. Staat daar
+// niets, dan is de run leeg: de tolerantie houdt de laatste box van JOUW lamp
+// nog even vast, daarna het zoekringetje. Nooit de buur. Een nieuwe tik of een
+// ander kruispunt laat de lamp los, zoals sinds V11.33.0.
+//
+// WAAROM MEE MET DE LAMPHOOGTE. Dichtbij is een lamp groot en schuift zijn
+// midden meer: op 6 m verschoof jouw eigen lamp 69-84 camerapixels per run
+// (30 september, 20:22, geen buur in beeld). Een vaste 60 zou daar jouw lamp
+// kwijtraken; 0,75 x de hoogte geeft daar de gewone straal. Op 68 m is de lamp
+// ~48 px hoog, dus de straal 60, en een buur op 100 valt erbuiten.
+//
+// RIJDEND, IN DE CROP, VERANDERT ER NIETS. Daar beweegt jouw lamp tussen twee
+// runs soms 60-160 px; een kleine straal zou hem bij de stopstreep kwijtraken.
+// Een buur binnen de gewone straal kan daar nog worden genomen als jouw lamp
+// een run mist. Dat is het werk van het buren-geheugen (V11.38.0).
+//
+// HET AUTO-SLOT VERANDERT NIET. stickySlotMatch blijft byte voor byte zoals hij
+// was; de tik-tak gebruikt nu tikSlotMatch.
+const TIK_VAST_FACTOR      = 0.75;   // deel van de hoogte van jouw lamp
+const TIK_VAST_MIN_FRACTIE = 0.37;   // deel van tikStraalCam(): 60 camerapixels op een beeld van 2160 breed
+const TIK_VAST_STIL_KMH    = 5;      // onder deze snelheid: stilstand
+
+// De straal waarbinnen de tik-tak jouw lamp terugvindt, in YOLO-pixels van deze
+// run. Rijdend in een crop-run: tikStraalYolo(), zoals altijd. Bij stilstand of
+// in een volbeeld-run: de vaste straal. Zonder beeld (een test zonder video):
+// tikStraalYolo().
+function tikStraalVast() {
+  const gewoon = tikStraalYolo();
+  const stil = typeof snelheidKmh === 'number' && !isNaN(snelheidKmh) && snelheidKmh < TIK_VAST_STIL_KMH;
+  if (!stil && cropRegio) return gewoon;
+  const cam = tikStraalCam();
+  if (cam === null || !(lbScale > 0)) return gewoon;
+  const camH = (stickyDetectie && stickyDetectie.camH > 0) ? stickyDetectie.camH : 0;
+  const vast = Math.max(cam * TIK_VAST_MIN_FRACTIE, camH * TIK_VAST_FACTOR);
+  return Math.min(gewoon, vast * lbScale);
+}
+
+// De matchkern van de tik-tak. Dezelfde voorspelling en projectie als
+// stickySlotMatch, maar zonder kleur- en hoogtestraf: een getikte lamp wordt
+// groen, en dat mag hem geen plaats kosten tegenover een rode buur. De
+// dichtstbijzijnde detectie binnen de straal wint.
+function tikSlotMatch(bruikbaar, straal) {
+  if (!stickyDetectie) return null;
+  stickyVoorspel(stickyDetectie);
+  stickyProjecteer(stickyDetectie);
+  let winner = null;
+  for (const det of bruikbaar) {
+    const afst = Math.hypot(det.cx - stickyDetectie.cx, det.cy - stickyDetectie.cy);
+    if (detLogStickyDx === null || afst < detLogStickyDx) detLogStickyDx = afst;
+    if (afst < straal && (!winner || afst < winner.afst)) winner = { det, afst };
+  }
+  return winner;
+}
+
+// De meetregel. Vond de tik-tak niets binnen de vaste straal, maar stond er
+// binnen de gewone straal wel een detectie, dan had V11.36.2 die als jouw lamp
+// genomen. Telt mee in de tel-regel (v, vs, vd) en schrijft de eerste keer per
+// tik een run-regel 'weiger'. PUUR OBSERVEREND: beslist niets.
+//   a    afstand van de dichtstbijzijnde geweigerde detectie, camerapixels
+//   f    haar familiescore x 100
+//   r    de vaste straal, camerapixels
+//   n    detecties binnen de gewone straal
+function tikWeiger(bruikbaar, straalVast, straal) {
+  try {
+    const T = tikTel;
+    if (!T || T.voor !== bboxOverride || !stickyDetectie || !(straalVast < straal) || !(lbScale > 0)) return;
+    let beste = null, n = 0;
+    for (const det of bruikbaar) {
+      const a = Math.hypot(det.cx - stickyDetectie.cx, det.cy - stickyDetectie.cy);
+      if (a < straal) n++;
+      if (a >= straalVast && a < straal && (!beste || a < beste.a)) beste = { det, a };
+    }
+    if (!beste) return;
+    T.v++;
+    if (!cropRegio) T.vs++;
+    const aCam = beste.a / lbScale;
+    if (T.vd === null || aCam < T.vd) T.vd = aCam;
+    if (T.v === 1) tikLogRun('weiger', { a: aCam, f: familieScore(beste.det) * 100, r: straalVast / lbScale, n,
+      kmh: (typeof snelheidKmh === 'number' && !isNaN(snelheidKmh)) ? snelheidKmh : null });
+  } catch(e) {}
 }
 function tikNaarYolo(camX, camY) {
   return { cx: (camX - (cropRegio ? cropRegio.x : 0)) * lbScale + lbPadX,
@@ -7825,8 +7938,12 @@ canvas.addEventListener('click', (e) => {
       cropHintNaastBox();
     }
     // V11.16.8 Fix 1a: forceer volgende YOLO-run naar cropRegio-actief (niet skipCrop)
-    // zodat groene cirkel + stippellijnen zichtbaar zijn bij eerste tap. Teller=3
-    // → volgende preprocess ++ naar 4 → 4%5!=0 → skipCrop false.
+    // zodat groene cirkel + stippellijnen zichtbaar zijn bij eerste tap.
+    // V11.36.3: de teller is 1 (V11.16.15), niet 3. preprocessVoorYOLO hoogt eerst
+    // op en toetst dan: de drie runs na de tik krijgen 2, 3 en 4 (crop), de vierde
+    // krijgt 5 en is volbeeld, ~2 s na de tik. V11.16.15 bedoelde vier crop-runs;
+    // dat zou teller 0 zijn. De waarde blijft: sinds V11.36.3 kan die volbeeld-run
+    // jouw lamp niet meer aan een buur geven (tikStraalVast).
     cropAlternatieTeller = 1;
     return;
   }
@@ -9410,6 +9527,8 @@ function selecteerBesteDetectie(detecties) {
     // Wat overblijft is één vraag per run: staat er binnen tikStraalYolo() van
     // jouw lamp iets? Ja: dat is hij. Nee: niets tonen, de sticky blijft waar
     // hij het laatst was.
+    // V11.36.3: bij stilstand en in een volbeeld-run is dat de vaste straal.
+    // V11.36.3: kleur en grootte tellen niet meer mee. Zie tikStraalVast en tikSlotMatch.
     //
     // EEN TAP ERFT NOOIT HET AUTO-SLOT (V11.21.0). De tik-handler nult de sticky
     // al, maar dit maakt "een tap wint altijd" een eigenschap van deze functie.
@@ -9424,7 +9543,8 @@ function selecteerBesteDetectie(detecties) {
       // daarom na een misser terug; het auto-slot deelt stickySlotMatch en
       // houdt zijn gedrag.
       const basis = { x: stickyDetectie.camX, y: stickyDetectie.camY };
-      const winner = stickySlotMatch(bruikbaar, straal);
+      const straalVast = tikStraalVast();   // V11.36.3: dichtbij of niets
+      const winner = tikSlotMatch(bruikbaar, straalVast);
       const ref = { cx: stickyDetectie.cx, cy: stickyDetectie.cy };   // V11.34.1: waar hij zocht, in deze run
       if (winner) {
         const match = winner.det;
@@ -9435,6 +9555,7 @@ function selecteerBesteDetectie(detecties) {
         tapGezien();   // V11.20.1: slotje én de kwijt-klok
         return { s1: match, s2Rest: bruikbaar.filter(d => d !== match), afwijsReden:'ok' };
       }
+      tikWeiger(bruikbaar, straalVast, straal);   // V11.36.3: meetregel, beslist niets
       if (basis.x != null) { stickyDetectie.camX = basis.x; stickyDetectie.camY = basis.y; }
       stickyMissTeller++;
       if (stickyMissTeller === 1) tikLogRun('leeg', { n: bruikbaar.length });

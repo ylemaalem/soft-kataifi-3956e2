@@ -238,8 +238,15 @@ async function testMeetregels() {
       _verwerkWorkerResultaatKern: ['23a782f3', 6144], _verwerkWorkerResultaat: ['16e601a6', 201],
       verwerkDetecties: ['caa90b0a', 8724], preprocessVoorYOLO: ['f379eecc', 2733], runIsKansloos: ['d631b73b', 1660],
       lus: ['251a0dd1', 3167], onGPS: ['58346b1c', 14246] };
-    const af2 = Object.entries(ONGEMOEID).filter(([n, [h, l]]) => { const s = String(eval(n)); return fnv(s) !== h || s.length !== l; }).map(x => x[0]);
-    eis('ML7b de keuze, de run, de poort, de lus en de GPS: negen functies byte-gelijk aan V11.34.1',
+    // V11.36.3: de tik-tak van selecteerBesteDetectie kreeg de vaste straal en een
+    // eigen matchkern. Zonder de gemarkeerde regels, en met de oude aanroep terug,
+    // is hij nog steeds V11.34.1. De rest van de functie is dus onaangeroerd.
+    const terugV11363 = (s) => s.split('\n').filter(l => !/V11\.36\.3/.test(l)).join('\n')
+      .replace('const winner = tikSlotMatch(bruikbaar, straalVast);', 'const winner = stickySlotMatch(bruikbaar, straal);');
+    const af2 = Object.entries(ONGEMOEID).filter(([n, [h, l]]) => {
+      const s = n === 'selecteerBesteDetectie' ? terugV11363(String(eval(n))) : String(eval(n));
+      return fnv(s) !== h || s.length !== l; }).map(x => x[0]);
+    eis('ML7b de keuze, de run, de poort, de lus en de GPS: negen functies byte-gelijk aan V11.34.1 (selecteerBesteDetectie zonder de V11.36.3-regels)',
         af2.length === 0, 'geen afwijking', af2.join(', ') || 'geen');
     const meetBron = zc(camcapNoteer) + zc(modelLogNoteer) + zc(minStatRun) + zc(minStatPre) + zc(minStatGegate)
                    + zc(minStatSluit) + zc(minStatZeker) + zc(meetRingSchrijf);

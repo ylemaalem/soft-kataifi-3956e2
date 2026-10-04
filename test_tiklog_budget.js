@@ -145,8 +145,11 @@ async function testTiklogBudget() {
         fnv(zonder) === 'd9f96f8' && zonder.length === 1154, 'd9f96f8 / 1154', fnv(zonder) + ' / ' + zonder.length);
     const VAST = { tikLogRun: ['2f4dd880', 262], tikLogLos: ['790260fe', 342], tikLogTik: ['a0583a9c', 1522], tikTelAf: ['46e5462b', 216],
                    tikTelRun: ['3475f84', 550], tikLogWaak: ['25490478', 714], tikLogSprong: ['7eebe753', 303] };
-    const afw = Object.entries(VAST).filter(([n, [h, l]]) => fnv(String(eval(n))) !== h || String(eval(n)).length !== l).map(x => x[0]);
-    eis('TK8b de andere zeven tiklogfuncties zijn onaangeroerd', afw.length === 0, 'geen afwijking', afw.join(', ') || 'geen');
+    // V11.36.3: tikTelAf schrijft v, vs en vd mee. Zonder die toevoeging is hij V11.34.1.
+    const bronTK8 = (n) => n !== 'tikTelAf' ? String(eval(n))
+      : String(eval(n)).replace(',\n      v: T.v, vs: T.v ? T.vs : null, vd: T.vd });   // V11.36.3: de weigeringen, zie tikWeiger', ' });');
+    const afw = Object.entries(VAST).filter(([n, [h, l]]) => fnv(bronTK8(n)) !== h || bronTK8(n).length !== l).map(x => x[0]);
+    eis('TK8b de andere zeven tiklogfuncties zijn onaangeroerd (tikTelAf zonder de V11.36.3-velden)', afw.length === 0, 'geen afwijking', afw.join(', ') || 'geen');
     eis('TK8c de budgetregel staat tussen push en de oude grens, die als vangnet blijft',
         /tikLogArr\.push\(rec\);\s*\n\s*tikLogArr = tikLogBudget\(tikLogArr\);[^\n]*\n\s*if \(tikLogArr\.length > TIKLOG_MAX\)/.test(String(tikLogNoteer)),
         'push, budget, grens', 'ok');
