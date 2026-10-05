@@ -425,7 +425,8 @@ async function testAchter() {
     corrigeerNodeAutomatisch: ['afe7b427', 4118], checkNaderingsCorrectie: ['6aeb87b3', 3595], verzamelNaderingsBewijs: ['3d6ad85f', 3526],
     checkHandLockPassage: ['7f001264', 1768], checkTikSlotSnel: ['d3a8edbe', 2071], regelTik: ['9c1b361b', 3087], vergrendelNodeHandmatig: ['9a007b96', 2295],
     selecteerNodeHandmatig: ['5275f4dd', 2379], tikRichting: ['9e40a595', 4410], isStoplichtVoorbij: ['38a0d2ed', 338] };
-  const anders11 = Object.entries(V11373).filter(([n, [h, l]]) => { const s = String(window[n]); return fnv(s) !== h || s.length !== l; }).map(x => x[0]);
+  // V11.37.5: tikRichting kreeg twee meetregels met merkteken (zie test_knoppen); zonder die regels gelijk.
+  const anders11 = Object.entries(V11373).filter(([n, [h, l]]) => { const s = String(window[n]).split(NL).filter(l => !/V11\.37\.5/.test(l)).join(NL); return fnv(s) !== h || s.length !== l; }).map(x => x[0]);
   eis('AR11d dertien keuzefuncties die V11.37.4 niet raakt (de puntentelling, de drie loslaatroutes, de correcties, de snelle route, de tik): byte-gelijk',
       anders11.length === 0, 'geen afwijking', anders11.join(', ') || 'geen');
   const z = zc(onGPS);

@@ -36,7 +36,11 @@ async function testMeetregels() {
   const fnv = (s) => { let h = 0x811c9dc5; for (let i = 0; i < s.length; i++) { h ^= s.charCodeAt(i); h = Math.imul(h, 0x01000193) >>> 0; } return h.toString(16); };
   const slaap = (ms) => new Promise(r => setTimeout(r, ms));
   // V11.36.1: ook de Safari-meetregels (merkteken V11.36.1) gaan eruit.
-  const zonderMeet = (f) => String(f).split('\n').filter(l => !/V11\.34\.[2-9]|V11\.36\.[14]|V11\.37\.1/.test(l)).join('\n');   // V11.36.4: ook de wissellog
+  // V11.37.5: twee regels kregen een andere vorm (de detlog bij stilstand, de knoppen na groen); hier terug.
+  const terugV11375 = (s) => String(s)
+    .replace('|| (afst < DETLOG_MIN_M && !stil) || afst > DETLOG_MAX_M) return;   // V11.37.5: stilstand vlak bij het licht mag', '|| afst < DETLOG_MIN_M || afst > DETLOG_MAX_M) return;')
+    .replace('if (snelheidKmh <= 30 && dichtstbijOSM) toonRichtingKnoppen(String(dichtstbijOSM.id));   // V11.37.5: het licht dat de app NU toont, zie isGetoondLicht', 'if (snelheidKmh <= 30) toonRichtingKnoppen(huidigBevestigdOsmNodeId);');
+  const zonderMeet = (f) => terugV11375(f).split('\n').filter(l => !/V11\.34\.[2-9]|V11\.36\.[14]|V11\.37\.[15]/.test(l)).join('\n');   // V11.36.4: ook de wissellog; V11.37.5: de detlog bij stilstand
   const lees = (k) => { try { return JSON.parse(localStorage.getItem(k)) || []; } catch (e) { return []; } };
 
   const sleutels = [CAMCAP_SLEUTEL, MODELLOG_SLEUTEL, MINUUTLOG_SLEUTEL];
@@ -255,7 +259,8 @@ async function testMeetregels() {
     const af2 = Object.entries(ONGEMOEID).filter(([n, [h, l]]) => {
       // V11.36.4: onGPS kreeg drie meetregels (de wissellog), met merkteken.
       const s = n === 'selecteerBesteDetectie' ? terugV11363(String(eval(n)))
-              : n === 'onGPS' ? terugV11374(String(eval(n))).split('\n').filter(l => !/V11\.36\.4|V11\.37\.[124]/.test(l))   /* V11.37.2: de snelle stilstandroute is gedrag, zie test_snelroute SN6b; V11.37.4: de achter-regel, zie test_achter */.join('\n') : String(eval(n));
+              : n === 'onGPS' ? terugV11374(String(eval(n))).split('\n').filter(l => !/V11\.36\.4|V11\.37\.[124]/.test(l))   /* V11.37.2: de snelle stilstandroute is gedrag, zie test_snelroute SN6b; V11.37.4: de achter-regel, zie test_achter */.join('\n')
+              : terugV11375(eval(n)).split('\n').filter(l => !/V11\.37\.5/.test(l)).join('\n');   // V11.37.5: postprocessYOLO en verwerkDetecties, zie test_knoppen
       return fnv(s) !== h || s.length !== l; }).map(x => x[0]);
     eis('ML7b de keuze, de run, de poort, de lus en de GPS: negen functies byte-gelijk aan V11.34.1 (selecteerBesteDetectie zonder de V11.36.3-regels)',
         af2.length === 0, 'geen afwijking', af2.join(', ') || 'geen');

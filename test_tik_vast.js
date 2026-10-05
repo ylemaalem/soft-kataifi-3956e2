@@ -325,7 +325,8 @@ async function testTikVast() {
       autoSlotZet: ['4e12277f', 313], autoSlotActief: ['f6d9de74', 134], autoSlotUitdagerRijp: ['e5affee2', 413],
       postprocessYOLO: ['42b30c6', 4725], tapZwakPositie: ['49f903a8', 295], tikStraalYolo: ['7014cad2', 165],
       tikStraalCam: ['83ae570a', 208], tikTelRun: ['3475f84', 550], preprocessVoorYOLO: ['f379eecc', 2733] };
-    const afw = Object.entries(ONGEMOEID).filter(([n, [h, l]]) => { const s = String(eval(n)); return fnv(s) !== h || s.length !== l; }).map(x => x[0]);
+    // V11.37.5: postprocessYOLO kreeg vijf regels met merkteken (de beste kandidaat voor de detlog, zie test_knoppen).
+    const afw = Object.entries(ONGEMOEID).filter(([n, [h, l]]) => { const s = String(eval(n)).split('\n').filter(l => !/V11\.37\.5/.test(l)).join('\n'); return fnv(s) !== h || s.length !== l; }).map(x => x[0]);
     eis('TV10d twaalf functies rond de keuze zijn byte-gelijk aan V11.36.2 (voorspelling, auto-slot, tik-zone, run)',
         afw.length === 0, 'geen afwijking', afw.join(', ') || 'geen');
 

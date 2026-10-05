@@ -1052,7 +1052,7 @@ if (typeof ort !== 'undefined') {
 //
 // De stijl volgt de eerdere labels: nummer, kastlijntje, korte omschrijving in
 // kleine letters. De CSS zet hem zelf in kapitalen (text-transform:uppercase).
-const APP_VERSIE = 'V11.37.4 — de app laat een gepasseerd licht los, ook zonder tik, en toont geen licht verder dan 400 m';
+const APP_VERSIE = 'V11.37.5 — de richtingknoppen volgen het getoonde licht, en meetregels voor een tik die niets doet en voor de lamp vlakbij';
 
 // ── CONSTANTEN ────────────────────────────────────────────────
 const OSM_RADIUS       = 5000;
@@ -2972,6 +2972,8 @@ function logOpslagMis(reden, extra) {
     } catch(_) {}
     if (!logNode && dichtstbijOSM && String(dichtstbijOSM.id) === String(nodeId)) logNode = dichtstbijOSM;
     const buurGek = dichtstbijzijndeBuur(logNode);
+    // V11.37.5: een regel over een ander licht dan het getoonde (e.node zonder e.afst): node/naam/peilGek gaan over dat licht, afst over het GETOONDE (betekenis blijft); erbij: gt = het getoonde, afN = afstand tot node
+    const anderLicht = !!(logNode && dichtstbijOSM && String(logNode.id) !== String(dichtstbijOSM.id));   // V11.37.5
     const num = (v) => (typeof v === 'number' && !isNaN(v)) ? Math.round(v) : null;
     const rec = {
       t: Date.now(),
@@ -3179,6 +3181,10 @@ function logOpslagMis(reden, extra) {
     if (e.resetAf != null)  rec.resetAf  = Math.round(e.resetAf);              // V11.34.3
     if (e.resetNa != null)  rec.resetNa  = Math.round(e.resetNa * 10) / 10;    // V11.34.3
     if (e.rPct != null)     rec.rPct     = e.rPct;                             // V11.34.3
+    if (anderLicht) {   // V11.37.5: zie bij buurGek
+      rec.gt = String(dichtstbijOSM.id);   // V11.37.5
+      if (huidigePos && typeof logNode.lat === 'number') rec.afN = num(afstand(huidigePos.lat, huidigePos.lon, logNode.lat, logNode.lon));   // V11.37.5
+    }   // V11.37.5
     let arr;
     try { arr = JSON.parse(localStorage.getItem('sl_opslaglog')) || []; } catch(_) { arr = []; }
     if (!Array.isArray(arr)) arr = [];
@@ -6232,6 +6238,7 @@ const dInfo=document.getElementById('d-info');
 // ── APP STAAT ─────────────────────────────────────────────────
 let onnxSession=null, modelGeladen=false, modelLaadStart=null;
 let fase=null, faseStart=null, activeCdDoel=0, cdStart=null;
+let faseEindeReden = null, faseEindeTijd = 0;   // V11.37.5: wie beeindigFase het laatst riep, voor zichtOorzaak
 // V11.14.3: wall-clock startmoment + nodeId voor dropout-continuïteit.
 // cdWallStart wordt nooit expliciet gereset — de guard in startCd
 // (elapsedS < activeCdDoel + CD_DROPOUT_MAX_S) beslist of herstel geldt.
@@ -9525,8 +9532,13 @@ function postprocessYOLO(outputData, dims) {
     debugLaatsteAlle = alle;
     debugLaatsteTopKlasse = debugBestAnchorKlasse;
     debugLaatsteTopScore = debugBestAnchorScore;
+    detLogBest = { s: debugBestAnchorScore, k: debugBestAnchorKlasse,   // V11.37.5: de beste kandidaat, voor de detlog bij stilstand
+      cx: outputData[debugBestAnchorIdx], cy: outputData[numAnchors + debugBestAnchorIdx],   // V11.37.5
+      w: outputData[2 * numAnchors + debugBestAnchorIdx], h: outputData[3 * numAnchors + debugBestAnchorIdx], maxY: dynamischMaxY,   // V11.37.5
+      tap: tapZwak !== null && ((outputData[debugBestAnchorIdx] - tapZwak.cx) ** 2 + (outputData[numAnchors + debugBestAnchorIdx] - tapZwak.cy) ** 2) <= tapStraal2 };   // V11.37.5
   } else {
     debugLaatsteAlle = null;
+    detLogBest = null;   // V11.37.5
   }
   detections.sort((a,b) => b.score-a.score);
   return nmsFilter(detections);
@@ -11750,7 +11762,7 @@ function verwerkDetecties() {
               // (r9144) is de variabele die de rest van de app gebruikt en is
               // vanaf r2947 altijd een getal — bij opstarten 0, dus knoppen
               // zichtbaar bij stilstand. Drempel van 30 km/u ongewijzigd.
-              if (snelheidKmh <= 30) toonRichtingKnoppen(huidigBevestigdOsmNodeId);
+              if (snelheidKmh <= 30 && dichtstbijOSM) toonRichtingKnoppen(String(dichtstbijOSM.id));   // V11.37.5: het licht dat de app NU toont, zie isGetoondLicht
             }, 3000);
           }
         }
@@ -11942,6 +11954,7 @@ function resetNeutraal(reden) {
 //   laatsteFase*   — het continuiteitsmechanisme (r5416)
 //   activeCdModus  — hoort bij activeCdDoel, gaat mee met stap 2
 function beeindigFase(reden) {
+  faseEindeReden = reden; faseEindeTijd = Date.now();   // V11.37.5: zie zichtOorzaak
   // Gated op een lopende fase: zonder die gate vuurt dit bij elke node-wissel
   // en verdringt het de andere redenen uit de 500-records-ringbuffer.
   if (fase !== null && faseStart !== null) {
@@ -13978,6 +13991,7 @@ function kiesLaagAlgemeen() {
 // tikRichting heeft zijn eigen node-bron (richtingKnoppenNodeId).
 function kiesLaagRichting(idx) {
   const rij = laatsteRichtingRijen[idx];
+  if (!rij) richtingTikLeeg('geen_rij', 'rij');   // V11.37.5: meten, zie richtingTikLeeg
   if (!rij) return;
   if (dichtstbijOSM) getoondeLaag = {
     node: String(dichtstbijOSM.id), key: rij.key, paren: rij.paren, richt: rij.richt
@@ -14977,6 +14991,9 @@ function zichtToestandNu() {
 // Afgeleide oorzaak volgens de discriminatietabel hierboven. Elke tak is
 // toegewezen; er is bewust geen 'onbekend'.
 function zichtOorzaak(naar, nu) {
+  // V11.37.5: een fase die beeindigFase net beëindigde (lijstkeuze 'handmatig', wissel, correctie,
+  // 'geen' licht) heette tot nu toe 'reset-stale'. Nu: 'einde-' plus de reden.
+  if (naar === 'NEUTRAAL' && faseEindeTijd > 0 && nu - faseEindeTijd < 1500) return 'einde-' + faseEindeReden;   // V11.37.5
   if (naar === 'NEUTRAAL')  return (geenTeller >= GEEN_RESET) ? 'reset-dropout' : 'reset-stale';
   if (naar === 'COUNTDOWN') return 'cd-hervat';
   // FASE_ZONDER_CD: de fase staat nog, maar de pill is weg.
@@ -15872,6 +15889,9 @@ function checkVRISuggestie(nodeId) {
       // Eerste tap = vraag, tweede tap binnen 5s = bevestig. Geen browser-dialoog.
       let vriBevestigingWacht = false;
       btn.onclick = () => {
+        if (!isGetoondLicht(nodeId)) {   // V11.37.5: na een wissel hoort deze knop bij een ander licht
+          btn.style.display = 'none'; btn.textContent = '🏷️ Tag dit stoplicht'; vriSuggestieActief = false; return;   // V11.37.5
+        }   // V11.37.5
         const actueleNodeId = nodeId;
         if (!vriBevestigingWacht) {
           vriBevestigingWacht = true;
@@ -16040,8 +16060,8 @@ function verbergRichtingKnoppen() {
 // de knoppen alsnog (forceerTonen), zodat een verkeerde persistente keuze
 // gecorrigeerd kan worden.
 function heropenRichtingKeuze() {
-  const nodeId = richtingLockNodeId || richtingKnoppenNodeId || huidigBevestigdOsmNodeId
-    || (dichtstbijOSM ? String(dichtstbijOSM.id) : null);
+  const nodeId = (dichtstbijOSM ? String(dichtstbijOSM.id) : null)   // V11.37.5: eerst het getoonde licht, zie isGetoondLicht
+    || richtingLockNodeId || richtingKnoppenNodeId || huidigBevestigdOsmNodeId;   // V11.37.5
   if (!nodeId) return;
   richtingGedruktVoorNode = null;
   wisRichtingLock();   // V11.17.96
@@ -16054,6 +16074,97 @@ function heropenRichtingKeuze() {
 //   'rij'     een tik op een bestaande richting-rij (kiesLaagRichting)
 // Een aanroep zonder element logt 'onbekend', zodat een nieuwe, niet-gelabelde
 // ingang in een export meteen opvalt in plaats van weg te vallen.
+// ── V11.37.5: DE KNOPPEN VOLGEN HET GETOONDE LICHT, EN TWEE METINGEN ─
+// © 2026 StoplichtIQ — Y. Lemaalem
+//
+// 1. HET GETOONDE LICHT. V11.37.3 stuurt een richtingtik naar het licht dat de
+//    app toont. Drie plekken hingen nog aan huidigBevestigdOsmNodeId, het licht
+//    van de laatste OFFICIËLE fase, dat na een wissel blijft staan: de knoppen
+//    die 3 s na groen verschijnen, heropenRichtingKeuze (de badge), en de tag- en
+//    VRI-knop (die binden hun licht als ze verschijnen en blijven 6-10 s staan).
+//    Nu: de knoppen gaan open voor het getoonde licht, en een tag- of VRI-knop
+//    die na een wissel nog in beeld staat, doet niets meer voor het oude licht.
+//
+// 2. EEN RICHTINGTIK DIE NIETS DOET. 4 oktober 19:13-19:14 (Hogeweg): Younes
+//    tikte 'linksaf' in het blok, en er staat geen enkele richting_tik in de
+//    opslaglog. Er zijn drie manieren waarop dat stil kan gebeuren; nu laat elk
+//    een regel richting_tik_leeg achter, met de reden in poortReden en de knop in
+//    element:
+//      geen_licht   tikRichting had geen licht om naartoe te gaan
+//      geen_rij     kiesLaagRichting vond de rij niet meer (het blok was net
+//                   opnieuw getekend)
+//      geen_effect  een vinger op een richtingknop, en binnen
+//                   RICHTING_TIK_WACHT_MS geen tikRichting en geen van de twee
+//                   hierboven: de klik kwam niet aan
+//    Alleen meten: de knoppen doen precies wat ze deden.
+//
+// 3. DE LAMP VLAKBIJ (zie detLogSchrijf): bij stilstand onder DETLOG_MIN_M
+//    schrijft de detlog hooguit één regel per 2 s, met de beste kandidaat van de
+//    run en het filter dat hem afwees (detLogBestVelden).
+const RICHTING_TIK_WACHT_MS = 500;
+let richtingTikGezien = 0;       // wanneer tikRichting voor het laatst begon
+let richtingTikLeegGezien = 0;   // wanneer richtingTikLeeg voor het laatst schreef
+
+function isGetoondLicht(nodeId) {
+  return !!dichtstbijOSM && nodeId != null && String(dichtstbijOSM.id) === String(nodeId);
+}
+
+function richtingTikLeeg(reden, element) {
+  try {
+    richtingTikLeegGezien = Date.now();
+    logOpslagMis('richting_tik_leeg', { poortReden: reden, element: element || 'onbekend' });
+  } catch (e) {}
+}
+
+// Het vangnet. Een vinger op een knop die tikRichting of kiesLaagRichting
+// aanroept; binnen RICHTING_TIK_WACHT_MS moet een van die twee gedraaid hebben.
+function richtingTikWacht(ev) {
+  try {
+    const knop = ev && ev.target && ev.target.closest
+      ? ev.target.closest('[onclick*="tikRichting"],[onclick*="kiesLaagRichting"]') : null;
+    if (!knop) return;
+    const a = knop.getAttribute('onclick') || '';
+    const element = /kiesLaagRichting/.test(a) ? 'rij' : /'toevoeg'/.test(a) ? 'toevoeg' : /'vraag'/.test(a) ? 'vraag' : 'onbekend';
+    const t0 = Date.now();
+    setTimeout(() => {
+      if (richtingTikGezien >= t0 || richtingTikLeegGezien >= t0) return;
+      richtingTikLeeg('geen_effect', element);
+    }, RICHTING_TIK_WACHT_MS);
+  } catch (e) {}
+}
+try { document.addEventListener('pointerdown', richtingTikWacht, true); } catch (e) {}
+
+// De beste kandidaat van de laatste run (postprocessYOLO zet detLogBest), en
+// welk filter hem afwees. Dezelfde volgorde als in postprocessYOLO; test_knoppen
+// KM3 toetst dat de twee op dezelfde anker-gevallen hetzelfde zeggen.
+//   geen       het model gaf geen enkel anker boven nul (of alleen 'uit')
+//   conf       buiten de tikzone onder CONF_DREMPEL (0,10)
+//   conf_tik   binnen de tikzone onder TAP_CONF_DREMPEL (0,04)
+//   laag       te laag in beeld (cy boven maxY)
+//   klein      te klein (h onder MIN_H_PX; in de tikzone onder 2)
+//   breed      breder dan MAX_BOX_W_RATIO
+//   plat       w/h boven MAX_WH_RATIO
+//   door       door de filters heen; dan wees een latere stap hem af
+function detLogAfwijsFilter(b, fam) {
+  if (!b) return 'geen';
+  if (b.tap) return !(fam >= TAP_CONF_DREMPEL) ? 'conf_tik' : (b.h < 2 || b.w <= 0) ? 'klein' : 'door';
+  if (!(fam >= CONF_DREMPEL)) return 'conf';
+  if (b.cy / YOLO_SIZE > b.maxY) return 'laag';
+  if (b.h < MIN_H_PX) return 'klein';
+  if (b.w / YOLO_SIZE > MAX_BOX_W_RATIO) return 'breed';
+  if (b.h > 0 && b.w / b.h > MAX_WH_RATIO) return 'plat';
+  return 'door';
+}
+
+function detLogBestVelden() {
+  const b = detLogBest;
+  if (!b) return { bf: 'geen' };
+  const fam = (KLASSE_MAP[b.k] && Array.isArray(debugLaatsteAlle)) ? famSom(debugLaatsteAlle, KLASSE_MAP[b.k], b.s) : b.s;
+  const r2 = (v) => Math.round(v * 100) / 100;
+  return { bs: r2(b.s), bk: b.k, bfam: r2(fam), bx: Math.round(b.cx), by: Math.round(b.cy), bw: Math.round(b.w), bh: Math.round(b.h),
+           bt: b.tap ? 1 : 0, bf: detLogAfwijsFilter(b, fam) };
+}
+
 // ── V11.37.3: DE RICHTINGTIK GAAT NAAR HET LICHT DAT JE ZIET ─────
 // © 2026 StoplichtIQ — Y. Lemaalem
 //
@@ -16086,6 +16197,8 @@ function heropenRichtingKeuze() {
 function tikRichting(richting, element, rijPct = null) {
   const oudDoel = richtingKnoppenNodeId || huidigBevestigdOsmNodeId;   // V11.37.3: waar de tik vroeger heen ging
   const nodeId = (dichtstbijOSM ? String(dichtstbijOSM.id) : null) || oudDoel;   // V11.37.3: het getoonde licht
+  richtingTikGezien = Date.now();   // V11.37.5: het vangnet (richtingTikWacht) ziet zo dat deze ingang draaide
+  if (!nodeId) richtingTikLeeg('geen_licht', element);   // V11.37.5: meten, zie richtingTikLeeg
   if (!nodeId) return;
   const sleutel = `sl_richting_${nodeId}`;
   let data = opslagLees(sleutel);   // V11.18.21
@@ -18416,7 +18529,7 @@ function toonTagKnop(nodeId) {
   if (vriSuggestieActief) return;
   if (laadStoplichtTag(nodeId)) { btn.style.display='none'; return; }
   btn.style.display = 'block';
-  btn.onclick = () => toonTagOverlay(nodeId);
+  btn.onclick = () => { if (!isGetoondLicht(nodeId)) { verbergTagUI(); return; } toonTagOverlay(nodeId); };   // V11.37.5: alleen voor het licht dat nu getoond wordt
   // Auto-verberg na 6 seconden
   if (tagAutoSluitTimer) clearTimeout(tagAutoSluitTimer);
   tagAutoSluitTimer = setTimeout(() => { btn.style.display='none'; tagAutoSluitTimer=null; }, 6000);
@@ -18910,6 +19023,10 @@ function exporteerZichtLog() {
 const MAX_DETLOG   = 500;
 const DETLOG_MIN_M = 20;
 const DETLOG_MAX_M = 400;
+const DETLOG_STIL_KMH = 3;      // V11.37.5: onder DETLOG_MIN_M alleen bij stilstand (NODE_CHK_STANDSTILL_KMH)
+const DETLOG_STIL_MS  = 2000;   // V11.37.5: ... en hooguit één regel per zoveel ms
+let detLogStilLaatst = 0;       // V11.37.5
+let detLogBest = null;          // V11.37.5: de beste kandidaat van de laatste run, zie postprocessYOLO
 let detLogStop = false;   // true na quota-fout: schrijven definitief gestaakt
 let detLogArr  = null;    // in-memory buffer; pas gevuld bij de eerste schrijfactie
 let detLogGegate = 0;     // V11.34.2: gegate pogingen sinds de vorige run
@@ -18921,8 +19038,10 @@ function detLogSchrijf() {
   if (detLogStop) return;
   try {
     const afst = detLogAfst;
+    const stil = typeof afst === 'number' && afst < DETLOG_MIN_M && typeof snelheidKmh === 'number' && snelheidKmh < DETLOG_STIL_KMH;   // V11.37.5
+    if (stil && Date.now() - detLogStilLaatst < DETLOG_STIL_MS) return;   // V11.37.5: hooguit één regel per 2 s
     if (typeof afst !== 'number' || isNaN(afst)
-        || afst < DETLOG_MIN_M || afst > DETLOG_MAX_M) return;
+        || (afst < DETLOG_MIN_M && !stil) || afst > DETLOG_MAX_M) return;   // V11.37.5: stilstand vlak bij het licht mag
     const num = (v, d) => (typeof v === 'number' && !isNaN(v))
       ? Math.round(v * Math.pow(10, d || 0)) / Math.pow(10, d || 0) : null;
     // Vergroting t.o.v. het volle beeld: hoeveel groter staat een object in de
@@ -18953,6 +19072,7 @@ function detLogSchrijf() {
       inf:    num(gemiddeldeInferentieTijd)
     };
     if (gN > 0) rec.gN = gN;   // V11.34.2: alleen als er gegate pogingen waren
+    if (stil) { detLogStilLaatst = Date.now(); rec.stil = 1; Object.assign(rec, detLogBestVelden()); }   // V11.37.5: zie detLogBestVelden
     if (detLogArr === null) {
       try { detLogArr = JSON.parse(localStorage.getItem('sl_detlog')) || []; }
       catch(_) { detLogArr = []; }
