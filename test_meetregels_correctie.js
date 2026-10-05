@@ -221,7 +221,12 @@ async function testMeetregelsCorrectie() {
     // ═══ MC5 — alleen meten ═══════════════════════════════════
     // Zonder de gemarkeerde regels, en met de drie meegegeven waarden weer weg,
     // zijn de geraakte functies byte-gelijk aan V11.34.1 (4093429).
-    const norm = (n) => zonderMeet(eval(n))
+    // V11.37.3: de richtingtik gaat naar het getoonde licht. Dat is gedrag (getoetst in
+    // test_richtingtik); met de oude regel terug is tikRichting verder onaangeroerd.
+    const terugV11373 = (s) => s.replace(/  const oudDoel = [^\n]*\n  const nodeId = [^\n]*\n/,
+        '  const nodeId = richtingKnoppenNodeId || huidigBevestigdOsmNodeId;\n')
+      .replace(/rPct,\n    nieuw: [^\n]*\n/, 'rPct });\n');
+    const norm = (n) => zonderMeet(n === 'tikRichting' ? terugV11373(String(eval(n))) : eval(n))
       .replace(/naderBewijsReset\('[a-z]+'\)/g, 'naderBewijsReset()')
       .replace(', rijPct = null)', ')').replace("'rij', rijPct)", "'rij')")
       .replace('element: richtingTikElement, rPct }', 'element: richtingTikElement }')

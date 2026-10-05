@@ -1052,7 +1052,7 @@ if (typeof ort !== 'undefined') {
 //
 // De stijl volgt de eerdere labels: nummer, kastlijntje, korte omschrijving in
 // kleine letters. De CSS zet hem zelf in kapitalen (text-transform:uppercase).
-const APP_VERSIE = 'V11.37.2 — na een tik op het verkeerde licht wisselt de app bij stilstand binnen 2 s naar het licht vlak voor je';
+const APP_VERSIE = 'V11.37.3 — een richtingtik gaat altijd naar het licht dat de app nu toont';
 
 // ── CONSTANTEN ────────────────────────────────────────────────
 const OSM_RADIUS       = 5000;
@@ -16010,8 +16010,38 @@ function heropenRichtingKeuze() {
 //   'rij'     een tik op een bestaande richting-rij (kiesLaagRichting)
 // Een aanroep zonder element logt 'onbekend', zodat een nieuwe, niet-gelabelde
 // ingang in een export meteen opvalt in plaats van weg te vallen.
+// ── V11.37.3: DE RICHTINGTIK GAAT NAAR HET LICHT DAT JE ZIET ─────
+// © 2026 StoplichtIQ — Y. Lemaalem
+//
+// DE FOUT. Tot hier ging een richtingtik naar richtingKnoppenNodeId, en zonder
+// knoppen naar huidigBevestigdOsmNodeId. De knoppen zelf verdwijnen bij elke
+// wissel (resetRijrichtingState), maar huidigBevestigdOsmNodeId wordt alleen
+// gezet als een fase officieel wordt en alleen gewist bij een uitval met een
+// lopende fase; een lijstkeuze, een tik of een wissel laat hem staan. Een tik op
+// de toevoeg- of rijknoppen in het blok ging dan naar dat oude licht. Gemeten in
+// alle exports van 25 sept tot 4 okt: 64 richtingtikken, bij 62 daarvan is te
+// zien welk licht er stond, en 5 landden op een ander licht (2 op een ander
+// kruispunt, 3 op een andere mast van hetzelfde kruispunt); 1 V5-meting ging
+// daardoor verloren. Op 4 oktober om 19:27:30 koos Younes uit de lijst
+// Amersfoortsestraat (9967542165); vier seconden later schreef zijn Rechtsaf-tik
+// ('toevoeg') naar 4065739949, het licht van vóór de lijstkeuze, 61 graden
+// opzij. Om 19:28:58 ging 'links' naar datzelfde licht, terwijl Energieweg
+// getoond werd en 4065739949 ruim 1 km achter de auto lag; de linksaf-meting
+// van het rood erna (38 s) ging verloren.
+//
+// DE REGEL (Younes, 5 oktober): een richtingtik gaat altijd naar het licht waar
+// de box nu op staat, dus het licht dat de app toont (dichtstbijOSM). Alleen als
+// er geen licht getoond wordt, gelden de oude bronnen nog.
+//
+// DE GEVOLGEN. Alles wat deze functie aan de tik hangt, verhuist mee: de
+// richtingdata (sl_richting_), het richtingslot, de pre-selectie, de koppeling
+// aan een uitgestelde V5-schrijving (die eist hetzelfde licht als de lopende
+// meting) en de logregel. Ging de tik vroeger naar een ander licht, dan zegt het
+// veld 'nieuw' van de logregel 'richting_tik' welk licht dat was: zo is in de
+// volgende export te tellen hoe vaak deze regel iets verandert.
 function tikRichting(richting, element, rijPct = null) {
-  const nodeId = richtingKnoppenNodeId || huidigBevestigdOsmNodeId;
+  const oudDoel = richtingKnoppenNodeId || huidigBevestigdOsmNodeId;   // V11.37.3: waar de tik vroeger heen ging
+  const nodeId = (dichtstbijOSM ? String(dichtstbijOSM.id) : null) || oudDoel;   // V11.37.3: het getoonde licht
   if (!nodeId) return;
   const sleutel = `sl_richting_${nodeId}`;
   let data = opslagLees(sleutel);   // V11.18.21
@@ -16044,7 +16074,8 @@ function tikRichting(richting, element, rijPct = null) {
     const hR = v9AanrijSnelheidHeading ?? v9AanrijHeading;   // V11.34.3
     rPct = richtingRijPct(nodeId, gpsHeadingNaarWindrichting(hR), berekenAfrijRichtingViaTik(hR, richting));   // V11.34.3
   }   // V11.34.3
-  logOpslagMis('richting_tik', { node: String(nodeId), element: richtingTikElement, rPct });
+  logOpslagMis('richting_tik', { node: String(nodeId), element: richtingTikElement, rPct,
+    nieuw: (oudDoel && String(oudDoel) !== String(nodeId)) ? String(oudDoel) : null });   // V11.37.3: het oude doel, als dat anders was
 
   // V9.0: Pre-selectie afrijrichting berekenen voor countdown
   if (v9AanrijHeading != null || v9AanrijSnelheidHeading != null) {
