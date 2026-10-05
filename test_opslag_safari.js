@@ -201,7 +201,7 @@ async function testOpslagSafari() {
     const ONGEMOEID = { berekenLocalStorageKB: ['8fd8ab6c', 193], voerOpruimPassenUit: ['b5221ec9', 5515], opslagOverzicht: ['5ff742b9', 1762] };
     const afw2 = Object.entries(ONGEMOEID).filter(([n, [h, l]]) => fnv(String(eval(n))) !== h || String(eval(n)).length !== l).map(x => x[0]);
     eis('SA5b de UTF-16-telling, de passen en het overzicht zijn onaangeroerd', afw2.length === 0, 'geen afwijking', afw2.join(', ') || 'geen');
-    const zonder = String(exporteerMeetdata).split('\n').filter(l => !/V11\.34\.[2-9]|V11\.36\.[14]/.test(l)).join('\n');   // V11.36.4: de wisselbak
+    const zonder = String(exporteerMeetdata).split('\n').filter(l => !/V11\.34\.[2-9]|V11\.36\.[14]|V11\.37\.1/.test(l)).join('\n');   // V11.36.4: de wisselbak
     eis('SA5c exporteerMeetdata zonder meetregels is nog steeds V11.34.1', fnv(zonder) === 'ef1e19bb' && zonder.length === 7864,
         'ef1e19bb / 7864', fnv(zonder) + ' / ' + zonder.length);
     zet('sl_v4_996803_dag', [{ duur: 42, tijd: 3 }]);
@@ -228,7 +228,8 @@ async function testOpslagSafari() {
       'tikLogTik', 'tikLogWaak', 'tikLogSprong', 'tikTelAf', 'tikTelRun', 'camcapNoteer', 'modelLogNoteer', 'minStatSluit',
       'meetRingSchrijf', 'logOpruiming', 'berekenSafariOpslag', 'latin1Veilig', 'slaPassiefMeting', 'passiefLog', 'slaKlokMoment',
       'slaS2Aanwezigheid', 'slaOpIntern', 'slaOpV5', 'slaRichtingOp', 'naderLeegMerk', 'naderLeegMeet', 'schrijfV5DirectBijGroen',
-      'bevestigCountdown', 'meetBevestigMoment', 'appVersieKort', 'wisselLogNoteer'];   // V11.36.4
+      'bevestigCountdown', 'meetBevestigMoment', 'appVersieKort', 'wisselLogNoteer',   // V11.36.4
+      'regelTik', 'regelAfwSchrijf'];   // V11.37.1
     const scherm = /console\.|toonToast\(|toonLeerToast\(|alert\(|confirm\(|textContent|innerHTML/;
     const ontbreekt = SCHRIJVERS.filter(n => typeof window[n] !== 'function');
     const metBreed = SCHRIJVERS.filter(n => typeof window[n] === 'function').filter(n => {

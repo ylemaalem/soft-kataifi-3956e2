@@ -1052,7 +1052,7 @@ if (typeof ort !== 'undefined') {
 //
 // De stijl volgt de eerdere labels: nummer, kastlijntje, korte omschrijving in
 // kleine letters. De CSS zet hem zelf in kapitalen (text-transform:uppercase).
-const APP_VERSIE = 'V11.37.0 — na een tik laat de app het licht los zodra je het kruispunt 30 m voorbij bent';
+const APP_VERSIE = 'V11.37.1 — de schaduwregel: de app rekent de lichtkeuze van Younes stil mee en legt vast waar die afwijkt';
 
 // ── CONSTANTEN ────────────────────────────────────────────────
 const OSM_RADIUS       = 5000;
@@ -5527,6 +5527,7 @@ function exporteerMeetdata() {
       uit.appVersie = appVersieKort();   // V11.34.3: de echte appversie; 'versie' hierboven is het formaat
       uit.camcap = {}; uit.model = {}; uit.minuut = {};   // V11.34.2: zie camcapNoteer
       uit.wissel = {};   // V11.36.4: zie wisselLogNoteer
+      uit.regel = {};    // V11.37.1: zie regelTik
       for (const key of opslagSleutels('')) {                          // V11.23.0
         let doel = null;
         if (key.startsWith('sl_passief_'))       doel = uit.passief;
@@ -5547,6 +5548,7 @@ function exporteerMeetdata() {
         else if (key === MODELLOG_SLEUTEL)       doel = uit.model;      // V11.34.2: welk model er laadde
         else if (key === MINUUTLOG_SLEUTEL)      doel = uit.minuut;     // V11.34.2: runs en rAF per minuut
         else if (key === WISSELLOG_SLEUTEL)      doel = uit.wissel;     // V11.36.4: elke wissel naar een ander licht
+        else if (key === REGELLOG_SLEUTEL)       doel = uit.regel;      // V11.37.1: de schaduwregel
         // V11.17.33 W2: let op de volgorde — 'sl_richtinglog' begint NIET met
         // 'sl_richting_' (na 'sl_richting' volgt 'l', geen '_'), dus deze twee
         // takken kunnen elkaar niet vangen. Toch staat de exacte match eerst.
@@ -8655,6 +8657,178 @@ function wisselNa(lat, lon) {
       const af = afstand(lat, lon, dichtstbijOSM.lat, dichtstbijOSM.lon);
       if (wisselStaat.min === null || af < wisselStaat.min) wisselStaat.min = af;
     }
+  } catch (e) {}
+}
+
+// ── V11.37.1: DE SCHADUWREGEL VAN YOUNES (ALLEEN METEN) ───────
+// © 2026 StoplichtIQ — Y. Lemaalem
+//
+// WAAROM. Younes stelde op 5 oktober een eenvoudiger lichtkeuze voor: neem bij
+// elke GPS-update het dichtstbijzijnde licht dat ongeveer vooruit ligt en
+// waar je naartoe rijdt; een licht waarvan de afstand oploopt is voorbij. Op
+// de 19 stops die uit de exports na te rekenen waren, koos die regel bij
+// aankomst 17 keer goed en de app 9 keer (STAP 0 van 5 oktober). Dat is te
+// weinig om de keuze om te zetten. Deze meting laat de regel naast de app
+// meerekenen, op de weg, met bochten en zijstraten erbij.
+//
+// DE REGEL, zoals afgesproken (Younes, 5 oktober):
+//   - alleen beoordelen vanaf REGEL_MIN_KMH; daaronder blijft de keuze staan
+//     (bij stilstand geeft de GPS ruis en geen bruikbare rijrichting);
+//   - alleen een NIEUWE GPS-positie telt. Een herhaalde, identieke positie
+//     (34-50% van de updates in de STAP 0) zegt niets nieuws;
+//   - kandidaat: binnen REGEL_MAX_M, hoogstens REGEL_HOEK graden van de
+//     rijrichting, en de afstand liep af sinds de vorige nieuwe positie;
+//   - voorbij: REGEL_VOORBIJ_N nieuwe posities op rij met een stijgende
+//     afstand. Een gepasseerd licht en elke mast binnen REGEL_KRUISPUNT_M
+//     ervan doen niet meer mee, tot de auto REGEL_VERGEET_M van dat licht weg
+//     is (anders kiest de regel na het passeren de overkant van hetzelfde
+//     kruispunt: in de STAP 0 lag het volgende licht steeds op 8-61 m);
+//   - de keuze is het dichtstbijzijnde kandidaatlicht, of geen licht.
+//
+// WAT ER WORDT VASTGELEGD (sl_regellog, een ring van REGELLOG_MAX regels):
+//   s:'af'   een afwijking: de regel koos een ander licht dan de app toonde.
+//            Eén regel per afwijking, geschreven als hij voorbij is en
+//            minstens REGEL_AFW_MIN_MS duurde: t (begin), du (duur, s), app en
+//            rg (de twee lichten, OSM-nummers), dA/dR (hun afstanden, m),
+//            pA/pR (hun peilingen tov de rijrichting), kmh. Een afwijking die
+//            nog loopt als er geëxporteerd wordt, staat er dus nog niet in.
+//   s:'stop' één regel per stop met een licht binnen REGEL_STOP_MAX_M,
+//            REGEL_STOP_MS na het stilvallen: wat de app en de regel toonden op
+//            100, 50 en 30 m vóór de stopplek (a100/r100, a50/r50, a30/r30) en
+//            na 2 s stilstand (a2/r2); rt = hoe de app bij zijn licht kwam (de
+//            reden uit de wissellog, '-' als hij er al op stond), wt = hoeveel
+//            seconden na het stilvallen die wissel kwam (negatief = ervoor),
+//            sl = het slot (hand, auto of -).
+// Welk licht het JUISTE was, staat elders: de lijstkeuze, de tik en de meting.
+// Die legt de analyse ernaast.
+//
+// PUUR OBSERVEREND. Niets hieronder verandert een keuze: de functie leest
+// dichtstbijOSM, osmCache en de wissellog, en schrijft alleen in regelStaat en
+// sl_regellog (meetRingSchrijf: een vol quotum staakt alleen dit log).
+// test_schaduwregel SR9 rijdt dezelfde rit met en zonder deze functie en
+// vergelijkt elke keuze. ~110-160 tekens per regel, Latin-1: ~13 K voor de ring.
+const REGELLOG_SLEUTEL  = 'sl_regellog';
+const REGELLOG_MAX      = 100;
+const REGEL_MIN_KMH     = 5;
+const REGEL_HOEK        = 60;
+const REGEL_MAX_M       = 400;
+const REGEL_VOORBIJ_N   = 2;
+const REGEL_KRUISPUNT_M = 60;
+const REGEL_VERGEET_M   = 150;
+const REGEL_AFW_MIN_MS  = 1500;
+const REGEL_STOP_MS     = 2000;
+const REGEL_STOP_MAX_M  = 80;
+const REGEL_SPOOR_N     = 120;   // nieuwe posities, ruim genoeg voor 100 m terugkijken
+let regelStaat = null;
+function regelReset() {
+  regelStaat = { keuze: null, pos: null, af: new Map(), stijg: new Map(), voorbij: [], spoor: [], afw: null, stop: null };
+}
+regelReset();
+
+// De keuze van de regel op een nieuwe positie, rijdend. Werkt ook de afstanden,
+// de stijg-tellers en de lijst met gepasseerde lichten bij.
+function regelKies(lat, lon, koers) {
+  const st = regelStaat;
+  const dLat = REGEL_MAX_M / 111320, dLon = REGEL_MAX_M / (111320 * Math.cos(lat * Math.PI / 180));
+  const binnen = [];
+  const af = new Map(), stijg = new Map();
+  for (const sl of osmCache) {
+    if (typeof sl.lat !== 'number' || typeof sl.lon !== 'number') continue;
+    if (Math.abs(sl.lat - lat) > dLat || Math.abs(sl.lon - lon) > dLon) continue;
+    const d = afstand(lat, lon, sl.lat, sl.lon);
+    if (d > REGEL_MAX_M) continue;
+    const id = String(sl.id);
+    const vorig = st.af.get(id);
+    const n = (vorig !== undefined && d > vorig) ? (st.stijg.get(id) || 0) + 1 : 0;
+    if (n) stijg.set(id, n);
+    if (n >= REGEL_VOORBIJ_N && !st.voorbij.some(v => v.id === id)) st.voorbij.push({ id, lat: sl.lat, lon: sl.lon });
+    af.set(id, d);
+    binnen.push([sl, id, d, vorig]);
+  }
+  st.voorbij = st.voorbij.filter(v => afstand(lat, lon, v.lat, v.lon) <= REGEL_VERGEET_M);
+  let best = null, bestAf = Infinity;
+  for (const [sl, id, d, vorig] of binnen) {
+    if (!(vorig === undefined || d < vorig)) continue;          // je rijdt er niet naartoe
+    const p = peilingTovRijrichting({ lat, lon }, sl, koers);
+    if (p === null || Math.abs(p) > REGEL_HOEK) continue;      // niet ongeveer vooruit
+    if (st.voorbij.some(v => v.id === id || afstand(v.lat, v.lon, sl.lat, sl.lon) <= REGEL_KRUISPUNT_M)) continue;
+    if (d < bestAf) { bestAf = d; best = id; }
+  }
+  st.af = af; st.stijg = stijg;
+  return best;
+}
+
+function regelNode(id) {
+  if (id == null) return null;
+  if (dichtstbijOSM && String(dichtstbijOSM.id) === String(id)) return dichtstbijOSM;
+  return osmCache.find(s => String(s.id) === String(id)) || null;
+}
+
+function regelAfwSchrijf(nu) {
+  const a = regelStaat.afw;
+  regelStaat.afw = null;
+  if (!a || nu - a.t < REGEL_AFW_MIN_MS) return;
+  const rec = { t: a.t, s: 'af', du: Math.round((nu - a.t) / 100) / 10, app: a.app, rg: a.rg,
+                dA: a.dA, dR: a.dR, pA: a.pA, pR: a.pR, kmh: a.kmh };
+  for (const k of Object.keys(rec)) if (rec[k] === null || rec[k] === undefined) delete rec[k];
+  meetRingSchrijf(REGELLOG_SLEUTEL, REGELLOG_MAX, rec);
+}
+
+function regelTik(lat, lon) {
+  try {
+    if (!cacheGeladen || !osmCache.length || typeof lat !== 'number' || typeof lon !== 'number') return;
+    const st = regelStaat, nu = Date.now();
+    const kmh = (typeof snelheidKmh === 'number' && !isNaN(snelheidKmh)) ? snelheidKmh : 0;
+    const app = dichtstbijOSM ? String(dichtstbijOSM.id) : null;
+    const nieuw = !st.pos || st.pos.lat !== lat || st.pos.lon !== lon;
+    if (nieuw && kmh >= REGEL_MIN_KMH) {
+      const koers = getSmoothedHeading();
+      if (koers !== null && Number.isFinite(koers)) st.keuze = regelKies(lat, lon, koers);
+    }
+    if (nieuw) {
+      st.pos = { lat, lon };
+      st.spoor.push({ lat, lon, a: app, r: st.keuze });
+      if (st.spoor.length > REGEL_SPOOR_N) st.spoor.shift();
+    }
+    const num = (x) => (x == null ? null : Number(x));
+    const heel = (x) => (typeof x === 'number' && isFinite(x)) ? Math.round(x) : null;
+    // De afwijking: een ander paar sluit de lopende af.
+    const paar = (app !== st.keuze) ? String(app) + '>' + String(st.keuze) : null;
+    if (st.afw && st.afw.paar !== paar) regelAfwSchrijf(nu);
+    if (paar && !st.afw) {
+      const nA = regelNode(app), nR = regelNode(st.keuze), pos = { lat, lon }, koers = getSmoothedHeading();
+      st.afw = { paar, t: nu, app: num(app), rg: num(st.keuze), kmh: heel(kmh),
+                 dA: nA ? heel(afstand(lat, lon, nA.lat, nA.lon)) : null, dR: nR ? heel(afstand(lat, lon, nR.lat, nR.lon)) : null,
+                 pA: nA ? peilingTovRijrichting(pos, nA, koers) : null, pR: nR ? peilingTovRijrichting(pos, nR, koers) : null };
+    }
+    // De stop.
+    const stil = kmh < NODE_CHK_STANDSTILL_KMH && stilstandSinds > 0;
+    if (!stil) { if (kmh >= REGEL_MIN_KMH) st.stop = null; return; }
+    if (!st.stop) st.stop = { t0: stilstandSinds, lat, lon, klaar: false };
+    if (st.stop.klaar || nu - st.stop.t0 < REGEL_STOP_MS) return;
+    st.stop.klaar = true;
+    const S = st.stop;
+    const bij = (id) => { const n = regelNode(id); return n ? afstand(S.lat, S.lon, n.lat, n.lon) : Infinity; };
+    if (Math.min(bij(app), bij(st.keuze)) > REGEL_STOP_MAX_M) return;
+    const rec = { t: S.t0, s: 'stop' };
+    for (const m of [100, 50, 30]) {
+      for (let i = st.spoor.length - 1; i >= 0; i--) {
+        const p = st.spoor[i];
+        if (afstand(p.lat, p.lon, S.lat, S.lon) >= m) { rec['a' + m] = num(p.a); rec['r' + m] = num(p.r); break; }
+      }
+    }
+    rec.a2 = num(app); rec.r2 = num(st.keuze);
+    let w = null;
+    try { const ring = opslagLees(WISSELLOG_SLEUTEL, []); if (Array.isArray(ring)) {
+      for (let i = ring.length - 1; i >= 0; i--) {
+        if (ring[i].t < S.t0 - 120000) break;
+        if (String(ring[i].naar) === app) { w = ring[i]; break; }
+      } } } catch (e) {}
+    rec.rt = w ? w.r : '-';
+    if (w) rec.wt = Math.round((w.t - S.t0) / 100) / 10;
+    rec.sl = handmatigLockActief ? (stilstandAutoLock ? 'auto' : 'hand') : '-';
+    for (const k of Object.keys(rec)) if (rec[k] === null || rec[k] === undefined) delete rec[k];
+    meetRingSchrijf(REGELLOG_SLEUTEL, REGELLOG_MAX, rec);
   } catch (e) {}
 }
 
@@ -20264,6 +20438,7 @@ async function onGPS(pos) {
   // niets aan de keuze.
   if (cacheGeladen) meldNodeVermoeden(lat, lon);    // V11.18.12: zie daar
   wisselNa(lat, lon);   // V11.36.4: meetregel, beslist niets
+  regelTik(lat, lon);   // V11.37.1: meetregel, beslist niets
   refreshStadIndienNodig(lat, lon);
 
   // V9.0: Nadering detectie + delayed write
