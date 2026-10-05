@@ -246,7 +246,7 @@ async function testPassage() {
 
   // ═══ PS9 — regressie ═════════════════════════════════════════
   const NL = String.fromCharCode(10);
-  const g = String(onGPS).split(NL).filter(l => !/V11\.36\.4|V11\.37\.[01]/.test(l)).join(NL);
+  const g = String(onGPS).split(NL).filter(l => !/V11\.36\.4|V11\.37\.[012]/.test(l)).join(NL);
   eis('PS9a onGPS zonder de A3-regel en de meetregels is byte-gelijk aan V11.34.1',
       fnv(g) === '58346b1c' && g.length === 14246, '58346b1c / 14246', fnv(g) + ' / ' + g.length);
   const vast = String(isStoplichtVoorbij);

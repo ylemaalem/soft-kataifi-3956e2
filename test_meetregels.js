@@ -248,7 +248,7 @@ async function testMeetregels() {
     const af2 = Object.entries(ONGEMOEID).filter(([n, [h, l]]) => {
       // V11.36.4: onGPS kreeg drie meetregels (de wissellog), met merkteken.
       const s = n === 'selecteerBesteDetectie' ? terugV11363(String(eval(n)))
-              : n === 'onGPS' ? String(eval(n)).split('\n').filter(l => !/V11\.36\.4|V11\.37\.1/.test(l)).join('\n') : String(eval(n));
+              : n === 'onGPS' ? String(eval(n)).split('\n').filter(l => !/V11\.36\.4|V11\.37\.[12]/.test(l))   /* V11.37.2: de snelle stilstandroute is gedrag, zie test_snelroute SN6b */.join('\n') : String(eval(n));
       return fnv(s) !== h || s.length !== l; }).map(x => x[0]);
     eis('ML7b de keuze, de run, de poort, de lus en de GPS: negen functies byte-gelijk aan V11.34.1 (selecteerBesteDetectie zonder de V11.36.3-regels)',
         af2.length === 0, 'geen afwijking', af2.join(', ') || 'geen');

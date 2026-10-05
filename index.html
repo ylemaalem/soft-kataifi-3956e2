@@ -1052,7 +1052,7 @@ if (typeof ort !== 'undefined') {
 //
 // De stijl volgt de eerdere labels: nummer, kastlijntje, korte omschrijving in
 // kleine letters. De CSS zet hem zelf in kapitalen (text-transform:uppercase).
-const APP_VERSIE = 'V11.37.1 — de schaduwregel: de app rekent de lichtkeuze van Younes stil mee en legt vast waar die afwijkt';
+const APP_VERSIE = 'V11.37.2 — na een tik op het verkeerde licht wisselt de app bij stilstand binnen 2 s naar het licht vlak voor je';
 
 // ── CONSTANTEN ────────────────────────────────────────────────
 const OSM_RADIUS       = 5000;
@@ -7887,6 +7887,7 @@ canvas.addEventListener('click', (e) => {
   // ACTIEVE node vast, niet per se de mast waarop je tikte. Het vakje volgt wel
   // je vinger — dat regelen bboxOverride en de sticky hieronder.
   if (dichtstbijOSM) vergrendelNodeHandmatig(dichtstbijOSM.id, 'beeld');
+  if (dichtstbijOSM) tikSlotMerk = { id: String(dichtstbijOSM.id), ts: handmatigGeselecteerdTimestamp };   // V11.37.2: dit slot komt van een tik op het beeld
 
   // ── V11.33.0 F1: DE TIK LANDT WAAR JE VINGER LANDDE ──
   // © 2026 StoplichtIQ — Y. Lemaalem
@@ -8551,6 +8552,7 @@ function meetRingSchrijf(sleutel, max, rec) {
 //           auto       het stilstandslot liet los bij het wegrijden
 //           nadering   de naderingscorrectie koos een ander licht
 //           correctie  de stilstandscorrectie koos een ander licht
+//           snel       V11.37.2: de snelle stilstandroute na een tik (zie checkTikSlotSnel)
 //           lijst      een keuze uit de lijst, tussen twee GPS-tikken in
 //           kaart      een wissel tussen twee GPS-tikken in zonder lijstkeuze
 //                      (het laden van de kaart roept updateDichtbij ook aan)
@@ -8642,7 +8644,8 @@ function wisselNa(lat, lon) {
       : (T.auto && !nuAuto && !nuHand) ? 'auto' : null;
     if (id && T.id && id !== T.id && wisselStaat && wisselStaat.id === T.id) {
       const reden = (laatsteNodeCorrectieTijd >= T.t)
-        ? ((T.tussenCorr !== null && laatsteNodeCorrectieTijd === T.tussenCorr) ? 'nadering' : 'correctie')
+        ? ((T.tussenCorr !== null && laatsteNodeCorrectieTijd === T.tussenCorr) ? 'nadering'
+          : (snelCorrTijd === laatsteNodeCorrectieTijd ? 'snel' : 'correctie'))   // V11.37.2
         : (los || wisselStaat.los || 'vrij');
       wisselLogNoteer(wisselStaat, dichtstbijOSM, reden, T.uit, lat, lon);
     } else if (wisselStaat && wisselStaat.id === id) {
@@ -20268,6 +20271,98 @@ function naderingToastTekst(meter) {
   return '✓ Gewisseld naar licht op ' + Math.round(meter) + ' m';
 }
 
+// ── V11.37.2: DE SNELLE STILSTANDROUTE VOOR EEN TIKSLOT ──────────
+// © 2026 StoplichtIQ — Y. Lemaalem
+//
+// DE KLACHT (Younes, 4 oktober 12:06, Amersfoort): "ik sta stil bij het
+// verkeerde stoplicht en het duurt 5 seconden of langer". Gemeten in de export
+// van 4 oktober: een tik op 67 m zette Ringweg-Randenbroek vast, terwijl
+// Schuilenburgerweg recht vooruit dichterbij lag. Bij stilstand op 5 m van dat
+// licht weigerde de naderingsroute (voorbij_weg) en wisselde de vervalroute
+// pas na 6,0 s; daarbij gingen 14 s rood en de tik verloren.
+//
+// WAAROM HET ZO LANG DUURT. Een tik op het beeld zet de getoonde node vast
+// (V11.18.17). Dat blokkeert beide stilstandroutes (checkNodeCorrectieStilstand,
+// poort 5). Alleen de vervalroute komt erdoorheen: 3 s stilstand en daarna 3
+// GPS-tikken op rij (checkHandLockVerval), samen 5-6 s. Gemeten van 25 sept tot
+// 3 okt: 7 keer, steeds 5,0-6,0 s. Bij stilstand was het dichtstbijzijnde licht
+// overal waar dat bekend is het juiste (10 van 10 lijstkeuzes, geen enkele
+// automatische wissel teruggedraaid).
+//
+// DE ROUTE. Dezelfde poorten als de vervalroute, alleen eerder, en strenger op
+// afstand:
+//   - alleen een slot van een tik op het beeld (tikSlotMerk, gezet in de
+//     tik-handler); een lijstkeuze is een mens die gekozen heeft en blijft staan;
+//   - stilstand (< NODE_CHK_STANDSTILL_KMH) sinds minstens SNEL_STIL_MS;
+//   - het dichtstbijzijnde licht C ligt binnen SNEL_MAX_M en minstens
+//     NODE_CHK_CORRECTIE_MARGE_M dichterbij dan het getoonde W;
+//   - de koers naar C is hoogstens NODE_CHK_HEADING_MAX_GRAD (een onbekende
+//     koers telt, net als in de vervalroute, als goed);
+//   - SNEL_STABIEL_N GPS-tikken op rij hetzelfde paar W>C;
+//   - niet binnen NODE_WISSEL_MIN_INTERVAL_MS na een vorige correctie.
+// Dan gaat het tikslot los en zet corrigeerNodeAutomatisch C neer, zoals de
+// naderingsroute dat doet: de getikte lamp blijft (lampStaatBewaar/Terug,
+// V11.36.0 A2) en de melding heeft een knop Terug.
+//
+// WAT NIET VERANDERT. checkHandLockVerval, checkNodeCorrectieStilstand,
+// corrigeerNodeAutomatisch, updateDichtbij en vindDichtbij staan er byte voor
+// byte (NB14). Rijdend, na een lijstkeuze of met het stilstandslot doet deze
+// route niets. Faalt een voorwaarde, dan gaan de oude routes hun gang.
+// SNEL_ACTIEF zet hem met één regel uit.
+//
+// DE FASE gaat bij deze correctie nog verloren (beeindigFase in
+// corrigeerNodeAutomatisch), net als bij de andere routes. Dat is deel 2 van het
+// ontwerp en een aparte release.
+const SNEL_ACTIEF    = true;
+const SNEL_STIL_MS   = 1000;
+const SNEL_MAX_M     = 30;
+const SNEL_STABIEL_N = 2;
+let tikSlotMerk  = null;   // { id, ts }: het slot van de laatste tik op het beeld
+let snelSleutel  = null, snelTeller = 0;
+let snelCorrTijd = 0;      // laatsteNodeCorrectieTijd na een wissel van deze route (de wissellog leest dit)
+function snelReset() { snelSleutel = null; snelTeller = 0; }
+function tikSlotLeeft() {
+  return !!tikSlotMerk && handmatigLockActief && !stilstandAutoLock
+    && String(handmatigGeselecteerdNodeId) === tikSlotMerk.id && handmatigGeselecteerdTimestamp === tikSlotMerk.ts;
+}
+function checkTikSlotSnel(lat, lon) {
+  if (!SNEL_ACTIEF) return;
+  if (!tikSlotLeeft()) { snelReset(); return; }
+  const nu = Date.now();
+  if (!(snelheidKmh < NODE_CHK_STANDSTILL_KMH) || stilstandSinds === 0 || nu - stilstandSinds < SNEL_STIL_MS) { snelReset(); return; }
+  const W = dichtstbijOSM, C = puurDichtsteNodeCache;
+  if (!W || !C || String(W.id) === String(C.id) || String(W.id) !== tikSlotMerk.id) { snelReset(); return; }
+  if (nu - laatsteNodeCorrectieTijd < NODE_WISSEL_MIN_INTERVAL_MS) { snelReset(); return; }
+  const gekozenAf = afstand(lat, lon, W.lat, W.lon), closestAf = afstand(lat, lon, C.lat, C.lon);
+  if (closestAf > SNEL_MAX_M || gekozenAf - closestAf < NODE_CHK_CORRECTIE_MARGE_M) { snelReset(); return; }
+  const koersAf = koersAfwijkingNaar({ lat, lon }, C);
+  if (koersAf != null && koersAf > NODE_CHK_HEADING_MAX_GRAD) { snelReset(); return; }
+  const sleutel = String(W.id) + '>' + String(C.id);
+  if (sleutel !== snelSleutel) { snelSleutel = sleutel; snelTeller = 0; }
+  snelTeller++;
+  if (snelTeller < SNEL_STABIEL_N) return;
+  // Alles klopt. Het tikslot gaat eerst los, met dezelfde drie velden als de
+  // vervalroute: anders zou corrigeerNodeAutomatisch een stilstandslot zetten
+  // terwijl de vlag van een echte tik nog aan staat.
+  const oude = W, n = snelTeller;
+  snelReset();
+  handLockVervalReset();
+  handmatigLockActief = false;
+  handmatigGeselecteerdNodeId = null;
+  stilstandAutoLock = false;
+  tikSlotMerk = null;
+  logOpslagMis('snel_correctie', {
+    node: String(oude.id), afst: gekozenAf, afwM: Math.round(gekozenAf - closestAf), nieuw: String(C.id),
+    hoekN: n, hoekVoordeel: (koersAf == null) ? -1 : Math.round(koersAf), dur: (nu - stilstandSinds) / 1000
+  });
+  const lamp = lampStaatBewaar();                  // V11.36.0 A2: de getikte lamp blijft
+  corrigeerNodeAutomatisch(C, 'stilstand-tik');
+  lampStaatTerug(lamp);
+  snelCorrTijd = laatsteNodeCorrectieTijd;
+  toonToast(naderingToastTekst(closestAf),
+    { label: 'Terug', duurMs: NADERING_TERUG_TOAST_MS, fn: () => naderingTerug(oude.id, C.id) });
+}
+
 // ── V11.36.0 A2: DE GETIKTE LAMP OVERLEEFT DE CORRECTIE ─────────
 // © 2026 StoplichtIQ — Y. Lemaalem
 //
@@ -20426,6 +20521,7 @@ async function onGPS(pos) {
   if (cacheGeladen) verzamelNaderingsBewijs(lat, lon);
   if (cacheGeladen) checkNaderingsCorrectie(lat, lon);
   wisselTussen();   // V11.36.4: meetregel, beslist niets
+  if (cacheGeladen) checkTikSlotSnel(lat, lon);   // V11.37.2: de snelle stilstandroute voor een tikslot, zie daar
   // V11.17.9 W3: hercontrole ná updateDichtbij zodat puurDichtsteNodeCache
   // en dichtstbijOSM.afstand vers zijn. Zelf gated op stilstand + duur +
   // veiligheidsregel — draait vaak leeg maar is goedkoop.

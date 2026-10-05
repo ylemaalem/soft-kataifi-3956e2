@@ -317,7 +317,7 @@ async function testSchaduwregel() {
 
   // ═══ SR10 — regressie ═══════════════════════════════════════
   const NL = String.fromCharCode(10);
-  const g = String(onGPS).split(NL).filter(l => !/V11\.34\.[2-9]|V11\.36\.[14]|V11\.37\.1/.test(l)).join(NL);
+  const g = String(onGPS).split(NL).filter(l => !/V11\.34\.[2-9]|V11\.36\.[14]|V11\.37\.[12]/.test(l)).join(NL);   // V11.37.2: gedrag, getoetst in test_snelroute SN6b
   eis('SR10a onGPS zonder de meetregels (ook de schaduwregel) is byte-gelijk aan V11.37.0 (c767e2a3 / 14333)',
       fnv(g) === 'c767e2a3' && g.length === 14333, 'c767e2a3 / 14333', fnv(g) + ' / ' + g.length);
   const og = zc(onGPS);
