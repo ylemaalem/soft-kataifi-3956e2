@@ -343,7 +343,9 @@ async function testTiklog() {
     const NB14 = [['checkHandLockVerval', '2df4f7ed', 5513], ['checkNodeCorrectieStilstand', '8c801fd8', 4751],
                   ['corrigeerNodeAutomatisch', 'afe7b427', 4118], ['updateDichtbij', 'e82d3c0', 11914],
                   ['vindDichtbij', '2db98dab', 2954]];
-    const nbAnders = NB14.filter(([n, h, l]) => fnv(String(eval(n))) !== h || String(eval(n)).length !== l).map(x => x[0]);
+    // V11.37.4: zonder de vier regels met merkteken (de achter-regel, zie test_achter).
+    const zonder374 = (s) => s.split('\n').filter(l => !/V11\.37\.4/.test(l)).join('\n');
+    const nbAnders = NB14.filter(([n, h, l]) => fnv(zonder374(String(eval(n)))) !== h || zonder374(String(eval(n))).length !== l).map(x => x[0]);
     eis('TL3k de vijf NB14-functies van V11.27.0 zijn onaangeroerd', nbAnders.length === 0,
         'geen afwijking', nbAnders.join(', ') || 'geen');
     schoon({ tap: { cx: 1, cy: 1 } }); leegTik();

@@ -38,6 +38,7 @@ async function passageRitBinnen(opt) {
   window.downloadOSM = async () => {};
   window.refreshStadIndienNodig = async () => {};
   window.toonToast = () => {};
+  if (opt.uitAchter) window.achterAan = () => false;   // V11.37.4: A3 zelf toetsen, zonder de achter-regel
   try { localStorage.setItem('sl_wissellog', '[]'); localStorage.setItem('sl_opslaglog', '[]'); localStorage.setItem(TIKLOG_SLEUTEL, '[]'); } catch (e) {}
   tikLogArr = null; tikLogStop = false; tikLogVorige = { tak: null, t: 0 }; tikLogLevend = null;
   osmCache = opt.nodes.map(n => ({ id: n.id, naam: String(n.id), ...LL(n.x, n.y) }));
@@ -221,7 +222,8 @@ async function testPassage() {
     }
   };
   const nodes = [{ id: 9200001, x: 0, y: 0 }, { id: 9200002, x: 0, y: 150 }];
-  const basis = { nodes, start: 9200001, kmh: 30, vanY: -120, totY: 140 };
+  // V11.37.4: de achter-regel laat het slot al ~13 m na A los (PS3f); PS3a-e toetsen A3 zelf, dus zonder.
+  const basis = { nodes, start: 9200001, kmh: 30, vanY: -120, totY: 140, uitAchter: true };
   const tik = await rit({ ...basis, lamp: true, lampWegMs: 5000, lampZichtbaarTot: -10 });
   const lijst = await rit({ ...basis, soort: 'lijst' });
   const losIdx = tik.rij.findIndex(r => r.slot === 0);
@@ -244,9 +246,23 @@ async function testPassage() {
   eis('PS3e blijft de getikte lamp tot 60 m in beeld, dan laat A3 pas los als hij 2 s weg is (na 60 m)',
       !lampLang.fout && losLang > losIdx && lampLang.rij[losLang].y > 60, 'later dan 60 m', lampLang.fout || `los op ${(lampLang.rij[losLang] || {}).y} m`);
 
+  const aan = await rit({ ...basis, uitAchter: false, lamp: true, lampWegMs: 5000, lampZichtbaarTot: -10 });
+  const losA = aan.rij.findIndex(r => r.slot === 0), losAR = aan.rij[losA] || {};
+  eis('PS3f V11.37.4: met de achter-regel aan laat het slot eerder los dan A3 (na twee GPS-tikken met oplopende afstand, < 30 m), reden achter, meteen B',
+      !aan.fout && losA >= 0 && losA < losIdx && losAR.y > 0 && losAR.y < 30 && losAR.gekozen === 9200002
+        && aan.tik.filter(r => r.s === 'los').map(r => r.reden).join('+') === 'achter' && aan.wissel.length === 1 && aan.wissel[0].r === 'achter',
+      'los < 30 m, achter, B', aan.fout || `los op ${losAR.y} m (A3: ${losRij.y} m), ${aan.tik.filter(r => r.s === 'los').map(r => r.reden).join('+')}, wissel ${aan.wissel.map(x => x.r).join('+')}`);
+
   // ═══ PS9 — regressie ═════════════════════════════════════════
   const NL = String.fromCharCode(10);
-  const g = String(onGPS).split(NL).filter(l => !/V11\.36\.4|V11\.37\.[012]/.test(l)).join(NL);
+  // V11.37.4: vier regels van het V9-blok in onGPS kregen een tak voor 'geen licht'; hier terug
+  // naar hun oude vorm, daarna gaat de aanroep van achterTik weg met het filter (zie test_achter).
+  const terugV11374 = (s) => s
+    .replace('if ((dichtstbijOSM || (achterAan() && v9KandidaatNode !== null)) && cacheGeladen) {   // V11.37.4: een lopende meting loopt ook zonder getoond licht door', 'if (dichtstbijOSM && cacheGeladen) {')
+    .replace('const afst = dichtstbijOSM ? dichtstbijOSM.afstand : Infinity;   // V11.37.4', 'const afst = dichtstbijOSM.afstand;')
+    .replace('const nodeId = dichtstbijOSM ? String(dichtstbijOSM.id) : null;   // V11.37.4', 'const nodeId = String(dichtstbijOSM.id);')
+    .replace('kandidaatPos ?? (dichtstbijOSM ? { lat: dichtstbijOSM.lat, lon: dichtstbijOSM.lon } : { lat, lon }),   // V11.37.4', 'kandidaatPos ?? { lat: dichtstbijOSM.lat, lon: dichtstbijOSM.lon },');
+  const g = terugV11374(String(onGPS)).split(NL).filter(l => !/V11\.36\.4|V11\.37\.[0124]/.test(l)).join(NL);
   eis('PS9a onGPS zonder de A3-regel en de meetregels is byte-gelijk aan V11.34.1',
       fnv(g) === '58346b1c' && g.length === 14246, '58346b1c / 14246', fnv(g) + ' / ' + g.length);
   const vast = String(isStoplichtVoorbij);

@@ -233,9 +233,17 @@ async function testSnelroute() {
   // ═══ SN6 — regressie ════════════════════════════════════════
   const refs = [['checkHandLockVerval', '2df4f7ed', 5513], ['checkNodeCorrectieStilstand', '8c801fd8', 4751],
                 ['corrigeerNodeAutomatisch', 'afe7b427', 4118], ['updateDichtbij', 'e82d3c0', 11914], ['vindDichtbij', '2db98dab', 2954]];
-  const anders = refs.filter(([n, h, l]) => { const s = String(window[n]); return fnv(s) !== h || s.length !== l; }).map(x => x[0]);
+  // V11.37.4: zonder de regels met merkteken (de achter-regel, zie test_achter).
+  const anders = refs.filter(([n, h, l]) => { const s = String(window[n]).split(NL).filter(l => !/V11\.37\.4/.test(l)).join(NL); return fnv(s) !== h || s.length !== l; }).map(x => x[0]);
   eis('SN6a de vijf vastgepinde functies (NB14) zijn byte-gelijk', anders.length === 0, 'geen afwijking', anders.join(', ') || 'geen');
-  const g = String(onGPS).split(NL).filter(l => !/V11\.34\.[2-9]|V11\.36\.[14]|V11\.37\.[12]/.test(l)).join(NL);
+  // V11.37.4: vier regels van het V9-blok in onGPS kregen een tak voor 'geen licht'; hier terug
+  // naar hun oude vorm, daarna gaat de aanroep van achterTik weg met het filter (zie test_achter).
+  const terugV11374 = (s) => s
+    .replace('if ((dichtstbijOSM || (achterAan() && v9KandidaatNode !== null)) && cacheGeladen) {   // V11.37.4: een lopende meting loopt ook zonder getoond licht door', 'if (dichtstbijOSM && cacheGeladen) {')
+    .replace('const afst = dichtstbijOSM ? dichtstbijOSM.afstand : Infinity;   // V11.37.4', 'const afst = dichtstbijOSM.afstand;')
+    .replace('const nodeId = dichtstbijOSM ? String(dichtstbijOSM.id) : null;   // V11.37.4', 'const nodeId = String(dichtstbijOSM.id);')
+    .replace('kandidaatPos ?? (dichtstbijOSM ? { lat: dichtstbijOSM.lat, lon: dichtstbijOSM.lon } : { lat, lon }),   // V11.37.4', 'kandidaatPos ?? { lat: dichtstbijOSM.lat, lon: dichtstbijOSM.lon },');
+  const g = terugV11374(String(onGPS)).split(NL).filter(l => !/V11\.34\.[2-9]|V11\.36\.[14]|V11\.37\.[124]/.test(l)).join(NL);
   eis('SN6b onGPS zonder de V11.37.2-regel (en de meetregels) is byte-gelijk aan V11.37.0 (c767e2a3 / 14333)',
       fnv(g) === 'c767e2a3' && g.length === 14333, 'c767e2a3 / 14333', fnv(g) + ' / ' + g.length);
   const og = zc(onGPS);

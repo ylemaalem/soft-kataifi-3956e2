@@ -43,6 +43,7 @@ async function wisselRitBinnen(opt) {
   window.refreshStadIndienNodig = async () => {};
   window.toonToast = () => {};
   if (opt.zonderWachter) { window.wisselVoor = () => {}; window.wisselTussen = () => {}; window.wisselNa = () => {}; }
+  if (opt.uitAchter) window.achterAan = () => false;   // V11.37.4
   try { localStorage.setItem('sl_wissellog', '[]'); localStorage.setItem('sl_opslaglog', '[]'); } catch (e) {}
   osmCache = opt.nodes.map(n => ({ id: n.id, naam: String(n.id), ...LL(n.x, n.y) }));
   cacheGeladen = true; cacheBezig = false; cacheCentrum = LL(0, 0);
@@ -289,8 +290,10 @@ async function testWissellog() {
   const basis = { nodes, start: 9100001, kmh: 30, vanY: -120, totY: 140 };
   const vrij = await rit({ ...basis });
   const vrijZ = await rit({ ...basis, zonderWachter: true });
-  const getikt = await rit({ ...basis, tikOpStart: true });
-  const getiktZ = await rit({ ...basis, tikOpStart: true, zonderWachter: true });
+  // V11.37.4: de tik-ritten toetsen A3, dus met de achter-regel uit; WL9e toetst hem aan.
+  const getikt = await rit({ ...basis, tikOpStart: true, uitAchter: true });
+  const getiktZ = await rit({ ...basis, tikOpStart: true, zonderWachter: true, uitAchter: true });
+  const getiktA = await rit({ ...basis, tikOpStart: true });
   const kort = (u) => u.fout ? u.fout : u.wissel.map(x => `${x.r} ${x.van}->${x.naar} vb ${x.vb} pl ${x.pl} min ${x.min}`).join(' ; ') || 'geen regel';
   const w9a = vrij.wissel;
   eis('WL9a rit zonder slot: één regel A->B, reden vrij, A al voorbij (vb < 30, |pl| > 90), A gehaald (min < 10)',
@@ -306,6 +309,10 @@ async function testWissellog() {
       !vrij.fout && !getikt.fout && vrij.gekozen.length > 20 && vrij.gekozen.join() === vrijZ.gekozen.join()
         && getikt.gekozen.join() === getiktZ.gekozen.join() && vrij.gekozen.join() !== getikt.gekozen.join(),
       'gelijk, en de twee ritten verschillen', `vrij ${vrij.gekozen.join() === vrijZ.gekozen.join()}, tik ${getikt.gekozen.join() === getiktZ.gekozen.join()}`);
+  const w9e = getiktA.wissel;
+  eis('WL9e V11.37.4: met de achter-regel aan één regel A->B, reden achter, minder dan 30 m voorbij, ac 1',
+      w9e.length === 1 && w9e[0].r === 'achter' && w9e[0].vb < 30 && w9e[0].ac === 1 && w9e[0].van === 9100001 && w9e[0].naar === 9100002,
+      'achter, vb < 30, ac 1', kort(getiktA));
   eis('WL9d zonder wachter schrijft de rit niets in sl_wissellog', vrijZ.wissel.length === 0 && getiktZ.wissel.length === 0,
       '0 / 0', vrijZ.wissel.length + ' / ' + getiktZ.wissel.length);
 

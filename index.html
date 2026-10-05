@@ -1052,7 +1052,7 @@ if (typeof ort !== 'undefined') {
 //
 // De stijl volgt de eerdere labels: nummer, kastlijntje, korte omschrijving in
 // kleine letters. De CSS zet hem zelf in kapitalen (text-transform:uppercase).
-const APP_VERSIE = 'V11.37.3 — een richtingtik gaat altijd naar het licht dat de app nu toont';
+const APP_VERSIE = 'V11.37.4 — de app laat een gepasseerd licht los, ook zonder tik, en toont geen licht verder dan 400 m';
 
 // ── CONSTANTEN ────────────────────────────────────────────────
 const OSM_RADIUS       = 5000;
@@ -8553,6 +8553,11 @@ function meetRingSchrijf(sleutel, max, rec) {
 //           nadering   de naderingscorrectie koos een ander licht
 //           correctie  de stilstandscorrectie koos een ander licht
 //           snel       V11.37.2: de snelle stilstandroute na een tik (zie checkTikSlotSnel)
+//           achter     V11.37.4: de achter-regel liet het licht los: het was voorbij
+//                      (zie achterTik), met of zonder slot
+//           grens      V11.37.4: geen licht meer binnen 400 m (naar = 0)
+//           gevonden   V11.37.4: na een tijd zonder licht weer een licht (van = 0)
+//         van of naar 0 betekent: geen licht (V11.37.4)
 //           lijst      een keuze uit de lijst, tussen twee GPS-tikken in
 //           kaart      een wissel tussen twee GPS-tikken in zonder lijstkeuze
 //                      (het laden van de kaart roept updateDichtbij ook aan)
@@ -8580,7 +8585,7 @@ let wisselNaTijd = 0;     // wanneer wisselNa voor het laatst liep
 
 function wisselLogNoteer(oud, nieuw, reden, uitMs, lat, lon) {
   try {
-    if (!oud || !nieuw) return;
+    if (!oud && !nieuw) return;   // V11.37.4: één kant mag 'geen licht' zijn
     const heel = (x) => (typeof x === 'number' && isFinite(x)) ? Math.round(x) : null;
     const plek = (o) => !!o && typeof o.lat === 'number' && typeof o.lon === 'number';
     const pos = (typeof lat === 'number' && typeof lon === 'number') ? { lat, lon } : null;
@@ -8589,13 +8594,14 @@ function wisselLogNoteer(oud, nieuw, reden, uitMs, lat, lon) {
     const nAf = (plek(nieuw) && pos) ? afstand(lat, lon, nieuw.lat, nieuw.lon) : null;
     const kmh = (typeof snelheidKmh === 'number' && !isNaN(snelheidKmh)) ? snelheidKmh : null;
     const rec = {
-      t: Date.now(), van: Number(oud.id), naar: Number(nieuw.id), kmh: heel(kmh),
+      t: Date.now(), van: oud ? Number(oud.id) : 0, naar: nieuw ? Number(nieuw.id) : 0, kmh: heel(kmh),   // V11.37.4: 0 = geen licht
       eta: (kmh !== null && kmh >= 3 && nAf !== null) ? Math.round(nAf / (kmh / 3.6) * 10) / 10 : null,
       vb: heel(vb), pl: (pos && plek(oud)) ? peilingTovRijrichting(pos, oud, getSmoothedHeading()) : null,
       d: heel(d), zk: d === null ? null : (d < WISSEL_KRUISPUNT_M ? 1 : 0), r: reden,
       uit: (typeof uitMs === 'number' && isFinite(uitMs)) ? Math.round(uitMs / 100) / 10 : null,
-      min: heel(oud.min),
-      a3: A3_ACTIEF ? 1 : 0   // V11.37.0
+      min: oud ? heel(oud.min) : null,   // V11.37.4
+      a3: A3_ACTIEF ? 1 : 0,   // V11.37.0
+      ac: achterAan() ? 1 : 0   // V11.37.4: de achter-regel stond aan
     };
     for (const k of Object.keys(rec)) if (rec[k] === null || rec[k] === undefined) delete rec[k];
     meetRingSchrijf(WISSELLOG_SLEUTEL, WISSELLOG_MAX, rec);
@@ -8613,6 +8619,10 @@ function wisselVoor(lat, lon) {
         handmatigGeselecteerdTimestamp > wisselNaTijd ? 'lijst' : 'kaart', null, lat, lon);
       wisselStaat = { id, t: nu, lat: dichtstbijOSM.lat, lon: dichtstbijOSM.lon, min: null, los: null };
     }
+    if (wisselStaat && !id) {   // V11.37.4: buiten onGPS om naar geen licht
+      wisselLogNoteer(wisselStaat, null, 'kaart', null, lat, lon);   // V11.37.4
+      wisselStaat = null;   // V11.37.4
+    }   // V11.37.4
     wisselTik = { t: nu, id,
       hand: handmatigLockActief && !stilstandAutoLock, auto: !!(handmatigLockActief && stilstandAutoLock),
       uit: bboxOverride !== null ? nu - Math.max(bboxOverrideLaatsteMatch, bboxOverrideTijd) : null,
@@ -8639,14 +8649,25 @@ function wisselNa(lat, lon) {
     // zelf pas een tik later komt (de voorsprongregel kan het oude licht nog
     // even houden).
     const los = (T.hand && !nuHand && !nuAuto)
-      ? (a3LosTijd >= T.t ? 'passage'   // V11.37.0: A3 liet los, zie checkHandLockPassage
+      ? (achterLosTijd >= T.t ? 'achter'   // V11.37.4: de achter-regel liet los, zie achterTik
+        : a3LosTijd >= T.t ? 'passage'   // V11.37.0: A3 liet los, zie checkHandLockPassage
         : (typeof snelheidKmh === 'number' && snelheidKmh > 5) ? 'tik100' : 'stil')
-      : (T.auto && !nuAuto && !nuHand) ? 'auto' : null;
+      : (T.auto && !nuAuto && !nuHand) ? (achterLosTijd >= T.t ? 'achter' : 'auto') : null;   // V11.37.4
+    // V11.37.4: naar geen licht, en na een tijd zonder licht weer een licht
+    if (!id && T.id && wisselStaat && wisselStaat.id === T.id) {
+      wisselLogNoteer(wisselStaat, null, los || (achterLosTijd >= T.t ? 'achter' : 'grens'), T.uit, lat, lon);
+      wisselStaat = null;
+      return;
+    }
+    if (id && !T.id && !wisselStaat && geenLichtSinds > 0) {
+      wisselLogNoteer(null, dichtstbijOSM, 'gevonden', null, lat, lon);
+      geenLichtSinds = 0;
+    }
     if (id && T.id && id !== T.id && wisselStaat && wisselStaat.id === T.id) {
       const reden = (laatsteNodeCorrectieTijd >= T.t)
         ? ((T.tussenCorr !== null && laatsteNodeCorrectieTijd === T.tussenCorr) ? 'nadering'
           : (snelCorrTijd === laatsteNodeCorrectieTijd ? 'snel' : 'correctie'))   // V11.37.2
-        : (los || wisselStaat.los || 'vrij');
+        : (los || wisselStaat.los || (achterLosTijd >= T.t ? 'achter' : 'vrij'));   // V11.37.4
       wisselLogNoteer(wisselStaat, dichtstbijOSM, reden, T.uit, lat, lon);
     } else if (wisselStaat && wisselStaat.id === id) {
       if (los) wisselStaat.los = los;
@@ -8686,6 +8707,16 @@ function wisselNa(lat, lon) {
 //     ervan doen niet meer mee, tot de auto REGEL_VERGEET_M van dat licht weg
 //     is (anders kiest de regel na het passeren de overkant van hetzelfde
 //     kruispunt: in de STAP 0 lag het volgende licht steeds op 8-61 m);
+//   - V11.37.4: voorbij is nu dezelfde toets als de achter-regel (voorbijStap:
+//     samen minstens ACHTER_STIJG_M erbij). De masten bij een gepasseerd licht
+//     doen alleen niet mee zolang de auto binnen REGEL_OVERSTEEK_M van dat licht
+//     is: op Energieweg (3 en 4 okt) sloeg de oude regel zo een echte volgende
+//     stopstreep 59 m verder over, en bij Markerkant (30 sept 16:54) het licht
+//     waar Younes stopte. En de huidige keuze laat de regel niet los op de hoek
+//     alleen: tot REGEL_HOUD_HOEK graden zolang de afstand afloopt, of zolang
+//     hij binnen REGEL_HOUD_M staat en niet voorbij is. Nagerekend op de 63
+//     stops (rechte nadering): 6 van de 252 keuzes anders, 5 beter, 4 slechter
+//     (een paar telt twee keer); Energieweg en Markerkant goed.
 //   - de keuze is het dichtstbijzijnde kandidaatlicht, of geen licht.
 //
 // WAT ER WORDT VASTGELEGD (sl_regellog, een ring van REGELLOG_MAX regels):
@@ -8722,9 +8753,12 @@ const REGEL_AFW_MIN_MS  = 1500;
 const REGEL_STOP_MS     = 2000;
 const REGEL_STOP_MAX_M  = 80;
 const REGEL_SPOOR_N     = 120;   // nieuwe posities, ruim genoeg voor 100 m terugkijken
+const REGEL_OVERSTEEK_M = 30;    // V11.37.4: zo lang slaat de mastregel de overkant over
+const REGEL_HOUD_HOEK   = 90;    // V11.37.4: de huidige keuze blijft tot zoveel graden, zolang de afstand afloopt
+const REGEL_HOUD_M      = 15;    // V11.37.4: ... of zolang hij zo dichtbij staat en niet voorbij is
 let regelStaat = null;
 function regelReset() {
-  regelStaat = { keuze: null, pos: null, af: new Map(), stijg: new Map(), voorbij: [], spoor: [], afw: null, stop: null };
+  regelStaat = { keuze: null, pos: null, af: new Map(), voorbij: [], spoor: [], afw: null, stop: null };   // V11.37.4: af houdt voorbijStap-regels bij
 }
 regelReset();
 
@@ -8734,7 +8768,7 @@ function regelKies(lat, lon, koers) {
   const st = regelStaat;
   const dLat = REGEL_MAX_M / 111320, dLon = REGEL_MAX_M / (111320 * Math.cos(lat * Math.PI / 180));
   const binnen = [];
-  const af = new Map(), stijg = new Map();
+  const af = new Map();
   for (const sl of osmCache) {
     if (typeof sl.lat !== 'number' || typeof sl.lon !== 'number') continue;
     if (Math.abs(sl.lat - lat) > dLat || Math.abs(sl.lon - lon) > dLon) continue;
@@ -8742,22 +8776,28 @@ function regelKies(lat, lon, koers) {
     if (d > REGEL_MAX_M) continue;
     const id = String(sl.id);
     const vorig = st.af.get(id);
-    const n = (vorig !== undefined && d > vorig) ? (st.stijg.get(id) || 0) + 1 : 0;
-    if (n) stijg.set(id, n);
-    if (n >= REGEL_VOORBIJ_N && !st.voorbij.some(v => v.id === id)) st.voorbij.push({ id, lat: sl.lat, lon: sl.lon });
-    af.set(id, d);
-    binnen.push([sl, id, d, vorig]);
+    const r = voorbijStap(vorig, d);   // V11.37.4: dezelfde voorbij-toets als de achter-regel
+    if (r.voorbij && !st.voorbij.some(v => v.id === id)) st.voorbij.push({ id, lat: sl.lat, lon: sl.lon });
+    af.set(id, r);
+    binnen.push([sl, id, d, vorig, r]);
   }
-  st.voorbij = st.voorbij.filter(v => afstand(lat, lon, v.lat, v.lon) <= REGEL_VERGEET_M);
+  // Vergeten op REGEL_VERGEET_M, of als je er weer naartoe rijdt (V11.37.4).
+  st.voorbij = st.voorbij.filter(v => afstand(lat, lon, v.lat, v.lon) <= REGEL_VERGEET_M && !(af.has(v.id) && !af.get(v.id).voorbij));
   let best = null, bestAf = Infinity;
-  for (const [sl, id, d, vorig] of binnen) {
-    if (!(vorig === undefined || d < vorig)) continue;          // je rijdt er niet naartoe
+  for (const [sl, id, d, vorig, r] of binnen) {
     const p = peilingTovRijrichting({ lat, lon }, sl, koers);
-    if (p === null || Math.abs(p) > REGEL_HOEK) continue;      // niet ongeveer vooruit
-    if (st.voorbij.some(v => v.id === id || afstand(v.lat, v.lon, sl.lat, sl.lon) <= REGEL_KRUISPUNT_M)) continue;
+    const afl = vorig === undefined || d < vorig.d;
+    // V11.37.4: de huidige keuze niet loslaten op de hoek alleen (zie het blok hierboven)
+    const houd = id === st.keuze && !r.voorbij && p !== null
+      && ((Math.abs(p) <= REGEL_HOUD_HOEK && afl) || d <= REGEL_HOUD_M);
+    if (!houd && !afl) continue;                                  // je rijdt er niet naartoe
+    if (!houd && (p === null || Math.abs(p) > REGEL_HOEK)) continue;   // niet ongeveer vooruit
+    // De overkant van een gepasseerd kruispunt, alleen zolang je het oversteekt (V11.37.4).
+    if (st.voorbij.some(v => v.id === id || (afstand(v.lat, v.lon, sl.lat, sl.lon) <= REGEL_KRUISPUNT_M
+        && afstand(lat, lon, v.lat, v.lon) <= REGEL_OVERSTEEK_M))) continue;
     if (d < bestAf) { bestAf = d; best = id; }
   }
-  st.af = af; st.stijg = stijg;
+  st.af = af;
   return best;
 }
 
@@ -9062,6 +9102,7 @@ laadONNXModel();
 saneerS2Nullen(); // V11.17.15 richting C: eenmalige opschoning vóór KP-telling
 migratieAfrijConventie(); // V11.17.70: eenmalige correctie van de afrij-conventie
 migratieRvWezen();        // V11.17.92: eenmalig, zie daar
+reparatieRichting4065739949();   // V11.37.4: eenmalig, zie daar
 
 const aantalKP = telKP();
 const sGehInfo = document.getElementById('s-geh-info');
@@ -14703,9 +14744,11 @@ function vindDichtbij(lat, lon, heading) {
   for (const sl of osmCache) {
     const r = vindDichtbijScore(lat, lon, heading, sl);
     if (!r) continue;
+    if (achterAan() && achterSluitUit(sl, lat, lon)) continue;   // V11.37.4: gepasseerd, of nieuw en achter je
     kandidaten.push({ sl, afstand: r.afstand, score: r.score });
     if (r.score > bestS) { bestS=r.score; beste={...sl, afstand:r.afstand}; }
   }
+  if (achterAan() && !beste) return null;   // V11.37.4: de terugvalgrens, niets binnen 400 m is geen licht
   if (!beste) {
     let minA=Infinity;
     for (const sl of osmCache) {
@@ -14740,6 +14783,7 @@ function vindDichtbij(lat, lon, heading) {
       bestS = alt.score;
     }
   }
+  if (achterAan() && dichtstbijOSM && achterIsVoorbij(dichtstbijOSM.id)) return beste;   // V11.37.4: een gepasseerd licht krijgt geen voorsprong
   // Hysterese: huidige node behoudt voorsprong
   if (beste && dichtstbijOSM && String(beste.id) !== String(dichtstbijOSM.id)) {
     const huidigAf = afstand(lat, lon, dichtstbijOSM.lat, dichtstbijOSM.lon);
@@ -19159,6 +19203,7 @@ function updateDichtbij(lat, lon) {
     return;
   }
   const nieuw = vindDichtbij(lat, lon, huidigeRichting);
+  if (!nieuw && achterAan()) { if (dichtstbijOSM) geenLichtZetten(); else geenLichtTekst(); return; }   // V11.37.4: zie geenLichtZetten
   if (!nieuw) return;
   kNaam.textContent = nieuw.naam || (nieuw.slim?'⚡ Slim':'Stoplicht');
   kAf.textContent   = nieuw.afstand<1000 ? `${Math.round(nieuw.afstand)}m` : `${(nieuw.afstand/1000).toFixed(1)}km`;
@@ -19710,6 +19755,218 @@ function checkHandLockPassage(lat, lon) {
   bboxOverrideMatchTeller = 0;
   stickyDetectie = null; stickyMissTeller = 0;
   tapSeedDetectie = null;
+}
+
+// ── V11.37.4: LOSLATEN VOOR ALLE GEVALLEN — DE ACHTER-REGEL ───────
+// © 2026 StoplichtIQ — Y. Lemaalem
+//
+// DE KLACHT. Na het passeren houdt de app het oude licht te lang vast. Gemeten in
+// de exports van 25 sept tot 4 okt: van 31 keer dat een tik- of lijstslot
+// rijdend losliet, gebeurde dat 18 keer pas op 90 m of meer voorbij; en in de
+// detlog toonde de app 40 keer een licht dat al achter de auto lag (samen 358 s,
+// mediaan 6 s, langste 29 s), 14 keer zonder enig slot. A3 (V11.37.0) helpt
+// alleen bij een slot, en alleen na het hele kruispunt plus 30 m. Op 3 okt 12:32
+// koos de gewone puntentelling een licht achter de auto op 200-382 m, en
+// daarna toonde de terugval tot 1,7 km een licht omdat er binnen 400 m niets was.
+//
+// DE REGEL (Younes, 5 oktober):
+//   1. VOORBIJ. Een licht is voorbij na ACHTER_STIJG_N nieuwe GPS-posities op rij
+//      waarop de afstand ernaartoe oploopt, samen minstens ACHTER_STIJG_M, vanaf
+//      ACHTER_MIN_KMH. Dat is dezelfde toets als de schaduwregel (voorbijStap,
+//      die gebruikt hem ook). Onder 5 km/u en bij een herhaalde positie wordt
+//      niets geoordeeld: de GPS ruist dan en de koers zegt niets. Rijd je er weer
+//      naartoe (dezelfde toets, omgekeerd), dan telt het licht weer mee.
+//   2. LOSLATEN OP AFSTAND, NIET OP DE HOEK. Is het getoonde licht voorbij, dan
+//      laat de app het los, met én zonder tik- of lijstslot (achterTik). De hoek
+//      laat het getoonde licht nooit los: in een bocht loopt de GPS-koers achter,
+//      en een goed licht ligt dan even opzij of zelfs achter (30 sept 16:54:
+//      10 m opzij op 98 graden vlak voor de stop). Zolang de afstand niet twee
+//      keer samen 5 m oploopt, blijft het staan.
+//   3. DE HOEK ALLEEN VOOR NIEUWE KANDIDATEN. Een licht dat de app nog niet toont,
+//      komt niet in aanmerking als het meer dan ACHTER_HOEK graden van de
+//      rijrichting af ligt: het ligt achter je. Zo pakt de puntentelling niet
+//      meer een licht achter de auto (3 okt 12:32, 200-382 m).
+//   4. GEEN LICHT. Binnen ACHTER_MAX_M geen kandidaat, dan toont de app geen
+//      licht (geenLichtZetten), in plaats van het dichtstbijzijnde op elke
+//      afstand. Ook niet als het de enige kandidaat is.
+//
+// WAT ER NIET VERANDERT. De puntentelling zelf (vindDichtbijScore), de
+// voorsprongregel, de tiebreak, de stilstandsroutes, A3, de snelle
+// stilstandroute en checkHandLockVerval blijven zoals ze waren; vindDichtbij en
+// updateDichtbij krijgen alleen vier regels met het merkteken V11.37.4, en onGPS
+// één aanroep plus vier aangepaste regels in het V9-blok: een lopende meting
+// (kandidaat of uitgestelde schrijving) loopt zonder getoond licht gewoon door.
+// test_achter laat per GPS-tik zien waar de keuze verandert.
+//
+// UIT MET ÉÉN REGEL: ACHTER_ACTIEF. Alles hierboven loopt via achterAan(), zodat
+// de toetsen de regel ook in één rit aan en uit kunnen zetten.
+const ACHTER_ACTIEF  = true;
+const ACHTER_MIN_KMH = 5;
+const ACHTER_STIJG_N = 2;     // nieuwe posities op rij met een oplopende afstand
+const ACHTER_STIJG_M = 5;     // samen minstens zoveel meter erbij
+const ACHTER_HOEK    = 90;    // een NIEUW licht verder dan dit van de rijrichting af ligt achter je
+const ACHTER_MAX_M   = 400;   // de terugvalgrens; gelijk aan de grens van vindDichtbijScore
+const GEEN_LICHT_ID  = 'geen';   // vorigOsmId zolang er geen licht is
+let achterStaat = null;       // { pos, licht: Map(id -> voorbijStap-regel) }
+let achterLosTijd = 0;        // wanneer de achter-regel het getoonde licht voor het laatst losliet
+let geenLichtSinds = 0;       // sinds wanneer er geen licht is (0: er is er een)
+function achterReset() { achterStaat = { pos: null, licht: new Map() }; }
+achterReset();
+function achterAan() { return ACHTER_ACTIEF; }
+
+// Eén stap van de voorbij-toets voor één licht, puur. r is de regel van de
+// vorige nieuwe positie (of undefined), d de afstand nu.
+function voorbijStap(r, d) {
+  if (!r) return { d, n: 0, som: 0, terug: 0, somTerug: 0, voorbij: false };
+  const op = d > r.d, af = d < r.d;
+  const n = op ? r.n + 1 : 0, som = op ? r.som + (d - r.d) : 0;
+  const terug = af ? r.terug + 1 : 0, somTerug = af ? r.somTerug + (r.d - d) : 0;
+  let voorbij = r.voorbij;
+  if (!voorbij && n >= ACHTER_STIJG_N && som >= ACHTER_STIJG_M) voorbij = true;
+  else if (voorbij && terug >= ACHTER_STIJG_N && somTerug >= ACHTER_STIJG_M) voorbij = false;
+  return { d, n, som, terug, somTerug, voorbij };
+}
+
+function achterIsVoorbij(id) {
+  const r = achterStaat.licht.get(String(id));
+  return !!(r && r.voorbij);
+}
+
+// Mag dit licht meedoen in vindDichtbij? Een gepasseerd licht nooit; het
+// getoonde licht verder altijd; een nieuw licht niet als het achter je ligt.
+function achterSluitUit(sl, lat, lon) {
+  const id = String(sl.id);
+  if (achterIsVoorbij(id)) return true;
+  if (dichtstbijOSM && String(dichtstbijOSM.id) === id) return false;
+  if (!(snelheidKmh >= ACHTER_MIN_KMH) || !headingBuffer.length) return false;
+  const p = peilingTovRijrichting({ lat, lon }, sl, getSmoothedHeading());
+  return p !== null && Math.abs(p) > ACHTER_HOEK;
+}
+
+// In onGPS, na A3 en vóór updateDichtbij: de afstanden bijwerken, en is het
+// getoonde licht voorbij, dan het slot erop loslaten. De keuze zelf maakt
+// updateDichtbij in dezelfde GPS-tik.
+function achterTik(lat, lon) {
+  if (!achterAan()) return;
+  try {
+    if (!cacheGeladen || !osmCache.length || typeof lat !== 'number' || typeof lon !== 'number') return;
+    const st = achterStaat;
+    const kmh = (typeof snelheidKmh === 'number' && !isNaN(snelheidKmh)) ? snelheidKmh : 0;
+    if (!(kmh >= ACHTER_MIN_KMH)) return;
+    if (st.pos && st.pos.lat === lat && st.pos.lon === lon) return;
+    st.pos = { lat, lon };
+    const dLat = ACHTER_MAX_M / 111320, dLon = ACHTER_MAX_M / (111320 * Math.cos(lat * Math.PI / 180));
+    const licht = new Map();
+    for (const sl of osmCache) {
+      if (typeof sl.lat !== 'number' || typeof sl.lon !== 'number') continue;
+      if (Math.abs(sl.lat - lat) > dLat || Math.abs(sl.lon - lon) > dLon) continue;
+      const d = afstand(lat, lon, sl.lat, sl.lon);
+      if (d > ACHTER_MAX_M) continue;
+      const id = String(sl.id);
+      licht.set(id, voorbijStap(st.licht.get(id), d));
+    }
+    st.licht = licht;
+    if (!dichtstbijOSM || !achterIsVoorbij(dichtstbijOSM.id)) return;
+    achterLosTijd = Date.now();
+    if (!handmatigLockActief) return;
+    // Dezelfde velden als A3 (checkHandLockPassage) en checkHandLockVerval.
+    handLockVervalReset();
+    a3Reeks = null;
+    handmatigLockActief = false;
+    handmatigGeselecteerdNodeId = null;
+    stilstandAutoLock = false;
+    tikLogLos('achter');
+    bboxOverride = null; bboxOverrideTijd = 0;
+    bboxOverrideCamX = null; bboxOverrideCamY = null;
+    bboxOverrideMatchTeller = 0;
+    stickyDetectie = null; stickyMissTeller = 0;
+    tapSeedDetectie = null;
+  } catch (e) {}
+}
+
+// Naar 'geen licht': wat updateDichtbij bij een wissel doet, maar zonder nieuw
+// licht. De fase eindigt (reden 'geen'), de countdown en de leerkaart gaan leeg,
+// en alles wat bij het oude licht hoorde gaat weg, ook huidigBevestigdOsmNodeId:
+// een richtingtik heeft dan geen licht om naartoe te gaan.
+function geenLichtZetten() {
+  const oud = dichtstbijOSM;
+  if (fase === 'groen' && groenStart && oud) slaGroenOpBijPasseren(oud.id);   // zoals bij een wissel
+  laatsteNodeWisselTijd = Date.now();
+  geenLichtSinds = Date.now();
+  vorigOsmId = GEEN_LICHT_ID;
+  dichtstbijOSM = null;
+  huidigBevestigdOsmNodeId = null;
+  beeindigFase('geen');
+  activeCdDoel = 0;
+  cdPill.classList.remove('actief');
+  cdPill.classList.remove('cd-verborgen');
+  cdPillGetal.textContent = '—'; cdPillGetal.style.color = '#fff';
+  cdPillLabel.textContent = 'groen over';
+  activeCdModus = null; activeCdMin = null; activeCdMax = null;
+  tikLogLos('geen');
+  bboxOverride = null; bboxOverrideTijd = 0;
+  bboxOverrideCamX = null; bboxOverrideCamY = null;
+  bboxOverrideMatchTeller = 0;
+  richtingBlokVerborgen = false;
+  vergrendeldNodeId = null;
+  zoomVergrendeld = false; huidigActiefStoplichtPositie = null;
+  stickyDetectie = null; stickyMissTeller = 0;
+  tapSeedDetectie = null;
+  correctieMultiframe = null; wachtGroenIntentie = null;
+  vorigeFaseVoorRood = null;
+  resetVolgordeKennis('geen-licht');
+  invalideerPassiefSnapshot();
+  invalideerFaseContinuiteit('geen-licht');
+  bboxAnchorCx = null; bboxAnchorCy = null; bboxAnchorTijd = 0;
+  bevestigActief = false; cdBereikteNul = false;
+  bevestigVoorNodeId = null;
+  bevestigWrap.classList.remove('actief');
+  resetRijrichtingState('geen-licht');
+  if (richtingLockNodeId) wisRichtingLock();
+  dichtstbijOSMTwijfel = false;
+  nodeVermoedenActief = false;
+  pasTwijfelMarkeringToe();
+  bijwerkLeerkaart(null); bijwerkDashboardKnop();
+  geenLichtTekst();
+}
+
+function geenLichtTekst() {
+  kNaam.textContent = 'Geen stoplicht binnen 400 m';
+  kAf.textContent = '—';
+  leerNaam.textContent = 'Geen stoplicht in de buurt';
+}
+
+// ── V11.37.4: EENMALIGE REPARATIE VAN KRUISPUNT 4065739949 ───────
+// © 2026 StoplichtIQ — Y. Lemaalem
+//
+// Op 4 oktober kreeg 4065739949 twee richtingtikken die voor een ander licht
+// bedoeld waren (19:27:34 'rechts' voor Amersfoortsestraat, 19:28:58 'links' voor
+// Energieweg, ruim 1 km verder; de fout die V11.37.3 repareerde). Daardoor ging
+// tikrichting van 'rechts' (20 september) naar 'links' en tik_bevestigingen van
+// 1 naar 3. Younes koos optie b: alleen terugzetten als het record sindsdien
+// niet meer is aangeraakt, herkenbaar aan laatste_update op precies 4 okt
+// 19:28:58,561 (de tweede tik). De rest van het record (passieve koersen,
+// bevestigingen) blijft staan; laatste_update ook, zodat er geen tijd wordt
+// verzonnen. Een tweede keer doet niets: dan staat er al 'rechts' en 1. De 38 s
+// rood van 19:29 op Energieweg wordt niet nagemaakt.
+//
+// De vingerafdruk staat BINNEN de functie: ze draait bij het opstarten, ver
+// boven deze regel, en een const hier buiten bestaat dan nog niet.
+function reparatieRichting4065739949() {
+  try {
+    const TIJD = 1791134938561;   // 4 okt 2026 19:28:58,561 (CEST)
+    const sleutel = 'sl_richting_4065739949';
+    const d = opslagLees(sleutel);
+    if (!d || typeof d !== 'object' || d.laatste_update !== TIJD) return false;
+    if (d.tikrichting === 'rechts' && d.tik_bevestigingen === 1 && d.tik_cx_zone === 'rechts') return false;
+    const was = String(d.tikrichting) + '/' + String(d.tik_bevestigingen);
+    d.tikrichting = 'rechts';
+    d.tik_bevestigingen = 1;
+    d.tik_cx_zone = 'rechts';   // hoort bij de tikrichting (zoneMap in tikRichting)
+    if (!opslagSchrijf(sleutel, d)) return false;
+    logOpslagMis('reparatie_richting', { node: '4065739949', element: was + ' -> rechts/1' });
+    return true;
+  } catch (e) { return false; }
 }
 
 // ── V11.18.6: DE WEIGERING VASTLEGGEN, ALLEEN BIJ AUTO-LOCK ──
@@ -20498,6 +20755,7 @@ async function onGPS(pos) {
   // V10.0.3 / V11.18.7: handmatig lock — twee onafhankelijke vervalroutes.
   checkHandLockVerval(lat, lon);
   checkHandLockPassage(lat, lon);   // V11.37.0 A3: loslaten na het passeren, zie daar
+  achterTik(lat, lon);   // V11.37.4: de achter-regel, zie daar
   // Zoom unlock via GPS-voorbij
   if (zoomVergrendeld && huidigActiefStoplichtPositie &&
       isStoplichtVoorbij(huidigActiefStoplichtPositie, {lat,lon}, getSmoothedHeading()) &&
@@ -20570,9 +20828,9 @@ async function onGPS(pos) {
 
   // V9.0: Nadering detectie + delayed write
   const smoothedH = getSmoothedHeading();
-  if (dichtstbijOSM && cacheGeladen) {
-    const afst = dichtstbijOSM.afstand;
-    const nodeId = String(dichtstbijOSM.id);
+  if ((dichtstbijOSM || (achterAan() && v9KandidaatNode !== null)) && cacheGeladen) {   // V11.37.4: een lopende meting loopt ook zonder getoond licht door
+    const afst = dichtstbijOSM ? dichtstbijOSM.afstand : Infinity;   // V11.37.4
+    const nodeId = dichtstbijOSM ? String(dichtstbijOSM.id) : null;   // V11.37.4
 
     // Heading bij snelheid > V9_MIN_SNELHEID_HEADING bijhouden
     // V11.17.31 W1: BEVRIEZEN zodra er een kandidaat is. Zonder deze guard werd
@@ -20687,7 +20945,7 @@ async function onGPS(pos) {
       const kandidaatPos = osmCache.find(s => String(s.id) === v9KandidaatNode);
       const kandidaatAfst = kandidaatPos ? afstand(lat, lon, kandidaatPos.lat, kandidaatPos.lon) : null;
       const voorbij = isStoplichtVoorbij(
-        kandidaatPos ?? { lat: dichtstbijOSM.lat, lon: dichtstbijOSM.lon },
+        kandidaatPos ?? (dichtstbijOSM ? { lat: dichtstbijOSM.lat, lon: dichtstbijOSM.lon } : { lat, lon }),   // V11.37.4
         { lat, lon }, smoothedH
       );
       const verGenoeg = kandidaatAfst != null ? kandidaatAfst > V9_VOORBIJ_AFSTAND : afst > V9_VOORBIJ_AFSTAND;

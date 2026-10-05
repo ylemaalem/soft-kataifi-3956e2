@@ -579,7 +579,9 @@ async function testNaderingsbewijs() {
                   ['corrigeerNodeAutomatisch', 'afe7b427', 4118], ['updateDichtbij', 'e82d3c0', 11914],
                   ['vindDichtbij', '2db98dab', 2954]];
     for (const [naam, h, len] of refs) {
-      const src = String(window[naam]);
+      // V11.37.4: vindDichtbij en updateDichtbij kregen vier regels met merkteken (de achter-regel,
+      // zie test_achter); zonder die regels zijn ze byte-gelijk aan V11.26.0.
+      const src = String(window[naam]).split('\n').filter(l => !/V11\.37\.4/.test(l)).join('\n');
       eis('NB14 ' + naam + ' is byte-gelijk aan V11.26.0', fnv(src) === h && src.length === len,
           h + ' / ' + len, fnv(src) + ' / ' + src.length);
     }

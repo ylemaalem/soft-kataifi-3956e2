@@ -245,10 +245,17 @@ async function testMeetregels() {
     // is hij nog steeds V11.34.1. De rest van de functie is dus onaangeroerd.
     const terugV11363 = (s) => s.split('\n').filter(l => !/V11\.36\.3/.test(l)).join('\n')
       .replace('const winner = tikSlotMatch(bruikbaar, straalVast);', 'const winner = stickySlotMatch(bruikbaar, straal);');
+    // V11.37.4: vier regels van het V9-blok in onGPS kregen een tak voor 'geen licht'; hier terug
+    // naar hun oude vorm, daarna gaat de aanroep van achterTik weg met het filter (zie test_achter).
+    const terugV11374 = (s) => s
+      .replace('if ((dichtstbijOSM || (achterAan() && v9KandidaatNode !== null)) && cacheGeladen) {   // V11.37.4: een lopende meting loopt ook zonder getoond licht door', 'if (dichtstbijOSM && cacheGeladen) {')
+      .replace('const afst = dichtstbijOSM ? dichtstbijOSM.afstand : Infinity;   // V11.37.4', 'const afst = dichtstbijOSM.afstand;')
+      .replace('const nodeId = dichtstbijOSM ? String(dichtstbijOSM.id) : null;   // V11.37.4', 'const nodeId = String(dichtstbijOSM.id);')
+      .replace('kandidaatPos ?? (dichtstbijOSM ? { lat: dichtstbijOSM.lat, lon: dichtstbijOSM.lon } : { lat, lon }),   // V11.37.4', 'kandidaatPos ?? { lat: dichtstbijOSM.lat, lon: dichtstbijOSM.lon },');
     const af2 = Object.entries(ONGEMOEID).filter(([n, [h, l]]) => {
       // V11.36.4: onGPS kreeg drie meetregels (de wissellog), met merkteken.
       const s = n === 'selecteerBesteDetectie' ? terugV11363(String(eval(n)))
-              : n === 'onGPS' ? String(eval(n)).split('\n').filter(l => !/V11\.36\.4|V11\.37\.[12]/.test(l))   /* V11.37.2: de snelle stilstandroute is gedrag, zie test_snelroute SN6b */.join('\n') : String(eval(n));
+              : n === 'onGPS' ? terugV11374(String(eval(n))).split('\n').filter(l => !/V11\.36\.4|V11\.37\.[124]/.test(l))   /* V11.37.2: de snelle stilstandroute is gedrag, zie test_snelroute SN6b; V11.37.4: de achter-regel, zie test_achter */.join('\n') : String(eval(n));
       return fnv(s) !== h || s.length !== l; }).map(x => x[0]);
     eis('ML7b de keuze, de run, de poort, de lus en de GPS: negen functies byte-gelijk aan V11.34.1 (selecteerBesteDetectie zonder de V11.36.3-regels)',
         af2.length === 0, 'geen afwijking', af2.join(', ') || 'geen');

@@ -50,6 +50,7 @@ async function regelRitBinnen(opt) {
   window.refreshStadIndienNodig = async () => {};
   window.toonToast = () => {};
   if (opt.zonderRegel) window.regelTik = () => {};
+  if (opt.uitAchter) window.achterAan = () => false;   // V11.37.4
   try { for (const k of ['sl_wissellog', 'sl_opslaglog', 'sl_regellog', TIKLOG_SLEUTEL]) localStorage.setItem(k, '[]'); } catch (e) {}
   tikLogArr = null; tikLogStop = false; tikLogVorige = { tak: null, t: 0 }; tikLogLevend = null;
   osmCache = opt.nodes.map(n => ({ id: n.id, naam: String(n.id), ...LL(n.x, n.y) }));
@@ -161,13 +162,15 @@ async function testSchaduwregel() {
     const r2 = [tik(0, 90, 30), tik(0, 96, 30), tik(0, 101, 30), tik(0, 106, 30)].join('');
     const voorEen = regelStaat.voorbij.length;
     const r2b = tik(0, 112, 30);
-    eis('SR2a na één stijging (106 m) is A nog niet voorbij en kiest de regel F, de overkant; na de tweede (112 m) wel, en valt F mee weg: B',
-        r2 === 'AAFF' && voorEen === 0 && r2b === 'B' && regelStaat.voorbij.some(v => v.id === String(A.id)),
-        'AAFF, dan B', r2 + ', dan ' + r2b + ' (voorbij ' + regelStaat.voorbij.map(v => v.id).join(',') + ')');
+    // V11.37.4: de huidige keuze blijft staan zolang hij binnen REGEL_HOUD_M (15 m) staat en niet voorbij is;
+    // de regel springt dus niet meer even naar F, de overkant.
+    eis('SR2a na één stijging (106 m) is A nog niet voorbij en houdt de regel A vast (6 m, binnen 15 m); na de tweede (112 m) is A voorbij en valt F mee weg: B',
+        r2 === 'AAAA' && voorEen === 0 && r2b === 'B' && regelStaat.voorbij.some(v => v.id === String(A.id)),
+        'AAAA, dan B', r2 + ', dan ' + r2b + ' (voorbij ' + regelStaat.voorbij.map(v => v.id).join(',') + ')');
     opzet([A, F, B]); tik(0, 96, 30); tik(0, 101, 30); tik(0, 106, 30);
     const herhaal = tik(0, 106, 30);   // dezelfde positie nog een keer
-    eis('SR2b een herhaalde, identieke positie telt niet als tweede stijging', herhaal === 'F' && regelStaat.voorbij.length === 0,
-        'F, niet voorbij', herhaal + ', voorbij ' + regelStaat.voorbij.length);
+    eis('SR2b een herhaalde, identieke positie telt niet als tweede stijging', herhaal === 'A' && regelStaat.voorbij.length === 0,
+        'A, niet voorbij', herhaal + ', voorbij ' + regelStaat.voorbij.length);
     opzet([A, F, B]); for (const y of [96, 101, 106, 112]) tik(0, y, 30);
     const heeftA = () => regelStaat.voorbij.some(v => v.id === String(A.id));
     tik(0, 200, 30); const nogBewaard = heeftA(); tik(0, 260, 30);
@@ -295,7 +298,9 @@ async function testSchaduwregel() {
   const nodes = [{ id: 9500001, x: 0, y: 0 }, { id: 9500002, x: 0, y: 150 }];
   const ritTik = { nodes, start: 9500001, tik: true, stukken: [{ vanY: -120, totY: 140, kmh: 30 }] };
   const ritStop = { nodes, start: 9500001, stukken: [{ vanY: -120, totY: -6, kmh: 30 }, { tikken: 5, kmh: 0 }, { totY: 140, kmh: 30 }] };
-  const met = await rit(ritTik), zonder = await rit({ ...ritTik, zonderRegel: true });
+  // V11.37.4: SR8b vergelijkt de regel met A3, dus met de achter-regel uit; SR8d met hem aan.
+  const met = await rit({ ...ritTik, uitAchter: true }), zonder = await rit({ ...ritTik, zonderRegel: true, uitAchter: true });
+  const metA = await rit(ritTik);
   const metS = await rit(ritStop), zonderS = await rit({ ...ritStop, zonderRegel: true });
   const eersteB = (r, veld) => { const i = r.rij.findIndex(x => x[veld] === 9500002 || x[veld] === '9500002'); return i < 0 ? null : r.rij[i].y; };
   const afw8 = (met.regellog || []).filter(r => r.s === 'af');
@@ -303,6 +308,10 @@ async function testSchaduwregel() {
       !met.fout && eersteB(met, 'regel') !== null && eersteB(met, 'app') !== null && eersteB(met, 'regel') < eersteB(met, 'app')
         && afw8.some(r => r.app === 9500001 && r.rg === 9500002),
       'regel eerder dan app, afwijking A>B', met.fout || `regel B op ${eersteB(met, 'regel')} m, app B op ${eersteB(met, 'app')} m, ${afw8.length} afwijking(en)`);
+  const afw8d = (metA.regellog || []).filter(r => r.s === 'af');
+  eis('SR8d V11.37.4: met de achter-regel aan kiezen de app en de regel B op dezelfde plek, en er is geen afwijking A>B',
+      !metA.fout && eersteB(metA, 'regel') !== null && eersteB(metA, 'app') === eersteB(metA, 'regel') && !afw8d.some(r => r.app === 9500001 && r.rg === 9500002),
+      'gelijk, geen afwijking', metA.fout || `regel B op ${eersteB(metA, 'regel')} m, app B op ${eersteB(metA, 'app')} m, ${afw8d.length} afwijking(en)`);
   const stop8 = (metS.regellog || []).filter(r => r.s === 'stop');
   eis('SR8c een stop 6 m voor A geeft één stopregel, met A voor de app en de regel na 2 s',
       !metS.fout && stop8.length === 1 && stop8[0].a2 === 9500001 && stop8[0].r2 === 9500001,
@@ -317,7 +326,14 @@ async function testSchaduwregel() {
 
   // ═══ SR10 — regressie ═══════════════════════════════════════
   const NL = String.fromCharCode(10);
-  const g = String(onGPS).split(NL).filter(l => !/V11\.34\.[2-9]|V11\.36\.[14]|V11\.37\.[12]/.test(l)).join(NL);   // V11.37.2: gedrag, getoetst in test_snelroute SN6b
+  // V11.37.4: vier regels van het V9-blok in onGPS kregen een tak voor 'geen licht'; hier terug
+  // naar hun oude vorm, daarna gaat de aanroep van achterTik weg met het filter (zie test_achter).
+  const terugV11374 = (s) => s
+    .replace('if ((dichtstbijOSM || (achterAan() && v9KandidaatNode !== null)) && cacheGeladen) {   // V11.37.4: een lopende meting loopt ook zonder getoond licht door', 'if (dichtstbijOSM && cacheGeladen) {')
+    .replace('const afst = dichtstbijOSM ? dichtstbijOSM.afstand : Infinity;   // V11.37.4', 'const afst = dichtstbijOSM.afstand;')
+    .replace('const nodeId = dichtstbijOSM ? String(dichtstbijOSM.id) : null;   // V11.37.4', 'const nodeId = String(dichtstbijOSM.id);')
+    .replace('kandidaatPos ?? (dichtstbijOSM ? { lat: dichtstbijOSM.lat, lon: dichtstbijOSM.lon } : { lat, lon }),   // V11.37.4', 'kandidaatPos ?? { lat: dichtstbijOSM.lat, lon: dichtstbijOSM.lon },');
+  const g = terugV11374(String(onGPS)).split(NL).filter(l => !/V11\.34\.[2-9]|V11\.36\.[14]|V11\.37\.[124]/.test(l)).join(NL);   // V11.37.2: gedrag, getoetst in test_snelroute SN6b; V11.37.4: test_achter
   eis('SR10a onGPS zonder de meetregels (ook de schaduwregel) is byte-gelijk aan V11.37.0 (c767e2a3 / 14333)',
       fnv(g) === 'c767e2a3' && g.length === 14333, 'c767e2a3 / 14333', fnv(g) + ' / ' + g.length);
   const og = zc(onGPS);

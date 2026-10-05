@@ -390,7 +390,14 @@ async function testTikWint() {
     // regel zelf; zonder die regels moet de functie nog steeds byte-gelijk zijn.
     // V11.36.1: ook de Safari-meetregels in exporteerMeetdata (merkteken V11.36.1), en
     // V11.36.2: de budgetregel in tikLogNoteer (merkteken V11.36.2).
-    const zonderMeet = (s) => s.split('\n').filter(l => !/V11\.34\.[2-9]|V11\.36\.[124]|V11\.37\.[12]/.test(l)).join('\n');   // V11.36.4: de wissellog
+    // V11.37.4: vier regels van het V9-blok in onGPS kregen een tak voor 'geen licht'; hier terug
+    // naar hun oude vorm, daarna gaat de aanroep van achterTik weg met het filter (zie test_achter).
+    const terugV11374 = (s) => s
+      .replace('if ((dichtstbijOSM || (achterAan() && v9KandidaatNode !== null)) && cacheGeladen) {   // V11.37.4: een lopende meting loopt ook zonder getoond licht door', 'if (dichtstbijOSM && cacheGeladen) {')
+      .replace('const afst = dichtstbijOSM ? dichtstbijOSM.afstand : Infinity;   // V11.37.4', 'const afst = dichtstbijOSM.afstand;')
+      .replace('const nodeId = dichtstbijOSM ? String(dichtstbijOSM.id) : null;   // V11.37.4', 'const nodeId = String(dichtstbijOSM.id);')
+      .replace('kandidaatPos ?? (dichtstbijOSM ? { lat: dichtstbijOSM.lat, lon: dichtstbijOSM.lon } : { lat, lon }),   // V11.37.4', 'kandidaatPos ?? { lat: dichtstbijOSM.lat, lon: dichtstbijOSM.lon },');
+    const zonderMeet = (s) => terugV11374(s).split('\n').filter(l => !/V11\.34\.[2-9]|V11\.36\.[124]|V11\.37\.[124]/.test(l)).join('\n');   // V11.36.4: de wissellog; V11.37.4: de achter-regel
     const anders = Object.entries(ONGEWIJZIGD).filter(([n, [h, l]]) => fnv(zonderMeet(String(eval(n)))) !== h || zonderMeet(String(eval(n))).length !== l).map(x => x[0]);
     eis('TW9d vijftien functies die V11.33.0 niet raakt, zijn byte-gelijk aan V11.32.0 (NB14 inbegrepen)',
         anders.length === 0, 'geen afwijking', anders.join(', ') || 'geen');

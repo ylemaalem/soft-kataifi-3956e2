@@ -110,10 +110,19 @@ async function testRichtingtik() {
   const V11372 = { vindDichtbij: ['2db98dab', 2954], vindDichtbijScore: ['bc9b7937', 2105], updateDichtbij: ['e82d3c0', 11914],
     checkHandLockVerval: ['2df4f7ed', 5513], checkNodeCorrectieStilstand: ['8c801fd8', 4751], corrigeerNodeAutomatisch: ['afe7b427', 4118],
     checkNaderingsCorrectie: ['6aeb87b3', 3595], verzamelNaderingsBewijs: ['3d6ad85f', 3526], checkHandLockPassage: ['7f001264', 1768],
-    checkTikSlotSnel: ['d3a8edbe', 2071], regelTik: ['9c1b361b', 3087], regelKies: ['fd57785d', 1485], onGPS: ['e1da9bf9', 14694],
+    checkTikSlotSnel: ['d3a8edbe', 2071], regelTik: ['9c1b361b', 3087], onGPS: ['e1da9bf9', 14694],   // regelKies: V11.37.4 herschreven, zie test_achter
     vergrendelNodeHandmatig: ['9a007b96', 2295], selecteerNodeHandmatig: ['5275f4dd', 2379] };
-  const anders = Object.entries(V11372).filter(([n, [h, l]]) => { const s = String(window[n]); return fnv(s) !== h || s.length !== l; }).map(x => x[0]);
-  eis('RT6a de lichtkeuze is onaangeroerd: vijftien functies (onGPS en NB14 inbegrepen) byte-gelijk aan V11.37.2',
+  const NL = String.fromCharCode(10);
+  // V11.37.4: vier regels van het V9-blok in onGPS kregen een tak voor 'geen licht'; hier terug
+  // naar hun oude vorm, daarna gaat de aanroep van achterTik weg met het filter (zie test_achter).
+  const terugV11374 = (s) => s
+    .replace('if ((dichtstbijOSM || (achterAan() && v9KandidaatNode !== null)) && cacheGeladen) {   // V11.37.4: een lopende meting loopt ook zonder getoond licht door', 'if (dichtstbijOSM && cacheGeladen) {')
+    .replace('const afst = dichtstbijOSM ? dichtstbijOSM.afstand : Infinity;   // V11.37.4', 'const afst = dichtstbijOSM.afstand;')
+    .replace('const nodeId = dichtstbijOSM ? String(dichtstbijOSM.id) : null;   // V11.37.4', 'const nodeId = String(dichtstbijOSM.id);')
+    .replace('kandidaatPos ?? (dichtstbijOSM ? { lat: dichtstbijOSM.lat, lon: dichtstbijOSM.lon } : { lat, lon }),   // V11.37.4', 'kandidaatPos ?? { lat: dichtstbijOSM.lat, lon: dichtstbijOSM.lon },');
+  // V11.37.4: zonder de regels met merkteken (de achter-regel, zie test_achter); onGPS met zijn vier V9-regels terug.
+  const anders = Object.entries(V11372).filter(([n, [h, l]]) => { const s = terugV11374(String(window[n])).split(NL).filter(l => !/V11\.37\.4/.test(l)).join(NL); return fnv(s) !== h || s.length !== l; }).map(x => x[0]);
+  eis('RT6a de lichtkeuze is onaangeroerd door V11.37.3: veertien functies (onGPS en NB14 inbegrepen, zonder de V11.37.4-regels) byte-gelijk aan V11.37.2',
       anders.length === 0, 'geen afwijking', anders.join(', ') || 'geen');
   const t = String(tikRichting);
   eis('RT6b in tikRichting zijn alleen het doel en het logveld veranderd: drie regels met merkteken V11.37.3',
