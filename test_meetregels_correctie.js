@@ -226,7 +226,18 @@ async function testMeetregelsCorrectie() {
     const terugV11373 = (s) => s.replace(/  const oudDoel = [^\n]*\n  const nodeId = [^\n]*\n/,
         '  const nodeId = richtingKnoppenNodeId || huidigBevestigdOsmNodeId;\n')
       .replace(/rPct,\n    nieuw: [^\n]*\n/, 'rPct });\n');
-    const norm = (n) => zonderMeet(n === 'tikRichting' ? terugV11373(String(eval(n))) : eval(n))
+    // V11.37.6: de vier losse logknoppen wissen niet meer na delen; met de oude regels terug zijn ze gelijk.
+    const terugV11376 = (s) => String(s)
+      .replace("// V11.37.6: niet meer wissen na delen (zie het blok boven exporteerConfLog)", "try { localStorage.removeItem('sl_conflog'); } catch(e) {} // V11.16.6")
+      .replace("// V11.37.6: ook na een mislukte deelpoging niet wissen: de download is op een iPhone niet zeker", "try { localStorage.removeItem('sl_conflog'); } catch(e2) {} // V11.16.6")
+      .replace("// V11.37.6: niet meer wissen na downloaden", "try { localStorage.removeItem('sl_conflog'); } catch(e) {} // V11.16.6")
+      .replace("const naExport = () => {};   // V11.37.6: niet meer wissen na delen; de log is een ring (MAX_ZICHTLOG)",
+               "const naExport = () => {\n    try { localStorage.removeItem('sl_zichtlog'); } catch(e) {}\n    zichtLogArr = [];   // buffer mee wissen, anders schrijft de oude inhoud zich terug\n  };")
+      .replace("const naExport = () => {};   // V11.37.6: niet meer wissen na delen; de log is een ring (MAX_HERZIENINGLOG)",
+               "const naExport = () => { try { localStorage.removeItem('sl_herzieninglog'); } catch(_) {} };")
+      .replace("const naExport = () => {};   // V11.37.6: niet meer wissen na delen; de log is een ring (MAX_DETLOG)",
+               "const naExport = () => {\n    try { localStorage.removeItem('sl_detlog'); } catch(e) {}\n    detLogArr = [];\n  };");
+    const norm = (n) => zonderMeet(n === 'tikRichting' ? terugV11373(String(eval(n))) : /^exporteer(Conf|Zicht|Herziening|Det)Log$/.test(n) ? terugV11376(eval(n)) : eval(n))
       .replace(/naderBewijsReset\('[a-z]+'\)/g, 'naderBewijsReset()')
       .replace(', rijPct = null)', ')').replace("'rij', rijPct)", "'rij')")
       .replace('element: richtingTikElement, rPct }', 'element: richtingTikElement }')

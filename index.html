@@ -1052,7 +1052,7 @@ if (typeof ort !== 'undefined') {
 //
 // De stijl volgt de eerdere labels: nummer, kastlijntje, korte omschrijving in
 // kleine letters. De CSS zet hem zelf in kapitalen (text-transform:uppercase).
-const APP_VERSIE = 'V11.37.5 — de richtingknoppen volgen het getoonde licht, en meetregels voor een tik die niets doet en voor de lamp vlakbij';
+const APP_VERSIE = 'V11.37.6 — de losse logknoppen wissen hun log niet meer na het delen';
 
 // ── CONSTANTEN ────────────────────────────────────────────────
 const OSM_RADIUS       = 5000;
@@ -18877,6 +18877,20 @@ async function verwijderTrainframes() {
   } catch(e) { alert('Verwijderen mislukt: '+e.message); }
 }
 
+// ── V11.37.6: DE LOSSE LOGKNOPPEN WISSEN NIETS MEER ─────────────
+// © 2026 StoplichtIQ — Y. Lemaalem
+//
+// Tot hier wisten de vier losse knoppen (conf, zicht, herziening, det) hun log
+// na het delen, een erfenis van V11.16.6 toen de logs nog geen vaste lengte
+// hadden. Nu zijn het ringen (conflog 50, zichtlog 300, herzieningslog 200,
+// detlog 500), dus wissen bespaart niets blijvends, en het kostte wel: na een
+// mislukte deelpoging viel de app terug op een download en wiste meteen, en op
+// een iPhone komt zo'n download niet altijd echt aan. Kosten van niet wissen,
+// gemeten in de backup van 4 okt: conflog en detlog zaten al vol, de zichtlog
+// groeit eenmalig ~35 KB (175 -> 300 regels), de herzieningslog ~47 KB (24 -> 200);
+// daarna niets meer. De volgende export bevat dan deels dezelfde regels als de
+// vorige; bij de analyse ontdubbelen op tijd. Er komt geen nieuwe wis-logica.
+
 // V11.15.10 DEBUG: exporteer klasseVerdelingLog voor rijtest-analyse — TIJDELIJK
 function exporteerConfLog() {
   const btn = document.getElementById('export-conflog-btn');
@@ -18917,21 +18931,21 @@ function exporteerConfLog() {
         if (navigator.canShare({ files:[bestand] })) {
           navigator.share({ files:[bestand], title:'StoplichtIQ Conf-log' })
             .then(() => {
-              try { localStorage.removeItem('sl_conflog'); } catch(e) {} // V11.16.6
+              // V11.37.6: niet meer wissen na delen (zie het blok boven exporteerConfLog)
               alert('✅ Conf-log gedeeld'); herstelBtn();
             })
             .catch(e => {
               if (e && e.name === 'AbortError') { herstelBtn(); return; }
               alert('⚠️ Delen mislukt, download start...');
               downloadFallback(jsonString, bestandsnaam);
-              try { localStorage.removeItem('sl_conflog'); } catch(e2) {} // V11.16.6
+              // V11.37.6: ook na een mislukte deelpoging niet wissen: de download is op een iPhone niet zeker
               herstelBtn();
             });
           return;
         }
       }
       downloadFallback(jsonString, bestandsnaam);
-      try { localStorage.removeItem('sl_conflog'); } catch(e) {} // V11.16.6
+      // V11.37.6: niet meer wissen na downloaden
       alert('✅ Conf-log gedownload');
       herstelBtn();
     } catch(e) { alert('Export mislukt: '+e.message); herstelBtn(); }
@@ -18942,15 +18956,13 @@ function exporteerConfLog() {
 // V11.17.34 W1: export van het zichtbaarheidslog. Zelfde vorm als
 // exporteerConfLog (r8758): delen indien mogelijk, anders downloaden, en de
 // sleutel pas wissen na een geslaagde export (AbortError wist niets).
+// V11.37.6: er wordt niet meer gewist; zie het blok boven exporteerConfLog.
 function exporteerZichtLog() {
   const btn = document.getElementById('export-zichtlog-btn');
   const origTekst = btn ? btn.textContent : null;
   if (btn) { btn.textContent = '⏳ Bezig...'; btn.disabled = true; }
   const herstelBtn = () => { if (btn) { btn.textContent = origTekst; btn.disabled = false; } };
-  const naExport = () => {
-    try { localStorage.removeItem('sl_zichtlog'); } catch(e) {}
-    zichtLogArr = [];   // buffer mee wissen, anders schrijft de oude inhoud zich terug
-  };
+  const naExport = () => {};   // V11.37.6: niet meer wissen na delen; de log is een ring (MAX_ZICHTLOG)
   const downloadFallback = (jsonString, bestandsnaam) => {
     const blob = new Blob([jsonString], { type:'application/json' });
     const url  = URL.createObjectURL(blob);
@@ -19095,6 +19107,7 @@ function detLogSchrijf() {
 // V11.17.57: het herzieninglog rijdt al mee in `Exporteer meetdata` (bucket
 // `herziening`). Deze knop staat er voor pariteit met de andere diagnoselogs
 // en om hem los te kunnen legen zonder de hele meetdata te exporteren.
+// V11.37.6: legen gebeurt niet meer; de knop deelt alleen nog.
 // Bewust compacter dan exporteerDetLog: geen in-memory buffer om te legen,
 // want dit log schrijft per fase rechtstreeks naar localStorage.
 function exporteerHerzieningLog() {
@@ -19121,7 +19134,7 @@ function exporteerHerzieningLog() {
       };
       const jsonString = JSON.stringify(exportData);
       const bestandsnaam = `stoplichtiq-herzlog-${new Date().toISOString().slice(0,10)}.json`;
-      const naExport = () => { try { localStorage.removeItem('sl_herzieninglog'); } catch(_) {} };
+      const naExport = () => {};   // V11.37.6: niet meer wissen na delen; de log is een ring (MAX_HERZIENINGLOG)
       const download = () => {
         const blob = new Blob([jsonString], { type:'application/json' });
         const url  = URL.createObjectURL(blob);
@@ -19150,10 +19163,7 @@ function exporteerDetLog() {
   const origTekst = btn ? btn.textContent : null;
   if (btn) { btn.textContent = '⏳ Bezig...'; btn.disabled = true; }
   const herstelBtn = () => { if (btn) { btn.textContent = origTekst; btn.disabled = false; } };
-  const naExport = () => {
-    try { localStorage.removeItem('sl_detlog'); } catch(e) {}
-    detLogArr = [];
-  };
+  const naExport = () => {};   // V11.37.6: niet meer wissen na delen; de log is een ring (MAX_DETLOG)
   const downloadFallback = (jsonString, bestandsnaam) => {
     const blob = new Blob([jsonString], { type:'application/json' });
     const url  = URL.createObjectURL(blob);
