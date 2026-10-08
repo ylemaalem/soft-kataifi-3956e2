@@ -1052,7 +1052,7 @@ if (typeof ort !== 'undefined') {
 //
 // De stijl volgt de eerdere labels: nummer, kastlijntje, korte omschrijving in
 // kleine letters. De CSS zet hem zelf in kapitalen (text-transform:uppercase).
-const APP_VERSIE = 'V11.37.6 — de losse logknoppen wissen hun log niet meer na het delen';
+const APP_VERSIE = 'V11.37.7 — het schaduwlog blijft staan na Meetdata, en de radar en de debugregel volgen het getoonde licht';
 
 // ── CONSTANTEN ────────────────────────────────────────────────
 const OSM_RADIUS       = 5000;
@@ -5486,6 +5486,19 @@ function updatePassiefTeller() {
   btn.textContent = `📈 Exporteer meetdata (${telPassiefMetingen()})${r ? ` · ${r} richt` : ''}${s ? ` · ${s} schad` : ''}${hz ? ` · ${hz} herz` : ''}`;
 }
 
+// ── V11.37.7: MEETDATA WIST HET SCHADUWLOG NIET MEER ───────────
+// © 2026 StoplichtIQ — Y. Lemaalem
+//
+// Sinds V11.18.20 wiste deze export sl_schaduwlog na een geslaagde deel- of
+// downloadpoging. V11.37.6 haalde dat wissen al weg bij de vier losse
+// logknoppen; het schaduwlog was de laatste log die nog leegging. Het is een
+// ring van MAX_SCHADUWLOG (200) regels, dus wissen spaart niets blijvends, en
+// een download die op een iPhone niet aankomt nam het log mee. Kosten, gemeten
+// in de export van 7 okt: 45 regels van ~140 B (6,2 KB), ~15 per rijdag; vol is
+// ~27 KB, dus eenmalig ~21 KB erbij, in ongeveer twee weken. De opmerking van
+// V11.18.20 hieronder beschrijft de oude toestand. Er komt geen nieuwe
+// wis-logica; een volgende export bevat deels dezelfde regels (ontdubbel op t).
+
 // W4: exporteer meetdata. Zelfde share+blob-uitvoermechanisme als exporteerData.
 function exporteerMeetdata() {
   const btn = document.getElementById('export-meetdata-btn');
@@ -5519,7 +5532,7 @@ function exporteerMeetdata() {
   // ALLEEN sl_schaduwlog. De andere sleutels in deze export zijn leerdata
   // (sl_v4_, sl_v5_, sl_klok_, sl_passief_) of hebben hun eigen knop; die
   // worden hier met geen enkele reden aangeraakt.
-  const naExport = () => { try { localStorage.removeItem('sl_schaduwlog'); } catch(_) {} };
+  const naExport = () => {};   // V11.37.7: het schaduwlog niet meer wissen; het is een ring (MAX_SCHADUWLOG)
   setTimeout(() => {
     try {
       const uit = { versie:'V11.17.57', geexporteerd:new Date().toISOString(),
@@ -21184,10 +21197,22 @@ function checkNacht() {
   pNacht.className = 'pill-dot';
 }
 
+// ── V11.37.7: RADAR EN DEBUGREGEL VOLGEN HET GETOONDE LICHT ──────
+// © 2026 StoplichtIQ — Y. Lemaalem
+//
+// De debugregel (de tag achter 'osm:') en de radar (tekenRadarSheet, het
+// grote pulserende bolletje) lazen huidigBevestigdOsmNodeId: het licht van de
+// laatste officiële fase. Dat blijft na een wissel staan tot de volgende fase,
+// dus na een wissel van A naar B pulseerde A op de radar terwijl de app B
+// toonde. Nu lezen ze dichtstbijOSM, net als de knoppen sinds V11.37.5
+// (isGetoondLicht). Zonder getoond licht ('Geen stoplicht binnen 400 m',
+// V11.37.4) is er geen actief bolletje en geen tag. Alleen weergave: de
+// lichtkeuze leest geen van beide.
+
 // ── DEBUG OVERLAY ─────────────────────────────────────────────
 function updateDebugOverlay() {
   if (!dAI||!dPct||!dOSM||!dInfo) return;
-  const tag = huidigBevestigdOsmNodeId ? laadStoplichtTag(huidigBevestigdOsmNodeId) : null;
+  const tag = dichtstbijOSM ? laadStoplichtTag(String(dichtstbijOSM.id)) : null;   // V11.37.7: het getoonde licht, zie hierboven
   dAI.textContent  = [debugWaarden.ai||'ai:—', `int:${dynamischInterval}(${Math.round(gemiddeldeInferentieTijd)}ms)`].join(' | ');
   dPct.textContent = [debugWaarden.leer||'leer:—', debugWaarden.zoom||''].filter(Boolean).join(' | ');
   dOSM.textContent = [debugWaarden.osm||'osm:—', s2SessieTeller>0?`S2:${s2SessieTeller}`:'', tag?'tag:'+tag.type:''].filter(Boolean).join(' | ');
@@ -21718,9 +21743,7 @@ function tekenRadarSheet() {
 
   // Nodes
   radarSheetNodes = [];
-  const activeNodeId = (typeof huidigBevestigdOsmNodeId !== 'undefined' && huidigBevestigdOsmNodeId)
-    ? String(huidigBevestigdOsmNodeId)
-    : (dichtstbijOSM ? String(dichtstbijOSM.id) : null);
+  const activeNodeId = dichtstbijOSM ? String(dichtstbijOSM.id) : null;   // V11.37.7: het getoonde licht, zie boven updateDebugOverlay
 
   if (typeof osmCache !== 'undefined' && osmCache.length && huidigePos) {
     const nodesMetAfstand = [];

@@ -40,7 +40,8 @@ async function testMeetregels() {
   const terugV11375 = (s) => String(s)
     .replace('|| (afst < DETLOG_MIN_M && !stil) || afst > DETLOG_MAX_M) return;   // V11.37.5: stilstand vlak bij het licht mag', '|| afst < DETLOG_MIN_M || afst > DETLOG_MAX_M) return;')
     .replace('if (snelheidKmh <= 30 && dichtstbijOSM) toonRichtingKnoppen(String(dichtstbijOSM.id));   // V11.37.5: het licht dat de app NU toont, zie isGetoondLicht', 'if (snelheidKmh <= 30) toonRichtingKnoppen(huidigBevestigdOsmNodeId);');
-  const zonderMeet = (f) => terugV11375(f).split('\n').filter(l => !/V11\.34\.[2-9]|V11\.36\.[14]|V11\.37\.[15]/.test(l)).join('\n');   // V11.36.4: ook de wissellog; V11.37.5: de detlog bij stilstand
+  const terugV11377 = (s) => String(s).replace("  const naExport = () => {};   // V11.37.7: het schaduwlog niet meer wissen; het is een ring (MAX_SCHADUWLOG)", "  const naExport = () => { try { localStorage.removeItem('sl_schaduwlog'); } catch(_) {} };");   // V11.37.7: het schaduwlog wist niet meer (test_getoond_licht); hier terug
+  const zonderMeet = (f) => terugV11377(terugV11375(f)).split('\n').filter(l => !/V11\.34\.[2-9]|V11\.36\.[14]|V11\.37\.[15]/.test(l)).join('\n');   // V11.36.4: ook de wissellog; V11.37.5: de detlog bij stilstand
   const lees = (k) => { try { return JSON.parse(localStorage.getItem(k)) || []; } catch (e) { return []; } };
 
   const sleutels = [CAMCAP_SLEUTEL, MODELLOG_SLEUTEL, MINUUTLOG_SLEUTEL];

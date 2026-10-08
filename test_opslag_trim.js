@@ -23,7 +23,7 @@
 //  T6  ... en laat een onleesbare sl_pos_-sleutel staan
 //  T7  trimDiagnostiekV1 draait één keer en zet zijn vlag
 //  T8  ... en doet niets meer zodra de vlag staat
-//  T9  de meetdata-export wist sl_schaduwlog, en alleen die
+//  T9  de meetdata-export wist niets meer (V11.37.7; tot dan alleen sl_schaduwlog)
 //  R1  REGRESSIE: geen leerdata-sleutel verandert door de trim
 //  R2  REGRESSIE: voerOpruimPassenUit gebruikt nog steeds dezelfde pas 4
 //  R3  REGRESSIE: de trim raakt pas 5 (sl_v4_ halveren) niet aan
@@ -242,15 +242,15 @@ function testOpslagTrim() {
     // het schaduwlog wel degelijk in die export meegaat.
     const bronExp = String(exporteerMeetdata);
     const wisRegels = bronExp.match(/removeItem\('([^']+)'\)/g) || [];
-    eis('T9 de meetdata-export wist sl_schaduwlog na afloop',
-        wisRegels.length === 1 && wisRegels[0] === "removeItem('sl_schaduwlog')",
-        "alleen removeItem('sl_schaduwlog')",
-        wisRegels.join(' | ') || 'GEEN');
+    eis('T9 V11.37.7: de meetdata-export wist niets meer, ook sl_schaduwlog niet (zie test_getoond_licht GL1)',
+        wisRegels.length === 0,
+        'geen removeItem',
+        wisRegels.join(' | ') || 'geen');
     eis('T9b en het log gaat in diezelfde export wel degelijk mee',
         /sl_schaduwlog'\)\s*doel = uit\.schaduw/.test(bronExp.replace(/\s+/g, ' '))
           || /uit\.schaduw/.test(bronExp),
         'uit.schaduw wordt gevuld', /uit\.schaduw/.test(bronExp) ? 'ja' : 'NEE');
-    eis('T9c en wissen gebeurt pas na een GESLAAGDE export, niet bij afbreken',
+    eis('T9c bij afbreken keert de export terug zonder verder iets te doen',
         /AbortError'\) \{ herstelBtn\(\); return; \}/.test(bronExp),
         'AbortError keert terug zonder te wissen',
         /AbortError/.test(bronExp) ? 'afbreektak aanwezig' : 'ONTBREEKT');

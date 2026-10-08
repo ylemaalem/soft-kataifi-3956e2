@@ -401,7 +401,8 @@ async function testTikWint() {
     const terugV11375 = (s) => String(s)
       .replace('|| (afst < DETLOG_MIN_M && !stil) || afst > DETLOG_MAX_M) return;   // V11.37.5: stilstand vlak bij het licht mag', '|| afst < DETLOG_MIN_M || afst > DETLOG_MAX_M) return;')
       .replace('if (snelheidKmh <= 30 && dichtstbijOSM) toonRichtingKnoppen(String(dichtstbijOSM.id));   // V11.37.5: het licht dat de app NU toont, zie isGetoondLicht', 'if (snelheidKmh <= 30) toonRichtingKnoppen(huidigBevestigdOsmNodeId);');
-    const zonderMeet = (s) => terugV11375(terugV11374(s)).split('\n').filter(l => !/V11\.34\.[2-9]|V11\.36\.[124]|V11\.37\.[1245]/.test(l)).join('\n');   // V11.36.4: de wissellog; V11.37.4: de achter-regel; V11.37.5: zie test_knoppen
+    const terugV11377 = (s) => String(s).replace("  const naExport = () => {};   // V11.37.7: het schaduwlog niet meer wissen; het is een ring (MAX_SCHADUWLOG)", "  const naExport = () => { try { localStorage.removeItem('sl_schaduwlog'); } catch(_) {} };");   // V11.37.7: het schaduwlog wist niet meer (test_getoond_licht); hier terug
+    const zonderMeet = (s) => terugV11377(terugV11375(terugV11374(s))).split('\n').filter(l => !/V11\.34\.[2-9]|V11\.36\.[124]|V11\.37\.[1245]/.test(l)).join('\n');   // V11.36.4: de wissellog; V11.37.4: de achter-regel; V11.37.5: zie test_knoppen
     const anders = Object.entries(ONGEWIJZIGD).filter(([n, [h, l]]) => fnv(zonderMeet(String(eval(n)))) !== h || zonderMeet(String(eval(n))).length !== l).map(x => x[0]);
     eis('TW9d vijftien functies die V11.33.0 niet raakt, zijn byte-gelijk aan V11.32.0 (NB14 inbegrepen)',
         anders.length === 0, 'geen afwijking', anders.join(', ') || 'geen');
