@@ -204,6 +204,10 @@ function testRichtingUi() {
     eis('T5c de Algemeen-regel zet geen rijrichting',
         !/tikRichting/.test(rs[iAlg].getAttribute('onclick') || ''),
         'geen tikRichting in de Algemeen-regel', rs[iAlg].getAttribute('onclick'));
+    // V11.37.9: binnen ALG_NA_RIJBLOK_MS (1,5 s) na een tik in het rijblok telt een tik op
+    // Rond licht niet (algemeenTikNegeren, zie test_rond_gewicht RG4). De terugkeer hier is
+    // een bewuste, latere tik: de tik op Rechtsaf ligt zo lang in het verleden.
+    richtingTikTijd -= ALG_NA_RIJBLOK_MS;
     rs[iAlg].onclick();                      // == kiesLaagAlgemeen()
     actief = rijen().filter(r => r.classList.contains('actief')).map(rijLabel);
     eis('T5d na terugkeer verspringt de markering naar Algemeen',

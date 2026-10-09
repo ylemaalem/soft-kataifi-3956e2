@@ -975,7 +975,8 @@
       <button id="export-detlog-btn" onclick="exporteerDetLog()" style="flex:1;padding:8px 12px;background:rgba(167,139,250,0.15);color:#a78bfa;border:1px solid rgba(167,139,250,0.35);border-radius:8px;font-size:12px;cursor:pointer;min-width:100px">🔍 Exp. detectie-log</button>
       <button id="export-herzlog-btn" onclick="exporteerHerzieningLog()" style="flex:1;padding:8px 12px;background:rgba(34,197,94,0.15);color:#22c55e;border:1px solid rgba(34,197,94,0.35);border-radius:8px;font-size:12px;cursor:pointer;min-width:100px">📉 Exp. herziening-log</button>
       <button id="opruim-nu-btn" onclick="ruimOpslagNuOp()" style="flex:1;padding:8px 12px;background:rgba(239,68,68,0.15);color:#ef4444;border:1px solid rgba(239,68,68,0.35);border-radius:8px;font-size:12px;cursor:pointer;min-width:100px">🧹 Ruim opslag nu op</button>
-      <button id="bevestig-lus-btn" onclick="ruimBevestigLusOp()" style="flex:1;padding:8px 12px;background:rgba(239,68,68,0.15);color:#ef4444;border:1px solid rgba(239,68,68,0.35);border-radius:8px;font-size:12px;cursor:pointer;min-width:100px">🩹 Ruim bevestig-lus op</button>
+      <!-- V11.37.9: uitgezet, niet weggehaald: zie BEVESTIG_LUS_KNOP_AAN -->
+      <button id="bevestig-lus-btn" disabled title="Uitgezet in V11.37.9: van de 69 records die hij zou wissen zijn er 68 echte FOUT-tikken van na 28 aug" onclick="ruimBevestigLusOp()" style="flex:1;padding:8px 12px;background:rgba(239,68,68,0.15);color:#ef4444;border:1px solid rgba(239,68,68,0.35);border-radius:8px;font-size:12px;cursor:not-allowed;min-width:100px;opacity:0.4">🩹 Ruim bevestig-lus op (uit)</button>
       <button id="klok-analyse-btn" onclick="toonKlokAnalyse()" style="flex:1;padding:8px 12px;background:rgba(34,197,94,0.15);color:#22c55e;border:1px solid rgba(34,197,94,0.35);border-radius:8px;font-size:12px;cursor:pointer;min-width:100px">🕐 Analyseer klokritmes</button>
       <button id="terug-analyse-btn" onclick="toonTerugAnalyse()" style="flex:1;padding:8px 12px;background:rgba(167,139,250,0.15);color:#a78bfa;border:1px solid rgba(167,139,250,0.35);border-radius:8px;font-size:12px;cursor:pointer;min-width:100px">↶ Tel Terug-records</button>
       <button id="duurlabel-btn" onclick="toonDuurLabelAnalyse()" style="flex:1;padding:8px 12px;background:rgba(56,189,248,0.15);color:#38bdf8;border:1px solid rgba(56,189,248,0.35);border-radius:8px;font-size:12px;cursor:pointer;min-width:100px">⏱ Tel duur-labels</button>
@@ -1052,7 +1053,7 @@ if (typeof ort !== 'undefined') {
 //
 // De stijl volgt de eerdere labels: nummer, kastlijntje, korte omschrijving in
 // kleine letters. De CSS zet hem zelf in kapitalen (text-transform:uppercase).
-const APP_VERSIE = 'V11.37.8 — fiets- en voetgangerslichten zijn geen kandidaat meer, KLOPTE/BIJNA/FOUT blijft bij het licht van de knoppen, en de ©-regel staat in beeld';
+const APP_VERSIE = 'V11.37.9 — Rond licht telt alleen gemeten metingen, het oude label verdwijnt na samenvoegen, en Rond licht kort na een richtingtik telt niet';
 
 // ── CONSTANTEN ────────────────────────────────────────────────
 const OSM_RADIUS       = 5000;
@@ -13550,6 +13551,20 @@ function bijwerkLeerkaart(osm) {
 // (per dagdeel), gewGem+laadMV5Geclusterd voor cyclustijd, ni_kleur voor kleur,
 // tikRichting voor keuze-actie. GEEN nieuwe scoring-logica — de aggregatie
 // over dagdelen is een gewogen gemiddelde op basis van bestaande outputs.
+// ── V11.37.9: HET GEWICHT VAN ROND LICHT ─────────────────────
+// © 2026 StoplichtIQ — Y. Lemaalem
+//
+// De Rond-licht-rij hieronder woog elk dagdeel met m.length: ook de lege
+// S2-markeringen (duur 0) telden. Stadsring, dag: 46 records, waarvan 45 lege
+// S2 van 5 mei en 1 meting, woog 46 keer en trok het percentage naar 20%,
+// waar de gemeten dagdelen samen 83% gaven (STAP 0 van 8 okt). Nu weegt een
+// dagdeel met het aantal metingen met een gemeten duur (heeftGemetenDuur,
+// dezelfde toets als de bodem van pctD), en dat geldt ook voor de cyclustijd.
+// Heeft geen enkel dagdeel een gemeten duur, dan blijft alles zoals het was
+// (algPct uit m.length, algCyc leeg): een kruispunt met alleen S2 verandert
+// niet. Het aantal achter de dagdelen in het paneel (renderNodeInfo) en in de
+// dagdeeltegels (laagDagdeelCijfers) telt dezelfde metingen: '(46×)' wordt
+// '(1×)'. De countdown en berekenLeerPct lezen dit niet.
 function renderRichtingBlok(osm) {
   const blok = document.getElementById('richting-blok');
   const body = document.getElementById('richting-blok-body');
@@ -13563,6 +13578,7 @@ function renderRichtingBlok(osm) {
   // ALG-rij: alle dagdelen aggregeren via bestaande V4-scoring.
   const algDds = [];
   let algMetTot = 0, algPctWeighted = 0, algCycSum = 0, algCycCount = 0;
+  let algGewTot = 0, algGewPct = 0, algGewCyc = 0;   // V11.37.9: zie hieronder
   for (const d of Object.keys(DD)) {
     // ── V11.17.94: ÉÉN FILTER AAN DE INLEESREGEL ──────────
     // © 2026 StoplichtIQ — Y. Lemaalem
@@ -13598,9 +13614,11 @@ function renderRichtingBlok(osm) {
     algPctWeighted += pctD * m.length;
     const gemD = gewGem(m);
     if (gemD) { algCycSum += gemD * m.length; algCycCount += m.length; }
+    const algW = m.filter(heeftGemetenDuur).length;   // V11.37.9: het gewicht van dit dagdeel = de metingen met een gemeten duur
+    algGewTot += algW; algGewPct += pctD * algW; if (gemD) algGewCyc += gemD * algW;   // V11.37.9
   }
-  const algPct = algMetTot > 0 ? Math.round(algPctWeighted / algMetTot) : 0;
-  const algCyc = algCycCount > 0 ? Math.round(algCycSum / algCycCount) : null;
+  const algPct = algGewTot > 0 ? Math.round(algGewPct / algGewTot) : (algMetTot > 0 ? Math.round(algPctWeighted / algMetTot) : 0);   // V11.37.9
+  const algCyc = algGewTot > 0 ? Math.round(algGewCyc / algGewTot) : null;   // V11.37.9: zonder gemeten duur was algCycCount ook 0
 
   // ── V11.17.81: groeperen op (nadering, bocht) in plaats van op aanrij_afrij ──
   // Twee sleutels die dezelfde manoeuvre beschrijven — NO_NW en N_W op node
@@ -13864,8 +13882,41 @@ function renderRichtingBlok(osm) {
     return;
   }
 
+  richtingVerborgenMeet(nodeId, alleRijenZichtbaar.length, rijen.length, zichtbareRichtingen, koppelRicht);   // V11.37.9: meten, zie daar
   body.innerHTML = html + tvHtml;
   blok.classList.remove('verborgen');
+}
+
+// ── V11.37.9: MEETREGEL richting_verborgen ─────────────────────
+// © 2026 StoplichtIQ — Y. Lemaalem
+//
+// Het rijblok laat richtingrijen weg zonder dat te zeggen. Drie redenen,
+// geteld in de STAP 0 van 8 okt (backup 7 okt): het naderingsfilter (alleen
+// rijen van de nadering waar je nu vandaan komt; 2 van 126 kruispunten), de
+// grens van 2 of 3 rijen (0) en een toevoegtik voor een richting zonder
+// V5-metingen, die dus geen rij heeft (34 van 47). Deze regel legt vast
+// wanneer dat op de weg gebeurt. Puur meten: niets aan het blok verandert.
+//
+// logOpslagMis('richting_verborgen'): element = de redenen (nadering, top,
+// tik_zonder_rij, met '+' ertussen), rvTot = rijen voor het naderingsfilter,
+// rvHer = getoonde rijen, rvExact = weg door het naderingsfilter, rvOnb = weg
+// door de grens, tik = de richtingkeuze (vast veld). Eén regel per
+// verandering per kruispunt, niet per tekenbeurt.
+let richtingVerborgenLaatste = '';
+function richtingVerborgenMeet(nodeId, tot, naFilter, zichtbaar, koppelRicht) {
+  try {
+    const nadWeg = tot - naFilter, topWeg = naFilter - zichtbaar.length;
+    const keuze = (richtingLockNodeId === String(nodeId)) ? richtingLockKeuze : null;
+    const tikZonder = (keuze === 'links' || keuze === 'rechtdoor' || keuze === 'rechts') && keuze !== koppelRicht
+      && !zichtbaar.some(r => bochtUitLabel(r.label.tekst, true) === keuze);
+    const redenen = [nadWeg > 0 ? 'nadering' : null, topWeg > 0 ? 'top' : null, tikZonder ? 'tik_zonder_rij' : null].filter(Boolean);
+    const merk = redenen.length ? [nodeId, tot, naFilter, zichtbaar.length, redenen.join('+'), keuze].join('|') : String(nodeId);
+    if (merk === richtingVerborgenLaatste) return;
+    richtingVerborgenLaatste = merk;
+    if (!redenen.length) return;
+    logOpslagMis('richting_verborgen', { node: String(nodeId), element: redenen.join('+'),
+      rvTot: tot, rvHer: zichtbaar.length, rvExact: nadWeg, rvOnb: topWeg });
+  } catch (e) {}
 }
 
 function sluitRichtingBlok() {
@@ -14078,7 +14129,7 @@ function laagDagdeelCijfers(nodeId, laag, dd) {
     // V11.17.99: via algemeenMetingen, zodat ook de dagdeelstrip op een
     // gekoppeld kruispunt beide helften telt.
     const m = algemeenMetingen(nodeId, dd);
-    return { gem: gewGem(m), n: m.length, m };
+    return { gem: gewGem(m), n: m.filter(heeftGemetenDuur).length, m };   // V11.37.9: het aantal in de tegel, zie bij algPct; m blijft vol
   }
   const m = laagMetingen(nodeId, laag, dd);
   return { gem: gewGem(m), n: m.length, m };
@@ -14122,7 +14173,32 @@ function laagDagdeelPct(nodeId, laag, dd) {
 // De volgorde telt: eerst de keuze, dan de indicator, dan hertekenen.
 // bijwerkLeerkaart roept renderRichtingBlok aan en die leest richtingLockKeuze
 // voor de koppel-chip — omgekeerd zou het scherm één tik achterlopen.
+// ── V11.37.9: ROND LICHT KORT NA EEN RIJBLOKTIK TELT NIET ──────
+// © 2026 StoplichtIQ — Y. Lemaalem
+//
+// Na een tik op een richtingrij of een toevoegknop wordt het rijblok opnieuw
+// getekend, en de rij onder je vinger kan dan de Rond-licht-rij zijn. Een
+// tweede tik (of een tik die het scherm dubbel ziet) zette dan de keuze die je
+// net maakte meteen terug op Rond licht (Mercatorplein 15:46, STAP 0 van 8
+// okt). Binnen ALG_NA_RIJBLOK_MS na een tikRichting uit het rijblok (element
+// 'rij' of 'toevoeg') doet een tik op Rond licht daarom niets.
+//
+// ELKE TIK OP ROND LICHT WORDT GELOGD (algemeen_tik): element = telt of
+// genegeerd, dur = ms sinds de rijbloktik (leeg als er geen was), tik = de
+// richtingkeuze op dat moment (vast veld van de logregel).
+const ALG_NA_RIJBLOK_MS = 1500;
+function algemeenTikNegeren() {
+  try {
+    const uitBlok = richtingTikElement === 'rij' || richtingTikElement === 'toevoeg';
+    const sinds = (uitBlok && richtingTikTijd) ? Date.now() - richtingTikTijd : null;
+    const negeer = sinds !== null && sinds >= 0 && sinds < ALG_NA_RIJBLOK_MS;
+    logOpslagMis('algemeen_tik', { node: dichtstbijOSM ? String(dichtstbijOSM.id) : null, element: negeer ? 'genegeerd' : 'telt', dur: sinds });
+    return negeer;
+  } catch (e) { return false; }
+}
+
 function kiesLaagAlgemeen() {
+  if (algemeenTikNegeren()) return;   // V11.37.9: zie daar
   getoondeLaag = null;
   if (dichtstbijOSM) {
     richtingLockNodeId = String(dichtstbijOSM.id);
@@ -16020,8 +16096,20 @@ function analyseerBevestigLus() {
 }
 
 // Voorvertoning eerst, schrijven pas na confirm. Zelfde vorm als ruimOpslagNuOp.
+// ── V11.37.9: DE KNOP 'RUIM BEVESTIG-LUS OP' STAAT UIT ─────────
+// © 2026 StoplichtIQ — Y. Lemaalem
+//
+// De knop is gebouwd voor de lus van vóór V11.17.60 (28 aug 10:44): FOUT-
+// tikken die op hun eigen opgeblazen gemiddelde voortbouwden. Op de backup van
+// 7 okt vindt analyseerBevestigLus 69 records in 39 emmers, en 68 daarvan zijn
+// van na die reparatie: echte FOUT-tikken. Indrukken zou die wissen (en 11
+// emmers laten stijgen). Daarom uit: de knop staat grijs en doet niets, en
+// ook een aanroep van buitenaf stopt hier. De analyse zelf blijft (de knop
+// en de code ook), zodat hij met één regel terug kan als er weer een lus is.
+const BEVESTIG_LUS_KNOP_AAN = false;
 function ruimBevestigLusOp() {
   const NLc = String.fromCharCode(10);
+  if (!BEVESTIG_LUS_KNOP_AAN) { alert('BEVESTIG-LUS OPRUIMEN' + NLc + NLc + 'Deze knop staat uit (V11.37.9): de records die hij zou wissen zijn echte FOUT-tikken.'); return; }   // V11.37.9
   const btn = document.getElementById('bevestig-lus-btn');
   const origTekst = btn ? btn.textContent : null;
   try {
@@ -17642,7 +17730,7 @@ function renderNodeInfo(nodeId) {
     if (!m.length) continue;
     // V11.17.66: zie r6890 — de bodem telt alleen records met een gemeten duur.
     const pct = Math.min(95, Math.max(m.filter(heeftGemetenDuur).length * 4, berekenObsScore(m)));
-    dd4.push(`${DD[d].ic} <span style="color:${ni_kleur(pct)}">${pct}%</span> (${m.length}×)`);
+    dd4.push(`${DD[d].ic} <span style="color:${ni_kleur(pct)}">${pct}%</span> (${m.filter(heeftGemetenDuur).length}×)`);   // V11.37.9: alleen metingen met een gemeten duur, zie bij algPct
   }
   if (dd4.length || heeftV4) {
     html += `<div class="ni-rij ni-rij-algemeen${selCls('ALG')}" data-key="ALG"${klik('ALG')}>${vink('ALG')}<div class="ni-rij-pijl">${algemeenLabel(nodeId).pijl}</div>`
@@ -18083,6 +18171,7 @@ function mergeRichtingen(nodeId, bron, doel) {
   if (bron !== 'ALGEMEEN') bewaarV5(bron);
   if (doel !== 'ALGEMEEN') bewaarV5(doel);
   if (bron === 'ALGEMEEN' || doel === 'ALGEMEEN') bewaarV4();
+  if (bron !== 'ALGEMEEN') { const kR = `sl_richting_${nodeId}`; if (!(kR in sleutels)) sleutels[kR] = localStorage.getItem(kR); }   // V11.37.9: het label, zie richtingLabelNaMerge
   mergeUndoBuffer = { nodeId, sleutels };
   console.log('[merge] snapshot', Object.keys(sleutels).map(k =>
     k + '=' + (sleutels[k] ? (JSON.parse(sleutels[k]).length + 'm') : '∅')).join(' '));
@@ -18158,6 +18247,7 @@ function mergeRichtingen(nodeId, bron, doel) {
   // ooit een sleutel buiten de snapshot geschreven worden, dan was 'Ongedaan
   // maken' allang stuk — deze regel erft dus dezelfde garantie.
   opslagHersynchroniseer(Object.keys(sleutels));
+  richtingLabelNaMerge(nodeId, bron, doel);   // V11.37.9: na het gelijktrekken, want hij leest de sleutellijst
 
   // V11.17.91: het meetpunt. Laat in één oogopslag zien hoeveel metingen er
   // sinds D2 in het niemandsland zaten, en hoeveel van dit herstel op de exacte
@@ -18206,6 +18296,64 @@ function mergeRichtingen(nodeId, bron, doel) {
   toonToast('✅ Samengevoegd', { label: 'Ongedaan maken', duurMs: 6000, fn: mergeUndoUitvoeren });
 }
 
+// ── V11.37.9: NA SAMENVOEGEN VERDWIJNT HET OUDE LABEL ──────────
+// © 2026 StoplichtIQ — Y. Lemaalem
+//
+// WAAROM. sl_richting_<node> bewaart de laatst getikte richting (tikrichting:
+// links, rechtdoor of rechts). Voegde je de rij 'Rechtdoor' samen met Rond
+// licht of met een andere richting, dan bleef 'rechtdoor' daar staan en
+// werkte door: de gps-tikscore (+5 voor die kant), de vooraf gemarkeerde knop,
+// de terugval van de V5-schrijving (die zette de rij 'Rechtdoor' dan weer
+// terug), de chip in het V9-overzicht. Gezien in de STAP 0 van 8 okt.
+//
+// WAT. Is er na het samenvoegen op dit kruispunt geen rij met dat label
+// meer, dan wordt het label in sl_richting_ vervangen door dat van het doel,
+// of weggehaald als het doel Rond licht is. Alleen tikrichting en
+// tik_cx_zone: de headings, de tellers en alle metingen blijven staan. Staat
+// de richtingkeuze van nu (richtingLockKeuze) op dat label bij dit
+// kruispunt, dan volgt die mee ('algemeen' bij Rond licht), net als de
+// lopende voorselectie. 'Ongedaan maken' zet het label en de keuze terug
+// (de sleutel staat in de undo-snapshot). Logregel merge_label.
+function richtingLabelVan(groep) {
+  return (groep && groep !== 'ALGEMEEN') ? bochtUitLabel(rijdersPijlLabel(groep.aanrij, groep.afrij).tekst) : null;
+}
+
+function richtingLabelNaMerge(nodeId, bron, doel) {
+  try {
+    const oud = richtingLabelVan(bron);
+    if (!oud) return null;
+    const nieuw = doel === 'ALGEMEEN' ? null : richtingLabelVan(doel);
+    if (nieuw === oud) return null;
+    const voorvoegsel = `${LS_PREFIX_V5}${nodeId}_`;
+    for (const k of opslagSleutels(voorvoegsel)) {
+      const delen = k.slice(voorvoegsel.length).split('_');
+      if (delen.length >= 3 && richtingLabelVan({ aanrij: delen[0], afrij: delen[1] }) === oud) return null;   // die rij is er nog
+    }
+    const sleutel = `sl_richting_${nodeId}`;
+    const d = opslagLees(sleutel);
+    let opgeslagen = false;
+    if (d && typeof d === 'object' && d.tikrichting === oud) {
+      if (nieuw) { d.tikrichting = nieuw; d.tik_cx_zone = { links: 'links', rechtdoor: 'midden', rechts: 'rechts' }[nieuw]; }
+      else { delete d.tikrichting; delete d.tik_cx_zone; }
+      opgeslagen = opslagSchrijf(sleutel, d);
+    }
+    let keuze = false;
+    if (richtingLockNodeId === String(nodeId) && richtingLockKeuze === oud) {
+      if (mergeUndoBuffer) mergeUndoBuffer.lockKeuze = oud;
+      richtingLockKeuze = nieuw || 'algemeen';
+      if (!nieuw) {
+        markeerPreWis('merge');
+        v9PreSelectieAfrij = null;
+        if (preZet && preZet.node === String(nodeId)) preZet = null;
+      } else if (v9PreSelectieAfrij === bron.afrij) v9PreSelectieAfrij = doel.afrij;
+      keuze = true;
+    }
+    if (opgeslagen || keuze) logOpslagMis('merge_label', { node: nodeId, element: oud + '>' + (nieuw || 'algemeen'),
+      poortReden: (opgeslagen ? 'label' : '') + (opgeslagen && keuze ? '+' : '') + (keuze ? 'keuze' : '') });
+    return { oud, nieuw, opgeslagen, keuze };
+  } catch (e) { return null; }
+}
+
 // V11.16.2: undo — alle sleutels uit de buffer exact terugzetten
 function mergeUndoUitvoeren() {
   if (!mergeUndoBuffer) return;
@@ -18215,6 +18363,7 @@ function mergeUndoUitvoeren() {
     else { try { localStorage.setItem(k, sleutels[k]); } catch(_) {} }
   }
   opslagHersynchroniseer(Object.keys(sleutels));   // V11.22.0: zie mergeRichtingen
+  if (mergeUndoBuffer.lockKeuze && richtingLockNodeId === String(nodeId)) richtingLockKeuze = mergeUndoBuffer.lockKeuze;   // V11.37.9: zie richtingLabelNaMerge
   mergeUndoBuffer = null;
   nodeInfoChipLaatsteNode = null;
   if (nodeInfoNodeId) { renderNodeInfo(nodeInfoNodeId); updateNodeInfoChip(nodeInfoNodeId); }

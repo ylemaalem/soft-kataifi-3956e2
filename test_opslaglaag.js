@@ -312,7 +312,13 @@ async function testOpslaglaag() {
     // die de gebruiker ziet kloppen.
     opruimen();
     dichtstbijOSM = { id: NODE, lat: 52, lon: 5, afstand: 15, naam: 'Testweg' };
-    for (let i = 0; i < 3; i++) slaOp(NODE, 0, 40 + i, null, true, null, null, true);
+    // V11.37.9: elke meting een eigen milliseconde. laadM ontdubbelt op `tijd`, en drie
+    // aanroepen direct na elkaar vielen soms in dezelfde milliseconde: dan telde R2 er 2
+    // in plaats van 3 (al eerder als wankel genoteerd; in de rondes van 9 okt drie keer gezien).
+    const echtNuR2 = Date.now;
+    try {
+      for (let i = 0; i < 3; i++) { const tR2 = echtNuR2() - 10 + i; Date.now = () => tR2; slaOp(NODE, 0, 40 + i, null, true, null, null, true); }
+    } finally { Date.now = echtNuR2; }
     slaOpV5(NODE, 'N', 'W', DD_NU, 41, V9_GEWICHT_DICHTBIJ, true, 'tik', true);
     slaOpV5(NODE, 'N', 'W', DD_NU, 43, V9_GEWICHT_DICHTBIJ, true, 'tik', true);
     const rit = {
