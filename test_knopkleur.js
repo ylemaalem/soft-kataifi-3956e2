@@ -88,7 +88,14 @@ async function testKnopkleur() {
   // ONBEPAALD (cdWallNodeId komt niet overeen met dichtstbijOSM), zodat deze
   // suite blijft toetsen wat hij toetst: de kleurmatrix op overschrMs, niet de
   // nieuwe meting. Die heeft zijn eigen bestand (test_meting_gesigneerd.js).
-  function zet(toestand, overschrMs) {
+  // V11.37.12: beide klokken staan stil tijdens het zetten en het meten. Date.now telt in hele ms, performance.now
+  // in fracties; los gelezen verschoof de overschrijding soms een ms (8 van de 20.000 keer, 9 okt gemeten), en
+  // dan faalde de toets precies op de grens (T15). De app zelf leest ze in één meting (V11.17.89) en verandert niet.
+  const stilKlok = (fn) => { const dn = Date.now, pn = performance.now; const D = dn.call(Date), P = pn.call(performance);
+    Date.now = () => D; performance.now = () => P;
+    try { return fn(); } finally { Date.now = dn; delete performance.now; if (performance.now !== pn) performance.now = pn; } };
+  function zet(toestand, overschrMs) { return stilKlok(() => zetLos(toestand, overschrMs)); }
+  function zetLos(toestand, overschrMs) {
     cdWallStart = null; cdWallNodeId = null;   // afwijkingMs bewust onbepaald
     groenStart = null; cdStart = null; activeCdDoel = 0;
     if (toestand === 'rood-voor-nul') {

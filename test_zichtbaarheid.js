@@ -229,7 +229,14 @@ function testZichtbaarheid() {
     // gezet, omdat meetBevestigMoment ze sinds die release leest voor
     // afwijkingMs. cdWallNodeId blijft null, dus de afwijking is hier bewust
     // onbepaald en deze suite toetst onveranderd de kleurmatrix op overschrMs.
-    function zet(toestand, overschrMs, kmh) {
+    // V11.37.12: beide klokken staan stil tijdens het zetten en het meten. Date.now telt in hele ms, performance.now
+    // in fracties; los gelezen verschoof de overschrijding soms een ms (8 van de 20.000 keer, 9 okt gemeten), en
+    // dan faalde de toets precies op de grens (T15). De app zelf leest ze in één meting (V11.17.89) en verandert niet.
+    const stilKlok = (fn) => { const dn = Date.now, pn = performance.now; const D = dn.call(Date), P = pn.call(performance);
+      Date.now = () => D; performance.now = () => P;
+      try { return fn(); } finally { Date.now = dn; delete performance.now; if (performance.now !== pn) performance.now = pn; } };
+    function zet(toestand, overschrMs, kmh) { return stilKlok(() => zetLos(toestand, overschrMs, kmh)); }
+    function zetLos(toestand, overschrMs, kmh) {
       dichtstbijOSM = { id: 777003, lat: 52, lon: 5, afstand: 12, naam: 'TEST-ZICHT' };
       osmVoorspellingActief = false;
       cdWallStart = null; cdWallNodeId = null;
@@ -275,6 +282,12 @@ function testZichtbaarheid() {
     paar('T16 BEV_GOED_MAX_MS + 1ms',    'groen-na-nul',   BEV_GOED_MAX_MS + 1,  'grijs / AAN / AAN');
     paar('T17 exact BEV_BIJNA_MAX_MS',   'groen-na-nul',   BEV_BIJNA_MAX_MS,     'grijs / AAN / AAN');
     paar('T18 BEV_BIJNA_MAX_MS + 1ms',   'groen-na-nul',   BEV_BIJNA_MAX_MS + 1, 'grijs / grijs / AAN');
+    // V11.37.12: 2000 keer precies op elke grens. Met losse klokken ging dit af en toe mis (T15 faalde soms); nu nooit.
+    const herhaal = (o, verwacht) => { let mis = 0; for (let i = 0; i < 2000; i++) { zet('groen-na-nul', o, i % 2 ? 50 : 0); if (beeld() !== verwacht) mis++; } return mis; };
+    const mis15 = herhaal(BEV_GOED_MAX_MS, 'AAN / grijs / AAN'), mis16 = herhaal(BEV_GOED_MAX_MS + 1, 'grijs / AAN / AAN');
+    const mis17 = herhaal(BEV_BIJNA_MAX_MS, 'grijs / AAN / AAN'), mis18 = herhaal(BEV_BIJNA_MAX_MS + 1, 'grijs / grijs / AAN');
+    eis('T15b 2000 keer precies op elk van de vier grenzen (2000, 2001, 10000, 10001 ms): elke keer het goede beeld',
+        mis15 + mis16 + mis17 + mis18 === 0, '0 / 0 / 0 / 0', [mis15, mis16, mis17, mis18].join(' / '));
 
     // ══ T19-T20 — de invarianten ══════════════════════════════
     const gevallen = [

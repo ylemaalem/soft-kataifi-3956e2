@@ -1053,7 +1053,7 @@ if (typeof ort !== 'undefined') {
 //
 // De stijl volgt de eerdere labels: nummer, kastlijntje, korte omschrijving in
 // kleine letters. De CSS zet hem zelf in kapitalen (text-transform:uppercase).
-const APP_VERSIE = 'V11.37.11 — lichten voor de tegenrichting zijn geen kandidaat meer (eenrichtingsweg die de andere kant op loopt), met logregel tegen_uit';
+const APP_VERSIE = 'V11.37.12 — Overpass rustiger: de fietslijst per gebied (tot vier), opnieuw na 1, 5, 15 en 60 minuten, en een rem op de kaartvraag';
 
 // ── CONSTANTEN ────────────────────────────────────────────────
 const OSM_RADIUS       = 5000;
@@ -14748,8 +14748,39 @@ function naarStartscherm() {
 }
 
 // ── OSM ───────────────────────────────────────────────────────
+// ── V11.37.12: EEN REM OP DE KAARTVRAAG ───────────────────────
+// © 2026 StoplichtIQ — Y. Lemaalem
+//
+// WAAROM. Mislukte de kaartvraag (504 bij drukte, 429, een time-out), dan
+// plande downloadOSM na 30 s een nieuwe. Maar finally zette cacheBezig meteen
+// terug, en onGPS vraagt zonder kaart, of verder dan OSM_REFRESH van het
+// midden, bij élke GPS-tik opnieuw een kaart. Bij een drukke Overpass ging de
+// zware kaartvraag (~590 KB) dus vrijwel achter elkaar door.
+//
+// WAT. Na een mislukte kaartvraag doet downloadOSM niets tot kaartRem.nietVoor:
+// 30 s, dan 1, 2, 5 en daarna steeds 10 minuten (KAART_REM_MS, ±20%), en bij
+// 429 minstens wat Retry-After zegt. Een gelukte kaart haalt de rem eraf. De
+// eerstvolgende GPS-tik na de wachttijd doet de nieuwe poging, zoals voorheen.
+// Logregel kaart_fout: element = de status, poortReden = n en de wachttijd.
+const KAART_REM_MS = [30000, 60000, 120000, 300000, 600000];
+const KAART_REM_SPREIDING = 0.2;
+const kaartRem = { n: 0, nietVoor: 0, fout: null };
+function kaartRemNa() {
+  try {
+    kaartRem.n++;
+    const f = kaartRem.fout || {};
+    kaartRem.fout = null;
+    let w = KAART_REM_MS[Math.min(kaartRem.n, KAART_REM_MS.length) - 1] * (1 + (Math.random() * 2 - 1) * KAART_REM_SPREIDING);
+    if (f.status === 429) { const r = overpassRetryAfter(f.ra); if (r != null) w = Math.max(w, r); }
+    w = Math.round(w);
+    kaartRem.nietVoor = Date.now() + w;
+    logOpslagMis('kaart_fout', { element: f.status ? 'http ' + f.status : 'fout', poortReden: 'n=' + kaartRem.n + ' w=' + Math.round(w / 1000) });
+  } catch (e) {}
+}
+
 async function downloadOSM(lat, lon) {
   if (cacheBezig) return;
+  if (Date.now() < kaartRem.nietVoor) return;   // V11.37.12: de rem, zie kaartRemNa
   cacheBezig = true;
   pOSM.className='pill-dot o'; pOSMT.textContent='laden'; debugWaarden.osm='osm:laden';
   // ── V11.17.88: OOK DE WEGEN MET EEN MAXSPEED OPHALEN ──────
@@ -14777,6 +14808,7 @@ async function downloadOSM(lat, lon) {
     const t = setTimeout(()=>ctrl.abort(), 25000);
     const r = await fetch(OVERPASS_URL, { method:'POST', body:`data=${encodeURIComponent(q)}`, signal:ctrl.signal });
     clearTimeout(t);
+    if (!r.ok) kaartRem.fout = { status: r.status, ra: (r.headers && typeof r.headers.get === 'function') ? r.headers.get('Retry-After') : null };   // V11.37.12
     if (!r.ok) throw new Error(`HTTP ${r.status}`);
     const d = await r.json();
     const nodes = (d.elements||[]).filter(el=>el.type==='node');
@@ -14811,6 +14843,7 @@ async function downloadOSM(lat, lon) {
     logOpslagMis('maxspeed_dekking', { msGedekt, msTotaal: nodes.length });
     for (const sl of osmCache) sl.eenrichting = tegenRijrichtingen(sl.id, nodeWegen.get(sl.id));   // V11.37.11: zie tegenSluitUit
     cacheCentrum={lat,lon}; cacheGeladen=true;
+    kaartRem.n = 0; kaartRem.nietVoor = 0;   // V11.37.12: gelukt, de rem eraf
     migratieSlPos();
     berekenClusterNodes();   // V11.17.47: eenmalig per cache, voor updateDichtbij hieronder
     fietsNaKaart(lat, lon);   // V11.37.8: de lijst met fiets- en voetgangerslichten, zie fietsSluitUit
@@ -14820,6 +14853,7 @@ async function downloadOSM(lat, lon) {
     haalStraatnamenOp();
   } catch(e) {
     pOSM.className='pill-dot o'; pOSMT.textContent='Fout'; debugWaarden.osm='osm:fout';
+    kaartRemNa();   // V11.37.12: de rem, zie daar
     setTimeout(() => { cacheBezig=false; if(huidigePos)downloadOSM(huidigePos.lat,huidigePos.lon); }, 30000);
   } finally {
     cacheBezig = false;
@@ -14884,29 +14918,34 @@ async function haalStraatnamenOp() {
 // en de achter-regel (die kijken naar het getoonde licht en zijn buren) en de
 // logregels.
 //
-// DE LIJST (sl_fietslichten, één gebied): { v, t, lat, lon, r, ids }. ids =
+// DE LIJST (sl_fietslichten; V11.37.12: tot vier gebieden, zie fietsLees). ids =
 // de OSM-nummers van de verkeerslichten binnen OSM_RADIUS die op een weg uit
 // FIETS_WEGEN liggen en op geen enkele weg uit AUTO_WEGEN. Een licht dat op
 // geen enkele weg ligt, of alleen op iets anders (busbaan, bouwweg), staat er
 // niet in en doet dus gewoon mee. Gemeten op Amersfoort: 346 nummers, 3,8 KB.
 // De aanvraag stuurt dezelfde plek en straal als de kaartaanvraag en geen
-// enkel nummer. Opnieuw ophalen pas na FIETS_VERS_DAGEN, of als de kaart meer
-// dan FIETS_ZELFDE_M van het midden van de lijst geladen wordt.
+// enkel nummer. Wanneer er opnieuw wordt opgehaald: zie fietsDekking (V11.37.12).
 //
 // UIT MET ÉÉN REGEL: FIETS_UIT_ACTIEF. Alles loopt via fietsUitAan(), zodat de
 // toetsen de regel in één rit aan en uit kunnen zetten (test_fietslicht).
 const FIETS_UIT_ACTIEF = true;
 const FIETS_SLEUTEL    = 'sl_fietslichten';
 const FIETS_VERS_DAGEN = 30;
-const FIETS_ZELFDE_M   = 1000;
+const FIETS_ZELFDE_M   = 4600;    // V11.37.12: OSM_RADIUS min FIETS_GRENS_M (was 1000), zie fietsGedekt
 const FIETS_GRENS_M    = 400;     // kandidaat = binnen deze afstand, zoals in vindDichtbijScore
-const FIETS_WACHT_MS   = [5000, 60000, 300000];   // vóór de eerste aanvraag, en vóór elke nieuwe poging
+const FIETS_EERSTE_MS  = 5000;    // V11.37.12: de eerste poging, na de kaart of na het verlaten van de dekking
+const FIETS_HERHAAL_MS = [60000, 300000, 900000, 3600000];   // V11.37.12: na de 1e, 2e, 3e en 4e mislukte poging
+const FIETS_SPREIDING  = 0.2;     // V11.37.12: ±20%
+const FIETS_MAX_PER_DAG = 5;      // V11.37.12: pogingen per gebied per dag
+const FIETS_MAX_GEBIEDEN = 4;     // V11.37.12
+const FIETS_POGING_SLEUTEL = 'sl_fietspoging';   // V11.37.12
 const FIETS_WEGEN = 'cycleway|footway|path|pedestrian|steps|bridleway';
 const AUTO_WEGEN  = 'motorway|trunk|primary|secondary|tertiary|unclassified|residential|living_street|service|road|busway'
                  + '|motorway_link|trunk_link|primary_link|secondary_link|tertiary_link';
 let fietsLichten = null;   // Set met OSM-nummers (tekst), of null: geen lijst, niets uitsluiten
 let fietsBezig = false;
-let fietsDoel = null;      // het midden van de nieuwste kaart: daar hoort de lijst bij
+let fietsGebieden = null;  // V11.37.12: de bewaarde gebieden, of null: in deze sessie nog geen kaart
+let fietsTimer = null;     // V11.37.12: de geplande poging
 function fietsUitAan() { return FIETS_UIT_ACTIEF; }
 function isFietsLicht(id) { return !!fietsLichten && id != null && fietsLichten.has(String(id)); }
 
@@ -14947,41 +14986,144 @@ function fietsPuurDichtst(lat, lon, p) {
   return auto ? best : p;
 }
 
-function fietsLees() {
-  const o = opslagLees(FIETS_SLEUTEL, null);
-  if (!o || o.v !== 1 || !Array.isArray(o.ids) || typeof o.t !== 'number'
-      || typeof o.lat !== 'number' || typeof o.lon !== 'number') return null;
-  return o;
+// ── V11.37.12: DE LIJST PER GEBIED, EN RUSTIG OPNIEUW PROBEREN ──
+// © 2026 StoplichtIQ — Y. Lemaalem
+//
+// WAAROM. In Amsterdam gaf Overpass op 9 okt om 12:54-12:57 UTC steeds 504
+// ("Dispatcher_Client ... timeout. The server is probably too busy"); om
+// 18:13 UTC lukte dezelfde vraag in 9,5 s (1222 lichten, 13,4 KB). Het ligt
+// dus aan de drukte, niet aan de vraag. V11.37.8 probeerde drie keer binnen 6
+// minuten en daarna pas bij de volgende kaart. En er was maar één gebied: wie
+// tussen Amersfoort en Amsterdam reed, haalde steeds opnieuw op, en elke kaart
+// (elke 3 km) gaf een nieuwe vraag, want FIETS_ZELFDE_M (1 km) was kleiner dan
+// OSM_REFRESH (3 km).
+//
+// WAT.
+//   - Bewaren: tot FIETS_MAX_GEBIEDEN gebieden, elk { t, lat, lon, r, ids }, in
+//     sl_fietslichten als { v: 2, gebieden }. fietsLichten is ze samen. Een
+//     nieuw gebied binnen FIETS_ZELFDE_M van een bewaard gebied vervangt dat;
+//     anders gaat het oudste eruit. De ene lijst van V11.37.8 ({ v: 1 }) telt
+//     als één gebied.
+//   - Dekking: een gebied dekt je zolang je binnen FIETS_ZELFDE_M (4.600 m =
+//     OSM_RADIUS min FIETS_GRENS_M) van het midden bent en het jonger is dan
+//     FIETS_VERS_DAGEN; dan liggen alle lichten binnen 400 m van de auto in de
+//     lijst. Gekeken wordt na elke kaart én bij elke GPS-tik, met de plek van
+//     de auto (fietsDekking: hoogstens vier afstanden). Dat laatste pas nadat
+//     er in deze sessie een echte kaart was (fietsGebieden niet meer null).
+//   - Opnieuw proberen: de eerste poging FIETS_EERSTE_MS na de kaart (of na
+//     het verlaten van de dekking), daarna na 1, 5, 15 en 60 minuten, elk ±20%
+//     (FIETS_SPREIDING); hoogstens FIETS_MAX_PER_DAG pogingen per gebied per
+//     dag. Het tijdstip van de volgende poging staat in sl_fietspoging, zodat
+//     een herstart niet opnieuw begint. Bij 429 wacht de app minstens zo lang
+//     als Retry-After zegt.
+// Zonder lijst blijft alles zoals in V11.37.8: er valt niets af (fail-open).
+//
+// OPSLAG, zoals Safari telt: vier gebieden als Amsterdam (13,4 KB), Rotterdam
+// (10,6), Amersfoort (3,8) en een kleiner vierde samen ~31 KB; hoogstens vier
+// keer Amsterdam, ~54 KB. sl_fietspoging blijft onder 0,5 KB.
+
+function fietsVandaag() { const d = new Date(Date.now()); return d.getFullYear() + '-' + (d.getMonth() + 1) + '-' + d.getDate(); }
+
+function fietsGebiedGoed(g) {
+  return !!g && Array.isArray(g.ids) && typeof g.t === 'number' && typeof g.lat === 'number' && typeof g.lon === 'number';
 }
 
-// Na elke geladen kaart (downloadOSM), vóór de eerste keuze op die kaart: de
-// bewaarde lijst meteen gebruiken, en een nieuwe ophalen als die oud is of
-// bij een ander gebied hoort. Een bewaarde lijst van elders schaadt niet:
-// OSM-nummers zijn uniek, dus er valt dan alleen niets onder.
-function fietsNaKaart(lat, lon) {
+// De bewaarde gebieden, nieuwste eerst. Kapot of leeg: [].
+function fietsLees() {
+  const o = opslagLees(FIETS_SLEUTEL, null);
+  if (o && o.v === 2 && Array.isArray(o.gebieden)) return o.gebieden.filter(fietsGebiedGoed).slice(0, FIETS_MAX_GEBIEDEN);
+  if (o && o.v === 1 && fietsGebiedGoed(o)) return [{ t: o.t, lat: o.lat, lon: o.lon, r: o.r, ids: o.ids }];
+  return [];
+}
+
+function fietsLaad() {
+  fietsGebieden = fietsLees();
+  if (fietsGebieden.length) fietsLichten = new Set(fietsGebieden.flatMap(g => g.ids.map(String)));
+}
+
+function fietsGedekt(lat, lon) {
+  const nu = Date.now();
+  return (fietsGebieden || []).some(g => (nu - g.t) < FIETS_VERS_DAGEN * 86400000 && afstand(lat, lon, g.lat, g.lon) <= FIETS_ZELFDE_M);
+}
+
+function fietsBewaar(g) {
+  const rest = (fietsGebieden || []).filter(x => afstand(g.lat, g.lon, x.lat, x.lon) > FIETS_ZELFDE_M);
+  fietsGebieden = [g, ...rest].sort((a, b) => b.t - a.t).slice(0, FIETS_MAX_GEBIEDEN);
+  opslagSchrijf(FIETS_SLEUTEL, { v: 2, gebieden: fietsGebieden });
+  fietsLichten = new Set(fietsGebieden.flatMap(x => x.ids.map(String)));
+}
+
+// De pogingen van vandaag, per gebied: [{ lat, lon, dag, n, volgende }].
+function fietsPogingen() {
+  const a = opslagLees(FIETS_POGING_SLEUTEL, []);
+  return Array.isArray(a) ? a.filter(p => p && typeof p.lat === 'number' && typeof p.lon === 'number' && typeof p.n === 'number') : [];
+}
+function fietsPoging(lat, lon) {
+  const dag = fietsVandaag();
+  return fietsPogingen().find(p => p.dag === dag && afstand(lat, lon, p.lat, p.lon) <= FIETS_ZELFDE_M) || { lat, lon, dag, n: 0, volgende: 0 };
+}
+function fietsPogingSchrijf(p) {
+  const rest = fietsPogingen().filter(x => x.dag === p.dag && afstand(p.lat, p.lon, x.lat, x.lon) > FIETS_ZELFDE_M);
+  opslagSchrijf(FIETS_POGING_SLEUTEL, [p, ...rest].slice(0, FIETS_MAX_GEBIEDEN));
+}
+
+// Retry-After in ms, of null: seconden ('120') of een HTTP-datum.
+function overpassRetryAfter(ra) {
+  if (ra == null || ra === '') return null;
+  const s = String(ra).trim();
+  if (/^\d+$/.test(s)) return Number(s) * 1000;
+  const t = Date.parse(s);
+  return isFinite(t) ? Math.max(0, t - Date.now()) : null;
+}
+
+// Hoe lang wachten na de n-de mislukte poging (n = 1..4), met spreiding.
+function fietsWacht(n, status, ra) {
+  let w = FIETS_HERHAAL_MS[Math.min(n, FIETS_HERHAAL_MS.length) - 1] * (1 + (Math.random() * 2 - 1) * FIETS_SPREIDING);
+  if (status === 429) { const r = overpassRetryAfter(ra); if (r != null) w = Math.max(w, r); }
+  return Math.round(w);
+}
+
+// De geplande poging, voor de plek van de auto op dat moment.
+function fietsPlan(wacht, lat, lon) {
+  fietsTimer = setTimeout(() => {
+    fietsTimer = null;
+    const q = huidigePos || { lat, lon };
+    if (!fietsGedekt(q.lat, q.lon)) fietsHaalOp(q.lat, q.lon);
+  }, wacht);
+}
+
+// Na elke kaart en elke GPS-tik: dekt een bewaard gebied je, dan niets; anders
+// een poging plannen, als die er nog niet is en als het vandaag nog mag.
+function fietsDekking(lat, lon) {
   try {
-    if (!fietsUitAan()) return;
-    const o = fietsLees();
-    if (o) fietsLichten = new Set(o.ids.map(String));
-    const vers = !!o && (Date.now() - o.t) < FIETS_VERS_DAGEN * 86400000
-      && afstand(lat, lon, o.lat, o.lon) <= FIETS_ZELFDE_M;
-    if (!vers) fietsHaalOp(lat, lon, 0);
+    if (!fietsUitAan() || fietsGebieden === null || typeof lat !== 'number' || typeof lon !== 'number') return;
+    if (fietsBezig || fietsTimer || fietsGedekt(lat, lon)) return;
+    const p = fietsPoging(lat, lon);
+    if (p.n >= FIETS_MAX_PER_DAG) return;
+    fietsPlan(Math.max(FIETS_EERSTE_MS, (p.volgende || 0) - Date.now()), lat, lon);
   } catch (e) {}
 }
 
-// De aanvraag, rustig: FIETS_WACHT_MS[0] na de kaart (de kaartaanvraag is
-// dan klaar), en bij een fout nog twee keer, na 1 en na 5 minuten. Eén
-// tegelijk; kwam er intussen een kaart van een ander gebied, dan daarna die.
-async function fietsHaalOp(lat, lon, poging) {
-  fietsDoel = { lat, lon };
+// Na elke geladen kaart (downloadOSM), vóór de eerste keuze op die kaart: de
+// bewaarde gebieden meteen gebruiken, en zo nodig een poging plannen.
+function fietsNaKaart(lat, lon) {
+  try {
+    if (!fietsUitAan()) return;
+    fietsLaad();
+    fietsDekking(lat, lon);
+  } catch (e) {}
+}
+
+// De aanvraag zelf. Eén tegelijk. Mislukt hij, dan plant hij de volgende
+// (hoogstens FIETS_MAX_PER_DAG per gebied per dag).
+async function fietsHaalOp(lat, lon) {
   if (fietsBezig) return;
   fietsBezig = true;
-  let doel = fietsDoel, ok = false, wat = '';
+  const p = fietsPoging(lat, lon);
+  let ok = false, wat = '', status = 0, ra = null;
   const t0 = Date.now();
   try {
-    await new Promise(r => setTimeout(r, FIETS_WACHT_MS[poging] || 0));
-    doel = fietsDoel;
-    const q = `[out:json][timeout:25];node["highway"="traffic_signals"](around:${OSM_RADIUS},${doel.lat},${doel.lon})->.tl;`
+    const q = `[out:json][timeout:25];node["highway"="traffic_signals"](around:${OSM_RADIUS},${lat},${lon})->.tl;`
       + `way(bn.tl)["highway"~"^(${FIETS_WEGEN})$"]->.fw;way(bn.tl)["highway"~"^(${AUTO_WEGEN})$"]->.aw;`
       + `node.tl(w.fw)->.fn;node.tl(w.aw)->.an;(.fn; - .an;)->.alleen;.alleen out ids;`;
     const ctrl = new AbortController();
@@ -14989,7 +15131,11 @@ async function fietsHaalOp(lat, lon, poging) {
     let d;
     try {
       const r = await fetch(OVERPASS_URL, { method: 'POST', body: `data=${encodeURIComponent(q)}`, signal: ctrl.signal });
-      if (!r.ok) throw new Error('http ' + r.status);
+      if (!r.ok) {
+        status = r.status;
+        ra = (r.headers && typeof r.headers.get === 'function') ? r.headers.get('Retry-After') : null;
+        throw new Error('http ' + r.status);
+      }
       d = await r.json();
     } finally { clearTimeout(tm); }
     if (!d || !Array.isArray(d.elements)) throw new Error('vorm');
@@ -14997,18 +15143,21 @@ async function fietsHaalOp(lat, lon, poging) {
     // een remark. Een halve lijst is erger dan geen lijst: dan niet bewaren.
     if (d.remark) throw new Error('remark');
     const ids = d.elements.filter(e => e && e.type === 'node' && Number.isFinite(e.id)).map(e => e.id);
-    opslagSchrijf(FIETS_SLEUTEL, { v: 1, t: Date.now(), lat: doel.lat, lon: doel.lon, r: OSM_RADIUS, ids });
-    fietsLichten = new Set(ids.map(String));
+    fietsBewaar({ t: Date.now(), lat, lon, r: OSM_RADIUS, ids });
     ok = true; wat = 'n=' + ids.length;
   } catch (e) {
     wat = String((e && e.message) || e).slice(0, 30);
   } finally {
     fietsBezig = false;
   }
-  logOpslagMis('fietslichten', { element: ok ? 'ok' : 'fout', poortReden: wat + ' p=' + poging, dur: Date.now() - t0 });
-  const ander = fietsDoel && (fietsDoel.lat !== doel.lat || fietsDoel.lon !== doel.lon);
-  if (ander) fietsHaalOp(fietsDoel.lat, fietsDoel.lon, 0);
-  else if (!ok && poging + 1 < FIETS_WACHT_MS.length) fietsHaalOp(doel.lat, doel.lon, poging + 1);
+  const poging = p.n;
+  p.n++;
+  const nogEen = !ok && p.n < FIETS_MAX_PER_DAG;
+  const wacht = nogEen ? fietsWacht(p.n, status, ra) : 0;
+  p.volgende = nogEen ? Date.now() + wacht : 0;
+  try { fietsPogingSchrijf(p); } catch (e) {}
+  logOpslagMis('fietslichten', { element: ok ? 'ok' : 'fout', poortReden: wat + (nogEen ? ' w=' + Math.round(wacht / 1000) : '') + ' p=' + poging, dur: Date.now() - t0 });
+  if (nogEen && !fietsTimer) fietsPlan(wacht, lat, lon);
 }
 
 // ── V11.37.11: LICHTEN VOOR DE TEGENRICHTING ZIJN GEEN KANDIDAAT ──
@@ -21648,6 +21797,7 @@ async function onGPS(pos) {
   pGPS.className='pill-dot b'; pGPST.textContent='GPS';
   if (!cacheGeladen && !cacheBezig) downloadOSM(lat, lon);
   else if (cacheGeladen) updateDichtbij(lat, lon);
+  if (cacheGeladen) fietsDekking(lat, lon);   // V11.37.12: dekt een bewaarde fietslijst je nog? Zie fietsDekking
   // V11.27.0: bewijs uit de nadering, en de beslissing daarover. NA
   // updateDichtbij, want beide lezen de verse puurDichtsteNodeCache; VÓÓR de
   // hercontrole hieronder, die na een wissel van deze route 'zelfde_node' ziet

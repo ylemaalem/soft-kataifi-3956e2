@@ -370,7 +370,7 @@ async function testTegenrichting() {
   eis('TR10c als de regel de keuze niet verandert (alleen tegenlichten), komt er geen regel', geenLog7 === 0, '0', String(geenLog7));
 
   // ═══ TR11 — regressie ══════════════════════════════════════
-  const zonder = (s) => String(s).split(NL).filter(l => !/V11\.37\.11/.test(l)).join(NL);
+  const zonder = (s) => String(s).split(NL).filter(l => !/V11\.37\.11|V11\.37\.12/.test(l)).join(NL);   // V11.37.12: die regels ook (test_overpass)
   const merk = (f) => String(f).split(NL).filter(l => /V11\.37\.11/.test(l)).length;
   const V113710 = { vindDichtbij: ['d444ee3', 3717, 4], updateDichtbij: ['7b7fce62', 12303, 1], regelKies: ['cd458100', 2307, 5], onGPS: ['d99821b8', 15000, 1],
     downloadOSM: ['82a16b3c', 4147, 1], logOpslagMis: ['e93caaaf', 16068, 1] };
@@ -379,14 +379,15 @@ async function testTegenrichting() {
       telAf.length === 0, 'precies zoveel', telAf.join(', ') || 'precies zoveel');
   const anders = Object.entries(V113710).filter(([n, [h, l]]) => { const s = zonder(window[n]); return fnv(s) !== h || s.length !== l; }).map(x => x[0]);
   eis('TR11b zonder die regels (alle zijn nieuw) byte-gelijk aan V11.37.10', anders.length === 0, 'geen afwijking', anders.join(', ') || 'geen');
+  // V11.37.12 schrijft fietsHaalOp en fietsNaKaart opnieuw (test_overpass); die staan hier niet meer.
   const ONGEWIJZIGD = { vindDichtbijScore: ['bc9b7937', 2105], achterSluitUit: ['6b7a87d8', 383], fietsSluitUit: ['ec1d273c', 170], fietsPuurDichtst: ['2a9b09f8', 418],
-    fietsTerug: ['6f950997', 372], fietsHaalOp: ['dfedfb4d', 2015], fietsNaKaart: ['dfcb20c7', 347], checkNodeCorrectieStilstand: ['8c801fd8', 4751],
+    fietsTerug: ['6f950997', 372], checkNodeCorrectieStilstand: ['8c801fd8', 4751],
     selecteerNodeHandmatig: ['8c3e7846', 2480], corrigeerNodeAutomatisch: ['17ca8090', 4208], geenLichtZetten: ['5c1824fd', 1675], achterTik: ['e9e105a3', 1583],
     checkHandLockVerval: ['2df4f7ed', 5513], checkHandLockPassage: ['7f001264', 1768], checkTikSlotSnel: ['d3a8edbe', 2071], verzamelNaderingsBewijs: ['3d6ad85f', 3526],
     checkNaderingsCorrectie: ['6aeb87b3', 3595], regelTik: ['9c1b361b', 3087], peilingDuidelijkBeter: ['a1d2a5c1', 1471], berekenLateraleOffset: ['189b7879', 328],
     wisselLogNoteer: ['9c1383d4', 1904], bevestigCountdown: ['8457401d', 16073], slaOpIntern: ['c284229a', 2342], tikRichting: ['b44110d5', 4619] };
   const anders2 = Object.entries(ONGEWIJZIGD).filter(([n, [h, l]]) => { const s = String(window[n]); return fnv(s) !== h || s.length !== l; }).map(x => x[0]);
-  eis('TR11c vierentwintig functies die V11.37.11 niet raakt (de puntentelling, de achter-regel, het fietsfilter, de correcties, de tik, de loslaatroutes, de wissellog, het leren): byte-gelijk aan V11.37.10',
+  eis('TR11c tweeëntwintig functies die V11.37.11 niet raakt (de puntentelling, de achter-regel, het fietsfilter, de correcties, de tik, de loslaatroutes, de wissellog, het leren): byte-gelijk aan V11.37.10',
       anders2.length === 0, 'geen afwijking', anders2.join(', ') || 'geen');
 
   try { if (typeof idbFlush === 'function') await idbFlush(); } catch (e) {}

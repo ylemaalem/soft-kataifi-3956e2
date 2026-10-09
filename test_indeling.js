@@ -46,6 +46,12 @@ function testIndeling() {
     activeCdDoel = doelSec; cdStart = P() - verSec * 1000;
   }
 
+  // V11.37.12: beide klokken staan stil tijdens het zetten en het meten. Date.now telt in hele ms, performance.now
+  // in fracties; los gelezen verschoof de overschrijding soms een ms (8 van de 20.000 keer, 9 okt gemeten), en
+  // dan faalde de toets precies op de grens (T15). De app zelf leest ze in één meting (V11.17.89) en verandert niet.
+  const stilKlok = (fn) => { const dn = Date.now, pn = performance.now; const D = dn.call(Date), P = pn.call(performance);
+    Date.now = () => D; performance.now = () => P;
+    try { return fn(); } finally { Date.now = dn; delete performance.now; if (performance.now !== pn) performance.now = pn; } };
   // ══ T1-T4 — de vier banden ═══════════════════════════════════
   const banden = [
     ['T1 groen 0,5s na nul  -> GOED',  0.5, 'goed'],
@@ -54,13 +60,12 @@ function testIndeling() {
     ['T4 groen 2,0s na nul  -> GOED (bovengrens is inclusief)', 2, 'goed']
   ];
   for (const [naam, over, verwacht] of banden) {
-    groenNaNul(over, 1);
-    const ind = bevestigIndeling();
+    const ind = stilKlok(() => { groenNaNul(over, 1); return bevestigIndeling(); });   // V11.37.12
     eis(naam, ind === verwacht, verwacht, String(ind));
   }
-  groenNaNul(10, 1);
+  const ind4b = stilKlok(() => { groenNaNul(10, 1); return bevestigIndeling(); });   // V11.37.12
   eis('T4b groen 10,0s na nul -> BIJNA (bovengrens inclusief)',
-      bevestigIndeling() === 'bijna', 'bijna', String(bevestigIndeling()));
+      ind4b === 'bijna', 'bijna', String(ind4b));
   groenNaNul(10.5, 1);
   eis('T4c groen 10,5s na nul -> FOUT',
       bevestigIndeling() === 'fout', 'fout', String(bevestigIndeling()));

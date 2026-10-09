@@ -188,7 +188,8 @@ async function testOpruimSafari() {
   eis('OS8a vier functies veranderen, alleen met regels met merkteken V11.37.10', telAf.length === 0, 'precies zoveel', telAf.join(', ') || 'precies zoveel');
   const anders = Object.entries(V11379).filter(([n, [h, l]]) => { const s = terug(window[n]); return fnv(s) !== h || s.length !== l; }).map(x => x[0]);
   eis('OS8b met die regels terug (vier waren een andere regel, de rest is nieuw) byte-gelijk aan V11.37.9', anders.length === 0, 'geen afwijking', anders.join(', ') || 'geen');
-  const zonderV113711 = (s) => String(s).split('\n').filter(l => !/V11\.37\.11/.test(l)).join('\n');   // V11.37.11: de tegenrichting-regel (test_tegenrichting); hier terug
+  const zonderV113712 = (s) => String(s).split('\n').filter(l => !/V11\.37\.12/.test(l)).join('\n');   // V11.37.12: de rem op de kaartvraag en de dekking van de fietslijst (test_overpass); hier terug
+  const zonderV113711 = (s) => zonderV113712(s).split('\n').filter(l => !/V11\.37\.11/.test(l)).join('\n');   // V11.37.11: de tegenrichting-regel (test_tegenrichting); hier terug
   const ONGEWIJZIGD = { trimDiagnostiekV1: ['a4df7e2b', 693], voerOpruimPassenUit: ['b5221ec9', 5515], logOpruiming: ['e2c2508', 3108], berekenSafariOpslag: ['f3e8d002', 1245],
     ruimRedundantePosCache: ['ec31b124', 380], berekenLocalStorageKB: ['8fd8ab6c', 193], ruimOpslagNuOp: ['4dbcfffc', 3289], slaOpIntern: ['c284229a', 2342],
     vindDichtbij: ['d444ee3', 3717], vindDichtbijScore: ['bc9b7937', 2105], updateDichtbij: ['7b7fce62', 12303], onGPS: ['d99821b8', 15000], downloadOSM: ['82a16b3c', 4147],

@@ -179,7 +179,8 @@ async function fietsHaalBinnen(opt) {
   localStorage.setItem('sl_opslaglog', '[]');
   if (opt.opslag === undefined) localStorage.removeItem(FIETS_SLEUTEL); else localStorage.setItem(FIETS_SLEUTEL, JSON.stringify(opt.opslag));
   try { opslagCache.delete(FIETS_SLEUTEL); } catch (e) {}
-  fietsLichten = null; fietsBezig = false; fietsDoel = null;
+  fietsLichten = null; fietsBezig = false; fietsGebieden = null; fietsTimer = null;   // V11.37.12: fietsDoel bestaat niet meer
+  localStorage.removeItem(FIETS_POGING_SLEUTEL);   // V11.37.12
   osmCache = [{ id: 9820001, lat: opt.kaart.lat, lon: opt.kaart.lon }];
   dichtstbijOSM = null;
   const direct = fietsLichten;
@@ -371,30 +372,35 @@ async function testFietslicht() {
       h1.vragen.length === 1 && vraag.url === OVERPASS_URL && vraag.body.includes(`(around:${OSM_RADIUS},${K.lat},${K.lon})`)
         && !/\b\d{6,}\b/.test(vraag.body.replace(`${K.lat}`, '').replace(`${K.lon}`, '')) && /\.alleen out ids;$/.test(vraag.body),
       'één vraag, plek + straal, geen nummers', h1.fout || (h1.vragen.length + ' vraag: ' + vraag.body.slice(0, 160)));
+  // V11.37.12: bewaard als één gebied in { v: 2, gebieden } (tot vier gebieden, test_overpass OV7).
+  const g1 = h1.opslag && h1.opslag.v === 2 && Array.isArray(h1.opslag.gebieden) ? h1.opslag.gebieden[0] : null;
   eis('FL7b het antwoord wordt bewaard (sl_fietslichten) en meteen gebruikt; de logregel zegt ok n=346',
-      h1.opslag && h1.opslag.v === 1 && h1.opslag.ids.length === 346 && h1.opslag.lat === K.lat && h1.opslag.r === OSM_RADIUS && h1.na && h1.na.length === 346
-        && h1.log.length === 1 && h1.log[0] === 'ok n=346 p=0', 'bewaard, 346, ok', h1.fout || ((h1.opslag ? h1.opslag.ids.length : 'geen') + ' / ' + h1.log.join(' | ')));
+      !!g1 && h1.opslag.gebieden.length === 1 && g1.ids.length === 346 && g1.lat === K.lat && g1.r === OSM_RADIUS && h1.na && h1.na.length === 346
+        && h1.log.length === 1 && h1.log[0] === 'ok n=346 p=0', 'bewaard, 346, ok', h1.fout || ((g1 ? g1.ids.length : 'geen') + ' / ' + h1.log.join(' | ')));
   const kb = h1.ruw ? h1.ruw.length : 0;
   eis('FL7c de grootte voor 346 lichten (zoals Amersfoort): onder de 5 KB tekst (in de app-telling, 2 bytes per teken: onder de 10 KB)',
       kb > 3000 && kb < 5000, '3-5 KB', (kb / 1000).toFixed(1) + ' KB tekst');
   const h2 = await inFrame('fietsHaalBinnen', { kaart: K, antwoorden: [{ status: 200, json: { remark: 'runtime error: Query timed out', elements: [{ type: 'node', id: 3300000000 }] } }, goed], wachtVragen: 2 });
   eis('FL7d een half antwoord (status 200 met een remark) wordt niet bewaard; de volgende poging wel',
-      h2.vragen.length === 2 && h2.log[0] === 'fout remark p=0' && h2.log[1] === 'ok n=346 p=1' && h2.opslag && h2.opslag.ids.length === 346,
+      h2.vragen.length === 2 && /^fout remark w=\d+ p=0$/.test(h2.log[0]) && h2.log[1] === 'ok n=346 p=1' && h2.opslag && h2.opslag.gebieden[0].ids.length === 346,   // V11.37.12: w = de wachttijd in s
       'fout remark, dan ok', h2.fout || h2.log.join(' | '));
-  const h3 = await inFrame('fietsHaalBinnen', { kaart: K, antwoorden: [{ status: 504, json: null }], wachtVragen: 3 });
-  eis('FL7e drie keer 504: drie pogingen en dan stoppen; niets bewaard, geen lijst (alles werkt zoals voorheen)',
-      h3.vragen.length === 3 && h3.log.join(',') === 'fout http 504 p=0,fout http 504 p=1,fout http 504 p=2' && h3.opslag === null && h3.na === null,
-      '3 pogingen, geen lijst', h3.fout || (h3.vragen.length + ': ' + h3.log.join(',')));
+  // V11.37.12: vijf pogingen per gebied per dag (na 5 s, 1, 5, 15 en 60 min; de wachttijden zijn hier ingekort).
+  const h3 = await inFrame('fietsHaalBinnen', { kaart: K, antwoorden: [{ status: 504, json: null }], wachtVragen: 5 });
+  eis('FL7e steeds 504: vijf pogingen en dan stoppen; niets bewaard, geen lijst (alles werkt zoals voorheen)',
+      h3.vragen.length === 5 && h3.log.length === 5 && h3.log.slice(0, 4).every((l, i) => new RegExp('^fout http 504 w=\\d+ p=' + i + '$').test(l)) && h3.log[4] === 'fout http 504 p=4'
+        && h3.opslag === null && h3.na === null,
+      '5 pogingen, geen lijst', h3.fout || (h3.vragen.length + ': ' + h3.log.join(',')));
   const vers = { v: 1, t: 1790000000000, lat: K.lat, lon: K.lon, r: OSM_RADIUS, ids: [11, 12, 13] };
   const nuT = Date.now();
   const h4 = await inFrame('fietsHaalBinnen', { kaart: K, opslag: { ...vers, t: nuT - 86400000 }, antwoorden: [goed] });
   eis('FL7f een bewaarde lijst van gisteren, hier: meteen gebruikt, geen nieuwe vraag',
       h4.meteen === 3 && h4.vragen.length === 0, '3 lichten, 0 vragen', h4.fout || (h4.meteen + ' lichten, ' + h4.vragen.length + ' vragen'));
-  const h5 = await inFrame('fietsHaalBinnen', { kaart: { lat: K.lat + 0.02, lon: K.lon }, opslag: { ...vers, t: nuT - 86400000 }, antwoorden: [goed] });
+  // V11.37.12: een gebied dekt tot 4,6 km (FIETS_ZELFDE_M), dus nu 5 km verder; het oude gebied blijft erbij (tot vier).
+  const h5 = await inFrame('fietsHaalBinnen', { kaart: { lat: K.lat + 0.045, lon: K.lon }, opslag: { ...vers, t: nuT - 86400000 }, antwoorden: [goed] });
   const h6 = await inFrame('fietsHaalBinnen', { kaart: K, opslag: { ...vers, t: nuT - 31 * 86400000 }, antwoorden: [goed] });
-  eis('FL7g 2 km verder of 31 dagen oud: de oude lijst geldt meteen, en er komt één nieuwe vraag die hem vervangt',
-      h5.meteen === 3 && h5.vragen.length === 1 && h5.na.length === 346 && h6.meteen === 3 && h6.vragen.length === 1 && h6.na.length === 346,
-      '3, 1 vraag, 346 (twee keer)', [h5.meteen, h5.vragen.length, h5.na && h5.na.length, h6.meteen, h6.vragen.length, h6.na && h6.na.length].join(',')
+  eis('FL7g 5 km verder: de oude lijst geldt meteen, er komt één nieuwe vraag en beide gebieden tellen (3 + 346); 31 dagen oud: één vraag die hem vervangt',
+      h5.meteen === 3 && h5.vragen.length === 1 && h5.na.length === 349 && h6.meteen === 3 && h6.vragen.length === 1 && h6.na.length === 346,
+      '3, 1 vraag, 349; 3, 1 vraag, 346', [h5.meteen, h5.vragen.length, h5.na && h5.na.length, h6.meteen, h6.vragen.length, h6.na && h6.na.length].join(',')
         + ' | ' + h5.vragen.map(v => v.body.slice(60, 120)).join(' ; '));
   const h7 = await inFrame('fietsHaalBinnen', { kaart: K, opslag: { v: 2, ids: 'kapot' }, antwoorden: [{ status: 504, json: null }], wachtVragen: 3 });
   eis('FL7h een kapotte bewaarde lijst wordt genegeerd (geen lijst, niets uitgesloten)', h7.meteen === null && h7.na === null, 'geen lijst', String(h7.meteen) + ' / ' + String(h7.na));
@@ -483,7 +489,8 @@ async function testFietslicht() {
   }
 
   // ═══ FL11 — regressie ══════════════════════════════════════
-  const zonderV113711 = (s) => String(s).split('\n').filter(l => !/V11\.37\.11/.test(l)).join('\n');   // V11.37.11: de tegenrichting-regel (test_tegenrichting); hier terug
+  const zonderV113712 = (s) => String(s).split('\n').filter(l => !/V11\.37\.12/.test(l)).join('\n');   // V11.37.12: de rem op de kaartvraag en de dekking van de fietslijst (test_overpass); hier terug
+  const zonderV113711 = (s) => zonderV113712(s).split('\n').filter(l => !/V11\.37\.11/.test(l)).join('\n');   // V11.37.11: de tegenrichting-regel (test_tegenrichting); hier terug
   const terug = (s) => zonderV113711(s)
     .replace("      if (wisselStaat.min === null || af < wisselStaat.min) { wisselStaat.min = af; wisselStaat.minT = Date.now(); }   // V11.37.8: en wanneer (tMin)", "      if (wisselStaat.min === null || af < wisselStaat.min) wisselStaat.min = af;")
     .replace("  if (!dichtstbijOSM) { logOpslagMis('bevestig_geen_licht', { element: categorie }); return; }   // V11.37.8: niet meer stil", "  if (!dichtstbijOSM) return;")

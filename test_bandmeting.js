@@ -59,10 +59,16 @@ function testBandmeting() {
     knopK: bevKlopteBtn.className, knopB: bevBijnaBtn.className, knopF: bevFoutBtn.className
   };
 
-  // Een moment met een gegeven toestand en venster-afwijking, zonder de klok te
-  // vervalsen: meetBevestigMoment leest globals, dus die zetten we. Voor de
-  // rode toestanden is dat exact wat de app zelf doet.
-  const roodOp = (afwMs) => {
+  // Een moment met een gegeven toestand en venster-afwijking: meetBevestigMoment
+  // leest globals, dus die zetten we. Voor de rode toestanden is dat exact wat de
+  // app zelf doet. V11.37.12: de klok staat daarbij stil (stilKlok, hieronder).
+  // V11.37.12: beide klokken staan stil tijdens het zetten en het meten. Date.now telt in hele ms, performance.now
+  // in fracties; los gelezen verschoof de overschrijding soms een ms (8 van de 20.000 keer, 9 okt gemeten), en
+  // dan faalde de toets precies op de grens (T15). De app zelf leest ze in één meting (V11.17.89) en verandert niet.
+  const stilKlok = (fn) => { const dn = Date.now, pn = performance.now; const D = dn.call(Date), P = pn.call(performance);
+    Date.now = () => D; performance.now = () => P;
+    try { return fn(); } finally { Date.now = dn; delete performance.now; if (performance.now !== pn) performance.now = pn; } };
+  const roodOpLos = (afwMs) => {
     fase = 'rood'; groenStart = null;
     activeCdDoel = 40; activeCdModus = CD_ZEKER; activeCdMin = null; activeCdMax = null;
     dichtstbijOSM = { id: NODE, lat: 52, lon: 4.7, afstand: 20, naam: 'T' };
@@ -78,7 +84,7 @@ function testBandmeting() {
     return meetBevestigMoment();
   };
   // Groen dat te vroeg viel: afwijkingMs komt uit verwachtNulWand/groenWandTijd.
-  const groenVoorNul = (afwMs) => {
+  const groenVoorNulLos = (afwMs) => {
     fase = 'groen';
     activeCdDoel = 40; activeCdModus = CD_ZEKER; activeCdMin = null; activeCdMax = null;
     dichtstbijOSM = { id: NODE, lat: 52, lon: 4.7, afstand: 20, naam: 'T' };
@@ -91,7 +97,7 @@ function testBandmeting() {
     groenStart = performance.now();
     return meetBevestigMoment();
   };
-  const groenNaNul = (afwMs) => {
+  const groenNaNulLos = (afwMs) => {
     fase = 'groen';
     activeCdDoel = 40; activeCdModus = CD_ZEKER; activeCdMin = null; activeCdMax = null;
     dichtstbijOSM = { id: NODE, lat: 52, lon: 4.7, afstand: 20, naam: 'T' };
@@ -100,6 +106,7 @@ function testBandmeting() {
     groenStart = performance.now();
     return meetBevestigMoment();
   };
+  const [roodOp, groenVoorNul, groenNaNul] = [roodOpLos, groenVoorNulLos, groenNaNulLos].map(f => (a) => stilKlok(() => f(a)));   // V11.37.12
   const staat = (m) => ({
     indeling: bevestigIndeling(m),
     klopteFel: !klopteIsNoOp(m),

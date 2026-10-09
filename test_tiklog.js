@@ -345,7 +345,8 @@ async function testTiklog() {
                   ['vindDichtbij', '2db98dab', 2954]];
     // V11.37.4: zonder de vier regels met merkteken (de achter-regel, zie test_achter).
     const zonder374 = (s) => s.split('\n').filter(l => !/V11\.37\.4/.test(l)).join('\n');
-    const zonderV113711 = (s) => String(s).split('\n').filter(l => !/V11\.37\.11/.test(l)).join('\n');   // V11.37.11: de tegenrichting-regel (test_tegenrichting); hier terug
+    const zonderV113712 = (s) => String(s).split('\n').filter(l => !/V11\.37\.12/.test(l)).join('\n');   // V11.37.12: de rem op de kaartvraag en de dekking van de fietslijst (test_overpass); hier terug
+    const zonderV113711 = (s) => zonderV113712(s).split('\n').filter(l => !/V11\.37\.11/.test(l)).join('\n');   // V11.37.11: de tegenrichting-regel (test_tegenrichting); hier terug
     const terugV11378 = (s) => zonderV113711(s).replace("      if (wisselStaat.min === null || af < wisselStaat.min) { wisselStaat.min = af; wisselStaat.minT = Date.now(); }   // V11.37.8: en wanneer (tMin)", "      if (wisselStaat.min === null || af < wisselStaat.min) wisselStaat.min = af;").replace("  if (!dichtstbijOSM) { logOpslagMis('bevestig_geen_licht', { element: categorie }); return; }   // V11.37.8: niet meer stil", "  if (!dichtstbijOSM) return;").split('\n').filter(l => !/V11\.37\.8/.test(l)).join('\n');   // V11.37.8: het fietsfilter en de bevroren knoppen (test_fietslicht); hier terug
     const nbAnders = NB14.filter(([n, h, l]) => fnv(zonder374(terugV11378(eval(n)))) !== h || zonder374(terugV11378(eval(n))).length !== l).map(x => x[0]);
     eis('TL3k de vijf NB14-functies van V11.27.0 zijn onaangeroerd', nbAnders.length === 0,
