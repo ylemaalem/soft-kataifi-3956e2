@@ -292,11 +292,12 @@ async function testRondGewicht() {
   eis('RG7a zeven functies veranderen, alleen met regels met merkteken V11.37.9', telAf.length === 0, 'precies zoveel', telAf.join(', ') || 'precies zoveel');
   const anders = Object.entries(V11378).filter(([n, [h, l]]) => { const s = terug(window[n]); return fnv(s) !== h || s.length !== l; }).map(x => x[0]);
   eis('RG7b met die regels terug (vier waren een andere regel, de rest is nieuw) byte-gelijk aan V11.37.8', anders.length === 0, 'geen afwijking', anders.join(', ') || 'geen');
+  const zonderV113711 = (s) => String(s).split('\n').filter(l => !/V11\.37\.11/.test(l)).join('\n');   // V11.37.11: de tegenrichting-regel (test_tegenrichting); hier terug
   const ONGEWIJZIGD = { berekenLeerPct: ['5d38efe9', 986], algemeenMetingen: ['40c40223', 1285], laagDagdeelPct: ['8c863dca', 914], tikRichting: ['b44110d5', 4619],
     kiesLaagRichting: ['94ad3b74', 596], verplaatsAlgemeenNaarRichting: ['f66a53f0', 2052], herstelRvVoorMerge: ['ea697b84', 2338], analyseerBevestigLus: ['e4d5feee', 1468],
     bijwerkLeerkaart: ['8344c773', 8107], laagMetingen: ['ca21e0f9', 421], richtingLeerPct: ['e4a7222', 925], vindDichtbij: ['d444ee3', 3717], updateDichtbij: ['7b7fce62', 12303],
     onGPS: ['d99821b8', 15000], bevestigCountdown: ['8457401d', 16073], verwerkBevestigLeren: ['9163848', 8583], slaOpIntern: ['c284229a', 2342], toonMergeDialoog: ['6d14fe13', 3633] };
-  const anders2 = Object.entries(ONGEWIJZIGD).filter(([n, [h, l]]) => { const s = String(window[n]); return fnv(s) !== h || s.length !== l; }).map(x => x[0]);
+  const anders2 = Object.entries(ONGEWIJZIGD).filter(([n, [h, l]]) => { const s = zonderV113711(window[n]); return fnv(s) !== h || s.length !== l; }).map(x => x[0]);
   eis('RG7c achttien functies die V11.37.9 niet raakt (het leren, de percentages, de tik, de verhuizing, de lichtkeuze, de knoppen): byte-gelijk aan V11.37.8',
       anders2.length === 0, 'geen afwijking', anders2.join(', ') || 'geen');
 

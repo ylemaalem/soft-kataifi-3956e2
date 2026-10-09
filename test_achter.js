@@ -406,7 +406,8 @@ async function testAchter() {
 
   // ═══ AR11 — regressie ══════════════════════════════════════
   const zonder374 = (s) => s.split(NL).filter(l => !/V11\.37\.4/.test(l)).join(NL);
-  const terugV11378 = (s) => String(s).replace("      if (wisselStaat.min === null || af < wisselStaat.min) { wisselStaat.min = af; wisselStaat.minT = Date.now(); }   // V11.37.8: en wanneer (tMin)", "      if (wisselStaat.min === null || af < wisselStaat.min) wisselStaat.min = af;").replace("  if (!dichtstbijOSM) { logOpslagMis('bevestig_geen_licht', { element: categorie }); return; }   // V11.37.8: niet meer stil", "  if (!dichtstbijOSM) return;").split('\n').filter(l => !/V11\.37\.8/.test(l)).join('\n');   // V11.37.8: het fietsfilter en de bevroren knoppen (test_fietslicht); hier terug
+  const zonderV113711 = (s) => String(s).split('\n').filter(l => !/V11\.37\.11/.test(l)).join('\n');   // V11.37.11: de tegenrichting-regel (test_tegenrichting); hier terug
+  const terugV11378 = (s) => zonderV113711(s).replace("      if (wisselStaat.min === null || af < wisselStaat.min) { wisselStaat.min = af; wisselStaat.minT = Date.now(); }   // V11.37.8: en wanneer (tMin)", "      if (wisselStaat.min === null || af < wisselStaat.min) wisselStaat.min = af;").replace("  if (!dichtstbijOSM) { logOpslagMis('bevestig_geen_licht', { element: categorie }); return; }   // V11.37.8: niet meer stil", "  if (!dichtstbijOSM) return;").split('\n').filter(l => !/V11\.37\.8/.test(l)).join('\n');   // V11.37.8: het fietsfilter en de bevroren knoppen (test_fietslicht); hier terug
   const terugV11374 = (s) => s
     .replace('if ((dichtstbijOSM || (achterAan() && v9KandidaatNode !== null)) && cacheGeladen) {   // V11.37.4: een lopende meting loopt ook zonder getoond licht door', 'if (dichtstbijOSM && cacheGeladen) {')
     .replace('const afst = dichtstbijOSM ? dichtstbijOSM.afstand : Infinity;   // V11.37.4', 'const afst = dichtstbijOSM.afstand;')
@@ -419,7 +420,7 @@ async function testAchter() {
   eis('AR11b updateDichtbij: één regel met merkteken; zonder die regel byte-gelijk aan V11.37.3 (e82d3c0 / 11914)',
       merk(updateDichtbij) === 1 && fnv(zonder374(terugV11378(updateDichtbij))) === 'e82d3c0' && zonder374(terugV11378(updateDichtbij)).length === 11914,
       '1 regel, e82d3c0 / 11914', merk(updateDichtbij) + ' regel(s), ' + fnv(zonder374(terugV11378(updateDichtbij))) + ' / ' + zonder374(terugV11378(updateDichtbij)).length);
-  const og = zonder374(terugV11374(String(onGPS)));
+  const og = zonder374(terugV11374(zonderV113711(onGPS)));
   eis('AR11c onGPS: vijf regels met merkteken (de aanroep en vier V9-regels); met die vier terug en de aanroep weg byte-gelijk aan V11.37.3 (e1da9bf9 / 14694)',
       merk(onGPS) === 5 && fnv(og) === 'e1da9bf9' && og.length === 14694, '5 regels, e1da9bf9 / 14694', merk(onGPS) + ' regels, ' + fnv(og) + ' / ' + og.length);
   const V11373 = { vindDichtbijScore: ['bc9b7937', 2105], checkHandLockVerval: ['2df4f7ed', 5513], checkNodeCorrectieStilstand: ['8c801fd8', 4751],
