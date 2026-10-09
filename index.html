@@ -1053,7 +1053,7 @@ if (typeof ort !== 'undefined') {
 //
 // De stijl volgt de eerdere labels: nummer, kastlijntje, korte omschrijving in
 // kleine letters. De CSS zet hem zelf in kapitalen (text-transform:uppercase).
-const APP_VERSIE = 'V11.37.9 — Rond licht telt alleen gemeten metingen, het oude label verdwijnt na samenvoegen, en Rond licht kort na een richtingtik telt niet';
+const APP_VERSIE = 'V11.37.10 — de opruimrem telt zoals Safari (grens 85% van 5 MiB), geen kopieën meer in sl_pos_, en één S2-record per passage';
 
 // ── CONSTANTEN ────────────────────────────────────────────────
 const OSM_RADIUS       = 5000;
@@ -3351,7 +3351,19 @@ function berekenCyclusTijd(osmId, dd) {
   return Math.round(roodGem + groenGem + 3);
 }
 
+// ── V11.37.10: GEEN KOPIEËN MEER IN sl_pos_ ─────────────────────
+// © 2026 StoplichtIQ — Y. Lemaalem
+//
+// Deze functie schreef bij elke kaart voor elk licht zonder sl_pos_ een kopie
+// van zijn eigen positie (bron 'osm'): 580 tot 2.200 sleutels per kaart.
+// vindDichtbijScore valt sinds V11.17.40 zelf terug op de positie van het
+// licht, dus een kopie verandert geen enkele score, en pas 4 van de rem haalde
+// ze weer weg. De aanroep in downloadOSM blijft staan; de functie doet niets
+// zolang POS_MIGRATIE_AAN uit staat. Wat er nog staat, haalt opruimPosV2 één
+// keer weg. Records zonder bron (waar je echt stilstond, uit slaOp) blijven.
+const POS_MIGRATIE_AAN = false;
 function migratieSlPos() {
+  if (!POS_MIGRATIE_AAN) return;   // V11.37.10: zie hierboven
   for (const sl of osmCache) {
     const sleutel = `sl_pos_${sl.id}`;
     if (localStorage.getItem(sleutel)) continue;
@@ -14462,7 +14474,7 @@ function laadDashboard() {
   if (v9Sub) v9Sub.textContent = `(${aantalDelayedWrites} writes)`;
   // V11: localStorage gebruik
   const opslagEl = document.getElementById('ds-opslag');
-  if (opslagEl) opslagEl.textContent = `${berekenLocalStorageKB()}KB / ~5000KB`;
+  if (opslagEl) { const sf = berekenSafariOpslag(); opslagEl.textContent = sf ? `${Math.round(sf.kb)}KB / 5120KB (${Math.round(sf.pct)}%)` : `${berekenLocalStorageKB()}KB / ~5000KB`; }   // V11.37.10: zoals Safari telt, zie opruimNodig
 
   if (!gefilterd.length) {
     lijst.innerHTML=`<div style="text-align:center;padding:30px;color:var(--dim);font-size:13px">Geen stoplichten gevonden voor dit filter</div>`;
@@ -15677,6 +15689,21 @@ function trimDiagnostiekLogs() {
 // deze release op het toestel werkelijk heeft opgeleverd; dat getal bepaalt
 // hoeveel haast fase 2 heeft. Het is een gewone logregel en valt dus vanzelf
 // binnen dezelfde cap van 150.
+// V11.37.10: de sl_pos_-kopieën (bron 'osm') één keer weg, zoals trimDiagnostiekV1
+// dat in V11.18.20 deed; daarna maakt migratieSlPos ze niet meer aan (zie daar).
+// Vlag sl_posv2. Logregel pos_v2 met het aantal en de opslag zoals Safari hem
+// telt, voor en na.
+function opruimPosV2() {
+  try {
+    if (localStorage.getItem('sl_posv2') === 'done') return;
+    const voor = berekenSafariOpslag();
+    const posWeg = ruimRedundantePosCache();
+    const na = berekenSafariOpslag();
+    localStorage.setItem('sl_posv2', 'done');
+    logOpslagMis('pos_v2', { opruim: { posWeg, kbSafariVoor: voor ? voor.kb : null, kbSafariNa: na ? na.kb : null } });
+  } catch (e) {}
+}
+
 function trimDiagnostiekV1() {
   try {
     if (localStorage.getItem('sl_trimv1') === 'done') return;
@@ -15848,8 +15875,9 @@ function checkLocalStorageRuimte() {
     // V11.23.0: via de opslaglaag. Meet nog steeds in UTF-16-bytes, dezelfde
     // eenheid als berekenLocalStorageKB en de dashboardteller.
     let totaal=0;
-    for (const key of opslagSleutels('')) totaal += (opslagLeesRuw(key) || '').length * 2;
-    if (totaal/(1024*1024) > 4.0) {
+    let grof = 0;   // V11.37.10: naam + waarde, één byte per teken: de ondergrens van wat Safari telt
+    for (const key of opslagSleutels('')) { const ruw = opslagLeesRuw(key) || ''; totaal += ruw.length * 2; grof += key.length + ruw.length; }   // V11.37.10: dezelfde lus, twee tellingen
+    if (opruimNodig(grof)) {   // V11.37.10: was totaal/(1024*1024) > 4.0, zie opruimNodig
       // V11.29.0: de telling gaat naar logOpruiming. De grens en de passen
       // zelf zijn ongewijzigd.
       const tel = voerOpruimPassenUit();
@@ -16004,6 +16032,43 @@ function berekenSafariOpslag() {
     }
     return uit;
   } catch (e) { return null; }
+}
+
+// ── V11.37.10: DE OPRUIMREM TELT ZOALS SAFARI ──────────────────
+// © 2026 StoplichtIQ — Y. Lemaalem
+//
+// WAAROM. De rem vuurde boven 4,0 MiB in UTF-16 zonder sleutelnamen. Safari
+// telt naam plus waarde, één byte per teken (berekenSafariOpslag). Op de backup
+// van 30 sept: 4.691,8 KB voor de rem, 2.595,5 KB voor Safari. De rem vuurde
+// dus bij elke V4-schrijving op een getal dat ~1,8 keer te hoog was: 94 keer
+// tussen 27 sept en 3 okt, en elke keer haalde pas 4 de sl_pos_-kopieën weg
+// die migratieSlPos bij de volgende kaart weer schreef (~6.800 per dag, ~0,6
+// MB heen en weer). Ontwerp van 4 okt (STAP 0 'opruimrem, terugval, export').
+//
+// WAT. De grens is nu 85% van de 5 MiB van Safari (OPRUIM_GRENS_SAFARI, 4.352
+// KiB). checkLocalStorageRuimte telt in dezelfde lus ook naam plus waarde
+// (grof): dat is wat Safari telt zolang alles Latin-1 is, en anders een
+// ondergrens. Ligt grof binnen OPRUIM_MARGE_SAFARI onder de grens, dan telt
+// berekenSafariOpslag het exact, met de brede tekens erbij. De passen zelf
+// veranderen niet. Wat de rem tot nu toe bij elke vuring deed, gebeurt nu
+// anders:
+//   - pas 4 (sl_pos_-kopieën): migratieSlPos schrijft ze niet meer
+//     (POS_MIGRATIE_AAN), en opruimPosV2 haalt de bestaande één keer weg;
+//   - pas 7 (sl_s2_ naar 5): slaS2Aanwezigheid schrijft hoogstens één record
+//     per S2_PASSAGE_MS en houdt er S2_RING per kruispunt.
+// Het dashboard toont de opslag zoals Safari hem telt.
+//
+// opruimNodig is een eigen functie, zodat de toetsen de grens in één rit
+// kunnen verlagen (zoals achterAan en fietsUitAan).
+const OPRUIM_GRENS_SAFARI = Math.round(0.85 * SAFARI_QUOTUM_BYTES);   // 4.456.448 bytes = 4.352 KiB
+const OPRUIM_MARGE_SAFARI = 256 * 1024;
+function opruimGrens() { return OPRUIM_GRENS_SAFARI; }
+function opruimNodig(grof) {
+  const grens = opruimGrens();
+  if (grof >= grens) return true;
+  if (grof < grens - OPRUIM_MARGE_SAFARI) return false;
+  const sf = berekenSafariOpslag();
+  return !!sf && sf.kb * 1024 >= grens;
 }
 
 // V11.17.41: opslagoverzicht per categorie, in dezelfde indeling als de
@@ -18589,13 +18654,20 @@ function vindOsmMatchOpRichting(absoluteRichting, maxHoekGraden, maxAfstandMeter
 // observatie behouden zonder échte cyclusmetingen te verdringen via de
 // MAX_METINGEN-eviction. Dagdeel staat als veld in het record (de sleutel
 // is niet dd-gesplitst).
+// V11.37.10: één record per passage en een ring van S2_RING per kruispunt.
+// Gemeten op 3 okt: een record per detectierun, mediaan 0,78 s ertussen, en 98
+// passages met 5 of meer. sl_s2_ is alleen weergave (geen score leest het, STAP 0
+// van 4 okt), en pas 7 van de rem bracht het toch al terug naar 5.
+const S2_PASSAGE_MS = 30000;
+const S2_RING       = 5;
 function slaS2Aanwezigheid(nodeId, kleur) {
   if (!nodeId) return;
   const sleutel = `sl_s2_${nodeId}`;
   let m = opslagLees(sleutel, []);   // V11.18.21
   if (!Array.isArray(m)) m = [];
+  if (m.some(x => x && typeof x.tijd === 'number' && Date.now() - x.tijd < S2_PASSAGE_MS)) return;   // V11.37.10: dezelfde passage
   m.push({ duur:0, tijd:Date.now(), dd:huidigDDActief(), richting:Math.round(huidigeRichting||0), bron:'s2', gewicht:OBS_S2, kleur });
-  if (m.length > MAX_S2_METINGEN) { m.sort((a,b)=>gew(b.tijd)-gew(a.tijd)); m=m.slice(0,MAX_S2_METINGEN); }
+  if (m.length > S2_RING) { m.sort((a,b)=>gew(b.tijd)-gew(a.tijd)); m=m.slice(0,S2_RING); }   // V11.37.10: was MAX_S2_METINGEN (20)
   opslagSchrijf(sleutel, m);   // V11.18.21
 }
 
@@ -22494,6 +22566,7 @@ function koppelBboxAanNode(bbox) {
 // en hangt van geen enkele DOM-node of GPS-toestand af, dus het moment binnen
 // het opstarten maakt verder niets uit.
 trimDiagnostiekV1();
+opruimPosV2();   // V11.37.10: eenmalig, zie daar
 
 // -- V11.18.21: DE OPSLAG-BOOT START HIER ---------------------
 // (c) 2026 StoplichtIQ - Y. Lemaalem

@@ -34,6 +34,7 @@
 // ═══════════════════════════════════════════════════════════════
 
 async function testOpslagSafari() {
+  const echteGrens = window.opruimGrens;   // V11.37.10, zie SA3
   const regels = [];
   const eis = (naam, gelukt, verwacht, gekregen) => {
     regels.push({ test: naam, uitslag: gelukt ? 'OK' : 'GEFAALD', verwacht, gekregen });
@@ -135,6 +136,11 @@ async function testOpslagSafari() {
 
     // ═══ SA3 — de duur komt door ════════════════════════════
     leeg();
+    // V11.37.10: de rem telt nu zoals Safari, met een grens van 85% van 5 MiB (opruimNodig). De
+    // ballast van 2,1 miljoen tekens (4,01 MiB in UTF-16) zit daar ver onder. SA3 toetst de
+    // duur en de Safari-telling, niet de hoogte van de grens (die staat in test_opruim_safari), dus de
+    // grens gaat hier naar 2 MiB: erboven en eronder blijven betekenen wat ze betekenden.
+    window.opruimGrens = () => 2 * 1024 * 1024;
     localStorage.setItem('or_ballast', 'x'.repeat(2100000));   // 4,01 MiB in UTF-16: boven de grens van de rem
     opruimGelogdDezeSessie = false;
     checkLocalStorageRuimte();
@@ -149,6 +155,7 @@ async function testOpslagSafari() {
     checkLocalStorageRuimte();
     eis('SA3c onder de grens schrijft de rem niets, ook geen duur', localStorage.getItem('sl_opruimstat') === null,
         'geen teller', localStorage.getItem('sl_opruimstat') === null ? 'geen' : 'WEL');
+    window.opruimGrens = echteGrens;   // V11.37.10
     window.confirm = () => true; window.alert = () => {};
     ruimOpslagNuOp();
     await slaap(60);
@@ -195,7 +202,8 @@ async function testOpslagSafari() {
       return null;
     }).filter(l => l !== null).join('\n');
     const V11360 = { checkLocalStorageRuimte: ['8de1f9d8', 564], logOpruiming: ['27e9e21b', 1415], ruimOpslagNuOp: ['8bb75695', 3142] };
-    const afw = Object.entries(V11360).filter(([n, [h, l]]) => { const s = terug(String(eval(n))); return fnv(s) !== h || s.length !== l; }).map(x => x[0]);
+    const terugV113710 = (s) => String(s).replace("    for (const key of opslagSleutels('')) { const ruw = opslagLeesRuw(key) || ''; totaal += ruw.length * 2; grof += key.length + ruw.length; }   // V11.37.10: dezelfde lus, twee tellingen", "    for (const key of opslagSleutels('')) totaal += (opslagLeesRuw(key) || '').length * 2;").replace("    if (opruimNodig(grof)) {   // V11.37.10: was totaal/(1024*1024) > 4.0, zie opruimNodig", "    if (totaal/(1024*1024) > 4.0) {").split('\n').filter(l => !/V11\.37\.10/.test(l)).join('\n');   // V11.37.10: de grens telt zoals Safari (test_opruim_safari); hier terug
+    const afw = Object.entries(V11360).filter(([n, [h, l]]) => { const s = terug(terugV113710(eval(n))); return fnv(s) !== h || s.length !== l; }).map(x => x[0]);
     eis('SA5a zonder de V11.36.1-regels zijn checkLocalStorageRuimte, logOpruiming en ruimOpslagNuOp byte-gelijk aan V11.36.0',
         afw.length === 0, 'geen afwijking', afw.join(', ') || 'geen');
     const ONGEMOEID = { berekenLocalStorageKB: ['8fd8ab6c', 193], voerOpruimPassenUit: ['b5221ec9', 5515], opslagOverzicht: ['5ff742b9', 1762] };
@@ -275,6 +283,7 @@ async function testOpslagSafari() {
         String(Math.round(log5.length / 1024 * 10) / 10), `${s5.kb16} (vooraf n16 ${smal.n16})`);
 
   } finally {
+    window.opruimGrens = echteGrens;   // V11.37.10
     window.confirm = bew.confirm; window.alert = bew.alert;
     try { localStorage.removeItem('or_ballast'); } catch (e) {}
     leeg();

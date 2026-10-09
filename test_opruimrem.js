@@ -17,8 +17,9 @@
 //        elke vuring), een verse emmer nooit
 //  OR0c  de echte meting blijft staan (ging vroeger als eerste weg, vóór de
 //        lege S2-markeringen)
-//  OR0d  boven 4,0 MiB vuurt checkLocalStorageRuimte bij elke aanroep, eronder
-//        niet (getuige: een sl_pos_ met bron osm, pas 4) - ongewijzigd
+//  OR0d  boven de grens vuurt checkLocalStorageRuimte bij elke aanroep, eronder
+//        niet (getuige: een sl_pos_ met bron osm, pas 4). V11.37.10: de grens telt
+//        zoals Safari (85% van 5 MiB); deze suite zet hem op 2 MiB, zie de try
 //
 //  OL1   op een fixture waarin alle zeven passen iets te doen hebben, zijn alle
 //        sleutels behalve sl_v4_ byte-gelijk aan een letterlijke kopie van
@@ -43,6 +44,7 @@
 // ═══════════════════════════════════════════════════════════════
 
 async function testOpruimrem() {
+  const echteGrens = window.opruimGrens;   // V11.37.10, zie de try
   const regels = [];
   const eis = (naam, gelukt, verwacht, gekregen) => {
     regels.push({ test: naam, uitslag: gelukt ? 'OK' : 'GEFAALD', verwacht, gekregen });
@@ -172,6 +174,11 @@ async function testOpruimrem() {
 
   try {
     Date.now = () => NU;
+    // V11.37.10: de rem telt nu zoals Safari, met een grens van 85% van 5 MiB (opruimNodig). De
+    // ballast van 2,1 miljoen tekens (4,01 MiB in UTF-16) zit daar ver onder. Deze suite toetst de
+    // passen en de teller, niet de hoogte van de grens (die staat in test_opruim_safari), dus de
+    // grens gaat hier naar 2 MiB: erboven en eronder blijven betekenen wat ze betekenden.
+    window.opruimGrens = () => 2 * 1024 * 1024;
 
     // ══ OR0a — HERHAALD HALVEREN ══════════════════════════════
     leeg();
@@ -212,7 +219,7 @@ async function testOpruimrem() {
     const getuige = () => zet(GETUIGE, { lat: 52.1, lon: 5.3, bron: 'osm', tijd: NU });
     getuige();
     checkLocalStorageRuimte();
-    eis('OR0d onder 4,0 MiB vuurt de rem niet', localStorage.getItem(GETUIGE) !== null, 'getuige staat', localStorage.getItem(GETUIGE) ? 'staat' : 'WEG');
+    eis('OR0d onder de grens vuurt de rem niet', localStorage.getItem(GETUIGE) !== null, 'getuige staat', localStorage.getItem(GETUIGE) ? 'staat' : 'WEG');
     ballast(true);
     checkLocalStorageRuimte();
     const eerste = localStorage.getItem(GETUIGE) === null;
@@ -362,6 +369,7 @@ async function testOpruimrem() {
 
   } finally {
     Date.now = echtNu;
+    window.opruimGrens = echteGrens;   // V11.37.10
     window.confirm = echtConfirm; window.alert = echtAlert;
     try { localStorage.removeItem('or_ballast'); } catch (e) {}
     leeg();
