@@ -121,7 +121,8 @@ async function testRichtingtik() {
     .replace('const nodeId = dichtstbijOSM ? String(dichtstbijOSM.id) : null;   // V11.37.4', 'const nodeId = String(dichtstbijOSM.id);')
     .replace('kandidaatPos ?? (dichtstbijOSM ? { lat: dichtstbijOSM.lat, lon: dichtstbijOSM.lon } : { lat, lon }),   // V11.37.4', 'kandidaatPos ?? { lat: dichtstbijOSM.lat, lon: dichtstbijOSM.lon },');
   // V11.37.4: zonder de regels met merkteken (de achter-regel, zie test_achter); onGPS met zijn vier V9-regels terug.
-  const anders = Object.entries(V11372).filter(([n, [h, l]]) => { const s = terugV11374(String(window[n])).split(NL).filter(l => !/V11\.37\.4/.test(l)).join(NL); return fnv(s) !== h || s.length !== l; }).map(x => x[0]);
+  const terugV11378 = (s) => String(s).replace("      if (wisselStaat.min === null || af < wisselStaat.min) { wisselStaat.min = af; wisselStaat.minT = Date.now(); }   // V11.37.8: en wanneer (tMin)", "      if (wisselStaat.min === null || af < wisselStaat.min) wisselStaat.min = af;").replace("  if (!dichtstbijOSM) { logOpslagMis('bevestig_geen_licht', { element: categorie }); return; }   // V11.37.8: niet meer stil", "  if (!dichtstbijOSM) return;").split('\n').filter(l => !/V11\.37\.8/.test(l)).join('\n');   // V11.37.8: het fietsfilter en de bevroren knoppen (test_fietslicht); hier terug
+  const anders = Object.entries(V11372).filter(([n, [h, l]]) => { const s = terugV11374(terugV11378(window[n])).split(NL).filter(l => !/V11\.37\.4/.test(l)).join(NL); return fnv(s) !== h || s.length !== l; }).map(x => x[0]);
   eis('RT6a de lichtkeuze is onaangeroerd door V11.37.3: veertien functies (onGPS en NB14 inbegrepen, zonder de V11.37.4-regels) byte-gelijk aan V11.37.2',
       anders.length === 0, 'geen afwijking', anders.join(', ') || 'geen');
   const t = String(tikRichting);

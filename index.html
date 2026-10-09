@@ -1052,7 +1052,7 @@ if (typeof ort !== 'undefined') {
 //
 // De stijl volgt de eerdere labels: nummer, kastlijntje, korte omschrijving in
 // kleine letters. De CSS zet hem zelf in kapitalen (text-transform:uppercase).
-const APP_VERSIE = 'V11.37.7 — het schaduwlog blijft staan na Meetdata, en de radar en de debugregel volgen het getoonde licht';
+const APP_VERSIE = 'V11.37.8 — fiets- en voetgangerslichten zijn geen kandidaat meer, KLOPTE/BIJNA/FOUT blijft bij het licht van de knoppen, en de ©-regel staat in beeld';
 
 // ── CONSTANTEN ────────────────────────────────────────────────
 const OSM_RADIUS       = 5000;
@@ -8586,6 +8586,10 @@ function meetRingSchrijf(sleutel, max, rec) {
 //   min   de kleinste afstand die de auto tot het OUDE licht bereikte zolang dat
 //         getoond werd (m). Zo staat in de regel van de vólgende wissel of het
 //         nieuwe licht echt gehaald werd, zonder tweede schrijfactie.
+//   tMin  V11.37.8: seconden tussen het moment van min en deze wissel. Groot
+//         bij een late wissel: het oude licht bleef staan nadat je het passeerde.
+//   pN    V11.37.8: de peiling van het NIEUWE licht ten opzichte van de
+//         rijrichting, zoals pl voor het oude: ligt het nieuwe licht vóór je?
 //
 // HOE. Een wachter, zoals tikLogWaak. wisselVoor() kijkt in onGPS vóór de
 // beslisketen (auto-slot, checkHandLockVerval, updateDichtbij, de twee
@@ -8620,6 +8624,8 @@ function wisselLogNoteer(oud, nieuw, reden, uitMs, lat, lon) {
       d: heel(d), zk: d === null ? null : (d < WISSEL_KRUISPUNT_M ? 1 : 0), r: reden,
       uit: (typeof uitMs === 'number' && isFinite(uitMs)) ? Math.round(uitMs / 100) / 10 : null,
       min: oud ? heel(oud.min) : null,   // V11.37.4
+      tMin: (oud && typeof oud.minT === 'number') ? Math.round((Date.now() - oud.minT) / 100) / 10 : null,   // V11.37.8
+      pN: (pos && plek(nieuw)) ? peilingTovRijrichting(pos, nieuw, getSmoothedHeading()) : null,   // V11.37.8
       a3: A3_ACTIEF ? 1 : 0,   // V11.37.0
       ac: achterAan() ? 1 : 0   // V11.37.4: de achter-regel stond aan
     };
@@ -8699,7 +8705,7 @@ function wisselNa(lat, lon) {
     }
     if (typeof dichtstbijOSM.lat === 'number' && typeof lat === 'number') {
       const af = afstand(lat, lon, dichtstbijOSM.lat, dichtstbijOSM.lon);
-      if (wisselStaat.min === null || af < wisselStaat.min) wisselStaat.min = af;
+      if (wisselStaat.min === null || af < wisselStaat.min) { wisselStaat.min = af; wisselStaat.minT = Date.now(); }   // V11.37.8: en wanneer (tMin)
     }
   } catch (e) {}
 }
@@ -8738,6 +8744,9 @@ function wisselNa(lat, lon) {
 //     stops (rechte nadering): 6 van de 252 keuzes anders, 5 beter, 4 slechter
 //     (een paar telt twee keer); Energieweg en Markerkant goed.
 //   - de keuze is het dichtstbijzijnde kandidaatlicht, of geen licht.
+//   - V11.37.8: een fiets- of voetgangerslicht alleen als er geen ander
+//     kandidaatlicht is (zie fietsSluitUit). Het eigen vorige antwoord krijgt
+//     hier geen voorrang: de regel heeft geen voorsprong en geen tik.
 //
 // WAT ER WORDT VASTGELEGD (sl_regellog, een ring van REGELLOG_MAX regels):
 //   s:'af'   een afwijking: de regel koos een ander licht dan de app toonde.
@@ -8804,6 +8813,7 @@ function regelKies(lat, lon, koers) {
   // Vergeten op REGEL_VERGEET_M, of als je er weer naartoe rijdt (V11.37.4).
   st.voorbij = st.voorbij.filter(v => afstand(lat, lon, v.lat, v.lon) <= REGEL_VERGEET_M && !(af.has(v.id) && !af.get(v.id).voorbij));
   let best = null, bestAf = Infinity;
+  let fietsBest = null, fietsAf = Infinity;   // V11.37.8
   for (const [sl, id, d, vorig, r] of binnen) {
     const p = peilingTovRijrichting({ lat, lon }, sl, koers);
     const afl = vorig === undefined || d < vorig.d;
@@ -8815,8 +8825,10 @@ function regelKies(lat, lon, koers) {
     // De overkant van een gepasseerd kruispunt, alleen zolang je het oversteekt (V11.37.4).
     if (st.voorbij.some(v => v.id === id || (afstand(v.lat, v.lon, sl.lat, sl.lon) <= REGEL_KRUISPUNT_M
         && afstand(lat, lon, v.lat, v.lon) <= REGEL_OVERSTEEK_M))) continue;
+    if (fietsUitAan() && isFietsLicht(id)) { if (d < fietsAf) { fietsAf = d; fietsBest = id; } continue; }   // V11.37.8: zie fietsSluitUit
     if (d < bestAf) { bestAf = d; best = id; }
   }
+  if (best === null && fietsBest !== null) best = fietsBest;   // V11.37.8: nooit uitsluiten als er niets anders is
   st.af = af;
   return best;
 }
@@ -11937,6 +11949,7 @@ function resetNeutraal(reden) {
   huidigeGlosa=null; osmVoorspellingActief=false;
   cdPill.classList.remove('actief');
   bevestigActief = false; bevestigVoorNodeId = null; bevestigWrap.classList.remove('actief');
+  if (reden === 'startscherm') bevestigVriesWeg(); else bevestigVriesToon();   // V11.37.8
   invalideerPassiefSnapshot(); // V11.17.13 W3
   zagRoodOvergang = false; faseNodeId = null; // V11.17.13
   stopCd();
@@ -12851,9 +12864,154 @@ function tickCd() {
   if (GLOSA_ACTIEF) updateGlosa();   // V11.17.36: zie GLOSA_ACTIEF (r964)
 }
 
+// ── V11.37.8: KLOPTE/BIJNA/FOUT BLIJFT BIJ HET LICHT VAN DE KNOPPEN ──
+// © 2026 StoplichtIQ — Y. Lemaalem
+//
+// WAAROM. Wisselde het licht terwijl de knoppen er stonden (rijdend na groen,
+// een correctie, 'geen licht', een keuze uit de lijst), dan verborg de app de
+// knoppen meteen. Een druk die net te laat kwam, ging verloren; bij een
+// lijstkeuze bleven ze staan en gooide bevestig_node_gewisseld de druk weg.
+// Afgesproken met Younes (8 okt): bewaren bij het licht waarvoor de knoppen
+// verschenen.
+//
+// HOE. Bij elke wissel, VÓÓR er iets van het oude licht verandert (het
+// sessieherstel, beeindigFase, activeCdDoel), bevriest bevestigBevries alles
+// wat een druk nodig heeft: het meetmoment (meetBevestigMoment), de
+// countdown, wat de camera zag, de band van de voorspelling. De knoppen
+// blijven BEVESTIG_VRIES_MS staan, met de demping van dat moment. Een druk
+// in die tijd gaat via bevestigNaWisselPad naar het oude licht, met dezelfde
+// poorten als bevestigCountdown, maar op het bevroren moment. Dat lost ook
+// het bezwaar van V11.17.89 op: de meetcontext is niet gemengd, want hij is
+// bevroren voordat het nieuwe licht hem overschreef.
+//
+// ALLEEN ZOLANG HET NIEUWE LICHT GEEN EIGEN KNOPPEN HEEFT. Zet tickCd de
+// knoppen aan voor het nieuwe licht (bevestigActief), dan is een druk voor
+// dat licht en vervalt het bevroren licht.
+//
+// ELKE DRUK IN DIE TIJD WORDT GELOGD (bevestig_na_wissel): node = het oude
+// licht, nieuw = het nieuwe ('geen' bij geen licht), element = de knop,
+// poortReden = wat er gebeurde (opgeslagen, inert, dubbel, nieuw_licht,
+// te_laat), dur = ms sinds de wissel. Ook bevestig_bevroren bij elke
+// bevriezing, zodat te tellen is hoe vaak de knoppen bleven staan zonder druk.
+// Een druk zonder licht en zonder bevroren knoppen wordt bevestig_geen_licht
+// (was: stil genegeerd).
+//
+// HET RECORD in sl_bevestig_<oud> heeft dezelfde velden als een gewone druk,
+// plus nw (seconden tussen wissel en druk) en naar (het nieuwe licht).
+// autoVerschilMs en de schaduwwaarden gelden op het wisselmoment; tel nw erbij
+// op voor het drukmoment. Het leren (verwerkBevestigLeren) rekent met de band
+// van het oude licht. Het dagdeel van het leren is dat van het drukmoment;
+// alleen bij een druk binnen 15 s na een dagdeelgrens kan dat anders zijn dan
+// het dagdeel in het record.
+const BEVESTIG_VRIES_MS = 15000;
+let bevestigVries = null;   // de bevroren knoppen van het vorige licht, of null
+let bevestigVriesTimer = null;
+let bevestigVriesNa = null;   // { node, t, wissel }: de laatste druk via het bevroren pad
+
+// Dezelfde vorm als schaduwLog in bevestigCountdown.
+function bevestigSchaduwNu(nu) {
+  const een = (m) => ({ voorspeldeCyclus: schaduwWaarden[m], autoVerschilMs: schaduwCountdownNul[m] != null ? nu - schaduwCountdownNul[m] : null });
+  return { m1: een('m1'), m2: een('m2'), m3: een('m3'), m4: een('m4') };
+}
+
+function bevestigBevries(nieuw, reden) {
+  try {
+    if (!bevestigActief || !dichtstbijOSM) return;
+    const oudId = String(dichtstbijOSM.id);
+    if (nieuw && String(nieuw.id) === oudId) return;
+    // Stonden de knoppen al voor een ander licht, dan is de context al gemengd
+    // (zie bevestig_node_gewisseld): niet bevriezen.
+    if (bevestigVoorNodeId !== null && bevestigVoorNodeId !== oudId) return;
+    const nu = Date.now();
+    const vr = {
+      node: oudId, nieuw: nieuw ? String(nieuw.id) : 'geen', reden, t: nu,
+      mom: meetBevestigMoment(),
+      autoVerschil: (fase === 'groen' && cdBereikteNul && countdownNulTijd != null) ? nu - countdownNulTijd : null,
+      dd: huidigDDActief(), bron: huidigCdBron, waarde: huidigCdWaarde,
+      cdDoel: activeCdDoel, cdMax: activeCdMax,
+      aiK: (typeof aiKleur === 'string') ? aiKleur : null,
+      aiT: (typeof aiTeller === 'number' && !isNaN(aiTeller)) ? aiTeller : null,
+      schaduw: bevestigSchaduwNu(nu),
+      marker: bevestigMarkerSleutel()
+    };
+    bevestigVries = vr;
+    bevestigActief = false;
+    bevestigVoorNodeId = null;
+    if (bevestigVriesTimer) clearTimeout(bevestigVriesTimer);
+    bevestigVriesTimer = setTimeout(() => { if (bevestigVries === vr) bevestigVriesWeg(); }, BEVESTIG_VRIES_MS);
+    logOpslagMis('bevestig_bevroren', { node: oudId, nieuw: vr.nieuw, element: reden, poortReden: vr.mom.toestand });
+  } catch (e) {}
+}
+
+// Na het opruimen bij een wissel: de bevroren knoppen weer tonen.
+function bevestigVriesToon() {
+  if (bevestigVries && !bevestigActief) bevestigWrap.classList.add('actief');
+}
+
+function bevestigVriesWeg() {
+  if (!bevestigVries) return;
+  bevestigVries = null;
+  if (bevestigVriesTimer) { clearTimeout(bevestigVriesTimer); bevestigVriesTimer = null; }
+  if (!bevestigActief) bevestigWrap.classList.remove('actief');
+}
+
+// true: de druk is afgehandeld (of bewust weggegooid, met een logregel).
+// false: bevestigCountdown gaat gewoon verder.
+function bevestigNaWisselPad(categorie) {
+  const vr = bevestigVries;
+  const nu = Date.now();
+  const naar = dichtstbijOSM ? String(dichtstbijOSM.id) : 'geen';
+  if (!vr) {
+    // Een dubbele tik: de eerste ging naar het oude licht en haalde de knoppen
+    // weg; de tweede mag niet via het gewone pad bij het nieuwe licht landen.
+    const na = bevestigVriesNa;
+    if (!na || bevestigActief || nu - na.t >= BEVESTIG_DEDUP_MS) return false;
+    logOpslagMis('bevestig_na_wissel', { node: na.node, nieuw: naar, element: categorie, poortReden: 'dubbel', dur: nu - na.wissel });
+    return true;
+  }
+  const log = (uit) => logOpslagMis('bevestig_na_wissel', { node: vr.node, nieuw: naar, element: categorie, poortReden: uit, dur: nu - vr.t });
+  if (bevestigActief) { log('nieuw_licht'); bevestigVriesWeg(); return false; }
+  // De wekker kan in de achtergrond te laat komen. Dan nooit naar het nieuwe licht.
+  if (nu - vr.t > BEVESTIG_VRIES_MS) { log('te_laat'); bevestigVriesWeg(); return true; }
+  // Dezelfde poorten als bevestigCountdown, op het bevroren moment.
+  if (categorie === 'klopte' && klopteIsNoOp(vr.mom) && vr.aiK !== 'groen') { log('inert'); return true; }
+  if (categorie === 'bijna' && bijnaIsNoOp(vr.mom) && vr.aiK !== 'groen') { log('inert'); return true; }
+  const sleutel = 'sl_bevestig_' + vr.node;
+  let data = opslagLees(sleutel, []) || [];
+  if (!Array.isArray(data)) data = [];
+  const vorige = data.length ? data[data.length - 1] : null;
+  if (vorige && vorige.categorie === categorie && typeof vorige.ts === 'number' && (nu - vorige.ts) < BEVESTIG_DEDUP_MS) {
+    log('dubbel'); return true;
+  }
+  const m = vr.mom;
+  data.push({
+    ts: nu, categorie, dagdeel: vr.dd, bron: vr.bron, countdownWaarde: vr.waarde, autoVerschilMs: vr.autoVerschil,
+    toestand: m.toestand, overschrMs: m.overschrMs, vensterAfwMs: m.vensterAfwMs, restMs: m.restMs,
+    kmh: (typeof snelheidKmh === 'number' && !isNaN(snelheidKmh)) ? Math.round(snelheidKmh) : null,
+    afwijkingMs: m.afwijkingMs, mv: 2, aiK: vr.aiK, aiT: vr.aiT, schaduw: vr.schaduw,
+    nw: Math.round((nu - vr.t) / 100) / 10, naar
+  });
+  if (data.length > 20) data = data.slice(-20);
+  opslagSchrijf(sleutel, data);
+  // cdBandBreedteS (het gewicht van KLOPTE) leest activeCdDoel en activeCdMax:
+  // die horen nu bij het nieuwe licht. Even die van het oude terugzetten.
+  const bewaarDoel = activeCdDoel, bewaarMax = activeCdMax;
+  try {
+    activeCdDoel = vr.cdDoel; activeCdMax = vr.cdMax;
+    verwerkBevestigLeren(vr.node, categorie, m);
+  } catch (e) {} finally { activeCdDoel = bewaarDoel; activeCdMax = bewaarMax; }
+  if (vr.marker) bevestigGedaanVoorFase = vr.marker;
+  bevestigVriesNa = { node: vr.node, t: nu, wissel: vr.t };
+  log('opgeslagen');
+  bevestigVriesWeg();
+  toonToast('✓ ' + categorie.toUpperCase() + ' opgeslagen bij het vorige licht');
+  return true;
+}
+
 // W3: Bevestiging tap handler
 function bevestigCountdown(categorie) {
-  if (!dichtstbijOSM) return;
+  if (bevestigNaWisselPad(categorie)) return;   // V11.37.8: na een wissel, zie bevestigBevries
+  if (!dichtstbijOSM) { logOpslagMis('bevestig_geen_licht', { element: categorie }); return; }   // V11.37.8: niet meer stil
   // ── V11.17.89: LANDT DEZE TIK OP DE NODE WAAR HIJ VOOR BEDOELD WAS? ──
   // © 2026 StoplichtIQ — Y. Lemaalem
   //
@@ -14560,6 +14718,7 @@ async function downloadOSM(lat, lon) {
     cacheCentrum={lat,lon}; cacheGeladen=true;
     migratieSlPos();
     berekenClusterNodes();   // V11.17.47: eenmalig per cache, voor updateDichtbij hieronder
+    fietsNaKaart(lat, lon);   // V11.37.8: de lijst met fiets- en voetgangerslichten, zie fietsSluitUit
     pOSM.className='pill-dot g'; pOSMT.textContent='Kaart'; debugWaarden.osm=`osm:${osmCache.length}`;
     updateDichtbij(lat, lon);
     for (const [key,val] of s2BboxTeller.entries()) if (val===0) s2BboxTeller.delete(key);
@@ -14595,6 +14754,166 @@ async function haalStraatnamenOp() {
       }
     } catch(e) {}
   }
+}
+
+// ── V11.37.8: FIETS- EN VOETGANGERSLICHTEN ZIJN GEEN KANDIDAAT ──
+// © 2026 StoplichtIQ — Y. Lemaalem
+//
+// WAAROM. In Amersfoort ligt 47% van de verkeerslichten in OpenStreetMap
+// alleen op een fietspad of voetpad (346 van 735, 5 km rond het centrum, 8 okt
+// gemeten). Voor een auto is zo'n licht nooit het licht waar hij voor staat,
+// maar de app kon er wel naartoe wisselen. Voorbeeld 7 okt 20:01:43, Stadsring:
+// 3330491752 (Stadsring) -> 3330491754 (fietspad, 6 m na de stopstreep) ->
+// 3330491757 (Stadsring, overkant). Zonder het fietslicht gaat de app in één
+// stap naar 3330491757. In de STAP 0 van 8 okt was dit de enige regel uit de
+// kaart die op de stops nergens een goede keuze slechter maakte.
+//
+// WAT. fietsSluitUit houdt zo'n licht buiten de kandidaten van vindDichtbij,
+// buiten het 'puur dichtstbijzijnde licht' van updateDichtbij (dat de
+// stilstandscorrectie, de snelle route en de naderingsroute voedt) en buiten
+// de keuze van de schaduwregel (regelKies). Vier veiligheden:
+//   1. nooit uitsluiten als er niets anders is: is er onder de kandidaten
+//      geen autolicht, dan kiest de app zoals voorheen (fietsTerug);
+//   2. geen lijst, dan niets uitsluiten (fail-open). De lijst komt uit een
+//      aparte, kleine aanvraag na de kaart; mislukt die, dan werkt alles zoals
+//      voorheen. De kaartaanvraag zelf verandert niet;
+//   3. het licht dat de app toont doet altijd mee (zoals bij achterSluitUit).
+//      Zo blijft een getikt of uit de lijst gekozen fietslicht staan, ook als
+//      het tik- of lijstslot vervalt. 27 sept 14:44 tikte Younes het
+//      fietslicht 5959862881, en dat was daar het goede licht;
+//   4. de tik en de lijst lopen niet via deze functie: die blijven altijd
+//      toegestaan.
+//
+// WAT ER NIET ONDER VALT, bewust: de handmatige lijst, het koppelen van een
+// lamp in beeld aan een licht (koppelBboxAanNode, vindOsmMatchOpRichting), A3
+// en de achter-regel (die kijken naar het getoonde licht en zijn buren) en de
+// logregels.
+//
+// DE LIJST (sl_fietslichten, één gebied): { v, t, lat, lon, r, ids }. ids =
+// de OSM-nummers van de verkeerslichten binnen OSM_RADIUS die op een weg uit
+// FIETS_WEGEN liggen en op geen enkele weg uit AUTO_WEGEN. Een licht dat op
+// geen enkele weg ligt, of alleen op iets anders (busbaan, bouwweg), staat er
+// niet in en doet dus gewoon mee. Gemeten op Amersfoort: 346 nummers, 3,8 KB.
+// De aanvraag stuurt dezelfde plek en straal als de kaartaanvraag en geen
+// enkel nummer. Opnieuw ophalen pas na FIETS_VERS_DAGEN, of als de kaart meer
+// dan FIETS_ZELFDE_M van het midden van de lijst geladen wordt.
+//
+// UIT MET ÉÉN REGEL: FIETS_UIT_ACTIEF. Alles loopt via fietsUitAan(), zodat de
+// toetsen de regel in één rit aan en uit kunnen zetten (test_fietslicht).
+const FIETS_UIT_ACTIEF = true;
+const FIETS_SLEUTEL    = 'sl_fietslichten';
+const FIETS_VERS_DAGEN = 30;
+const FIETS_ZELFDE_M   = 1000;
+const FIETS_GRENS_M    = 400;     // kandidaat = binnen deze afstand, zoals in vindDichtbijScore
+const FIETS_WACHT_MS   = [5000, 60000, 300000];   // vóór de eerste aanvraag, en vóór elke nieuwe poging
+const FIETS_WEGEN = 'cycleway|footway|path|pedestrian|steps|bridleway';
+const AUTO_WEGEN  = 'motorway|trunk|primary|secondary|tertiary|unclassified|residential|living_street|service|road|busway'
+                 + '|motorway_link|trunk_link|primary_link|secondary_link|tertiary_link';
+let fietsLichten = null;   // Set met OSM-nummers (tekst), of null: geen lijst, niets uitsluiten
+let fietsBezig = false;
+let fietsDoel = null;      // het midden van de nieuwste kaart: daar hoort de lijst bij
+function fietsUitAan() { return FIETS_UIT_ACTIEF; }
+function isFietsLicht(id) { return !!fietsLichten && id != null && fietsLichten.has(String(id)); }
+
+// Doet dit licht niet mee? Alleen een fiets- of voetgangerslicht dat de app
+// niet zelf al toont. Veiligheid 1 zit bij de aanroepers (vindDichtbij,
+// fietsPuurDichtst, regelKies): die vallen terug als er niets anders is.
+function fietsSluitUit(sl) {
+  if (!fietsUitAan() || !sl || !isFietsLicht(sl.id)) return false;
+  return !(dichtstbijOSM && String(dichtstbijOSM.id) === String(sl.id));
+}
+
+// Veiligheid 1 in vindDichtbij. Is er onder de kandidaten geen autolicht (het
+// getoonde licht telt daarvoor niet als het zelf een fietslicht is), dan doen
+// alle kandidaten weer mee, in de volgorde van osmCache en met dezelfde
+// vergelijking als de lus in vindDichtbij: dan is de keuze precies die van
+// vóór V11.37.8. Zo kan de app ook van het ene fietslicht naar het volgende.
+function fietsTerug(kandidaten, reserve) {
+  const plek = new Map(osmCache.map((s, i) => [s, i]));
+  kandidaten.push(...reserve);
+  kandidaten.sort((a, b) => plek.get(a.sl) - plek.get(b.sl));
+  let beste = null, bestS = -Infinity;
+  for (const k of kandidaten) if (k.score > bestS) { bestS = k.score; beste = { ...k.sl, afstand: k.afstand }; }
+  return { beste, bestS };
+}
+
+// Het puur dichtstbijzijnde licht zonder fiets- en voetgangerslichten. p is
+// het puur dichtstbijzijnde licht over alle lichten. Ligt er binnen
+// FIETS_GRENS_M geen autolicht, dan blijft p staan (veiligheid 1).
+function fietsPuurDichtst(lat, lon, p) {
+  if (!p || !fietsSluitUit(p)) return p;
+  let best = null, bestAf = Infinity, auto = false;
+  for (const sl of osmCache) {
+    if (fietsSluitUit(sl)) continue;
+    const af = afstand(lat, lon, sl.lat, sl.lon);
+    if (af <= FIETS_GRENS_M && !isFietsLicht(sl.id)) auto = true;
+    if (af < bestAf) { bestAf = af; best = { ...sl, afstand: af }; }
+  }
+  return auto ? best : p;
+}
+
+function fietsLees() {
+  const o = opslagLees(FIETS_SLEUTEL, null);
+  if (!o || o.v !== 1 || !Array.isArray(o.ids) || typeof o.t !== 'number'
+      || typeof o.lat !== 'number' || typeof o.lon !== 'number') return null;
+  return o;
+}
+
+// Na elke geladen kaart (downloadOSM), vóór de eerste keuze op die kaart: de
+// bewaarde lijst meteen gebruiken, en een nieuwe ophalen als die oud is of
+// bij een ander gebied hoort. Een bewaarde lijst van elders schaadt niet:
+// OSM-nummers zijn uniek, dus er valt dan alleen niets onder.
+function fietsNaKaart(lat, lon) {
+  try {
+    if (!fietsUitAan()) return;
+    const o = fietsLees();
+    if (o) fietsLichten = new Set(o.ids.map(String));
+    const vers = !!o && (Date.now() - o.t) < FIETS_VERS_DAGEN * 86400000
+      && afstand(lat, lon, o.lat, o.lon) <= FIETS_ZELFDE_M;
+    if (!vers) fietsHaalOp(lat, lon, 0);
+  } catch (e) {}
+}
+
+// De aanvraag, rustig: FIETS_WACHT_MS[0] na de kaart (de kaartaanvraag is
+// dan klaar), en bij een fout nog twee keer, na 1 en na 5 minuten. Eén
+// tegelijk; kwam er intussen een kaart van een ander gebied, dan daarna die.
+async function fietsHaalOp(lat, lon, poging) {
+  fietsDoel = { lat, lon };
+  if (fietsBezig) return;
+  fietsBezig = true;
+  let doel = fietsDoel, ok = false, wat = '';
+  const t0 = Date.now();
+  try {
+    await new Promise(r => setTimeout(r, FIETS_WACHT_MS[poging] || 0));
+    doel = fietsDoel;
+    const q = `[out:json][timeout:25];node["highway"="traffic_signals"](around:${OSM_RADIUS},${doel.lat},${doel.lon})->.tl;`
+      + `way(bn.tl)["highway"~"^(${FIETS_WEGEN})$"]->.fw;way(bn.tl)["highway"~"^(${AUTO_WEGEN})$"]->.aw;`
+      + `node.tl(w.fw)->.fn;node.tl(w.aw)->.an;(.fn; - .an;)->.alleen;.alleen out ids;`;
+    const ctrl = new AbortController();
+    const tm = setTimeout(() => ctrl.abort(), 30000);
+    let d;
+    try {
+      const r = await fetch(OVERPASS_URL, { method: 'POST', body: `data=${encodeURIComponent(q)}`, signal: ctrl.signal });
+      if (!r.ok) throw new Error('http ' + r.status);
+      d = await r.json();
+    } finally { clearTimeout(tm); }
+    if (!d || !Array.isArray(d.elements)) throw new Error('vorm');
+    // Overpass meldt een time-out soms met status 200, een half antwoord en
+    // een remark. Een halve lijst is erger dan geen lijst: dan niet bewaren.
+    if (d.remark) throw new Error('remark');
+    const ids = d.elements.filter(e => e && e.type === 'node' && Number.isFinite(e.id)).map(e => e.id);
+    opslagSchrijf(FIETS_SLEUTEL, { v: 1, t: Date.now(), lat: doel.lat, lon: doel.lon, r: OSM_RADIUS, ids });
+    fietsLichten = new Set(ids.map(String));
+    ok = true; wat = 'n=' + ids.length;
+  } catch (e) {
+    wat = String((e && e.message) || e).slice(0, 30);
+  } finally {
+    fietsBezig = false;
+  }
+  logOpslagMis('fietslichten', { element: ok ? 'ok' : 'fout', poortReden: wat + ' p=' + poging, dur: Date.now() - t0 });
+  const ander = fietsDoel && (fietsDoel.lat !== doel.lat || fietsDoel.lon !== doel.lon);
+  if (ander) fietsHaalOp(fietsDoel.lat, fietsDoel.lon, 0);
+  else if (!ok && poging + 1 < FIETS_WACHT_MS.length) fietsHaalOp(doel.lat, doel.lon, poging + 1);
 }
 
 function berekenLateraleOffset(lat1, lon1, lat2, lon2, heading) {
@@ -14768,13 +15087,16 @@ function vindDichtbij(lat, lon, heading) {
   // null terug boven 400m (r8419), dus dit zijn alleen de nodes die toch al
   // meededen — in de praktijk enkele tientallen, bij ~1 Hz.
   const kandidaten = [];
+  const fietsReserve = [];   // V11.37.8
   for (const sl of osmCache) {
     const r = vindDichtbijScore(lat, lon, heading, sl);
     if (!r) continue;
     if (achterAan() && achterSluitUit(sl, lat, lon)) continue;   // V11.37.4: gepasseerd, of nieuw en achter je
+    if (fietsSluitUit(sl)) { fietsReserve.push({ sl, afstand: r.afstand, score: r.score }); continue; }   // V11.37.8: fiets- of voetgangerslicht, zie fietsSluitUit
     kandidaten.push({ sl, afstand: r.afstand, score: r.score });
     if (r.score > bestS) { bestS=r.score; beste={...sl, afstand:r.afstand}; }
   }
+  if (fietsReserve.length && !kandidaten.some(k => !isFietsLicht(k.sl.id))) ({ beste, bestS } = fietsTerug(kandidaten, fietsReserve));   // V11.37.8: geen autolicht: alles doet mee, zie daar
   if (achterAan() && !beste) return null;   // V11.37.4: de terugvalgrens, niets binnen 400 m is geen licht
   if (!beste) {
     let minA=Infinity;
@@ -18068,6 +18390,7 @@ function selecteerNodeHandmatig(nodeId) {
   }
   const af = afstand(huidigePos.lat, huidigePos.lon, sl.lat, sl.lon);
   const nieuweNode = { ...sl, afstand: af };
+  bevestigBevries(nieuweNode, 'lijst');   // V11.37.8: de knoppen van het vorige licht blijven staan
   vorigOsmId    = sl.id;
   dichtstbijOSM = nieuweNode;
   activeCdDoel  = gewGem(laadM(sl.id, huidigDDActief())) || 0;
@@ -19322,6 +19645,7 @@ function updateDichtbij(lat, lon) {
     const af = afstand(lat, lon, sl.lat, sl.lon);
     if (af < puurClosestAf) { puurClosestAf = af; puurClosest = { ...sl, afstand: af }; }
   }
+  puurClosest = fietsPuurDichtst(lat, lon, puurClosest);   // V11.37.8: zonder fiets- en voetgangerslichten, zie daar
   puurDichtsteNodeCache = puurClosest;
   // V11.17.9 W2-guard: bij een échte gebruikerstap (handmatig-lock zonder
   // stilstand-auto) geen twijfel-signaal — hun keuze is de waarheid.
@@ -19356,6 +19680,7 @@ function updateDichtbij(lat, lon) {
     stilstandSinds = Date.now() - 6000;
   }
   if (nieuw.id !== vorigOsmId) {
+    bevestigBevries(nieuw, 'wissel');   // V11.37.8: vóór er iets van het oude licht verandert
     // V11.5.5: Sla groene fase op bij node-wissel (dichtstbijOSM = nog OUDE node)
     if (fase === 'groen' && groenStart && dichtstbijOSM) {
       slaGroenOpBijPasseren(dichtstbijOSM.id);
@@ -19482,6 +19807,7 @@ function updateDichtbij(lat, lon) {
     bevestigActief = false; cdBereikteNul = false;
     bevestigVoorNodeId = null;   // V11.17.89
     bevestigWrap.classList.remove('actief');
+    bevestigVriesToon();   // V11.37.8
     resetRijrichtingState('node-wissel');   // V11.17.56
     // V10.0.3: Richtingkeuze lock vervalt alleen bij echte node-wissel (>60m van locked node + snelheid)
     if (richtingLockNodeId && richtingLockNodeId !== String(nieuw.id)) {
@@ -20033,6 +20359,7 @@ function achterTik(lat, lon) {
 // een richtingtik heeft dan geen licht om naartoe te gaan.
 function geenLichtZetten() {
   const oud = dichtstbijOSM;
+  bevestigBevries(null, 'geen');   // V11.37.8
   if (fase === 'groen' && groenStart && oud) slaGroenOpBijPasseren(oud.id);   // zoals bij een wissel
   laatsteNodeWisselTijd = Date.now();
   geenLichtSinds = Date.now();
@@ -20064,6 +20391,7 @@ function geenLichtZetten() {
   bevestigActief = false; cdBereikteNul = false;
   bevestigVoorNodeId = null;
   bevestigWrap.classList.remove('actief');
+  bevestigVriesToon();   // V11.37.8
   resetRijrichtingState('geen-licht');
   if (richtingLockNodeId) wisRichtingLock();
   dichtstbijOSMTwijfel = false;
@@ -20414,6 +20742,7 @@ function corrigeerNodeAutomatisch(nieuweNode, reden) {
   const oude = dichtstbijOSM;
   const af = afstand(huidigePos.lat, huidigePos.lon, nieuweNode.lat, nieuweNode.lon);
   const nieuw = { ...nieuweNode, afstand: af };
+  bevestigBevries(nieuw, 'correctie');   // V11.37.8
 
   // fase-continuïteit: bewaar groene fase van oude node
   if (fase === 'groen' && groenStart && oude) {
@@ -20431,6 +20760,7 @@ function corrigeerNodeAutomatisch(nieuweNode, reden) {
   bevestigActief = false; cdBereikteNul = false;
   bevestigVoorNodeId = null;   // V11.17.89
   bevestigWrap.classList.remove('actief');
+  bevestigVriesToon();   // V11.37.8
   correctieMultiframe = null; wachtGroenIntentie = null;
   vorigeFaseVoorRood = null;
   resetVolgordeKennis('auto-correctie'); // V11.17.11 Laag 3c: nieuwe node = amnesia
@@ -22040,7 +22370,12 @@ startOpslagBoot();
   <div id="kaart-map"></div>
 </div>
 
-<div style="position:fixed;bottom:0;left:0;right:0;z-index:5;text-align:center;font-size:9px;color:rgba(255,255,255,0.18);padding-bottom:env(safe-area-inset-bottom,8px);pointer-events:none;font-family:'Rajdhani',sans-serif;letter-spacing:0.08em">
+<!-- V11.37.8: de ©-regel stond op laag 5, onder #bodem-balk (laag 40, 85% zwart), en was dus nergens te
+     zien. Nu op laag 41, in de onderste strook van de balk, onder de debugregel en links van de
+     dashboardknop (right:140px), zodat hij niets bedekt. Gemeten op 390x844: balk 800-844, debugregel
+     817-827, dashboardknop 810-834 vanaf x=266, deze regel 833-844 tot x=250. Het startscherm (laag 300),
+     het dashboard (200) en de radar (42) liggen er gewoon overheen. -->
+<div id="footer-copyright" style="position:fixed;bottom:0;left:0;right:140px;z-index:41;text-align:center;font-size:9px;color:rgba(255,255,255,0.4);padding-bottom:env(safe-area-inset-bottom,8px);pointer-events:none;font-family:'Rajdhani',sans-serif;letter-spacing:0.08em">
   © 2026 StoplichtIQ — Y. Lemaalem
 </div>
 

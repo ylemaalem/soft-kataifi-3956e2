@@ -102,7 +102,8 @@ async function testLogsBewaren() {
   const V11375 = { vindDichtbij: ['55d1f775', 3320], updateDichtbij: ['42aee748', 12051], onGPS: ['d99821b8', 15000], regelKies: ['d8d1f767', 1993],
     achterTik: ['e9e105a3', 1583], checkHandLockVerval: ['2df4f7ed', 5513], checkHandLockPassage: ['7f001264', 1768], checkNodeCorrectieStilstand: ['8c801fd8', 4751],
     corrigeerNodeAutomatisch: ['afe7b427', 4118], checkTikSlotSnel: ['d3a8edbe', 2071], vindDichtbijScore: ['bc9b7937', 2105] };
-  const anders = Object.entries(V11375).filter(([n, [h, l]]) => { const s = String(window[n]); return fnv(s) !== h || s.length !== l; }).map(x => x[0]);
+  const terugV11378 = (s) => String(s).replace("      if (wisselStaat.min === null || af < wisselStaat.min) { wisselStaat.min = af; wisselStaat.minT = Date.now(); }   // V11.37.8: en wanneer (tMin)", "      if (wisselStaat.min === null || af < wisselStaat.min) wisselStaat.min = af;").replace("  if (!dichtstbijOSM) { logOpslagMis('bevestig_geen_licht', { element: categorie }); return; }   // V11.37.8: niet meer stil", "  if (!dichtstbijOSM) return;").split('\n').filter(l => !/V11\.37\.8/.test(l)).join('\n');   // V11.37.8: het fietsfilter en de bevroren knoppen (test_fietslicht); hier terug
+  const anders = Object.entries(V11375).filter(([n, [h, l]]) => { const s = terugV11378(window[n]); return fnv(s) !== h || s.length !== l; }).map(x => x[0]);
   eis('LB4 de lichtkeuze is byte-gelijk aan V11.37.5 (elf functies, onGPS en NB14 inbegrepen)', anders.length === 0, 'geen afwijking', anders.join(', ') || 'geen');
 
   try { if (typeof idbFlush === 'function') await idbFlush(); } catch (e) {}

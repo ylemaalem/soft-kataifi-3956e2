@@ -202,6 +202,14 @@ function testNulpunt() {
       // opruimen zodat de app niet in een testtoestand achterblijft
       fase = null; cdStart = null; cdBereikteNul = false; countdownNulTijd = null;
       bevestigActief = false; herzTel = null;
+      // V11.37.8: ook de knoppenrij zelf. tickCd zette hier .actief op #bevestig-wrap en
+      // de lus de inert-klassen; bleef dat staan, dan liep in de volgende suite een
+      // CSS-overgang van 200 ms en las test_knopkleur T8-T12 een tussenwaarde (gemeten:
+      // nulpunt -> knopkleur faalt, ook op V11.37.7; zichtbaar geworden doordat de
+      // willekeurige volgorde met een suite erbij anders uitvalt).
+      bevestigVoorNodeId = null; bevInertStaat = '';
+      bevestigWrap.classList.remove('actief');
+      for (const b of [bevKlopteBtn, bevBijnaBtn, bevFoutBtn]) if (b) b.classList.remove('inert');
       cdCondSleutel = null; cdCondTab = null; cdCondDoel = null;
       cdWeergaveNulTijd = null; cdLaatstGetoond = null;
 

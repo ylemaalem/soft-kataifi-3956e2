@@ -406,6 +406,7 @@ async function testAchter() {
 
   // ═══ AR11 — regressie ══════════════════════════════════════
   const zonder374 = (s) => s.split(NL).filter(l => !/V11\.37\.4/.test(l)).join(NL);
+  const terugV11378 = (s) => String(s).replace("      if (wisselStaat.min === null || af < wisselStaat.min) { wisselStaat.min = af; wisselStaat.minT = Date.now(); }   // V11.37.8: en wanneer (tMin)", "      if (wisselStaat.min === null || af < wisselStaat.min) wisselStaat.min = af;").replace("  if (!dichtstbijOSM) { logOpslagMis('bevestig_geen_licht', { element: categorie }); return; }   // V11.37.8: niet meer stil", "  if (!dichtstbijOSM) return;").split('\n').filter(l => !/V11\.37\.8/.test(l)).join('\n');   // V11.37.8: het fietsfilter en de bevroren knoppen (test_fietslicht); hier terug
   const terugV11374 = (s) => s
     .replace('if ((dichtstbijOSM || (achterAan() && v9KandidaatNode !== null)) && cacheGeladen) {   // V11.37.4: een lopende meting loopt ook zonder getoond licht door', 'if (dichtstbijOSM && cacheGeladen) {')
     .replace('const afst = dichtstbijOSM ? dichtstbijOSM.afstand : Infinity;   // V11.37.4', 'const afst = dichtstbijOSM.afstand;')
@@ -413,11 +414,11 @@ async function testAchter() {
     .replace('kandidaatPos ?? (dichtstbijOSM ? { lat: dichtstbijOSM.lat, lon: dichtstbijOSM.lon } : { lat, lon }),   // V11.37.4', 'kandidaatPos ?? { lat: dichtstbijOSM.lat, lon: dichtstbijOSM.lon },');
   const merk = (f) => (String(f).match(/V11\.37\.4/g) || []).length;
   eis('AR11a vindDichtbij: drie regels met merkteken; zonder die regels byte-gelijk aan V11.37.3 (2db98dab / 2954)',
-      merk(vindDichtbij) === 3 && fnv(zonder374(String(vindDichtbij))) === '2db98dab' && zonder374(String(vindDichtbij)).length === 2954,
-      '3 regels, 2db98dab / 2954', merk(vindDichtbij) + ' regels, ' + fnv(zonder374(String(vindDichtbij))) + ' / ' + zonder374(String(vindDichtbij)).length);
+      merk(vindDichtbij) === 3 && fnv(zonder374(terugV11378(vindDichtbij))) === '2db98dab' && zonder374(terugV11378(vindDichtbij)).length === 2954,
+      '3 regels, 2db98dab / 2954', merk(vindDichtbij) + ' regels, ' + fnv(zonder374(terugV11378(vindDichtbij))) + ' / ' + zonder374(terugV11378(vindDichtbij)).length);
   eis('AR11b updateDichtbij: één regel met merkteken; zonder die regel byte-gelijk aan V11.37.3 (e82d3c0 / 11914)',
-      merk(updateDichtbij) === 1 && fnv(zonder374(String(updateDichtbij))) === 'e82d3c0' && zonder374(String(updateDichtbij)).length === 11914,
-      '1 regel, e82d3c0 / 11914', merk(updateDichtbij) + ' regel(s), ' + fnv(zonder374(String(updateDichtbij))) + ' / ' + zonder374(String(updateDichtbij)).length);
+      merk(updateDichtbij) === 1 && fnv(zonder374(terugV11378(updateDichtbij))) === 'e82d3c0' && zonder374(terugV11378(updateDichtbij)).length === 11914,
+      '1 regel, e82d3c0 / 11914', merk(updateDichtbij) + ' regel(s), ' + fnv(zonder374(terugV11378(updateDichtbij))) + ' / ' + zonder374(terugV11378(updateDichtbij)).length);
   const og = zonder374(terugV11374(String(onGPS)));
   eis('AR11c onGPS: vijf regels met merkteken (de aanroep en vier V9-regels); met die vier terug en de aanroep weg byte-gelijk aan V11.37.3 (e1da9bf9 / 14694)',
       merk(onGPS) === 5 && fnv(og) === 'e1da9bf9' && og.length === 14694, '5 regels, e1da9bf9 / 14694', merk(onGPS) + ' regels, ' + fnv(og) + ' / ' + og.length);
@@ -426,7 +427,7 @@ async function testAchter() {
     checkHandLockPassage: ['7f001264', 1768], checkTikSlotSnel: ['d3a8edbe', 2071], regelTik: ['9c1b361b', 3087], vergrendelNodeHandmatig: ['9a007b96', 2295],
     selecteerNodeHandmatig: ['5275f4dd', 2379], tikRichting: ['9e40a595', 4410], isStoplichtVoorbij: ['38a0d2ed', 338] };
   // V11.37.5: tikRichting kreeg twee meetregels met merkteken (zie test_knoppen); zonder die regels gelijk.
-  const anders11 = Object.entries(V11373).filter(([n, [h, l]]) => { const s = String(window[n]).split(NL).filter(l => !/V11\.37\.5/.test(l)).join(NL); return fnv(s) !== h || s.length !== l; }).map(x => x[0]);
+  const anders11 = Object.entries(V11373).filter(([n, [h, l]]) => { const s = terugV11378(window[n]).split(NL).filter(l => !/V11\.37\.5/.test(l)).join(NL); return fnv(s) !== h || s.length !== l; }).map(x => x[0]);
   eis('AR11d dertien keuzefuncties die V11.37.4 niet raakt (de puntentelling, de drie loslaatroutes, de correcties, de snelle route, de tik): byte-gelijk',
       anders11.length === 0, 'geen afwijking', anders11.join(', ') || 'geen');
   const z = zc(onGPS);
