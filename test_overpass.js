@@ -25,7 +25,7 @@
 //  OV11 regressie: welke functies veranderen, en dat de rest byte-gelijk is
 //
 //  DRAAIEN
-//    python -m http.server 8765 --bind 127.0.0.1     (in de repo-map)
+//    python testserver.py 8765     (in de repo-map; wachtrij 128, zie testserver.py)
 //    open http://127.0.0.1:8765/index.html
 //    in de console:
 //      var s=document.createElement('script'); s.src='/test_overpass.js';
@@ -118,12 +118,24 @@ async function testOverpass() {
     document.body.appendChild(f);
     try {
       await new Promise((ok, nee) => { f.onload = ok; f.onerror = nee; });
+      for (let poging = 2; typeof f.contentWindow.onGPS !== 'function'; poging++) {   // V11.37.14: de app zelf laadde niet (testopstelling): de pagina opnieuw
+        if (poging > 3) throw new Error('testopstelling: de app laadde niet in de iframe (3 pogingen)');
+        await new Promise((ok, nee) => { f.onload = ok; f.onerror = nee; f.src = pagina + '?opnieuw=' + Math.random(); });
+      }
       const w = f.contentWindow;
-      await new Promise((ok, nee) => {
-        const sc = w.document.createElement('script');
-        sc.src = bron + '?t=' + Date.now(); sc.onload = ok; sc.onerror = () => nee(new Error('laden'));
-        w.document.head.appendChild(sc);
-      });
+      for (let poging = 1; ; poging++) {   // V11.37.14: een laadfout is de testopstelling, niet de app; zie test_merktekens
+        try {
+          await new Promise((ok, nee) => {
+            const sc = w.document.createElement('script');
+            sc.src = bron + '?t=' + Date.now() + '-' + poging; sc.onload = ok; sc.onerror = () => { sc.remove(); nee(new Error('laden')); };
+            w.document.head.appendChild(sc);
+          });
+          break;
+        } catch (e) {
+          if (poging >= 3) throw new Error('testopstelling: het testscript laadde niet in de iframe (3 pogingen)');
+          await new Promise((r) => setTimeout(r, 250 * poging));
+        }
+      }
       return JSON.parse(JSON.stringify(await w[functie](opt)));
     } catch (e) {
       return { fout: String((e && e.stack) || e).slice(0, 300), vragen: [], log: [], stappen: [] };
@@ -262,9 +274,9 @@ async function testOverpass() {
   // ═══ OV11 — regressie ══════════════════════════════════════
   // V11.37.13: R1 en R3 van de tegenrichting-regel (test_tegenbocht): nieuwe regels weg, de twee gewijzigde regels van tegenLog terug.
   const terugV113713 = (s) => String(s).replace("    const sleutel = bron + ':' + sl.id + (w ? ':' + w : ''), nu = Date.now();   // V11.37.13: per reden een eigen regel", "    const sleutel = bron + ':' + sl.id, nu = Date.now();").replace("               h: k == null ? null : Math.round(Math.min(...sl.eenrichting.map(r => tegenHoekVerschil(r, k)))), ...(w ? { w } : {}) } });   // V11.37.13: met de reden w",
-    "               h: k == null ? null : Math.round(Math.min(...sl.eenrichting.map(r => tegenHoekVerschil(r, k)))) } });").split(NL).filter(l => !/V11\.37\.13/.test(l)).join(NL);   // V11.37.13
-  const zonder = (s) => terugV113713(s).split(NL).filter(l => !/V11\.37\.12/.test(l)).join(NL);   // V11.37.13: eerst terugV113713
-  const merk = (f) => String(f).split(NL).filter(l => /V11\.37\.12/.test(l)).length;
+    "               h: k == null ? null : Math.round(Math.min(...sl.eenrichting.map(r => tegenHoekVerschil(r, k)))) } });").split(NL).filter(l => !/V11\.37\.13(?!\d)/.test(l)).join(NL);   // V11.37.13
+  const zonder = (s) => terugV113713(s).split(NL).filter(l => !/V11\.37\.12(?!\d)/.test(l)).join(NL);   // V11.37.13: eerst terugV113713
+  const merk = (f) => String(f).split(NL).filter(l => /V11\.37\.12(?!\d)/.test(l)).length;
   const V113711 = { downloadOSM: ['751a75e4', 4278, 4], onGPS: ['146fb83c', 15195, 1] };
   const telAf = Object.entries(V113711).filter(([n, [h, l, m]]) => merk(window[n]) !== m).map(([n]) => n + ' ' + merk(window[n]));
   eis('OV11a twee bestaande functies krijgen regels met merkteken V11.37.12 (vier in downloadOSM, één in onGPS); fietsLees, fietsNaKaart en fietsHaalOp zijn nieuw geschreven (OV3-OV9)',

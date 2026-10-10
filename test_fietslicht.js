@@ -33,7 +33,7 @@
 //  FL11 regressie: welke functies veranderen, en dat de rest byte-gelijk is
 //
 //  DRAAIEN
-//    python -m http.server 8765 --bind 127.0.0.1     (in de repo-map)
+//    python testserver.py 8765     (in de repo-map; wachtrij 128, zie testserver.py)
 //    open http://127.0.0.1:8765/index.html
 //    in de console:
 //      var s=document.createElement('script'); s.src='/test_fietslicht.js';
@@ -223,12 +223,24 @@ async function testFietslicht() {
     document.body.appendChild(f);
     try {
       await new Promise((ok, nee) => { f.onload = ok; f.onerror = nee; });
+      for (let poging = 2; typeof f.contentWindow.onGPS !== 'function'; poging++) {   // V11.37.14: de app zelf laadde niet (testopstelling): de pagina opnieuw
+        if (poging > 3) throw new Error('testopstelling: de app laadde niet in de iframe (3 pogingen)');
+        await new Promise((ok, nee) => { f.onload = ok; f.onerror = nee; f.src = pagina + '?opnieuw=' + Math.random(); });
+      }
       const w = f.contentWindow;
-      await new Promise((ok, nee) => {
-        const sc = w.document.createElement('script');
-        sc.src = bron + '?t=' + Date.now(); sc.onload = ok; sc.onerror = () => nee(new Error('laden'));
-        w.document.head.appendChild(sc);
-      });
+      for (let poging = 1; ; poging++) {   // V11.37.14: een laadfout is de testopstelling, niet de app; zie test_merktekens
+        try {
+          await new Promise((ok, nee) => {
+            const sc = w.document.createElement('script');
+            sc.src = bron + '?t=' + Date.now() + '-' + poging; sc.onload = ok; sc.onerror = () => { sc.remove(); nee(new Error('laden')); };
+            w.document.head.appendChild(sc);
+          });
+          break;
+        } catch (e) {
+          if (poging >= 3) throw new Error('testopstelling: het testscript laadde niet in de iframe (3 pogingen)');
+          await new Promise((r) => setTimeout(r, 250 * poging));
+        }
+      }
       return JSON.parse(JSON.stringify(await w[functie](opt)));
     } catch (e) {
       return { fout: String((e && e.stack) || e).slice(0, 300), rij: [], wissel: [], op: [], log: [], stappen: [] };
@@ -489,14 +501,14 @@ async function testFietslicht() {
   }
 
   // ═══ FL11 — regressie ══════════════════════════════════════
-  const zonderV113713 = (s) => String(s).split('\n').filter(l => !/V11\.37\.13/.test(l)).join('\n');   // V11.37.13: R1 en R3 van de tegenrichting-regel (test_tegenbocht); hier terug
-  const zonderV113712 = (s) => zonderV113713(s).split('\n').filter(l => !/V11\.37\.12/.test(l)).join('\n');   // V11.37.12: de rem op de kaartvraag en de dekking van de fietslijst (test_overpass); hier terug
-  const zonderV113711 = (s) => zonderV113712(s).split('\n').filter(l => !/V11\.37\.11/.test(l)).join('\n');   // V11.37.11: de tegenrichting-regel (test_tegenrichting); hier terug
+  const zonderV113713 = (s) => String(s).split('\n').filter(l => !/V11\.37\.13(?!\d)/.test(l)).join('\n');   // V11.37.13: R1 en R3 van de tegenrichting-regel (test_tegenbocht); hier terug
+  const zonderV113712 = (s) => zonderV113713(s).split('\n').filter(l => !/V11\.37\.12(?!\d)/.test(l)).join('\n');   // V11.37.12: de rem op de kaartvraag en de dekking van de fietslijst (test_overpass); hier terug
+  const zonderV113711 = (s) => zonderV113712(s).split('\n').filter(l => !/V11\.37\.11(?!\d)/.test(l)).join('\n');   // V11.37.11: de tegenrichting-regel (test_tegenrichting); hier terug
   const terug = (s) => zonderV113711(s)
     .replace("      if (wisselStaat.min === null || af < wisselStaat.min) { wisselStaat.min = af; wisselStaat.minT = Date.now(); }   // V11.37.8: en wanneer (tMin)", "      if (wisselStaat.min === null || af < wisselStaat.min) wisselStaat.min = af;")
     .replace("  if (!dichtstbijOSM) { logOpslagMis('bevestig_geen_licht', { element: categorie }); return; }   // V11.37.8: niet meer stil", "  if (!dichtstbijOSM) return;")
-    .split(NL).filter(l => !/V11\.37\.8/.test(l)).join(NL);
-  const merk = (f) => String(f).split(NL).filter(l => /V11\.37\.8/.test(l)).length;
+    .split(NL).filter(l => !/V11\.37\.8(?!\d)/.test(l)).join(NL);
+  const merk = (f) => String(f).split(NL).filter(l => /V11\.37\.8(?!\d)/.test(l)).length;
   const V11377 = { vindDichtbij: ['55d1f775', 3320, 3], updateDichtbij: ['42aee748', 12051, 3], regelKies: ['d8d1f767', 1993, 3], wisselLogNoteer: ['c0611735', 1672, 2],
     wisselNa: ['3f24e1b0', 2527, 1], bevestigCountdown: ['3bfe5b10', 15882, 2], geenLichtZetten: ['b480c850', 1591, 2], corrigeerNodeAutomatisch: ['afe7b427', 4118, 2],
     selecteerNodeHandmatig: ['5275f4dd', 2379, 1], resetNeutraal: ['32f7f3fd', 3510, 1], downloadOSM: ['4711f7f3', 4043, 1] };

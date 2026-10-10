@@ -30,7 +30,7 @@
 //  AR11 regressie: welke functies veranderen, en dat de rest byte-gelijk is
 //
 //  DRAAIEN
-//    python -m http.server 8765 --bind 127.0.0.1     (in de repo-map)
+//    python testserver.py 8765     (in de repo-map; wachtrij 128, zie testserver.py)
 //    open http://127.0.0.1:8765/index.html
 //    in de console:
 //      var s=document.createElement('script'); s.src='/test_achter.js';
@@ -155,12 +155,24 @@ async function testAchter() {
     document.body.appendChild(f);
     try {
       await new Promise((ok, nee) => { f.onload = ok; f.onerror = nee; });
+      for (let poging = 2; typeof f.contentWindow.onGPS !== 'function'; poging++) {   // V11.37.14: de app zelf laadde niet (testopstelling): de pagina opnieuw
+        if (poging > 3) throw new Error('testopstelling: de app laadde niet in de iframe (3 pogingen)');
+        await new Promise((ok, nee) => { f.onload = ok; f.onerror = nee; f.src = pagina + '?opnieuw=' + Math.random(); });
+      }
       const w = f.contentWindow;
-      await new Promise((ok, nee) => {
-        const sc = w.document.createElement('script');
-        sc.src = bron + '?t=' + Date.now(); sc.onload = ok; sc.onerror = () => nee(new Error('laden'));
-        w.document.head.appendChild(sc);
-      });
+      for (let poging = 1; ; poging++) {   // V11.37.14: een laadfout is de testopstelling, niet de app; zie test_merktekens
+        try {
+          await new Promise((ok, nee) => {
+            const sc = w.document.createElement('script');
+            sc.src = bron + '?t=' + Date.now() + '-' + poging; sc.onload = ok; sc.onerror = () => { sc.remove(); nee(new Error('laden')); };
+            w.document.head.appendChild(sc);
+          });
+          break;
+        } catch (e) {
+          if (poging >= 3) throw new Error('testopstelling: het testscript laadde niet in de iframe (3 pogingen)');
+          await new Promise((r) => setTimeout(r, 250 * poging));
+        }
+      }
       return await w.achterRitBinnen(opt);
     } catch (e) {
       return { fout: String((e && e.stack) || e).slice(0, 300), rij: [], wissel: [], tik: [], op: [], schrijf: [] };
@@ -405,17 +417,17 @@ async function testAchter() {
   }
 
   // ═══ AR11 — regressie ══════════════════════════════════════
-  const zonder374 = (s) => s.split(NL).filter(l => !/V11\.37\.4/.test(l)).join(NL);
-  const zonderV113713 = (s) => String(s).split('\n').filter(l => !/V11\.37\.13/.test(l)).join('\n');   // V11.37.13: R1 en R3 van de tegenrichting-regel (test_tegenbocht); hier terug
-  const zonderV113712 = (s) => zonderV113713(s).split('\n').filter(l => !/V11\.37\.12/.test(l)).join('\n');   // V11.37.12: de rem op de kaartvraag en de dekking van de fietslijst (test_overpass); hier terug
-  const zonderV113711 = (s) => zonderV113712(s).split('\n').filter(l => !/V11\.37\.11/.test(l)).join('\n');   // V11.37.11: de tegenrichting-regel (test_tegenrichting); hier terug
-  const terugV11378 = (s) => zonderV113711(s).replace("      if (wisselStaat.min === null || af < wisselStaat.min) { wisselStaat.min = af; wisselStaat.minT = Date.now(); }   // V11.37.8: en wanneer (tMin)", "      if (wisselStaat.min === null || af < wisselStaat.min) wisselStaat.min = af;").replace("  if (!dichtstbijOSM) { logOpslagMis('bevestig_geen_licht', { element: categorie }); return; }   // V11.37.8: niet meer stil", "  if (!dichtstbijOSM) return;").split('\n').filter(l => !/V11\.37\.8/.test(l)).join('\n');   // V11.37.8: het fietsfilter en de bevroren knoppen (test_fietslicht); hier terug
+  const zonder374 = (s) => s.split(NL).filter(l => !/V11\.37\.4(?!\d)/.test(l)).join(NL);
+  const zonderV113713 = (s) => String(s).split('\n').filter(l => !/V11\.37\.13(?!\d)/.test(l)).join('\n');   // V11.37.13: R1 en R3 van de tegenrichting-regel (test_tegenbocht); hier terug
+  const zonderV113712 = (s) => zonderV113713(s).split('\n').filter(l => !/V11\.37\.12(?!\d)/.test(l)).join('\n');   // V11.37.12: de rem op de kaartvraag en de dekking van de fietslijst (test_overpass); hier terug
+  const zonderV113711 = (s) => zonderV113712(s).split('\n').filter(l => !/V11\.37\.11(?!\d)/.test(l)).join('\n');   // V11.37.11: de tegenrichting-regel (test_tegenrichting); hier terug
+  const terugV11378 = (s) => zonderV113711(s).replace("      if (wisselStaat.min === null || af < wisselStaat.min) { wisselStaat.min = af; wisselStaat.minT = Date.now(); }   // V11.37.8: en wanneer (tMin)", "      if (wisselStaat.min === null || af < wisselStaat.min) wisselStaat.min = af;").replace("  if (!dichtstbijOSM) { logOpslagMis('bevestig_geen_licht', { element: categorie }); return; }   // V11.37.8: niet meer stil", "  if (!dichtstbijOSM) return;").split('\n').filter(l => !/V11\.37\.8(?!\d)/.test(l)).join('\n');   // V11.37.8: het fietsfilter en de bevroren knoppen (test_fietslicht); hier terug
   const terugV11374 = (s) => s
     .replace('if ((dichtstbijOSM || (achterAan() && v9KandidaatNode !== null)) && cacheGeladen) {   // V11.37.4: een lopende meting loopt ook zonder getoond licht door', 'if (dichtstbijOSM && cacheGeladen) {')
     .replace('const afst = dichtstbijOSM ? dichtstbijOSM.afstand : Infinity;   // V11.37.4', 'const afst = dichtstbijOSM.afstand;')
     .replace('const nodeId = dichtstbijOSM ? String(dichtstbijOSM.id) : null;   // V11.37.4', 'const nodeId = String(dichtstbijOSM.id);')
     .replace('kandidaatPos ?? (dichtstbijOSM ? { lat: dichtstbijOSM.lat, lon: dichtstbijOSM.lon } : { lat, lon }),   // V11.37.4', 'kandidaatPos ?? { lat: dichtstbijOSM.lat, lon: dichtstbijOSM.lon },');
-  const merk = (f) => (String(f).match(/V11\.37\.4/g) || []).length;
+  const merk = (f) => (String(f).match(/V11\.37\.4(?!\d)/g) || []).length;
   eis('AR11a vindDichtbij: drie regels met merkteken; zonder die regels byte-gelijk aan V11.37.3 (2db98dab / 2954)',
       merk(vindDichtbij) === 3 && fnv(zonder374(terugV11378(vindDichtbij))) === '2db98dab' && zonder374(terugV11378(vindDichtbij)).length === 2954,
       '3 regels, 2db98dab / 2954', merk(vindDichtbij) + ' regels, ' + fnv(zonder374(terugV11378(vindDichtbij))) + ' / ' + zonder374(terugV11378(vindDichtbij)).length);
@@ -430,7 +442,7 @@ async function testAchter() {
     checkHandLockPassage: ['7f001264', 1768], checkTikSlotSnel: ['d3a8edbe', 2071], regelTik: ['9c1b361b', 3087], vergrendelNodeHandmatig: ['9a007b96', 2295],
     selecteerNodeHandmatig: ['5275f4dd', 2379], tikRichting: ['9e40a595', 4410], isStoplichtVoorbij: ['38a0d2ed', 338] };
   // V11.37.5: tikRichting kreeg twee meetregels met merkteken (zie test_knoppen); zonder die regels gelijk.
-  const anders11 = Object.entries(V11373).filter(([n, [h, l]]) => { const s = terugV11378(window[n]).split(NL).filter(l => !/V11\.37\.5/.test(l)).join(NL); return fnv(s) !== h || s.length !== l; }).map(x => x[0]);
+  const anders11 = Object.entries(V11373).filter(([n, [h, l]]) => { const s = terugV11378(window[n]).split(NL).filter(l => !/V11\.37\.5(?!\d)/.test(l)).join(NL); return fnv(s) !== h || s.length !== l; }).map(x => x[0]);
   eis('AR11d dertien keuzefuncties die V11.37.4 niet raakt (de puntentelling, de drie loslaatroutes, de correcties, de snelle route, de tik): byte-gelijk',
       anders11.length === 0, 'geen afwijking', anders11.join(', ') || 'geen');
   const z = zc(onGPS);

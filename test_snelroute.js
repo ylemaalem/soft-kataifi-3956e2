@@ -24,7 +24,7 @@
 //       zonder de V11.37.2-regel is gelijk aan V11.37.1; de plek in onGPS
 //
 //  DRAAIEN
-//    python -m http.server 8765 --bind 127.0.0.1     (in de repo-map)
+//    python testserver.py 8765     (in de repo-map; wachtrij 128, zie testserver.py)
 //    open http://127.0.0.1:8765/index.html
 //    in de console:
 //      var s=document.createElement('script'); s.src='/test_snelroute.js';
@@ -156,12 +156,24 @@ async function testSnelroute() {
     document.body.appendChild(f);
     try {
       await new Promise((ok, nee) => { f.onload = ok; f.onerror = nee; });
+      for (let poging = 2; typeof f.contentWindow.onGPS !== 'function'; poging++) {   // V11.37.14: de app zelf laadde niet (testopstelling): de pagina opnieuw
+        if (poging > 3) throw new Error('testopstelling: de app laadde niet in de iframe (3 pogingen)');
+        await new Promise((ok, nee) => { f.onload = ok; f.onerror = nee; f.src = pagina + '?opnieuw=' + Math.random(); });
+      }
       const w = f.contentWindow;
-      await new Promise((ok, nee) => {
-        const sc = w.document.createElement('script');
-        sc.src = bron + '?t=' + Date.now(); sc.onload = ok; sc.onerror = () => nee(new Error('laden'));
-        w.document.head.appendChild(sc);
-      });
+      for (let poging = 1; ; poging++) {   // V11.37.14: een laadfout is de testopstelling, niet de app; zie test_merktekens
+        try {
+          await new Promise((ok, nee) => {
+            const sc = w.document.createElement('script');
+            sc.src = bron + '?t=' + Date.now() + '-' + poging; sc.onload = ok; sc.onerror = () => { sc.remove(); nee(new Error('laden')); };
+            w.document.head.appendChild(sc);
+          });
+          break;
+        } catch (e) {
+          if (poging >= 3) throw new Error('testopstelling: het testscript laadde niet in de iframe (3 pogingen)');
+          await new Promise((r) => setTimeout(r, 250 * poging));
+        }
+      }
       return await w.snelRitBinnen(opt);
     } catch (e) {
       return { fout: String((e && e.stack) || e).slice(0, 300), rij: [], wissel: [], op: [], toasts: [], tik: [] };
@@ -234,11 +246,11 @@ async function testSnelroute() {
   const refs = [['checkHandLockVerval', '2df4f7ed', 5513], ['checkNodeCorrectieStilstand', '8c801fd8', 4751],
                 ['corrigeerNodeAutomatisch', 'afe7b427', 4118], ['updateDichtbij', 'e82d3c0', 11914], ['vindDichtbij', '2db98dab', 2954]];
   // V11.37.4: zonder de regels met merkteken (de achter-regel, zie test_achter).
-  const zonderV113713 = (s) => String(s).split('\n').filter(l => !/V11\.37\.13/.test(l)).join('\n');   // V11.37.13: R1 en R3 van de tegenrichting-regel (test_tegenbocht); hier terug
-  const zonderV113712 = (s) => zonderV113713(s).split('\n').filter(l => !/V11\.37\.12/.test(l)).join('\n');   // V11.37.12: de rem op de kaartvraag en de dekking van de fietslijst (test_overpass); hier terug
-  const zonderV113711 = (s) => zonderV113712(s).split('\n').filter(l => !/V11\.37\.11/.test(l)).join('\n');   // V11.37.11: de tegenrichting-regel (test_tegenrichting); hier terug
-  const terugV11378 = (s) => zonderV113711(s).replace("      if (wisselStaat.min === null || af < wisselStaat.min) { wisselStaat.min = af; wisselStaat.minT = Date.now(); }   // V11.37.8: en wanneer (tMin)", "      if (wisselStaat.min === null || af < wisselStaat.min) wisselStaat.min = af;").replace("  if (!dichtstbijOSM) { logOpslagMis('bevestig_geen_licht', { element: categorie }); return; }   // V11.37.8: niet meer stil", "  if (!dichtstbijOSM) return;").split('\n').filter(l => !/V11\.37\.8/.test(l)).join('\n');   // V11.37.8: het fietsfilter en de bevroren knoppen (test_fietslicht); hier terug
-  const anders = refs.filter(([n, h, l]) => { const s = terugV11378(window[n]).split(NL).filter(l => !/V11\.37\.4/.test(l)).join(NL); return fnv(s) !== h || s.length !== l; }).map(x => x[0]);
+  const zonderV113713 = (s) => String(s).split('\n').filter(l => !/V11\.37\.13(?!\d)/.test(l)).join('\n');   // V11.37.13: R1 en R3 van de tegenrichting-regel (test_tegenbocht); hier terug
+  const zonderV113712 = (s) => zonderV113713(s).split('\n').filter(l => !/V11\.37\.12(?!\d)/.test(l)).join('\n');   // V11.37.12: de rem op de kaartvraag en de dekking van de fietslijst (test_overpass); hier terug
+  const zonderV113711 = (s) => zonderV113712(s).split('\n').filter(l => !/V11\.37\.11(?!\d)/.test(l)).join('\n');   // V11.37.11: de tegenrichting-regel (test_tegenrichting); hier terug
+  const terugV11378 = (s) => zonderV113711(s).replace("      if (wisselStaat.min === null || af < wisselStaat.min) { wisselStaat.min = af; wisselStaat.minT = Date.now(); }   // V11.37.8: en wanneer (tMin)", "      if (wisselStaat.min === null || af < wisselStaat.min) wisselStaat.min = af;").replace("  if (!dichtstbijOSM) { logOpslagMis('bevestig_geen_licht', { element: categorie }); return; }   // V11.37.8: niet meer stil", "  if (!dichtstbijOSM) return;").split('\n').filter(l => !/V11\.37\.8(?!\d)/.test(l)).join('\n');   // V11.37.8: het fietsfilter en de bevroren knoppen (test_fietslicht); hier terug
+  const anders = refs.filter(([n, h, l]) => { const s = terugV11378(window[n]).split(NL).filter(l => !/V11\.37\.4(?!\d)/.test(l)).join(NL); return fnv(s) !== h || s.length !== l; }).map(x => x[0]);
   eis('SN6a de vijf vastgepinde functies (NB14) zijn byte-gelijk', anders.length === 0, 'geen afwijking', anders.join(', ') || 'geen');
   // V11.37.4: vier regels van het V9-blok in onGPS kregen een tak voor 'geen licht'; hier terug
   // naar hun oude vorm, daarna gaat de aanroep van achterTik weg met het filter (zie test_achter).
@@ -247,7 +259,7 @@ async function testSnelroute() {
     .replace('const afst = dichtstbijOSM ? dichtstbijOSM.afstand : Infinity;   // V11.37.4', 'const afst = dichtstbijOSM.afstand;')
     .replace('const nodeId = dichtstbijOSM ? String(dichtstbijOSM.id) : null;   // V11.37.4', 'const nodeId = String(dichtstbijOSM.id);')
     .replace('kandidaatPos ?? (dichtstbijOSM ? { lat: dichtstbijOSM.lat, lon: dichtstbijOSM.lon } : { lat, lon }),   // V11.37.4', 'kandidaatPos ?? { lat: dichtstbijOSM.lat, lon: dichtstbijOSM.lon },');
-  const g = terugV11374(String(onGPS)).split(NL).filter(l => !/V11\.34\.[2-9]|V11\.36\.[14]|V11\.37\.[124]/.test(l)).join(NL);
+  const g = terugV11374(zonderV113711(onGPS)).split(NL).filter(l => !/V11\.34\.[2-9](?!\d)|V11\.36\.[14](?!\d)|V11\.37\.[124](?!\d)/.test(l)).join(NL);   // V11.37.14: zonderV113711
   eis('SN6b onGPS zonder de V11.37.2-regel (en de meetregels) is byte-gelijk aan V11.37.0 (c767e2a3 / 14333)',
       fnv(g) === 'c767e2a3' && g.length === 14333, 'c767e2a3 / 14333', fnv(g) + ' / ' + g.length);
   const og = zc(onGPS);

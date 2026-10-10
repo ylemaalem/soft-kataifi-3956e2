@@ -72,7 +72,7 @@
 //        beeld laat het bewijs staan, een lijstkeuze wist het
 //
 //  DRAAIEN
-//    python -m http.server 8765 --bind 127.0.0.1     (in de repo-map)
+//    python testserver.py 8765     (in de repo-map; wachtrij 128, zie testserver.py)
 //    open http://127.0.0.1:8765/index.html
 //    in de console:
 //      var s=document.createElement('script'); s.src='/test_naderingsbewijs.js';
@@ -238,12 +238,24 @@ async function testNaderingsbewijs() {
     document.body.appendChild(f);
     try {
       await new Promise((ok, nee) => { f.onload = ok; f.onerror = nee; });
+      for (let poging = 2; typeof f.contentWindow.onGPS !== 'function'; poging++) {   // V11.37.14: de app zelf laadde niet (testopstelling): de pagina opnieuw
+        if (poging > 3) throw new Error('testopstelling: de app laadde niet in de iframe (3 pogingen)');
+        await new Promise((ok, nee) => { f.onload = ok; f.onerror = nee; f.src = pagina + '?opnieuw=' + Math.random(); });
+      }
       const w = f.contentWindow;
-      await new Promise((ok, nee) => {
-        const sc = w.document.createElement('script');
-        sc.src = bron + '?t=' + Date.now(); sc.onload = ok; sc.onerror = () => nee(new Error('laden'));
-        w.document.head.appendChild(sc);
-      });
+      for (let poging = 1; ; poging++) {   // V11.37.14: een laadfout is de testopstelling, niet de app; zie test_merktekens
+        try {
+          await new Promise((ok, nee) => {
+            const sc = w.document.createElement('script');
+            sc.src = bron + '?t=' + Date.now() + '-' + poging; sc.onload = ok; sc.onerror = () => { sc.remove(); nee(new Error('laden')); };
+            w.document.head.appendChild(sc);
+          });
+          break;
+        } catch (e) {
+          if (poging >= 3) throw new Error('testopstelling: het testscript laadde niet in de iframe (3 pogingen)');
+          await new Promise((r) => setTimeout(r, 250 * poging));
+        }
+      }
       return await w.naderRitBinnen(opt);
     } catch (e) {
       return { fout: String((e && e.stack) || e).slice(0, 300), rij: [], logs: [], toasts: [] };
@@ -562,7 +574,7 @@ async function testNaderingsbewijs() {
           && L16.seed === true && L16.cam === true && L16.miss === true,
         'wissel <= 2 s, alles gelijk', 'wissel ' + wissel(u16, 8102) + ', ' + JSON.stringify(L16).slice(0, 160));
     eis('NB16b zonder getikte lamp verandert er niets: na de wissel is er geen tik, zoals altijd',
-        !!u15.lamp && u15.lamp.geenTik === true, 'geen tik', JSON.stringify(u15.lamp));
+        !!u15.lamp && u15.lamp.geenTik === true, 'geen tik', u15.fout || JSON.stringify(u15.lamp));   // V11.37.14: de fout van de rit (testopstelling), niet 'undefined'
     eis('NB16c elke toestand die aan de tik hangt (let X = null; // { voor: bboxOverride ...) overleeft de wissel — '
           + 'nu de telling (tikTel), straks ook de buren van V11.35.0 (tikBuren)',
         Array.isArray(L16.namen) && L16.namen.includes('tikTel') && L16.refs.length === L16.namen.length
@@ -581,11 +593,11 @@ async function testNaderingsbewijs() {
     for (const [naam, h, len] of refs) {
       // V11.37.4: vindDichtbij en updateDichtbij kregen vier regels met merkteken (de achter-regel,
       // zie test_achter); zonder die regels zijn ze byte-gelijk aan V11.26.0.
-      const zonderV113713 = (s) => String(s).split('\n').filter(l => !/V11\.37\.13/.test(l)).join('\n');   // V11.37.13: R1 en R3 van de tegenrichting-regel (test_tegenbocht); hier terug
-      const zonderV113712 = (s) => zonderV113713(s).split('\n').filter(l => !/V11\.37\.12/.test(l)).join('\n');   // V11.37.12: de rem op de kaartvraag en de dekking van de fietslijst (test_overpass); hier terug
-      const zonderV113711 = (s) => zonderV113712(s).split('\n').filter(l => !/V11\.37\.11/.test(l)).join('\n');   // V11.37.11: de tegenrichting-regel (test_tegenrichting); hier terug
-      const terugV11378 = (s) => zonderV113711(s).replace("      if (wisselStaat.min === null || af < wisselStaat.min) { wisselStaat.min = af; wisselStaat.minT = Date.now(); }   // V11.37.8: en wanneer (tMin)", "      if (wisselStaat.min === null || af < wisselStaat.min) wisselStaat.min = af;").replace("  if (!dichtstbijOSM) { logOpslagMis('bevestig_geen_licht', { element: categorie }); return; }   // V11.37.8: niet meer stil", "  if (!dichtstbijOSM) return;").split('\n').filter(l => !/V11\.37\.8/.test(l)).join('\n');   // V11.37.8: het fietsfilter en de bevroren knoppen (test_fietslicht); hier terug
-      const src = terugV11378(window[naam]).split('\n').filter(l => !/V11\.37\.4/.test(l)).join('\n');
+      const zonderV113713 = (s) => String(s).split('\n').filter(l => !/V11\.37\.13(?!\d)/.test(l)).join('\n');   // V11.37.13: R1 en R3 van de tegenrichting-regel (test_tegenbocht); hier terug
+      const zonderV113712 = (s) => zonderV113713(s).split('\n').filter(l => !/V11\.37\.12(?!\d)/.test(l)).join('\n');   // V11.37.12: de rem op de kaartvraag en de dekking van de fietslijst (test_overpass); hier terug
+      const zonderV113711 = (s) => zonderV113712(s).split('\n').filter(l => !/V11\.37\.11(?!\d)/.test(l)).join('\n');   // V11.37.11: de tegenrichting-regel (test_tegenrichting); hier terug
+      const terugV11378 = (s) => zonderV113711(s).replace("      if (wisselStaat.min === null || af < wisselStaat.min) { wisselStaat.min = af; wisselStaat.minT = Date.now(); }   // V11.37.8: en wanneer (tMin)", "      if (wisselStaat.min === null || af < wisselStaat.min) wisselStaat.min = af;").replace("  if (!dichtstbijOSM) { logOpslagMis('bevestig_geen_licht', { element: categorie }); return; }   // V11.37.8: niet meer stil", "  if (!dichtstbijOSM) return;").split('\n').filter(l => !/V11\.37\.8(?!\d)/.test(l)).join('\n');   // V11.37.8: het fietsfilter en de bevroren knoppen (test_fietslicht); hier terug
+      const src = terugV11378(window[naam]).split('\n').filter(l => !/V11\.37\.4(?!\d)/.test(l)).join('\n');
       eis('NB14 ' + naam + ' is byte-gelijk aan V11.26.0', fnv(src) === h && src.length === len,
           h + ' / ' + len, fnv(src) + ' / ' + src.length);
     }

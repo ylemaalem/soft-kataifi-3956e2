@@ -30,7 +30,7 @@
 //  TR11 regressie: welke functies veranderen, en dat de rest byte-gelijk is
 //
 //  DRAAIEN
-//    python -m http.server 8765 --bind 127.0.0.1     (in de repo-map)
+//    python testserver.py 8765     (in de repo-map; wachtrij 128, zie testserver.py)
 //    open http://127.0.0.1:8765/index.html
 //    in de console:
 //      var s=document.createElement('script'); s.src='/test_tegenrichting.js';
@@ -140,12 +140,24 @@ async function testTegenrichting() {
     document.body.appendChild(f);
     try {
       await new Promise((ok, nee) => { f.onload = ok; f.onerror = nee; });
+      for (let poging = 2; typeof f.contentWindow.onGPS !== 'function'; poging++) {   // V11.37.14: de app zelf laadde niet (testopstelling): de pagina opnieuw
+        if (poging > 3) throw new Error('testopstelling: de app laadde niet in de iframe (3 pogingen)');
+        await new Promise((ok, nee) => { f.onload = ok; f.onerror = nee; f.src = pagina + '?opnieuw=' + Math.random(); });
+      }
       const w = f.contentWindow;
-      await new Promise((ok, nee) => {
-        const sc = w.document.createElement('script');
-        sc.src = bron + '?t=' + Date.now(); sc.onload = ok; sc.onerror = () => nee(new Error('laden'));
-        w.document.head.appendChild(sc);
-      });
+      for (let poging = 1; ; poging++) {   // V11.37.14: een laadfout is de testopstelling, niet de app; zie test_merktekens
+        try {
+          await new Promise((ok, nee) => {
+            const sc = w.document.createElement('script');
+            sc.src = bron + '?t=' + Date.now() + '-' + poging; sc.onload = ok; sc.onerror = () => { sc.remove(); nee(new Error('laden')); };
+            w.document.head.appendChild(sc);
+          });
+          break;
+        } catch (e) {
+          if (poging >= 3) throw new Error('testopstelling: het testscript laadde niet in de iframe (3 pogingen)');
+          await new Promise((r) => setTimeout(r, 250 * poging));
+        }
+      }
       return JSON.parse(JSON.stringify(await w[functie](opt)));
     } catch (e) {
       return { fout: String((e && e.stack) || e).slice(0, 300), rij: [], wissel: [], op: [], vragen: [], cache: [] };
@@ -372,8 +384,8 @@ async function testTegenrichting() {
   eis('TR10c als de regel de keuze niet verandert (alleen tegenlichten), komt er geen regel', geenLog7 === 0, '0', String(geenLog7));
 
   // ═══ TR11 — regressie ══════════════════════════════════════
-  const zonder = (s) => String(s).split(NL).filter(l => !/V11\.37\.11|V11\.37\.12|V11\.37\.13/.test(l)).join(NL);   // V11.37.12: die regels ook (test_overpass); V11.37.13 ook (test_tegenbocht)
-  const merk = (f) => String(f).split(NL).filter(l => /V11\.37\.11/.test(l)).length;
+  const zonder = (s) => String(s).split(NL).filter(l => !/V11\.37\.11(?!\d)|V11\.37\.12(?!\d)|V11\.37\.13(?!\d)/.test(l)).join(NL);   // V11.37.12: die regels ook (test_overpass); V11.37.13 ook (test_tegenbocht)
+  const merk = (f) => String(f).split(NL).filter(l => /V11\.37\.11(?!\d)/.test(l)).length;
   const V113710 = { vindDichtbij: ['d444ee3', 3717, 4], updateDichtbij: ['7b7fce62', 12303, 1], regelKies: ['cd458100', 2307, 5], onGPS: ['d99821b8', 15000, 1],
     downloadOSM: ['82a16b3c', 4147, 1], logOpslagMis: ['e93caaaf', 16068, 1] };
   const telAf = Object.entries(V113710).filter(([n, [h, l, m]]) => merk(window[n]) !== m).map(([n]) => n + ' ' + merk(window[n]));

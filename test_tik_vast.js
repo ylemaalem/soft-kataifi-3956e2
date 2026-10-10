@@ -35,7 +35,7 @@
 //       selecteerBesteDetectie zonder de V11.36.3-regels is V11.34.1
 //
 //  DRAAIEN
-//    python -m http.server 8765 --bind 127.0.0.1     (in de repo-map)
+//    python testserver.py 8765     (in de repo-map; wachtrij 128, zie testserver.py)
 //    open http://127.0.0.1:8765/index.html
 //    in de console:
 //      var s=document.createElement('script'); s.src='/test_tik_vast.js';
@@ -317,7 +317,7 @@ async function testTikVast() {
     eis('TV10b het auto-slot roept nog steeds stickySlotMatch(bruikbaar) aan, en de tik-tak niet meer',
         aanroepen === 1 && !!auto && auto[1].trim() === 'bruikbaar' && (zc(selecteerBesteDetectie).match(/tikSlotMatch\(/g) || []).length === 1,
         '1x stickySlotMatch (auto-slot), 1x tikSlotMatch', aanroepen + 'x / ' + (auto ? auto[1] : 'geen'));
-    const terug = sbd.split('\n').filter(l => !/V11\.36\.3/.test(l)).join('\n')
+    const terug = sbd.split('\n').filter(l => !/V11\.36\.3(?!\d)/.test(l)).join('\n')
       .replace('const winner = tikSlotMatch(bruikbaar, straalVast);', 'const winner = stickySlotMatch(bruikbaar, straal);');
     eis('TV10c selecteerBesteDetectie zonder de V11.36.3-regels is byte-gelijk aan V11.34.1',
         fnv(terug) === '79a403fa' && terug.length === 14376, '79a403fa / 14376', fnv(terug) + ' / ' + terug.length);
@@ -326,7 +326,7 @@ async function testTikVast() {
       postprocessYOLO: ['42b30c6', 4725], tapZwakPositie: ['49f903a8', 295], tikStraalYolo: ['7014cad2', 165],
       tikStraalCam: ['83ae570a', 208], tikTelRun: ['3475f84', 550], preprocessVoorYOLO: ['f379eecc', 2733] };
     // V11.37.5: postprocessYOLO kreeg vijf regels met merkteken (de beste kandidaat voor de detlog, zie test_knoppen).
-    const afw = Object.entries(ONGEMOEID).filter(([n, [h, l]]) => { const s = String(eval(n)).split('\n').filter(l => !/V11\.37\.5/.test(l)).join('\n'); return fnv(s) !== h || s.length !== l; }).map(x => x[0]);
+    const afw = Object.entries(ONGEMOEID).filter(([n, [h, l]]) => { const s = String(eval(n)).split('\n').filter(l => !/V11\.37\.5(?!\d)/.test(l)).join('\n'); return fnv(s) !== h || s.length !== l; }).map(x => x[0]);
     eis('TV10d twaalf functies rond de keuze zijn byte-gelijk aan V11.36.2 (voorspelling, auto-slot, tik-zone, run)',
         afw.length === 0, 'geen afwijking', afw.join(', ') || 'geen');
 

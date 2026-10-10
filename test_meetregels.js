@@ -18,7 +18,7 @@
 //  (De gegate pogingen zelf staan in test_gate T9.)
 //
 //  DRAAIEN
-//    python -m http.server 8765 --bind 127.0.0.1     (in de repo-map)
+//    python testserver.py 8765     (in de repo-map; wachtrij 128, zie testserver.py)
 //    open http://127.0.0.1:8765/index.html
 //    in de console:
 //      var s=document.createElement('script'); s.src='/test_meetregels.js';
@@ -41,7 +41,10 @@ async function testMeetregels() {
     .replace('|| (afst < DETLOG_MIN_M && !stil) || afst > DETLOG_MAX_M) return;   // V11.37.5: stilstand vlak bij het licht mag', '|| afst < DETLOG_MIN_M || afst > DETLOG_MAX_M) return;')
     .replace('if (snelheidKmh <= 30 && dichtstbijOSM) toonRichtingKnoppen(String(dichtstbijOSM.id));   // V11.37.5: het licht dat de app NU toont, zie isGetoondLicht', 'if (snelheidKmh <= 30) toonRichtingKnoppen(huidigBevestigdOsmNodeId);');
   const terugV11377 = (s) => String(s).replace("  const naExport = () => {};   // V11.37.7: het schaduwlog niet meer wissen; het is een ring (MAX_SCHADUWLOG)", "  const naExport = () => { try { localStorage.removeItem('sl_schaduwlog'); } catch(_) {} };");   // V11.37.7: het schaduwlog wist niet meer (test_getoond_licht); hier terug
-  const zonderMeet = (f) => terugV11377(terugV11375(f)).split('\n').filter(l => !/V11\.34\.[2-9]|V11\.36\.[14]|V11\.37\.[15]/.test(l)).join('\n');   // V11.36.4: ook de wissellog; V11.37.5: de detlog bij stilstand
+  const zonderV113713 = (s) => String(s).split('\n').filter(l => !/V11\.37\.13(?!\d)/.test(l)).join('\n');   // V11.37.14: R1 en R3 (test_tegenbocht); het oude patroon bij ML7b (onGPS) slikte die regels stil in
+  const zonderV113712 = (s) => zonderV113713(s).split('\n').filter(l => !/V11\.37\.12(?!\d)/.test(l)).join('\n');   // V11.37.14: de rem en de fietsdekking (test_overpass); idem
+  const zonderV113711 = (s) => zonderV113712(s).split('\n').filter(l => !/V11\.37\.11(?!\d)/.test(l)).join('\n');   // V11.37.14: de tegenrichting-regel (test_tegenrichting); idem
+  const zonderMeet = (f) => terugV11377(terugV11375(f)).split('\n').filter(l => !/V11\.34\.[2-9](?!\d)|V11\.36\.[14](?!\d)|V11\.37\.[15](?!\d)/.test(l)).join('\n');   // V11.36.4: ook de wissellog; V11.37.5: de detlog bij stilstand
   const lees = (k) => { try { return JSON.parse(localStorage.getItem(k)) || []; } catch (e) { return []; } };
 
   const sleutels = [CAMCAP_SLEUTEL, MODELLOG_SLEUTEL, MINUUTLOG_SLEUTEL];
@@ -248,7 +251,7 @@ async function testMeetregels() {
     // V11.36.3: de tik-tak van selecteerBesteDetectie kreeg de vaste straal en een
     // eigen matchkern. Zonder de gemarkeerde regels, en met de oude aanroep terug,
     // is hij nog steeds V11.34.1. De rest van de functie is dus onaangeroerd.
-    const terugV11363 = (s) => s.split('\n').filter(l => !/V11\.36\.3/.test(l)).join('\n')
+    const terugV11363 = (s) => s.split('\n').filter(l => !/V11\.36\.3(?!\d)/.test(l)).join('\n')
       .replace('const winner = tikSlotMatch(bruikbaar, straalVast);', 'const winner = stickySlotMatch(bruikbaar, straal);');
     // V11.37.4: vier regels van het V9-blok in onGPS kregen een tak voor 'geen licht'; hier terug
     // naar hun oude vorm, daarna gaat de aanroep van achterTik weg met het filter (zie test_achter).
@@ -260,8 +263,8 @@ async function testMeetregels() {
     const af2 = Object.entries(ONGEMOEID).filter(([n, [h, l]]) => {
       // V11.36.4: onGPS kreeg drie meetregels (de wissellog), met merkteken.
       const s = n === 'selecteerBesteDetectie' ? terugV11363(String(eval(n)))
-              : n === 'onGPS' ? terugV11374(String(eval(n))).split('\n').filter(l => !/V11\.36\.4|V11\.37\.[124]/.test(l))   /* V11.37.2: de snelle stilstandroute is gedrag, zie test_snelroute SN6b; V11.37.4: de achter-regel, zie test_achter */.join('\n')
-              : terugV11375(eval(n)).split('\n').filter(l => !/V11\.37\.5/.test(l)).join('\n');   // V11.37.5: postprocessYOLO en verwerkDetecties, zie test_knoppen
+              : n === 'onGPS' ? terugV11374(zonderV113711(eval(n))).split('\n').filter(l => !/V11\.36\.4(?!\d)|V11\.37\.[124](?!\d)/.test(l))   /* V11.37.2: de snelle stilstandroute is gedrag, zie test_snelroute SN6b; V11.37.4: de achter-regel, zie test_achter */.join('\n')   // V11.37.14: zonderV113711
+              : terugV11375(eval(n)).split('\n').filter(l => !/V11\.37\.5(?!\d)/.test(l)).join('\n');   // V11.37.5: postprocessYOLO en verwerkDetecties, zie test_knoppen
       return fnv(s) !== h || s.length !== l; }).map(x => x[0]);
     eis('ML7b de keuze, de run, de poort, de lus en de GPS: negen functies byte-gelijk aan V11.34.1 (selecteerBesteDetectie zonder de V11.36.3-regels)',
         af2.length === 0, 'geen afwijking', af2.join(', ') || 'geen');

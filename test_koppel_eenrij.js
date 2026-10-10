@@ -27,7 +27,7 @@
 //  T7 IS DE REGRESSIEWACHT: zonder koppeling verandert er niets, byte-identiek.
 //
 //  DRAAIEN
-//    python -m http.server 8765 --bind 127.0.0.1     (in de repo-map)
+//    python testserver.py 8765     (in de repo-map; wachtrij 128, zie testserver.py)
 //    open http://127.0.0.1:8765/index.html
 //    in de console:
 //      var s=document.createElement('script'); s.src='/test_koppel_eenrij.js';

@@ -38,7 +38,7 @@
 //       niets: dezelfde runs geven met en zonder telling dezelfde keuze.
 //
 //  DRAAIEN
-//    python -m http.server 8765 --bind 127.0.0.1     (in de repo-map)
+//    python testserver.py 8765     (in de repo-map; wachtrij 128, zie testserver.py)
 //    open http://127.0.0.1:8765/index.html
 //    in de console:
 //      var s=document.createElement('script'); s.src='/test_tiklog.js';
@@ -344,11 +344,11 @@ async function testTiklog() {
                   ['corrigeerNodeAutomatisch', 'afe7b427', 4118], ['updateDichtbij', 'e82d3c0', 11914],
                   ['vindDichtbij', '2db98dab', 2954]];
     // V11.37.4: zonder de vier regels met merkteken (de achter-regel, zie test_achter).
-    const zonder374 = (s) => s.split('\n').filter(l => !/V11\.37\.4/.test(l)).join('\n');
-    const zonderV113713 = (s) => String(s).split('\n').filter(l => !/V11\.37\.13/.test(l)).join('\n');   // V11.37.13: R1 en R3 van de tegenrichting-regel (test_tegenbocht); hier terug
-    const zonderV113712 = (s) => zonderV113713(s).split('\n').filter(l => !/V11\.37\.12/.test(l)).join('\n');   // V11.37.12: de rem op de kaartvraag en de dekking van de fietslijst (test_overpass); hier terug
-    const zonderV113711 = (s) => zonderV113712(s).split('\n').filter(l => !/V11\.37\.11/.test(l)).join('\n');   // V11.37.11: de tegenrichting-regel (test_tegenrichting); hier terug
-    const terugV11378 = (s) => zonderV113711(s).replace("      if (wisselStaat.min === null || af < wisselStaat.min) { wisselStaat.min = af; wisselStaat.minT = Date.now(); }   // V11.37.8: en wanneer (tMin)", "      if (wisselStaat.min === null || af < wisselStaat.min) wisselStaat.min = af;").replace("  if (!dichtstbijOSM) { logOpslagMis('bevestig_geen_licht', { element: categorie }); return; }   // V11.37.8: niet meer stil", "  if (!dichtstbijOSM) return;").split('\n').filter(l => !/V11\.37\.8/.test(l)).join('\n');   // V11.37.8: het fietsfilter en de bevroren knoppen (test_fietslicht); hier terug
+    const zonder374 = (s) => s.split('\n').filter(l => !/V11\.37\.4(?!\d)/.test(l)).join('\n');
+    const zonderV113713 = (s) => String(s).split('\n').filter(l => !/V11\.37\.13(?!\d)/.test(l)).join('\n');   // V11.37.13: R1 en R3 van de tegenrichting-regel (test_tegenbocht); hier terug
+    const zonderV113712 = (s) => zonderV113713(s).split('\n').filter(l => !/V11\.37\.12(?!\d)/.test(l)).join('\n');   // V11.37.12: de rem op de kaartvraag en de dekking van de fietslijst (test_overpass); hier terug
+    const zonderV113711 = (s) => zonderV113712(s).split('\n').filter(l => !/V11\.37\.11(?!\d)/.test(l)).join('\n');   // V11.37.11: de tegenrichting-regel (test_tegenrichting); hier terug
+    const terugV11378 = (s) => zonderV113711(s).replace("      if (wisselStaat.min === null || af < wisselStaat.min) { wisselStaat.min = af; wisselStaat.minT = Date.now(); }   // V11.37.8: en wanneer (tMin)", "      if (wisselStaat.min === null || af < wisselStaat.min) wisselStaat.min = af;").replace("  if (!dichtstbijOSM) { logOpslagMis('bevestig_geen_licht', { element: categorie }); return; }   // V11.37.8: niet meer stil", "  if (!dichtstbijOSM) return;").split('\n').filter(l => !/V11\.37\.8(?!\d)/.test(l)).join('\n');   // V11.37.8: het fietsfilter en de bevroren knoppen (test_fietslicht); hier terug
     const nbAnders = NB14.filter(([n, h, l]) => fnv(zonder374(terugV11378(eval(n)))) !== h || zonder374(terugV11378(eval(n))).length !== l).map(x => x[0]);
     eis('TL3k de vijf NB14-functies van V11.27.0 zijn onaangeroerd', nbAnders.length === 0,
         'geen afwijking', nbAnders.join(', ') || 'geen');
@@ -428,7 +428,7 @@ async function testTiklog() {
                   tikLogStelselNu: ['4a961775', 154], tikLogDetCam: ['4cc27fb2', 204] };
     // V11.36.2: tikLogNoteer kreeg één regel (de twee budgetten, merkteken
     // V11.36.2); zonder die regel moet hij nog steeds byte-gelijk zijn.
-    const zonderBudget = (s) => s.split('\n').filter(l => !/V11\.36\.2/.test(l)).join('\n');
+    const zonderBudget = (s) => s.split('\n').filter(l => !/V11\.36\.2(?!\d)/.test(l)).join('\n');
     const logAnders = Object.entries(LOG).filter(([n, [h, l]]) => fnv(zonderBudget(String(eval(n)))) !== h || zonderBudget(String(eval(n))).length !== l).map(x => x[0]);
     eis('TL6a acht logfuncties zijn byte-gelijk aan V11.32.0', logAnders.length === 0, 'geen afwijking', logAnders.join(', ') || 'geen');
     let handler = null;

@@ -140,7 +140,7 @@ async function testTiklogBudget() {
         'ruis', 'ok');
 
     // ═══ TK8 — alleen meten ═════════════════════════════════
-    const zonder = String(tikLogNoteer).split('\n').filter(l => !/V11\.36\.2/.test(l)).join('\n');
+    const zonder = String(tikLogNoteer).split('\n').filter(l => !/V11\.36\.2(?!\d)/.test(l)).join('\n');
     eis('TK8a tikLogNoteer zonder de budgetregel is byte-gelijk aan V11.32.0',
         fnv(zonder) === 'd9f96f8' && zonder.length === 1154, 'd9f96f8 / 1154', fnv(zonder) + ' / ' + zonder.length);
     const VAST = { tikLogRun: ['2f4dd880', 262], tikLogLos: ['790260fe', 342], tikLogTik: ['a0583a9c', 1522], tikTelAf: ['46e5462b', 216],

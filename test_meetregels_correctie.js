@@ -17,7 +17,7 @@
 //       dat A1 bewust verandert, en zonder de twee A2-regels)
 //
 //  DRAAIEN
-//    python -m http.server 8765 --bind 127.0.0.1     (in de repo-map)
+//    python testserver.py 8765     (in de repo-map; wachtrij 128, zie testserver.py)
 //    open http://127.0.0.1:8765/index.html
 //    in de console:
 //      var s=document.createElement('script'); s.src='/test_meetregels_correctie.js';
@@ -35,7 +35,7 @@ async function testMeetregelsCorrectie() {
   const fnv = (s) => { let h = 0x811c9dc5; for (let i = 0; i < s.length; i++) { h ^= s.charCodeAt(i); h = Math.imul(h, 0x01000193) >>> 0; } return h.toString(16); };
   const slaap = (ms) => new Promise(r => setTimeout(r, ms));
   // V11.36.0: ook de twee A2-regels (gedrag, getoetst in test_naderingsbewijs NB16) gaan eruit.
-  const zonderMeet = (f) => String(f).split('\n').filter(l => !/V11\.34\.[3-9]|V11\.36\.0 A2|V11\.37\.5|V11\.37\.11/.test(l)).join('\n');   // V11.37.5: meetregels, zie test_knoppen; V11.37.11: het logveld tegen (test_tegenrichting)
+  const zonderMeet = (f) => String(f).split('\n').filter(l => !/V11\.34\.[3-9](?!\d)|V11\.36\.0(?!\d) A2|V11\.37\.5(?!\d)|V11\.37\.11(?!\d)/.test(l)).join('\n');   // V11.37.5: meetregels, zie test_knoppen; V11.37.11: het logveld tegen (test_tegenrichting)
 
   // De opslag van deze pagina gaat sleutel voor sleutel terug.
   const snap = {};

@@ -32,7 +32,7 @@
 //  TB11 regressie: welke functies veranderen, en dat de rest byte-gelijk is
 //
 //  DRAAIEN
-//    python -m http.server 8765 --bind 127.0.0.1     (in de repo-map)
+//    python testserver.py 8765     (in de repo-map; wachtrij 128, zie testserver.py)
 //    open http://127.0.0.1:8765/index.html
 //    in de console:
 //      var s=document.createElement('script'); s.src='/test_tegenbocht.js';
@@ -179,12 +179,24 @@ async function testTegenbocht() {
     document.body.appendChild(f);
     try {
       await new Promise((ok, nee) => { f.onload = ok; f.onerror = nee; });
+      for (let poging = 2; typeof f.contentWindow.onGPS !== 'function'; poging++) {   // V11.37.14: de app zelf laadde niet (testopstelling): de pagina opnieuw
+        if (poging > 3) throw new Error('testopstelling: de app laadde niet in de iframe (3 pogingen)');
+        await new Promise((ok, nee) => { f.onload = ok; f.onerror = nee; f.src = pagina + '?opnieuw=' + Math.random(); });
+      }
       const w = f.contentWindow;
-      await new Promise((ok, nee) => {
-        const sc = w.document.createElement('script');
-        sc.src = bron + '?t=' + Date.now(); sc.onload = ok; sc.onerror = () => nee(new Error('laden'));
-        w.document.head.appendChild(sc);
-      });
+      for (let poging = 1; ; poging++) {   // V11.37.14: een laadfout is de testopstelling, niet de app; zie test_merktekens
+        try {
+          await new Promise((ok, nee) => {
+            const sc = w.document.createElement('script');
+            sc.src = bron + '?t=' + Date.now() + '-' + poging; sc.onload = ok; sc.onerror = () => { sc.remove(); nee(new Error('laden')); };
+            w.document.head.appendChild(sc);
+          });
+          break;
+        } catch (e) {
+          if (poging >= 3) throw new Error('testopstelling: het testscript laadde niet in de iframe (3 pogingen)');
+          await new Promise((r) => setTimeout(r, 250 * poging));
+        }
+      }
       return JSON.parse(JSON.stringify(await w[functie](opt)));
     } catch (e) {
       return { fout: String((e && e.stack) || e).slice(0, 300), rij: [], op: [] };
@@ -391,8 +403,8 @@ async function testTegenbocht() {
   const S13 = "    const sleutel = bron + ':' + sl.id + (w ? ':' + w : ''), nu = Date.now();   // V11.37.13: per reden een eigen regel";
   const S12 = "    const sleutel = bron + ':' + sl.id, nu = Date.now();";
   const H12 = "               h: k == null ? null : Math.round(Math.min(...sl.eenrichting.map(r => tegenHoekVerschil(r, k)))) } });";
-  const zonder = (s) => String(s).replace(S13, S12).replace(H13, H12).split(NL).filter(l => !/V11\.37\.13/.test(l)).join(NL);
-  const merk = (f) => String(f).split(NL).filter(l => /V11\.37\.13/.test(l)).length;
+  const zonder = (s) => String(s).replace(S13, S12).replace(H13, H12).split(NL).filter(l => !/V11\.37\.13(?!\d)/.test(l)).join(NL);
+  const merk = (f) => String(f).split(NL).filter(l => /V11\.37\.13(?!\d)/.test(l)).length;
   const V113712 = { vindDichtbij: ['f8fd9aa9', 4395, 1], tegenKoers: ['67e36df', 149, 1], tegenSluitUit: ['efd9cae3', 142, 1], tegenLog: ['75f6b5b4', 569, 3],
     onGPS: ['48a5f9c7', 15309, 1], vergrendelNodeHandmatig: ['9a007b96', 2295, 1] };
   const telAf = Object.entries(V113712).filter(([n, [h, l, m]]) => merk(window[n]) !== m).map(([n]) => n + ' ' + merk(window[n]));

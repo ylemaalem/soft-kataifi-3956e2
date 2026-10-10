@@ -19,7 +19,7 @@
 //  RG7  regressie: welke functies veranderen, en dat de rest byte-gelijk is
 //
 //  DRAAIEN
-//    python -m http.server 8765 --bind 127.0.0.1     (in de repo-map)
+//    python testserver.py 8765     (in de repo-map; wachtrij 128, zie testserver.py)
 //    open http://127.0.0.1:8765/index.html
 //    in de console:
 //      var s=document.createElement('script'); s.src='/test_rond_gewicht.js';
@@ -284,17 +284,17 @@ async function testRondGewicht() {
     .replace("  const algCyc = algGewTot > 0 ? Math.round(algGewCyc / algGewTot) : null;   // V11.37.9: zonder gemeten duur was algCycCount ook 0", "  const algCyc = algCycCount > 0 ? Math.round(algCycSum / algCycCount) : null;")
     .replace("(${m.filter(heeftGemetenDuur).length}×)`);   // V11.37.9: alleen metingen met een gemeten duur, zie bij algPct", "(${m.length}×)`);")
     .replace("    return { gem: gewGem(m), n: m.filter(heeftGemetenDuur).length, m };   // V11.37.9: het aantal in de tegel, zie bij algPct; m blijft vol", "    return { gem: gewGem(m), n: m.length, m };")
-    .split(NL).filter(l => !/V11\.37\.9/.test(l)).join(NL);
-  const merk = (f) => String(f).split(NL).filter(l => /V11\.37\.9/.test(l)).length;
+    .split(NL).filter(l => !/V11\.37\.9(?!\d)/.test(l)).join(NL);
+  const merk = (f) => String(f).split(NL).filter(l => /V11\.37\.9(?!\d)/.test(l)).length;
   const V11378 = { renderRichtingBlok: ['50d0ad24', 18184, 6], renderNodeInfo: ['8353a70b', 9891, 1], laagDagdeelCijfers: ['6b47544b', 822, 1],
     mergeRichtingen: ['808553a5', 7340, 2], mergeUndoUitvoeren: ['8fe778b', 560, 1], kiesLaagAlgemeen: ['53d548ba', 1323, 1], ruimBevestigLusOp: ['a6c7c94', 2489, 1] };
   const telAf = Object.entries(V11378).filter(([n, [h, l, m]]) => merk(window[n]) !== m).map(([n]) => n + ' ' + merk(window[n]));
   eis('RG7a zeven functies veranderen, alleen met regels met merkteken V11.37.9', telAf.length === 0, 'precies zoveel', telAf.join(', ') || 'precies zoveel');
   const anders = Object.entries(V11378).filter(([n, [h, l]]) => { const s = terug(window[n]); return fnv(s) !== h || s.length !== l; }).map(x => x[0]);
   eis('RG7b met die regels terug (vier waren een andere regel, de rest is nieuw) byte-gelijk aan V11.37.8', anders.length === 0, 'geen afwijking', anders.join(', ') || 'geen');
-  const zonderV113713 = (s) => String(s).split('\n').filter(l => !/V11\.37\.13/.test(l)).join('\n');   // V11.37.13: R1 en R3 van de tegenrichting-regel (test_tegenbocht); hier terug
-  const zonderV113712 = (s) => zonderV113713(s).split('\n').filter(l => !/V11\.37\.12/.test(l)).join('\n');   // V11.37.12: de rem op de kaartvraag en de dekking van de fietslijst (test_overpass); hier terug
-  const zonderV113711 = (s) => zonderV113712(s).split('\n').filter(l => !/V11\.37\.11/.test(l)).join('\n');   // V11.37.11: de tegenrichting-regel (test_tegenrichting); hier terug
+  const zonderV113713 = (s) => String(s).split('\n').filter(l => !/V11\.37\.13(?!\d)/.test(l)).join('\n');   // V11.37.13: R1 en R3 van de tegenrichting-regel (test_tegenbocht); hier terug
+  const zonderV113712 = (s) => zonderV113713(s).split('\n').filter(l => !/V11\.37\.12(?!\d)/.test(l)).join('\n');   // V11.37.12: de rem op de kaartvraag en de dekking van de fietslijst (test_overpass); hier terug
+  const zonderV113711 = (s) => zonderV113712(s).split('\n').filter(l => !/V11\.37\.11(?!\d)/.test(l)).join('\n');   // V11.37.11: de tegenrichting-regel (test_tegenrichting); hier terug
   const ONGEWIJZIGD = { berekenLeerPct: ['5d38efe9', 986], algemeenMetingen: ['40c40223', 1285], laagDagdeelPct: ['8c863dca', 914], tikRichting: ['b44110d5', 4619],
     kiesLaagRichting: ['94ad3b74', 596], verplaatsAlgemeenNaarRichting: ['f66a53f0', 2052], herstelRvVoorMerge: ['ea697b84', 2338], analyseerBevestigLus: ['e4d5feee', 1468],
     bijwerkLeerkaart: ['8344c773', 8107], laagMetingen: ['ca21e0f9', 421], richtingLeerPct: ['e4a7222', 925], vindDichtbij: ['d444ee3', 3717], updateDichtbij: ['7b7fce62', 12303],

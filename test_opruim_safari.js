@@ -19,7 +19,7 @@
 //  OS8  regressie: welke functies veranderen, en dat de rest byte-gelijk is
 //
 //  DRAAIEN
-//    python -m http.server 8765 --bind 127.0.0.1     (in de repo-map)
+//    python testserver.py 8765     (in de repo-map; wachtrij 128, zie testserver.py)
 //    open http://127.0.0.1:8765/index.html
 //    in de console:
 //      var s=document.createElement('script'); s.src='/test_opruim_safari.js';
@@ -181,16 +181,16 @@ async function testOpruimSafari() {
     .replace("    if (opruimNodig(grof)) {   // V11.37.10: was totaal/(1024*1024) > 4.0, zie opruimNodig", "    if (totaal/(1024*1024) > 4.0) {")
     .replace("  if (m.length > S2_RING) { m.sort((a,b)=>gew(b.tijd)-gew(a.tijd)); m=m.slice(0,S2_RING); }   // V11.37.10: was MAX_S2_METINGEN (20)", "  if (m.length > MAX_S2_METINGEN) { m.sort((a,b)=>gew(b.tijd)-gew(a.tijd)); m=m.slice(0,MAX_S2_METINGEN); }")
     .replace("  if (opslagEl) { const sf = berekenSafariOpslag(); opslagEl.textContent = sf ? `${Math.round(sf.kb)}KB / 5120KB (${Math.round(sf.pct)}%)` : `${berekenLocalStorageKB()}KB / ~5000KB`; }   // V11.37.10: zoals Safari telt, zie opruimNodig", "  if (opslagEl) opslagEl.textContent = `${berekenLocalStorageKB()}KB / ~5000KB`;")
-    .split(NL).filter(l => !/V11\.37\.10/.test(l)).join(NL);
-  const merk = (f) => String(f).split(NL).filter(l => /V11\.37\.10/.test(l)).length;
+    .split(NL).filter(l => !/V11\.37\.10(?!\d)/.test(l)).join(NL);
+  const merk = (f) => String(f).split(NL).filter(l => /V11\.37\.10(?!\d)/.test(l)).length;
   const V11379 = { checkLocalStorageRuimte: ['1e4f9875', 707, 3], migratieSlPos: ['cd9d2a68', 333, 1], slaS2Aanwezigheid: ['d3039cc2', 475, 2], laadDashboard: ['e286b7dd', 8693, 1] };
   const telAf = Object.entries(V11379).filter(([n, [h, l, m]]) => merk(window[n]) !== m).map(([n]) => n + ' ' + merk(window[n]));
   eis('OS8a vier functies veranderen, alleen met regels met merkteken V11.37.10', telAf.length === 0, 'precies zoveel', telAf.join(', ') || 'precies zoveel');
   const anders = Object.entries(V11379).filter(([n, [h, l]]) => { const s = terug(window[n]); return fnv(s) !== h || s.length !== l; }).map(x => x[0]);
   eis('OS8b met die regels terug (vier waren een andere regel, de rest is nieuw) byte-gelijk aan V11.37.9', anders.length === 0, 'geen afwijking', anders.join(', ') || 'geen');
-  const zonderV113713 = (s) => String(s).split('\n').filter(l => !/V11\.37\.13/.test(l)).join('\n');   // V11.37.13: R1 en R3 van de tegenrichting-regel (test_tegenbocht); hier terug
-  const zonderV113712 = (s) => zonderV113713(s).split('\n').filter(l => !/V11\.37\.12/.test(l)).join('\n');   // V11.37.12: de rem op de kaartvraag en de dekking van de fietslijst (test_overpass); hier terug
-  const zonderV113711 = (s) => zonderV113712(s).split('\n').filter(l => !/V11\.37\.11/.test(l)).join('\n');   // V11.37.11: de tegenrichting-regel (test_tegenrichting); hier terug
+  const zonderV113713 = (s) => String(s).split('\n').filter(l => !/V11\.37\.13(?!\d)/.test(l)).join('\n');   // V11.37.13: R1 en R3 van de tegenrichting-regel (test_tegenbocht); hier terug
+  const zonderV113712 = (s) => zonderV113713(s).split('\n').filter(l => !/V11\.37\.12(?!\d)/.test(l)).join('\n');   // V11.37.12: de rem op de kaartvraag en de dekking van de fietslijst (test_overpass); hier terug
+  const zonderV113711 = (s) => zonderV113712(s).split('\n').filter(l => !/V11\.37\.11(?!\d)/.test(l)).join('\n');   // V11.37.11: de tegenrichting-regel (test_tegenrichting); hier terug
   const ONGEWIJZIGD = { trimDiagnostiekV1: ['a4df7e2b', 693], voerOpruimPassenUit: ['b5221ec9', 5515], logOpruiming: ['e2c2508', 3108], berekenSafariOpslag: ['f3e8d002', 1245],
     ruimRedundantePosCache: ['ec31b124', 380], berekenLocalStorageKB: ['8fd8ab6c', 193], ruimOpslagNuOp: ['4dbcfffc', 3289], slaOpIntern: ['c284229a', 2342],
     vindDichtbij: ['d444ee3', 3717], vindDichtbijScore: ['bc9b7937', 2105], updateDichtbij: ['7b7fce62', 12303], onGPS: ['d99821b8', 15000], downloadOSM: ['82a16b3c', 4147],

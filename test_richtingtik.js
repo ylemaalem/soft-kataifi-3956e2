@@ -19,7 +19,7 @@
 //       functies, onGPS inbegrepen) is byte-gelijk aan V11.37.2
 //
 //  DRAAIEN
-//    python -m http.server 8765 --bind 127.0.0.1     (in de repo-map)
+//    python testserver.py 8765     (in de repo-map; wachtrij 128, zie testserver.py)
 //    open http://127.0.0.1:8765/index.html
 //    in de console:
 //      var s=document.createElement('script'); s.src='/test_richtingtik.js';
@@ -121,17 +121,17 @@ async function testRichtingtik() {
     .replace('const nodeId = dichtstbijOSM ? String(dichtstbijOSM.id) : null;   // V11.37.4', 'const nodeId = String(dichtstbijOSM.id);')
     .replace('kandidaatPos ?? (dichtstbijOSM ? { lat: dichtstbijOSM.lat, lon: dichtstbijOSM.lon } : { lat, lon }),   // V11.37.4', 'kandidaatPos ?? { lat: dichtstbijOSM.lat, lon: dichtstbijOSM.lon },');
   // V11.37.4: zonder de regels met merkteken (de achter-regel, zie test_achter); onGPS met zijn vier V9-regels terug.
-  const zonderV113713 = (s) => String(s).split('\n').filter(l => !/V11\.37\.13/.test(l)).join('\n');   // V11.37.13: R1 en R3 van de tegenrichting-regel (test_tegenbocht); hier terug
-  const zonderV113712 = (s) => zonderV113713(s).split('\n').filter(l => !/V11\.37\.12/.test(l)).join('\n');   // V11.37.12: de rem op de kaartvraag en de dekking van de fietslijst (test_overpass); hier terug
-  const zonderV113711 = (s) => zonderV113712(s).split('\n').filter(l => !/V11\.37\.11/.test(l)).join('\n');   // V11.37.11: de tegenrichting-regel (test_tegenrichting); hier terug
-  const terugV11378 = (s) => zonderV113711(s).replace("      if (wisselStaat.min === null || af < wisselStaat.min) { wisselStaat.min = af; wisselStaat.minT = Date.now(); }   // V11.37.8: en wanneer (tMin)", "      if (wisselStaat.min === null || af < wisselStaat.min) wisselStaat.min = af;").replace("  if (!dichtstbijOSM) { logOpslagMis('bevestig_geen_licht', { element: categorie }); return; }   // V11.37.8: niet meer stil", "  if (!dichtstbijOSM) return;").split('\n').filter(l => !/V11\.37\.8/.test(l)).join('\n');   // V11.37.8: het fietsfilter en de bevroren knoppen (test_fietslicht); hier terug
-  const anders = Object.entries(V11372).filter(([n, [h, l]]) => { const s = terugV11374(terugV11378(window[n])).split(NL).filter(l => !/V11\.37\.4/.test(l)).join(NL); return fnv(s) !== h || s.length !== l; }).map(x => x[0]);
+  const zonderV113713 = (s) => String(s).split('\n').filter(l => !/V11\.37\.13(?!\d)/.test(l)).join('\n');   // V11.37.13: R1 en R3 van de tegenrichting-regel (test_tegenbocht); hier terug
+  const zonderV113712 = (s) => zonderV113713(s).split('\n').filter(l => !/V11\.37\.12(?!\d)/.test(l)).join('\n');   // V11.37.12: de rem op de kaartvraag en de dekking van de fietslijst (test_overpass); hier terug
+  const zonderV113711 = (s) => zonderV113712(s).split('\n').filter(l => !/V11\.37\.11(?!\d)/.test(l)).join('\n');   // V11.37.11: de tegenrichting-regel (test_tegenrichting); hier terug
+  const terugV11378 = (s) => zonderV113711(s).replace("      if (wisselStaat.min === null || af < wisselStaat.min) { wisselStaat.min = af; wisselStaat.minT = Date.now(); }   // V11.37.8: en wanneer (tMin)", "      if (wisselStaat.min === null || af < wisselStaat.min) wisselStaat.min = af;").replace("  if (!dichtstbijOSM) { logOpslagMis('bevestig_geen_licht', { element: categorie }); return; }   // V11.37.8: niet meer stil", "  if (!dichtstbijOSM) return;").split('\n').filter(l => !/V11\.37\.8(?!\d)/.test(l)).join('\n');   // V11.37.8: het fietsfilter en de bevroren knoppen (test_fietslicht); hier terug
+  const anders = Object.entries(V11372).filter(([n, [h, l]]) => { const s = terugV11374(terugV11378(window[n])).split(NL).filter(l => !/V11\.37\.4(?!\d)/.test(l)).join(NL); return fnv(s) !== h || s.length !== l; }).map(x => x[0]);
   eis('RT6a de lichtkeuze is onaangeroerd door V11.37.3: veertien functies (onGPS en NB14 inbegrepen, zonder de V11.37.4-regels) byte-gelijk aan V11.37.2',
       anders.length === 0, 'geen afwijking', anders.join(', ') || 'geen');
   const t = String(tikRichting);
   eis('RT6b in tikRichting zijn alleen het doel en het logveld veranderd: drie regels met merkteken V11.37.3',
-      (t.match(/V11\.37\.3/g) || []).length === 3 && t.includes('const nodeId = (dichtstbijOSM ? String(dichtstbijOSM.id) : null) || oudDoel;'),
-      '3 regels', String((t.match(/V11\.37\.3/g) || []).length));
+      (t.match(/V11\.37\.3(?!\d)/g) || []).length === 3 && t.includes('const nodeId = (dichtstbijOSM ? String(dichtstbijOSM.id) : null) || oudDoel;'),
+      '3 regels', String((t.match(/V11\.37\.3(?!\d)/g) || []).length));
 
   try { if (typeof idbFlush === 'function') await idbFlush(); } catch (e) {}
   await slaap(50);

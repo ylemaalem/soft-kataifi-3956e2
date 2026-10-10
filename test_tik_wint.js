@@ -35,7 +35,7 @@
 //  randfout zien: de helper maakte de fout van de handler precies ongedaan.
 //
 //  DRAAIEN
-//    python -m http.server 8765 --bind 127.0.0.1     (in de repo-map)
+//    python testserver.py 8765     (in de repo-map; wachtrij 128, zie testserver.py)
 //    open http://127.0.0.1:8765/index.html
 //    in de console:
 //      var s=document.createElement('script'); s.src='/test_tik_wint.js';
@@ -402,8 +402,11 @@ async function testTikWint() {
       .replace('|| (afst < DETLOG_MIN_M && !stil) || afst > DETLOG_MAX_M) return;   // V11.37.5: stilstand vlak bij het licht mag', '|| afst < DETLOG_MIN_M || afst > DETLOG_MAX_M) return;')
       .replace('if (snelheidKmh <= 30 && dichtstbijOSM) toonRichtingKnoppen(String(dichtstbijOSM.id));   // V11.37.5: het licht dat de app NU toont, zie isGetoondLicht', 'if (snelheidKmh <= 30) toonRichtingKnoppen(huidigBevestigdOsmNodeId);');
     const terugV11377 = (s) => String(s).replace("  const naExport = () => {};   // V11.37.7: het schaduwlog niet meer wissen; het is een ring (MAX_SCHADUWLOG)", "  const naExport = () => { try { localStorage.removeItem('sl_schaduwlog'); } catch(_) {} };");   // V11.37.7: het schaduwlog wist niet meer (test_getoond_licht); hier terug
-    const terugV11378 = (s) => String(s).replace("      if (wisselStaat.min === null || af < wisselStaat.min) { wisselStaat.min = af; wisselStaat.minT = Date.now(); }   // V11.37.8: en wanneer (tMin)", "      if (wisselStaat.min === null || af < wisselStaat.min) wisselStaat.min = af;").replace("  if (!dichtstbijOSM) { logOpslagMis('bevestig_geen_licht', { element: categorie }); return; }   // V11.37.8: niet meer stil", "  if (!dichtstbijOSM) return;").split('\n').filter(l => !/V11\.37\.8/.test(l)).join('\n');   // V11.37.8: het fietsfilter en de bevroren knoppen (test_fietslicht); hier terug
-    const zonderMeet = (s) => terugV11378(terugV11377(terugV11375(terugV11374(s)))).split('\n').filter(l => !/V11\.34\.[2-9]|V11\.36\.[124]|V11\.37\.[1245]/.test(l)).join('\n');   // V11.36.4: de wissellog; V11.37.4: de achter-regel; V11.37.5: zie test_knoppen
+    const terugV11378 = (s) => String(s).replace("      if (wisselStaat.min === null || af < wisselStaat.min) { wisselStaat.min = af; wisselStaat.minT = Date.now(); }   // V11.37.8: en wanneer (tMin)", "      if (wisselStaat.min === null || af < wisselStaat.min) wisselStaat.min = af;").replace("  if (!dichtstbijOSM) { logOpslagMis('bevestig_geen_licht', { element: categorie }); return; }   // V11.37.8: niet meer stil", "  if (!dichtstbijOSM) return;").split('\n').filter(l => !/V11\.37\.8(?!\d)/.test(l)).join('\n');   // V11.37.8: het fietsfilter en de bevroren knoppen (test_fietslicht); hier terug
+    const zonderV113713 = (s) => String(s).split('\n').filter(l => !/V11\.37\.13(?!\d)/.test(l)).join('\n');   // V11.37.14: R1 en R3 (test_tegenbocht); het oude patroon hieronder slikte die regels stil in
+    const zonderV113712 = (s) => zonderV113713(s).split('\n').filter(l => !/V11\.37\.12(?!\d)/.test(l)).join('\n');   // V11.37.14: de rem en de fietsdekking (test_overpass); idem
+    const zonderV113711 = (s) => zonderV113712(s).split('\n').filter(l => !/V11\.37\.11(?!\d)/.test(l)).join('\n');   // V11.37.14: de tegenrichting-regel (test_tegenrichting); idem
+    const zonderMeet = (s) => terugV11378(terugV11377(terugV11375(terugV11374(zonderV113711(s))))).split('\n').filter(l => !/V11\.34\.[2-9](?!\d)|V11\.36\.[124](?!\d)|V11\.37\.[1245](?!\d)/.test(l)).join('\n');   // V11.36.4: de wissellog; V11.37.4: de achter-regel; V11.37.5: zie test_knoppen; V11.37.14: zonderV113711
     const anders = Object.entries(ONGEWIJZIGD).filter(([n, [h, l]]) => fnv(zonderMeet(String(eval(n)))) !== h || zonderMeet(String(eval(n))).length !== l).map(x => x[0]);
     eis('TW9d vijftien functies die V11.33.0 niet raakt, zijn byte-gelijk aan V11.32.0 (NB14 inbegrepen)',
         anders.length === 0, 'geen afwijking', anders.join(', ') || 'geen');

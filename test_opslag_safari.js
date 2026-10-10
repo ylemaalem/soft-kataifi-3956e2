@@ -196,13 +196,13 @@ async function testOpslagSafari() {
     // regels zijn niet toegevoegd maar aangepast (een extra argument); die
     // worden hier terug in hun V11.36.0-vorm gezet.
     const terug = (s) => s.split('\n').map(l => {
-      if (!/V11\.36\.1/.test(l)) return l;
+      if (!/V11\.36\.1(?!\d)/.test(l)) return l;
       if (/, performance\.now\(\) - t\w+\);/.test(l)) return l.replace(/, performance\.now\(\) - t\w+\);\s*\/\/.*$/, ');');
       if (/function logOpruiming\(bron, kbVoor, tel, ms\)/.test(l)) return 'function logOpruiming(bron, kbVoor, tel) {';
       return null;
     }).filter(l => l !== null).join('\n');
     const V11360 = { checkLocalStorageRuimte: ['8de1f9d8', 564], logOpruiming: ['27e9e21b', 1415], ruimOpslagNuOp: ['8bb75695', 3142] };
-    const terugV113710 = (s) => String(s).replace("    for (const key of opslagSleutels('')) { const ruw = opslagLeesRuw(key) || ''; totaal += ruw.length * 2; grof += key.length + ruw.length; }   // V11.37.10: dezelfde lus, twee tellingen", "    for (const key of opslagSleutels('')) totaal += (opslagLeesRuw(key) || '').length * 2;").replace("    if (opruimNodig(grof)) {   // V11.37.10: was totaal/(1024*1024) > 4.0, zie opruimNodig", "    if (totaal/(1024*1024) > 4.0) {").split('\n').filter(l => !/V11\.37\.10/.test(l)).join('\n');   // V11.37.10: de grens telt zoals Safari (test_opruim_safari); hier terug
+    const terugV113710 = (s) => String(s).replace("    for (const key of opslagSleutels('')) { const ruw = opslagLeesRuw(key) || ''; totaal += ruw.length * 2; grof += key.length + ruw.length; }   // V11.37.10: dezelfde lus, twee tellingen", "    for (const key of opslagSleutels('')) totaal += (opslagLeesRuw(key) || '').length * 2;").replace("    if (opruimNodig(grof)) {   // V11.37.10: was totaal/(1024*1024) > 4.0, zie opruimNodig", "    if (totaal/(1024*1024) > 4.0) {").split('\n').filter(l => !/V11\.37\.10(?!\d)/.test(l)).join('\n');   // V11.37.10: de grens telt zoals Safari (test_opruim_safari); hier terug
     const afw = Object.entries(V11360).filter(([n, [h, l]]) => { const s = terug(terugV113710(eval(n))); return fnv(s) !== h || s.length !== l; }).map(x => x[0]);
     eis('SA5a zonder de V11.36.1-regels zijn checkLocalStorageRuimte, logOpruiming en ruimOpslagNuOp byte-gelijk aan V11.36.0',
         afw.length === 0, 'geen afwijking', afw.join(', ') || 'geen');
@@ -210,7 +210,7 @@ async function testOpslagSafari() {
     const afw2 = Object.entries(ONGEMOEID).filter(([n, [h, l]]) => fnv(String(eval(n))) !== h || String(eval(n)).length !== l).map(x => x[0]);
     eis('SA5b de UTF-16-telling, de passen en het overzicht zijn onaangeroerd', afw2.length === 0, 'geen afwijking', afw2.join(', ') || 'geen');
     const terugV11377 = (s) => String(s).replace("  const naExport = () => {};   // V11.37.7: het schaduwlog niet meer wissen; het is een ring (MAX_SCHADUWLOG)", "  const naExport = () => { try { localStorage.removeItem('sl_schaduwlog'); } catch(_) {} };");   // V11.37.7: het schaduwlog wist niet meer (test_getoond_licht); hier terug
-    const zonder = terugV11377(exporteerMeetdata).split('\n').filter(l => !/V11\.34\.[2-9]|V11\.36\.[14]|V11\.37\.1/.test(l)).join('\n');   // V11.36.4: de wisselbak
+    const zonder = terugV11377(exporteerMeetdata).split('\n').filter(l => !/V11\.34\.[2-9](?!\d)|V11\.36\.[14](?!\d)|V11\.37\.1(?!\d)/.test(l)).join('\n');   // V11.36.4: de wisselbak
     eis('SA5c exporteerMeetdata zonder meetregels is nog steeds V11.34.1', fnv(zonder) === 'ef1e19bb' && zonder.length === 7864,
         'ef1e19bb / 7864', fnv(zonder) + ' / ' + zonder.length);
     zet('sl_v4_996803_dag', [{ duur: 42, tijd: 3 }]);

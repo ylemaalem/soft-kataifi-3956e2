@@ -30,7 +30,7 @@
 //  SR10 regressie: onGPS zonder de V11.37.1-regel is byte-gelijk aan V11.37.0
 //
 //  DRAAIEN
-//    python -m http.server 8765 --bind 127.0.0.1     (in de repo-map)
+//    python testserver.py 8765     (in de repo-map; wachtrij 128, zie testserver.py)
 //    open http://127.0.0.1:8765/index.html
 //    in de console:
 //      var s=document.createElement('script'); s.src='/test_schaduwregel.js';
@@ -281,12 +281,24 @@ async function testSchaduwregel() {
     document.body.appendChild(f);
     try {
       await new Promise((ok, nee) => { f.onload = ok; f.onerror = nee; });
+      for (let poging = 2; typeof f.contentWindow.onGPS !== 'function'; poging++) {   // V11.37.14: de app zelf laadde niet (testopstelling): de pagina opnieuw
+        if (poging > 3) throw new Error('testopstelling: de app laadde niet in de iframe (3 pogingen)');
+        await new Promise((ok, nee) => { f.onload = ok; f.onerror = nee; f.src = pagina + '?opnieuw=' + Math.random(); });
+      }
       const w = f.contentWindow;
-      await new Promise((ok, nee) => {
-        const sc = w.document.createElement('script');
-        sc.src = bron + '?t=' + Date.now(); sc.onload = ok; sc.onerror = () => nee(new Error('laden'));
-        w.document.head.appendChild(sc);
-      });
+      for (let poging = 1; ; poging++) {   // V11.37.14: een laadfout is de testopstelling, niet de app; zie test_merktekens
+        try {
+          await new Promise((ok, nee) => {
+            const sc = w.document.createElement('script');
+            sc.src = bron + '?t=' + Date.now() + '-' + poging; sc.onload = ok; sc.onerror = () => { sc.remove(); nee(new Error('laden')); };
+            w.document.head.appendChild(sc);
+          });
+          break;
+        } catch (e) {
+          if (poging >= 3) throw new Error('testopstelling: het testscript laadde niet in de iframe (3 pogingen)');
+          await new Promise((r) => setTimeout(r, 250 * poging));
+        }
+      }
       return await w.regelRitBinnen(opt);
     } catch (e) {
       return { fout: String((e && e.stack) || e).slice(0, 300), rij: [], wissel: [], regellog: [], tik: [] };
@@ -333,7 +345,10 @@ async function testSchaduwregel() {
     .replace('const afst = dichtstbijOSM ? dichtstbijOSM.afstand : Infinity;   // V11.37.4', 'const afst = dichtstbijOSM.afstand;')
     .replace('const nodeId = dichtstbijOSM ? String(dichtstbijOSM.id) : null;   // V11.37.4', 'const nodeId = String(dichtstbijOSM.id);')
     .replace('kandidaatPos ?? (dichtstbijOSM ? { lat: dichtstbijOSM.lat, lon: dichtstbijOSM.lon } : { lat, lon }),   // V11.37.4', 'kandidaatPos ?? { lat: dichtstbijOSM.lat, lon: dichtstbijOSM.lon },');
-  const g = terugV11374(String(onGPS)).split(NL).filter(l => !/V11\.34\.[2-9]|V11\.36\.[14]|V11\.37\.[124]/.test(l)).join(NL);   // V11.37.2: gedrag, getoetst in test_snelroute SN6b; V11.37.4: test_achter
+  const zonderV113713 = (s) => String(s).split(NL).filter(l => !/V11\.37\.13(?!\d)/.test(l)).join(NL);   // V11.37.14: R1 en R3 (test_tegenbocht); het oude patroon hieronder slikte die regels stil in
+  const zonderV113712 = (s) => zonderV113713(s).split(NL).filter(l => !/V11\.37\.12(?!\d)/.test(l)).join(NL);   // V11.37.14: de rem en de fietsdekking (test_overpass); idem
+  const zonderV113711 = (s) => zonderV113712(s).split(NL).filter(l => !/V11\.37\.11(?!\d)/.test(l)).join(NL);   // V11.37.14: de tegenrichting-regel (test_tegenrichting); idem
+  const g = terugV11374(zonderV113711(onGPS)).split(NL).filter(l => !/V11\.34\.[2-9](?!\d)|V11\.36\.[14](?!\d)|V11\.37\.[124](?!\d)/.test(l)).join(NL);   // V11.37.2: gedrag, getoetst in test_snelroute SN6b; V11.37.4: test_achter; V11.37.14: zonderV113711
   eis('SR10a onGPS zonder de meetregels (ook de schaduwregel) is byte-gelijk aan V11.37.0 (c767e2a3 / 14333)',
       fnv(g) === 'c767e2a3' && g.length === 14333, 'c767e2a3 / 14333', fnv(g) + ' / ' + g.length);
   const og = zc(onGPS);
