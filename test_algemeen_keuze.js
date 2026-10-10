@@ -55,6 +55,7 @@ function testAlgemeenKeuze() {
     richtingLockKeuze, richtingLockNodeId, richtingKnoppenNodeId,
     richtingGedruktVoorNode, v9AanrijHeading, v9AanrijSnelheidHeading,
     v9PreSelectieAfrij, richtingTekort, huidigCdBron,
+    richtingTikTijd, richtingTikElement,   // V11.37.13: een richtingtik uit het blok van een vorige toets (test_richting_dubbel) negeerde hier de Algemeen-tik (V11.37.9)
     indicHtml: (document.getElementById('v9-richting-indicator') || {}).innerHTML,
     indicDisp: (document.getElementById('v9-richting-indicator') || {}).style
                  ? document.getElementById('v9-richting-indicator').style.display : null,
@@ -63,6 +64,7 @@ function testAlgemeenKeuze() {
 
   const nu = Date.now();
   const NODE = 991201;
+  richtingTikTijd = 0; richtingTikElement = null;   // V11.37.13: zie bewaard
   const DD_NU = huidigDDActief();
   // obs === duur en gewicht 1 laat vlakGewichtVoor de vlakke weging kiezen —
   // hetzelfde pad als een echte s1-meting.
@@ -467,6 +469,7 @@ function testAlgemeenKeuze() {
     v9PreSelectieAfrij = bewaard.v9PreSelectieAfrij;
     richtingTekort = bewaard.richtingTekort;
     huidigCdBron = bewaard.huidigCdBron;
+    richtingTikTijd = bewaard.richtingTikTijd; richtingTikElement = bewaard.richtingTikElement;   // V11.37.13
     // De indicator terug op wat er stond: tikRichting en de nieuwe
     // Algemeen-tak schrijven allebei in dit element, dus een achtergebleven
     // pijl zou in het echte scherm blijven hangen na een testrun.

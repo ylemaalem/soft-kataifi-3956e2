@@ -260,7 +260,10 @@ async function testOverpass() {
       '>= 900 s', fouten(o10c) || k10c.map(x => Math.round(x / 1000)).join(', ') + ' s');
 
   // ═══ OV11 — regressie ══════════════════════════════════════
-  const zonder = (s) => String(s).split(NL).filter(l => !/V11\.37\.12/.test(l)).join(NL);
+  // V11.37.13: R1 en R3 van de tegenrichting-regel (test_tegenbocht): nieuwe regels weg, de twee gewijzigde regels van tegenLog terug.
+  const terugV113713 = (s) => String(s).replace("    const sleutel = bron + ':' + sl.id + (w ? ':' + w : ''), nu = Date.now();   // V11.37.13: per reden een eigen regel", "    const sleutel = bron + ':' + sl.id, nu = Date.now();").replace("               h: k == null ? null : Math.round(Math.min(...sl.eenrichting.map(r => tegenHoekVerschil(r, k)))), ...(w ? { w } : {}) } });   // V11.37.13: met de reden w",
+    "               h: k == null ? null : Math.round(Math.min(...sl.eenrichting.map(r => tegenHoekVerschil(r, k)))) } });").split(NL).filter(l => !/V11\.37\.13/.test(l)).join(NL);   // V11.37.13
+  const zonder = (s) => terugV113713(s).split(NL).filter(l => !/V11\.37\.12/.test(l)).join(NL);   // V11.37.13: eerst terugV113713
   const merk = (f) => String(f).split(NL).filter(l => /V11\.37\.12/.test(l)).length;
   const V113711 = { downloadOSM: ['751a75e4', 4278, 4], onGPS: ['146fb83c', 15195, 1] };
   const telAf = Object.entries(V113711).filter(([n, [h, l, m]]) => merk(window[n]) !== m).map(([n]) => n + ' ' + merk(window[n]));
@@ -274,7 +277,7 @@ async function testOverpass() {
     tegenKoers: ['67e36df', 149], tegenLog: ['75f6b5b4', 569], vindDichtbijScore: ['bc9b7937', 2105], achterSluitUit: ['6b7a87d8', 383],
     checkNodeCorrectieStilstand: ['8c801fd8', 4751], selecteerNodeHandmatig: ['8c3e7846', 2480], haalStraatnamenOp: ['2a318437', 1102],
     berekenClusterNodes: ['3c2246d1', 1361], migratieSlPos: ['2f5621af', 396] };
-  const anders2 = Object.entries(ONGEWIJZIGD).filter(([n, [h, l]]) => { const s = String(window[n]); return fnv(s) !== h || s.length !== l; }).map(x => x[0]);
+  const anders2 = Object.entries(ONGEWIJZIGD).filter(([n, [h, l]]) => { const s = terugV113713(window[n]); return fnv(s) !== h || s.length !== l; }).map(x => x[0]);   // V11.37.13: terugV113713
   eis('OV11c eenentwintig functies die V11.37.12 niet raakt (de lichtkeuze, het fietsfilter zelf, de tegenrichting-regel, het log, de kaartverwerking): byte-gelijk aan V11.37.11',
       anders2.length === 0, 'geen afwijking', anders2.join(', ') || 'geen');
 

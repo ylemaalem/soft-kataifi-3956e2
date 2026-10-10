@@ -175,8 +175,10 @@ async function testTegenrichting() {
         'false / false / false', [tegenSluitUit({ id: 1, eenrichting: null }), tegenSluitUit({ id: 1, eenrichting: [] }), tegenSluitUit({ id: 1 })].join(' / '));
     const tegen = tegenSluitUit({ id: 2, eenrichting: [180] }), mee = tegenSluitUit({ id: 3, eenrichting: [0] });
     zet(0, 40, { id: 2, lat: 0, lon: 0 });
+    const handBew = tegenHandId; tegenHandId = '2';   // V11.37.13: alleen een getoond licht dat Younes koos blijft altijd (R1, test_tegenbocht)
     const getoond = tegenSluitUit({ id: 2, eenrichting: [180] });
-    eis('TR1c koers 0 bij 40 km/u: een licht op een weg naar 180 valt af, een licht op een weg naar 0 niet, en het getoonde licht nooit',
+    tegenHandId = handBew;   // V11.37.13
+    eis('TR1c koers 0 bij 40 km/u: een licht op een weg naar 180 valt af, een licht op een weg naar 0 niet, en het getoonde licht dat Younes koos nooit',   // V11.37.13: 'dat Younes koos'
         tegen === true && mee === false && getoond === false, 'true / false / false', [tegen, mee, getoond].join(' / '));
     const isGetoond = tegenIsTegen({ id: 2, eenrichting: [180] });
     eis('TR1d het getoonde licht blijft, maar telt niet als ánder autolicht: tegenIsTegen zegt ook daar ja (zie TR7)',
@@ -199,9 +201,9 @@ async function testTegenrichting() {
     const tik = (koers, kmh) => ({ x: 0, y: 0, kmh, koers });
     const kr = await rit({ nodes: kn, punten: [tik(NaN, 40), tik(null, 40), tik(-1, 40), tik(0, 40), tik(90, 40), tik(90, 5), tik(undefined, 40)] });
     const ks = kr.rij.map(x => x.koers);
-    eis('TR2c via onGPS: koers NaN, null, -1 en ontbrekend tellen niet; 0 (gemeten noord) en 90 wel; 90 bij 5 km/u niet',
-        !fouten(kr) && ks[0] === null && ks[1] === null && ks[2] === null && ks[3] === 0 && ks[4] === 90 && ks[5] === null && ks[6] === null,
-        'null null null 0 90 null null', fouten(kr) || ks.map(String).join(' '));
+    eis('TR2c via onGPS: koers NaN, null, -1 en ontbrekend tellen niet; 0 (gemeten noord) en 90 wel; 90 bij 5 km/u sinds V11.37.13 ook (R3, test_tegenbocht)',   // V11.37.13
+        !fouten(kr) && ks[0] === null && ks[1] === null && ks[2] === null && ks[3] === 0 && ks[4] === 90 && ks[5] === 90 && ks[6] === null,   // V11.37.13: ks[5] 90
+        'null null null 0 90 90 null', fouten(kr) || ks.map(String).join(' '));   // V11.37.13
 
     // ═══ TR3 — de grens van 135 graden ═══════════════════════
     zet(0, 40, null);
@@ -363,14 +365,14 @@ async function testTegenrichting() {
         && eerste.nieuw != null && eerste.gt != null && typeof eerste.peilGek === 'number',
       'node, element vind, nieuw, tegen {k, r, h}, gt, peilGek', JSON.stringify(eerste ? { node: eerste.node, element: eerste.element, nieuw: eerste.nieuw, tegen: eerste.tegen, gt: eerste.gt, peilGek: eerste.peilGek } : null));
   const per = {}; let dubbel = 0;
-  for (const { r } of logs) { const k = r.node + ':' + r.element; if (per[k] != null && r.t - per[k] < TEGEN_LOG_MS) dubbel++; per[k] = r.t; }
-  eis('TR10b hoogstens één regel per licht en plek per 30 s; de drie plekken (vind, puur, regel) komen voor', dubbel === 0 && ['vind', 'puur', 'regel'].every(e => logs.some(x => x.r.element === e)),
+  for (const { r } of logs) { const k = r.node + ':' + r.element + ':' + ((r.tegen && r.tegen.w) || ''); if (per[k] != null && r.t - per[k] < TEGEN_LOG_MS) dubbel++; per[k] = r.t; }   // V11.37.13: per reden (test_tegenbocht TB9)
+  eis('TR10b hoogstens één regel per licht, plek en reden per 30 s; de drie plekken (vind, puur, regel) komen voor',   // V11.37.13: 'en reden' dubbel === 0 && ['vind', 'puur', 'regel'].every(e => logs.some(x => x.r.element === e)),
       '0 dubbel, vind + puur + regel', dubbel + ' dubbel; plekken ' + [...new Set(logs.map(x => x.r.element))].join(','));
   const geenLog7 = m7.op.filter(r => r.reden === 'tegen_uit').length;
   eis('TR10c als de regel de keuze niet verandert (alleen tegenlichten), komt er geen regel', geenLog7 === 0, '0', String(geenLog7));
 
   // ═══ TR11 — regressie ══════════════════════════════════════
-  const zonder = (s) => String(s).split(NL).filter(l => !/V11\.37\.11|V11\.37\.12/.test(l)).join(NL);   // V11.37.12: die regels ook (test_overpass)
+  const zonder = (s) => String(s).split(NL).filter(l => !/V11\.37\.11|V11\.37\.12|V11\.37\.13/.test(l)).join(NL);   // V11.37.12: die regels ook (test_overpass); V11.37.13 ook (test_tegenbocht)
   const merk = (f) => String(f).split(NL).filter(l => /V11\.37\.11/.test(l)).length;
   const V113710 = { vindDichtbij: ['d444ee3', 3717, 4], updateDichtbij: ['7b7fce62', 12303, 1], regelKies: ['cd458100', 2307, 5], onGPS: ['d99821b8', 15000, 1],
     downloadOSM: ['82a16b3c', 4147, 1], logOpslagMis: ['e93caaaf', 16068, 1] };

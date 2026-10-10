@@ -1053,7 +1053,7 @@ if (typeof ort !== 'undefined') {
 //
 // De stijl volgt de eerdere labels: nummer, kastlijntje, korte omschrijving in
 // kleine letters. De CSS zet hem zelf in kapitalen (text-transform:uppercase).
-const APP_VERSIE = 'V11.37.12 — Overpass rustiger: de fietslijst per gebied (tot vier), opnieuw na 1, 5, 15 en 60 minuten, en een rem op de kaartvraag';
+const APP_VERSIE = 'V11.37.13 — tegenlicht ook in de bocht en bij kruipen: een getoond tegenlicht dat de app zelf koos valt af, en de regel geldt vanaf 5 km/u met de koers van deze GPS-tik';
 
 // ── CONSTANTEN ────────────────────────────────────────────────
 const OSM_RADIUS       = 5000;
@@ -15180,7 +15180,7 @@ async function fietsHaalOp(lat, lon) {
 //   2. de rijrichting van elk van die wegen op dat punt meer dan TEGEN_HOEK
 //      afwijkt van je koers, en
 //   3. die koers in deze GPS-tik echt gemeten is en je minstens TEGEN_MIN_KMH
-//      rijdt. Een onbekende koers (geen koers in de tik, NaN, negatief) telt
+//      rijdt (V11.37.13: vanaf TEGEN_R3_KMH, zie R3). Een onbekende koers (geen koers in de tik, NaN, negatief) telt
 //      NOOIT als echte koers: dan geldt de regel niet. De bewaarde
 //      huidigeRichting doet hier dus niet mee, want die blijft na een
 //      stilstand staan.
@@ -15196,7 +15196,8 @@ async function fietsHaalOp(lat, lon) {
 //   - nooit als enige kandidaat: is er onder de kandidaten geen ander
 //     autolicht, dan doet alles mee zoals vóór V11.37.11;
 //   - het licht dat de app toont doet altijd mee, dus een getikt of uit de
-//     lijst gekozen licht blijft staan;
+//     lijst gekozen licht blijft staan (V11.37.13: alleen nog als Younes het
+//     zelf koos, zie R1);
 //   - de tik en de lijst lopen niet via deze functie.
 // Toegepast in vindDichtbij, het puur dichtstbijzijnde licht (updateDichtbij)
 // en de schaduwregel (regelKies).
@@ -15248,6 +15249,7 @@ function tegenRijrichtingen(nodeId, wegen) {
 
 // De koers waarmee de regel werkt, of null: dan geldt hij niet.
 function tegenKoers() {
+  if (tegenR3()) return tegenKoersTik;   // V11.37.13 R3: ook tussen 5 en 10 km/u, zie tegenR3
   return (tegenKoersTik != null && typeof snelheidKmh === 'number' && snelheidKmh >= TEGEN_MIN_KMH) ? tegenKoersTik : null;
 }
 
@@ -15261,23 +15263,26 @@ function tegenIsTegen(sl) {
   return sl.eenrichting.every(r => tegenHoekVerschil(r, k) > TEGEN_HOEK);
 }
 
-// Doet dit licht niet mee? Een tegenlicht dat de app niet zelf al toont.
+// Doet dit licht niet mee? Een tegenlicht dat de app niet zelf al toont
+// (V11.37.13: of dat ze toont maar zelf koos, zie R1).
 // 'Nooit als enige kandidaat' zit bij de aanroepers.
 function tegenSluitUit(sl) {
   if (!tegenIsTegen(sl)) return false;
+  if (tegenR1(sl)) return true;   // V11.37.13 R1: het getoonde licht valt toch af als de app het zelf koos, zie tegenR1
   return !(dichtstbijOSM && String(dichtstbijOSM.id) === String(sl.id));
 }
 
 function tegenLog(bron, sl, gekozen) {
   try {
     if (!sl) return;
-    const sleutel = bron + ':' + sl.id, nu = Date.now();
+    const w = tegenReden(sl);   // V11.37.13: R1, R3 of R1R3; leeg bij de regel van V11.37.11
+    const sleutel = bron + ':' + sl.id + (w ? ':' + w : ''), nu = Date.now();   // V11.37.13: per reden een eigen regel
     if (nu - (tegenLogLaatst.get(sleutel) || 0) < TEGEN_LOG_MS) return;
     tegenLogLaatst.set(sleutel, nu);
     const k = tegenKoers();
     logOpslagMis('tegen_uit', { node: sl.id, element: bron, nieuw: gekozen != null ? gekozen : null,
       tegen: { k: k == null ? null : Math.round(k), r: sl.eenrichting,
-               h: k == null ? null : Math.round(Math.min(...sl.eenrichting.map(r => tegenHoekVerschil(r, k)))) } });
+               h: k == null ? null : Math.round(Math.min(...sl.eenrichting.map(r => tegenHoekVerschil(r, k)))), ...(w ? { w } : {}) } });   // V11.37.13: met de reden w
   } catch (e) {}
 }
 
@@ -15296,6 +15301,85 @@ function tegenPuurDichtst(lat, lon, p) {
   if (!ander) return p;
   tegenLog('puur', p, best && best.id);
   return best;
+}
+
+// ── V11.37.13: TEGENLICHT OOK IN DE BOCHT EN BIJ KRUIPEN (R1 EN R3) ──
+// © 2026 StoplichtIQ — Y. Lemaalem
+//
+// WAAROM. Veldgeval M (STAP 0 van 10 okt, test_tegenbocht TB5). De regel van
+// V11.37.11 liet het tegenlicht toch staan, op twee manieren:
+//   M1. de app koos het licht vlak vóór de bocht, toen het nog een dwarslicht
+//       was (88 graden van de koers); na de bocht stond het tegen de koers in,
+//       maar als GETOOND licht deed het altijd mee;
+//   M2. bij kruipen onder 10 km/u gold de regel niet, en zo kwam een tweede
+//       tegenlicht binnen, dat daarna ook als getoond licht bleef staan.
+// Nagereden op de echte route: 28 GPS-tikken met een tegenlicht in beeld.
+//
+// WAT.
+//   R1. Het getoonde licht doet alleen nog altijd mee als Younes het zelf koos:
+//       getikt (op het beeld of op de bbox) of uit de lijst. Alles loopt via
+//       vergrendelNodeHandmatig, en daar wordt het nummer onthouden
+//       (tegenHandId). Een getoond licht dat de app zelf koos, valt af zodra de
+//       koers zegt dat het tegen de rijrichting in staat, en krijgt dan ook
+//       geen voorsprong van de hysterese in vindDichtbij. Wisselt de app naar
+//       een ander licht, dan vervalt het onthouden nummer (tegenTikNoteer).
+//   R3. De regel geldt ook tussen TEGEN_R3_KMH (5) en TEGEN_MIN_KMH (10) km/u,
+//       maar alleen met de koers van DEZE GPS-tik: tegenKoersTik (een geldige
+//       koers in de tik zelf, anders null) en niet ouder dan TEGEN_VERS_MS.
+//       Een bewaarde koers van eerder (huidigeRichting, de gladde koers) telt
+//       nooit. Vanaf 10 km/u blijft alles zoals in V11.37.11.
+//
+// VEILIGHEDEN, dezelfde als in V11.37.11:
+//   - een eigen schakelaar TEGEN_R13_ACTIEF (tegenR13Aan), en de schakelaar van
+//     V11.37.11 zet ook deze uit; met de schakelaar uit is alles per GPS-tik
+//     gelijk aan V11.37.12;
+//   - fail-open: zonder 'eenrichting' valt niets af;
+//   - nooit als enige kandidaat: is er geen ander autolicht, dan doet het
+//     getoonde tegenlicht weer mee, met zijn voorsprong (vindDichtbij,
+//     tegenPuurDichtst en regelKies zijn daarvoor ongewijzigd);
+//   - een getikt of uit de lijst gekozen licht blijft staan.
+//
+// GEMETEN VOORAF (nabouw met de echte app, kladmap): veldgeval M 28 -> 4
+// tikken (de vier vallen vóór de bocht, toen het licht nog dwars stond); het
+// veldgeval B 5 -> 2; A, C en D dezelfde keuze; op de 73 stops verandert één tik (bij
+// 8 km/u), en die wordt beter; geen enkel goed licht valt af. Met 10 tot 20
+// graden ruis op de koers bij 3-10 km/u valt nergens een goed licht af.
+//
+// LOG. tegen_uit krijgt tegen.w: 'R1' (het uitgesloten licht was het getoonde),
+// 'R3' (onder 10 km/u) of 'R1R3'. Zonder w is het de regel van V11.37.11. De
+// grens van één regel per licht en plek per 30 s geldt per reden, zodat een
+// uitsluiting door R1 of R3 niet wegvalt achter een eerdere van de oude regel.
+const TEGEN_R13_ACTIEF = true;
+const TEGEN_R3_KMH     = 5;
+const TEGEN_VERS_MS    = 1500;   // R3: zo oud mag de koers van 'deze' GPS-tik zijn
+let tegenKoersTikT = 0;          // wanneer onGPS tegenKoersTik zette
+let tegenHandId = null;          // R1: het licht dat Younes tikte of uit de lijst koos
+function tegenR13Aan() { return TEGEN_R13_ACTIEF && tegenUitAan(); }
+
+// R3: tussen 5 en 10 km/u, met een geldige koers uit deze GPS-tik.
+function tegenR3() {
+  return tegenR13Aan() && tegenKoersTik != null && Number.isFinite(tegenKoersTik) && tegenKoersTik >= 0
+    && typeof snelheidKmh === 'number' && snelheidKmh >= TEGEN_R3_KMH && snelheidKmh < TEGEN_MIN_KMH
+    && (Date.now() - tegenKoersTikT) <= TEGEN_VERS_MS;
+}
+
+// R1: is sl het getoonde licht, en koos de app het zelf?
+function tegenR1(sl) {
+  return tegenR13Aan() && !!sl && !!dichtstbijOSM && String(dichtstbijOSM.id) === String(sl.id) && tegenHandId !== String(sl.id);
+}
+
+// Per GPS-tik (onGPS): de tijd van de koers, en het getikte licht vergeten als
+// de app intussen een ander licht toont.
+function tegenTikNoteer() {
+  tegenKoersTikT = Date.now();
+  if (tegenHandId !== null && !(dichtstbijOSM && String(dichtstbijOSM.id) === tegenHandId)) tegenHandId = null;
+}
+
+// De reden voor de logregel: wat V11.37.11 nog niet uitsloot.
+function tegenReden(sl) {
+  const r1 = !!(sl && dichtstbijOSM && String(dichtstbijOSM.id) === String(sl.id));
+  const r3 = typeof snelheidKmh === 'number' && snelheidKmh < TEGEN_MIN_KMH;
+  return r1 && r3 ? 'R1R3' : r1 ? 'R1' : r3 ? 'R3' : null;
 }
 
 function berekenLateraleOffset(lat1, lon1, lat2, lon2, heading) {
@@ -15519,6 +15603,7 @@ function vindDichtbij(lat, lon, heading) {
     }
   }
   if (achterAan() && dichtstbijOSM && achterIsVoorbij(dichtstbijOSM.id)) return beste;   // V11.37.4: een gepasseerd licht krijgt geen voorsprong
+  if (beste && dichtstbijOSM && String(beste.id) !== String(dichtstbijOSM.id) && !isFietsLicht(beste.id) && !tegenIsTegen(beste) && tegenSluitUit(dichtstbijOSM)) { tegenLog('vind', dichtstbijOSM, beste.id); return beste; }   // V11.37.13 R1: een uitgesloten getoond licht krijgt geen voorsprong; met een ander autolicht als beste, anders blijft de hysterese
   // Hysterese: huidige node behoudt voorsprong
   if (beste && dichtstbijOSM && String(beste.id) !== String(dichtstbijOSM.id)) {
     const huidigAf = afstand(lat, lon, dichtstbijOSM.lat, dichtstbijOSM.lon);
@@ -18853,6 +18938,7 @@ function vergrendelNodeHandmatig(nodeId, element) {
   handmatigGeselecteerdTimestamp = Date.now();
   handmatigLockActief = true;
   stilstandAutoLock = false;
+  tegenHandId = n;   // V11.37.13 R1: dit licht koos Younes zelf, zie tegenR1
   handLockVervalReset();   // een verse tap begint met een schone vervalteller
   // ── V11.36.0 A1: EEN TIK OP HET BEELD WIST HET NADERINGSBEWIJS NIET MEER ──
   // © 2026 StoplichtIQ — Y. Lemaalem
@@ -21706,6 +21792,7 @@ async function onGPS(pos) {
     voegHeadingToe(pos.coords.heading);
   }
   tegenKoersTik = (pos.coords.heading != null && !isNaN(pos.coords.heading) && pos.coords.heading >= 0) ? pos.coords.heading : null;   // V11.37.11: alleen een echt gemeten koers, zie tegenKoers
+  tegenTikNoteer();   // V11.37.13: de tijd van die koers (R3) en het getikte licht (R1), zie daar
   const snelheidMs = (pos.coords.speed!=null && !isNaN(pos.coords.speed)) ? pos.coords.speed : 0;
   snelheidKmh = snelheidMs * 3.6;
   gpsBuffer   = Math.min(10 + snelheidKmh*0.4, 40);
