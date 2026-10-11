@@ -274,7 +274,8 @@ async function testPassage() {
     .replace('const afst = dichtstbijOSM ? dichtstbijOSM.afstand : Infinity;   // V11.37.4', 'const afst = dichtstbijOSM.afstand;')
     .replace('const nodeId = dichtstbijOSM ? String(dichtstbijOSM.id) : null;   // V11.37.4', 'const nodeId = String(dichtstbijOSM.id);')
     .replace('kandidaatPos ?? (dichtstbijOSM ? { lat: dichtstbijOSM.lat, lon: dichtstbijOSM.lon } : { lat, lon }),   // V11.37.4', 'kandidaatPos ?? { lat: dichtstbijOSM.lat, lon: dichtstbijOSM.lon },');
-  const zonderV113713 = (s) => String(s).split(NL).filter(l => !/V11\.37\.13(?!\d)/.test(l)).join(NL);   // V11.37.14: R1 en R3 (test_tegenbocht); het oude patroon hieronder slikte die regels stil in
+  const zonderV113715 = (s) => String(s).split(NL).filter(l => !/V11\.37\.15(?!\d)/.test(l)).join(NL);   // V11.37.15: de koersmeting (test_koerslog); hier terug
+  const zonderV113713 = (s) => zonderV113715(s).split(NL).filter(l => !/V11\.37\.13(?!\d)/.test(l)).join(NL);   // V11.37.14: R1 en R3 (test_tegenbocht); het oude patroon hieronder slikte die regels stil in
   const zonderV113712 = (s) => zonderV113713(s).split(NL).filter(l => !/V11\.37\.12(?!\d)/.test(l)).join(NL);   // V11.37.14: de rem en de fietsdekking (test_overpass); idem
   const zonderV113711 = (s) => zonderV113712(s).split(NL).filter(l => !/V11\.37\.11(?!\d)/.test(l)).join(NL);   // V11.37.14: de tegenrichting-regel (test_tegenrichting); idem
   const g = terugV11374(zonderV113711(onGPS)).split(NL).filter(l => !/V11\.36\.4(?!\d)|V11\.37\.[0124](?!\d)/.test(l)).join(NL);   // V11.37.14: zonderV113711

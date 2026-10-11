@@ -292,7 +292,8 @@ async function testRondGewicht() {
   eis('RG7a zeven functies veranderen, alleen met regels met merkteken V11.37.9', telAf.length === 0, 'precies zoveel', telAf.join(', ') || 'precies zoveel');
   const anders = Object.entries(V11378).filter(([n, [h, l]]) => { const s = terug(window[n]); return fnv(s) !== h || s.length !== l; }).map(x => x[0]);
   eis('RG7b met die regels terug (vier waren een andere regel, de rest is nieuw) byte-gelijk aan V11.37.8', anders.length === 0, 'geen afwijking', anders.join(', ') || 'geen');
-  const zonderV113713 = (s) => String(s).split('\n').filter(l => !/V11\.37\.13(?!\d)/.test(l)).join('\n');   // V11.37.13: R1 en R3 van de tegenrichting-regel (test_tegenbocht); hier terug
+  const zonderV113715 = (s) => String(s).split('\n').filter(l => !/V11\.37\.15(?!\d)/.test(l)).join('\n');   // V11.37.15: de koersmeting (test_koerslog); hier terug
+  const zonderV113713 = (s) => zonderV113715(s).split('\n').filter(l => !/V11\.37\.13(?!\d)/.test(l)).join('\n');   // V11.37.13: R1 en R3 van de tegenrichting-regel (test_tegenbocht); hier terug
   const zonderV113712 = (s) => zonderV113713(s).split('\n').filter(l => !/V11\.37\.12(?!\d)/.test(l)).join('\n');   // V11.37.12: de rem op de kaartvraag en de dekking van de fietslijst (test_overpass); hier terug
   const zonderV113711 = (s) => zonderV113712(s).split('\n').filter(l => !/V11\.37\.11(?!\d)/.test(l)).join('\n');   // V11.37.11: de tegenrichting-regel (test_tegenrichting); hier terug
   const ONGEWIJZIGD = { berekenLeerPct: ['5d38efe9', 986], algemeenMetingen: ['40c40223', 1285], laagDagdeelPct: ['8c863dca', 914], tikRichting: ['b44110d5', 4619],

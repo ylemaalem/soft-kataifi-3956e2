@@ -128,7 +128,7 @@ async function testGetoondLicht() {
 
   // ═══ GL4 — regressie ═══════════════════════════════════════
   const terug = {
-    exporteerMeetdata: (s) => s.replace("  const naExport = () => {};   // V11.37.7: het schaduwlog niet meer wissen; het is een ring (MAX_SCHADUWLOG)",
+    exporteerMeetdata: (s) => s.split('\n').filter(l => !/V11\.37\.15(?!\d)/.test(l)).join('\n').replace("  const naExport = () => {};   // V11.37.7: het schaduwlog niet meer wissen; het is een ring (MAX_SCHADUWLOG)",   // V11.37.15: eerst de koersbak eruit (test_koerslog)
                                         "  const naExport = () => { try { localStorage.removeItem('sl_schaduwlog'); } catch(_) {} };"),
     tekenRadarSheet: (s) => s.replace("  const activeNodeId = dichtstbijOSM ? String(dichtstbijOSM.id) : null;   // V11.37.7: het getoonde licht, zie boven updateDebugOverlay",
                                       "  const activeNodeId = (typeof huidigBevestigdOsmNodeId !== 'undefined' && huidigBevestigdOsmNodeId)\n    ? String(huidigBevestigdOsmNodeId)\n    : (dichtstbijOSM ? String(dichtstbijOSM.id) : null);"),
@@ -146,7 +146,8 @@ async function testGetoondLicht() {
     achterTik: ['e9e105a3', 1583], checkHandLockVerval: ['2df4f7ed', 5513], checkHandLockPassage: ['7f001264', 1768], checkNodeCorrectieStilstand: ['8c801fd8', 4751],
     corrigeerNodeAutomatisch: ['afe7b427', 4118], checkTikSlotSnel: ['d3a8edbe', 2071], vindDichtbijScore: ['bc9b7937', 2105],
     isGetoondLicht: ['36a3cc63', 126], tikRichting: ['b44110d5', 4619], heropenRichtingKeuze: ['d2442860', 386] };
-  const zonderV113713 = (s) => String(s).split('\n').filter(l => !/V11\.37\.13(?!\d)/.test(l)).join('\n');   // V11.37.13: R1 en R3 van de tegenrichting-regel (test_tegenbocht); hier terug
+  const zonderV113715 = (s) => String(s).split('\n').filter(l => !/V11\.37\.15(?!\d)/.test(l)).join('\n');   // V11.37.15: de koersmeting (test_koerslog); hier terug
+  const zonderV113713 = (s) => zonderV113715(s).split('\n').filter(l => !/V11\.37\.13(?!\d)/.test(l)).join('\n');   // V11.37.13: R1 en R3 van de tegenrichting-regel (test_tegenbocht); hier terug
   const zonderV113712 = (s) => zonderV113713(s).split('\n').filter(l => !/V11\.37\.12(?!\d)/.test(l)).join('\n');   // V11.37.12: de rem op de kaartvraag en de dekking van de fietslijst (test_overpass); hier terug
   const zonderV113711 = (s) => zonderV113712(s).split('\n').filter(l => !/V11\.37\.11(?!\d)/.test(l)).join('\n');   // V11.37.11: de tegenrichting-regel (test_tegenrichting); hier terug
   const terugV11378 = (s) => zonderV113711(s).replace("      if (wisselStaat.min === null || af < wisselStaat.min) { wisselStaat.min = af; wisselStaat.minT = Date.now(); }   // V11.37.8: en wanneer (tMin)", "      if (wisselStaat.min === null || af < wisselStaat.min) wisselStaat.min = af;").replace("  if (!dichtstbijOSM) { logOpslagMis('bevestig_geen_licht', { element: categorie }); return; }   // V11.37.8: niet meer stil", "  if (!dichtstbijOSM) return;").split('\n').filter(l => !/V11\.37\.8(?!\d)/.test(l)).join('\n');   // V11.37.8: het fietsfilter en de bevroren knoppen (test_fietslicht); hier terug

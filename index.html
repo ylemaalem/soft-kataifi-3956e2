@@ -1053,7 +1053,7 @@ if (typeof ort !== 'undefined') {
 //
 // De stijl volgt de eerdere labels: nummer, kastlijntje, korte omschrijving in
 // kleine letters. De CSS zet hem zelf in kapitalen (text-transform:uppercase).
-const APP_VERSIE = 'V11.37.13 — tegenlicht ook in de bocht en bij kruipen: een getoond tegenlicht dat de app zelf koos valt af, en de regel geldt vanaf 5 km/u met de koers van deze GPS-tik';
+const APP_VERSIE = 'V11.37.15 — alleen meten: bij 3 tot 10 km/u per GPS-tik de koers van de tik naast de koers uit de plekken';
 
 // ── CONSTANTEN ────────────────────────────────────────────────
 const OSM_RADIUS       = 5000;
@@ -5561,6 +5561,7 @@ function exporteerMeetdata() {
       uit.camcap = {}; uit.model = {}; uit.minuut = {};   // V11.34.2: zie camcapNoteer
       uit.wissel = {};   // V11.36.4: zie wisselLogNoteer
       uit.regel = {};    // V11.37.1: zie regelTik
+      uit.koers = {};    // V11.37.15: zie koersLogTik
       for (const key of opslagSleutels('')) {                          // V11.23.0
         let doel = null;
         if (key.startsWith('sl_passief_'))       doel = uit.passief;
@@ -5582,6 +5583,7 @@ function exporteerMeetdata() {
         else if (key === MINUUTLOG_SLEUTEL)      doel = uit.minuut;     // V11.34.2: runs en rAF per minuut
         else if (key === WISSELLOG_SLEUTEL)      doel = uit.wissel;     // V11.36.4: elke wissel naar een ander licht
         else if (key === REGELLOG_SLEUTEL)       doel = uit.regel;      // V11.37.1: de schaduwregel
+        else if (key === KOERSLOG_SLEUTEL)       doel = uit.koers;      // V11.37.15: de koers bij kruipen
         // V11.17.33 W2: let op de volgorde — 'sl_richtinglog' begint NIET met
         // 'sl_richting_' (na 'sl_richting' volgt 'l', geen '_'), dus deze twee
         // takken kunnen elkaar niet vangen. Toch staat de exacte match eerst.
@@ -8923,6 +8925,97 @@ function regelTik(lat, lon) {
     rec.sl = handmatigLockActief ? (stilstandAutoLock ? 'auto' : 'hand') : '-';
     for (const k of Object.keys(rec)) if (rec[k] === null || rec[k] === undefined) delete rec[k];
     meetRingSchrijf(REGELLOG_SLEUTEL, REGELLOG_MAX, rec);
+  } catch (e) {}
+}
+
+// ── V11.37.15: DE KOERS BIJ KRUIPEN (ALLEEN METEN) ────────────
+// © 2026 StoplichtIQ — Y. Lemaalem
+//
+// WAAROM. De STAP 0 van 11 oktober vond dat ruis op de koers tussen 5 en
+// 10 km/u het getoonde licht laat wisselen, vooral via de puntentelling van
+// vindDichtbij (de hoek telt daar vanaf 5 km/u voor 35% mee) en via de
+// achter-regel (achterSluitUit, vanaf ACHTER_MIN_KMH). Hoe groot die ruis op de
+// telefoon echt is, staat in geen enkele export: geen log bewaart per GPS-tik
+// de koers naast de verplaatsing. Een oplossing kiezen zonder die maat is
+// gokken. Dit is die maat.
+//
+// WAT. Bij KOERSLOG_MIN_KMH tot KOERSLOG_MAX_KMH (3 tot 10 km/u) één regel per
+// GPS-tik, in een ring van KOERSLOG_MAX regels (sl_koerslog, via meetRingSchrijf):
+//   t    tijdstip (ms)
+//   v    snelheid (km/u, op 0,1)
+//   k    de koers van deze tik zoals de GPS hem gaf (graden, heel). Ontbreekt
+//        als de tik geen koers had. Een negatieve waarde blijft staan: dan gaf
+//        de GPS een ongeldige koers, en ook dat is een uitkomst
+//   kg   de gladde koers (getSmoothedHeading, de laatste drie koersen): die
+//        leest de achter-regel
+//   kp   de koers uit de plekken: de peiling van de jongste eerdere plek die
+//        minstens KOERSLOG_PLEK_M van de plek van nu ligt, naar de plek van nu.
+//        Die plek is hoogstens KOERSLOG_SPOOR_MS oud; anders ontbreekt kp
+//   kd   die verplaatsing (m)
+//   ka   hoe lang geleden de auto op die plek was (s, op 0,1)
+//   dk   k min kp, van -180 tot 180; alleen met een geldige k en een kp
+//   vs   1 als k en kp meer dan KOERSLOG_VERSCHIL graden verschillen, anders 0
+//   acc  de nauwkeurigheid van de plek volgens de GPS (m)
+//   hz   1 als de plek precies gelijk is aan die van de vorige tik
+// Geen plek en geen licht: de regel zegt alleen iets over de koers. Wat er die
+// tik getoond werd, staat op hetzelfde tijdstip in de wissellog.
+//
+// LET OP BIJ HET LEZEN. Ook kp heeft ruis: over 5 m kan een plekfout van een
+// paar meter de peiling flink draaien. Daarom staan kd, ka en acc erbij, zodat
+// de analyse op een grotere verplaatsing kan filteren.
+//
+// HOE. onGPS geeft de GPS-positie door, direct na de koers en de snelheid en
+// vóór de beslisketen. Het spoor van plekken (koersSpoor) groeit bij élke tik,
+// ook buiten 3-10 km/u, zodat kp er bij het afremmen meteen is. Een herhaalde,
+// identieke plek komt er niet bij.
+//
+// PUUR OBSERVEREND. De functie leest de positie, snelheidKmh en headingBuffer
+// en schrijft alleen koersSpoor en sl_koerslog (meetRingSchrijf: een vol
+// quotum staakt alleen dit log). test_koerslog KL9 rijdt dezelfde ritten met en
+// zonder deze functie en vergelijkt elke keuze. Gemeten in KL7: ~87 tekens
+// per regel, Latin-1: ~13 K voor een volle ring. 150 tikken is bij 1 Hz
+// tweeënhalve minuut kruipen; een lange file schuift de ring dus helemaal door.
+const KOERSLOG_SLEUTEL  = 'sl_koerslog';
+const KOERSLOG_MAX      = 150;
+const KOERSLOG_MIN_KMH  = 3;
+const KOERSLOG_MAX_KMH  = 10;      // tot, niet tot en met
+const KOERSLOG_PLEK_M   = 5;
+const KOERSLOG_SPOOR_MS = 20000;
+const KOERSLOG_SPOOR_N  = 40;      // plekken; bij 3 km/u ligt 5 m zo'n zes tikken terug
+const KOERSLOG_VERSCHIL = 15;      // graden, zoals optie A van de STAP 0
+let koersSpoor = [];   // de laatste nieuwe plekken: { lat, lon, t }
+
+function koersLogTik(pos) {
+  try {
+    const c = pos && pos.coords;
+    if (!c || typeof c.latitude !== 'number' || typeof c.longitude !== 'number') return;
+    const lat = c.latitude, lon = c.longitude, nu = Date.now();
+    const vorig = koersSpoor.length ? koersSpoor[koersSpoor.length - 1] : null;
+    const hz = !!vorig && vorig.lat === lat && vorig.lon === lon;
+    let kp = null, kd = null, ka = null;
+    for (let i = koersSpoor.length - 1; i >= 0; i--) {
+      const p = koersSpoor[i];
+      if (nu - p.t > KOERSLOG_SPOOR_MS) break;
+      const d = afstand(p.lat, p.lon, lat, lon);
+      if (d >= KOERSLOG_PLEK_M) { kp = peilingNaar(p, { lat, lon }); kd = d; ka = (nu - p.t) / 1000; break; }
+    }
+    if (!hz) {
+      koersSpoor.push({ lat, lon, t: nu });
+      if (koersSpoor.length > KOERSLOG_SPOOR_N) koersSpoor.shift();
+    }
+    const kmh = (typeof snelheidKmh === 'number' && isFinite(snelheidKmh)) ? snelheidKmh : null;
+    if (kmh === null || kmh < KOERSLOG_MIN_KMH || kmh >= KOERSLOG_MAX_KMH) return;
+    const heel = (x) => (typeof x === 'number' && isFinite(x)) ? Math.round(x) : null;
+    const graad = (x) => { const g = heel(x); return g === null ? null : (g === 360 ? 0 : g); };
+    const k = (typeof c.heading === 'number' && isFinite(c.heading)) ? c.heading : null;
+    let dk = (k !== null && k >= 0 && kp !== null) ? Math.round(((k - kp + 540) % 360) - 180) : null;
+    if (dk === -180) dk = 180;
+    const rec = { t: nu, v: Math.round(kmh * 10) / 10, k: graad(k), kg: graad(getSmoothedHeading()),
+      kp: graad(kp), kd: heel(kd), ka: ka === null ? null : Math.round(ka * 10) / 10,
+      dk, vs: dk === null ? null : (Math.abs(dk) > KOERSLOG_VERSCHIL ? 1 : 0),
+      acc: heel(c.accuracy), hz: hz ? 1 : null };
+    for (const x of Object.keys(rec)) if (rec[x] === null || rec[x] === undefined) delete rec[x];
+    meetRingSchrijf(KOERSLOG_SLEUTEL, KOERSLOG_MAX, rec);
   } catch (e) {}
 }
 
@@ -21795,6 +21888,7 @@ async function onGPS(pos) {
   tegenTikNoteer();   // V11.37.13: de tijd van die koers (R3) en het getikte licht (R1), zie daar
   const snelheidMs = (pos.coords.speed!=null && !isNaN(pos.coords.speed)) ? pos.coords.speed : 0;
   snelheidKmh = snelheidMs * 3.6;
+  koersLogTik(pos);   // V11.37.15: meetregel, beslist niets
   gpsBuffer   = Math.min(10 + snelheidKmh*0.4, 40);
   // V11.9.0: TRIGGER 1 — Afstand: verwijder sessies van nodes > 50m
   for (const [nid, ses] of Object.entries(nodeSessionData)) {

@@ -273,7 +273,8 @@ async function testOverpass() {
 
   // ═══ OV11 — regressie ══════════════════════════════════════
   // V11.37.13: R1 en R3 van de tegenrichting-regel (test_tegenbocht): nieuwe regels weg, de twee gewijzigde regels van tegenLog terug.
-  const terugV113713 = (s) => String(s).replace("    const sleutel = bron + ':' + sl.id + (w ? ':' + w : ''), nu = Date.now();   // V11.37.13: per reden een eigen regel", "    const sleutel = bron + ':' + sl.id, nu = Date.now();").replace("               h: k == null ? null : Math.round(Math.min(...sl.eenrichting.map(r => tegenHoekVerschil(r, k)))), ...(w ? { w } : {}) } });   // V11.37.13: met de reden w",
+  const zonderV113715 = (s) => String(s).split(NL).filter(l => !/V11\.37\.15(?!\d)/.test(l)).join(NL);   // V11.37.15: de koersmeting (test_koerslog); hier terug
+  const terugV113713 = (s) => zonderV113715(s).replace("    const sleutel = bron + ':' + sl.id + (w ? ':' + w : ''), nu = Date.now();   // V11.37.13: per reden een eigen regel", "    const sleutel = bron + ':' + sl.id, nu = Date.now();").replace("               h: k == null ? null : Math.round(Math.min(...sl.eenrichting.map(r => tegenHoekVerschil(r, k)))), ...(w ? { w } : {}) } });   // V11.37.13: met de reden w",
     "               h: k == null ? null : Math.round(Math.min(...sl.eenrichting.map(r => tegenHoekVerschil(r, k)))) } });").split(NL).filter(l => !/V11\.37\.13(?!\d)/.test(l)).join(NL);   // V11.37.13
   const zonder = (s) => terugV113713(s).split(NL).filter(l => !/V11\.37\.12(?!\d)/.test(l)).join(NL);   // V11.37.13: eerst terugV113713
   const merk = (f) => String(f).split(NL).filter(l => /V11\.37\.12(?!\d)/.test(l)).length;
