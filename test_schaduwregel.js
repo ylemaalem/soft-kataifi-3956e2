@@ -41,7 +41,7 @@
 // ── Draait IN een iframe: een rit met de echte onGPS ─────────
 // opt: { nodes, start, tik, zonderRegel, stukken: [{ vanY, totY, kmh }] }; kmh 0 = stilstaan
 async function regelRitBinnen(opt) {
-  const LAT0 = 52.1550, LON0 = 5.3870;
+  const LAT0 = 52.0000, LON0 = 5.0000;
   const mLat = 111320, mLon = 111320 * Math.cos(LAT0 * Math.PI / 180);
   const LL = (x, y) => ({ lat: LAT0 + y / mLat, lon: LON0 + x / mLon });
   let klok = 1790000000000;
@@ -99,7 +99,7 @@ async function testSchaduwregel() {
   const fnv = (s) => { let h = 0x811c9dc5; for (let i = 0; i < s.length; i++) { h ^= s.charCodeAt(i); h = Math.imul(h, 0x01000193) >>> 0; } return h.toString(16); };
   const slaap = (ms) => new Promise(r => setTimeout(r, ms));
 
-  const LAT0 = 52.1550, LON0 = 5.3870;
+  const LAT0 = 52.0000, LON0 = 5.0000;
   const mLat = 111320, mLon = 111320 * Math.cos(LAT0 * Math.PI / 180);
   const LL = (x, y) => ({ lat: LAT0 + y / mLat, lon: LON0 + x / mLon });
   const A = { id: 9400001, ...LL(0, 100) }, F = { id: 9400002, ...LL(0, 140) }, B = { id: 9400003, ...LL(0, 300) },

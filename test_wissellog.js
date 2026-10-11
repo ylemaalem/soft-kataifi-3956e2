@@ -34,7 +34,7 @@
 
 // ── Draait IN een iframe: een rit met de echte onGPS ─────────
 async function wisselRitBinnen(opt) {
-  const LAT0 = 52.1550, LON0 = 5.3870;
+  const LAT0 = 52.0000, LON0 = 5.0000;
   const mLat = 111320, mLon = 111320 * Math.cos(LAT0 * Math.PI / 180);
   const LL = (x, y) => ({ lat: LAT0 + y / mLat, lon: LON0 + x / mLon });
   let klok = 1790000000000;
@@ -83,7 +83,7 @@ async function testWissellog() {
   const zc = (f) => String(f).replace(/\/\*[\s\S]*?\*\//g, ' ').replace(/\/\/.*/g, ' ');
   const slaap = (ms) => new Promise(r => setTimeout(r, ms));
 
-  const LAT0 = 52.1550, LON0 = 5.3870;
+  const LAT0 = 52.0000, LON0 = 5.0000;
   const mLat = 111320, mLon = 111320 * Math.cos(LAT0 * Math.PI / 180);
   const LL = (x, y) => ({ lat: LAT0 + y / mLat, lon: LON0 + x / mLon });
   const A = { id: 9100001, ...LL(0, 0) }, B = { id: 9100002, ...LL(0, 150) }, C = { id: 9100003, ...LL(40, 0) };

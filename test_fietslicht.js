@@ -46,7 +46,7 @@
 //        start, punten: [{ x, y, kmh, tik?, los? }] } — één GPS-tik per punt, 1 s ertussen.
 // tik: kies dat licht uit de lijst (selecteerNodeHandmatig) vóór deze GPS-tik; los: het slot vervalt.
 async function fietsRitBinnen(opt) {
-  const LAT0 = 52.1550, LON0 = 5.3870;
+  const LAT0 = 52.0000, LON0 = 5.0000;
   const mLat = 111320, mLon = 111320 * Math.cos(LAT0 * Math.PI / 180);
   const LL = (x, y) => ({ lat: LAT0 + y / mLat, lon: LON0 + x / mLon });
   let klok = 1790000000000;
@@ -100,7 +100,7 @@ async function fietsRitBinnen(opt) {
 // opt: { pad: 'wissel'|'geen'|'correctie'|'lijst', mom: 'goed'|'zandloper', aiK, drukken: [{ cat, na (ms na de wissel), eigen? }],
 //        normaalEerst? (één gewone FOUT voor het oude licht, om de velden te vergelijken) }
 async function fietsBevestigBinnen(opt) {
-  const LAT0 = 52.1550, LON0 = 5.3870;
+  const LAT0 = 52.0000, LON0 = 5.0000;
   const mLat = 111320, mLon = 111320 * Math.cos(LAT0 * Math.PI / 180);
   const LL = (x, y) => ({ lat: LAT0 + y / mLat, lon: LON0 + x / mLon });
   let klok = 1790000000000;
@@ -364,7 +364,7 @@ async function testFietslicht() {
   {
     const bewaar = { osmCache, regelStaat, fietsLichten };
     try {
-      const LAT0 = 52.1550, LON0 = 5.3870, mLat = 111320, mLon = 111320 * Math.cos(LAT0 * Math.PI / 180);
+      const LAT0 = 52.0000, LON0 = 5.0000, mLat = 111320, mLon = 111320 * Math.cos(LAT0 * Math.PI / 180);
       const LL = (x, y) => ({ lat: LAT0 + y / mLat, lon: LON0 + x / mLon });
       const kies = (nodes, lijst) => { osmCache = nodes.map(n => ({ id: n.id, ...LL(n.x, n.y) })); fietsLichten = lijst; regelReset(); const p = LL(0, 0); return regelKies(p.lat, p.lon, 0); };
       const n6 = [{ id: 9800401, x: 2, y: 30 }, { id: 9800402, x: -2, y: 55 }];
@@ -375,7 +375,7 @@ async function testFietslicht() {
   }
 
   // ═══ FL7 — de lijst ophalen ═══════════════════════════════
-  const K = { lat: 52.1561, lon: 5.3878 };
+  const K = { lat: 52.0011, lon: 5.0008 };
   const ids7 = Array.from({ length: 346 }, (_, i) => 3300000000 + i * 7919);
   const goed = { status: 200, json: { elements: ids7.map(id => ({ type: 'node', id })) } };
   const h1 = await inFrame('fietsHaalBinnen', { kaart: K, antwoorden: [goed] });

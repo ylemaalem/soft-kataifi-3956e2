@@ -83,11 +83,11 @@ async function testRondGewicht() {
 
     // ═══ RG1 — het gewicht ═════════════════════════════════════
     leegNode();
-    const stadsring = [];
-    for (let i = 0; i < 45; i++) stadsring.push(v4(0, 24 * 30 + i));
-    stadsring.push(v4(70, 5));
+    const metingenRG1 = [];
+    for (let i = 0; i < 45; i++) metingenRG1.push(v4(0, 24 * 30 + i));
+    metingenRG1.push(v4(70, 5));
     const avond = []; for (let i = 0; i < 10; i++) avond.push(v4(60 + i, 10 + i));
-    zetLS('sl_v4_' + NODE + '_' + DD_NU, JSON.stringify(stadsring));
+    zetLS('sl_v4_' + NODE + '_' + DD_NU, JSON.stringify(metingenRG1));
     zetLS('sl_v4_' + NODE + '_' + anderDD, JSON.stringify(avond));
     // dezelfde formule als de rij, dagdeel voor dagdeel
     const spiegel = () => {
@@ -112,7 +112,7 @@ async function testRondGewicht() {
         (sp1.cycNieuw != null ? sp1.cycNieuw + 's' : '—') + ' (was ' + sp1.cycOud + 's)', cyc1);
     // alleen lege S2: zoals voorheen
     leegNode();
-    zetLS('sl_v4_' + NODE + '_' + DD_NU, JSON.stringify(stadsring.slice(0, 45)));
+    zetLS('sl_v4_' + NODE + '_' + DD_NU, JSON.stringify(metingenRG1.slice(0, 45)));
     teken();
     const sp2 = spiegel(), r2 = algRij();
     const pct2 = r2 ? r2.querySelector('.rb-pct').textContent.trim() : null;
@@ -129,7 +129,7 @@ async function testRondGewicht() {
 
     // ═══ RG2 — het aantal ══════════════════════════════════════
     leegNode();
-    zetLS('sl_v4_' + NODE + '_' + DD_NU, JSON.stringify(stadsring));
+    zetLS('sl_v4_' + NODE + '_' + DD_NU, JSON.stringify(metingenRG1));
     teken();
     const tegel = document.getElementById('dc-' + DD_NU).textContent;
     const pctDd = (document.getElementById('leer-pct-dd') || { textContent: '' }).textContent;

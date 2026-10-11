@@ -94,13 +94,13 @@ function testRichtingDubbel() {
         m = m.concat(laadMV5Geclusterd(nodeId, p.aanrij, p.afrij, d));
     return m;
   };
-  const surinameplein = () => {
+  const drieParen = () => {
     zetEmmer('NO_O', 'dag',  [{ duur: 21, gewicht: 1, conv: 'onzeker', ageMs: 4210392787 }]);
     zetEmmer('NO_ZO', 'dag', [{ duur: 13, gewicht: 1, bron: 'tik', zo: 0, ageMs: 1359262795 }]);
     zetEmmer('O_Z', 'avond', [{ duur: 22, gewicht: 1, bron: 'tik', zo: 1, ageMs: 1011307148 }]);
     zetEmmer('O_Z', 'dag',   [{ duur: 22, gewicht: 1, ageMs: 4649091805 }]);
   };
-  const venster4626 = () => {
+  const vensterRD0d = () => {
     zetEmmer('ZO_ZW', 'dag', [{ duur: 87, gewicht: 1, bron: 'tik', zo: 0, ageMs: 776546242 }]);
     zetEmmer('O_Z', 'dag', [
       { duur: 47, gewicht: 1, bron: 'merge_alg', ageMs: 4999394364 },
@@ -131,7 +131,7 @@ function testRichtingDubbel() {
 
     // ══ RD0b — HET VELDGEVAL, DRIE PAREN ══════════════════════
     wisNode();
-    surinameplein();
+    drieParen();
     const lS = laag('NO_O', 'O_Z', 'NO_ZO');
     const poolS = laagMetingen(NODE, lS).length, pctS = laagLeerPct(NODE, lS);
     eis('RD0b drie paren: 4 metingen staan 4 keer in de pool (was ' + OUD_RD0B_POOL + ')',
@@ -151,7 +151,7 @@ function testRichtingDubbel() {
 
     // ══ RD0d — HET KRUISPUNTVENSTER (B2) ══════════════════════
     wisNode();
-    venster4626();
+    vensterRD0d();
     const d = berekenRichtingPct(NODE, 'ZO', 'ZW', 'dag');
     eis('RD0d een emmer met 1 meting meldt 1 meting (was ' + OUD_RD0D_N + ')',
         !!d && d.metingen === 1 && d.metingen !== OUD_RD0D_N, '1', String(d && d.metingen));
@@ -247,8 +247,8 @@ function testRichtingDubbel() {
 
     // ══ RD9 — ALLEEN LEZEN ════════════════════════════════════
     wisNode();
-    surinameplein();
-    venster4626();
+    drieParen();
+    vensterRD0d();
     const snap = () => { const o = {}; for (const k of Object.keys(localStorage)) o[k] = localStorage.getItem(k); return JSON.stringify(o); };
     const voor = snap();
     laagMetingen(NODE, lS); laagLeerPct(NODE, lS);
@@ -303,7 +303,7 @@ function testRichtingDubbel() {
 
     // ══ RD12 — OP HET SCHERM: HET KRUISPUNTVENSTER (B2) ═══════
     wisNode();
-    venster4626();
+    vensterRD0d();
     mergeModusAan = false; mergeSelectie = [];
     renderNodeInfo(NODE);
     const niRij = document.querySelector('#node-info-body .ni-rij[data-aanrij="ZO"][data-afrij="ZW"]');

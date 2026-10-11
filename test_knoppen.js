@@ -56,7 +56,7 @@ async function testKnoppen() {
     'faseEindeReden', 'faseEindeTijd', 'geenTeller', 'vriSuggestieActief', 'toonRichtingKnoppen'];
   const bewaard = {};
   for (const n of namen) bewaard[n] = eval(n);
-  const A = { id: 9900001, lat: 52.1716, lon: 5.4120, naam: 'A' }, B = { id: 9900002, lat: 52.1719, lon: 5.4127, naam: 'B' };
+  const A = { id: 9900001, lat: 52.0016, lon: 5.0020, naam: 'A' }, B = { id: 9900002, lat: 52.0019, lon: 5.0027, naam: 'B' };
 
   try {
     // ═══ KM1 — het getoonde licht ═══════════════════════════════
@@ -185,7 +185,7 @@ async function testKnoppen() {
 
     // ═══ KM4 — logOpslagMis: welk licht hoort bij afst ═══════════
     localStorage.setItem('sl_opslaglog', '[]');
-    osmCache = [A, B]; huidigePos = { lat: 52.1700, lon: 5.4100 };
+    osmCache = [A, B]; huidigePos = { lat: 52.0000, lon: 5.0000 };
     dichtstbijOSM = { ...B, afstand: 123 };
     logOpslagMis('kandidaat_verlaten', { node: String(A.id) });
     logOpslagMis('te_kort', { node: String(B.id), dur: 3 });

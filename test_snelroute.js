@@ -36,7 +36,7 @@
 // opt: { nodes, start, slot: 'tik'|'lijst'|'auto'|null, lamp, uitSnel, uitNadering,
 //        stukken: [{ vanY, totY, kmh } | { tikken, kmh: 0 }] }
 async function snelRitBinnen(opt) {
-  const LAT0 = 52.1550, LON0 = 5.3870;
+  const LAT0 = 52.0000, LON0 = 5.0000;
   const mLat = 111320, mLon = 111320 * Math.cos(LAT0 * Math.PI / 180);
   const LL = (x, y) => ({ lat: LAT0 + y / mLat, lon: LON0 + x / mLon });
   let klok = 1790000000000;

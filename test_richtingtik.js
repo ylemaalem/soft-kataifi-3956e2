@@ -36,7 +36,7 @@ async function testRichtingtik() {
   const fnv = (s) => { let h = 0x811c9dc5; for (let i = 0; i < s.length; i++) { h ^= s.charCodeAt(i); h = Math.imul(h, 0x01000193) >>> 0; } return h.toString(16); };
   const slaap = (ms) => new Promise(r => setTimeout(r, ms));
 
-  const A = { id: 9990003001, lat: 52.1716, lon: 5.4120, naam: 'A' }, B = { id: 9990003002, lat: 52.1719, lon: 5.4127, naam: 'B' };
+  const A = { id: 9990003001, lat: 52.0016, lon: 5.0020, naam: 'A' }, B = { id: 9990003002, lat: 52.0019, lon: 5.0027, naam: 'B' };
   const namen = ['dichtstbijOSM', 'osmCache', 'richtingKnoppenNodeId', 'huidigBevestigdOsmNodeId', 'richtingLockNodeId', 'richtingLockKeuze',
     'richtingLockBron', 'richtingGedruktVoorNode', 'richtingTikTijd', 'richtingTikElement', 'v9PreSelectieAfrij', 'v9AanrijHeading',
     'v9AanrijSnelheidHeading', 'v9DelayedWriteActief', 'v9KandidaatNode', 'preZet', 'preWis', 'bevestigActief', 'fase'];

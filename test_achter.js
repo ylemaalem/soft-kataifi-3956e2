@@ -42,7 +42,7 @@
 // opt: { nodes: [{ id, x, y }], start, slot: 'tik'|'lijst'|null, lamp, lampZiet, koersen, uitAchter, v9: { node, duur },
 //        punten: [{ x, y, kmh, h? }] } — één GPS-tik per punt, 1 s ertussen; h = koers (anders uit de beweging)
 async function achterRitBinnen(opt) {
-  const LAT0 = 52.1550, LON0 = 5.3870;
+  const LAT0 = 52.0000, LON0 = 5.0000;
   const mLat = 111320, mLon = 111320 * Math.cos(LAT0 * Math.PI / 180);
   const LL = (x, y) => ({ lat: LAT0 + y / mLat, lon: LON0 + x / mLon });
   let klok = 1790000000000;
@@ -291,7 +291,7 @@ async function testAchter() {
   const verschillen = [];
   let tikkenTotaal = 0, tikkenAnders = 0, onterecht = 0;
   // De voorbij-toets van de app (voorbijStap) over de posities van de rit, voor licht id, tot en met tik i.
-  const LAT0 = 52.1550, LON0 = 5.3870, mLat = 111320, mLon = 111320 * Math.cos(LAT0 * Math.PI / 180);
+  const LAT0 = 52.0000, LON0 = 5.0000, mLat = 111320, mLon = 111320 * Math.cos(LAT0 * Math.PI / 180);
   const voorbijTot = (opt, id, i) => { const n = opt.nodes.find(x => x.id === id); if (!n) return false; let r, vorige = null;
     for (let j = 0; j <= i; j++) { const p = opt.punten[j]; if (!(p.kmh >= ACHTER_MIN_KMH)) continue; if (vorige && vorige.x === p.x && vorige.y === p.y) continue;
       vorige = p; r = voorbijStap(r, afstand(LAT0 + p.y / mLat, LON0 + p.x / mLon, LAT0 + n.y / mLat, LON0 + n.x / mLon)); }
