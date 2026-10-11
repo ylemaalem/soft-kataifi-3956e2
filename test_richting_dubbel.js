@@ -21,7 +21,7 @@
 //  DE ECHTE GEVALLEN (export van 26 sept 09:07, recordvormen letterlijk,
 //  tijden als leeftijd ten opzichte van een bevroren klok — de rekensom hangt
 //  alleen van die leeftijd af)
-//    RD0b  Surinameplein (297021347), Linksaf: NO_O, O_Z (dag+avond), NO_ZO
+//    RD0b  het veldgeval met drie paren, Linksaf: NO_O, O_Z (dag+avond), NO_ZO
 //    RD0c  3330495184, twee Rechtsaf-regels in twee naderingen
 //    RD0d  4626468927, kruispuntvenster: ZO_ZW met 1 meting naast O_Z met 9
 //  De node-brede bonussen zijn hier weggelaten (geen sl_bevestig_, geen
@@ -129,12 +129,12 @@ function testRichtingDubbel() {
     eis('RD0a2 en de regel toont 53% (was ' + OUD_RD0A_PCT + '%)',
         pct2 === 53 && pct2 !== OUD_RD0A_PCT, '53', String(pct2));
 
-    // ══ RD0b — SURINAMEPLEIN, DRIE PAREN ══════════════════════
+    // ══ RD0b — HET VELDGEVAL, DRIE PAREN ══════════════════════
     wisNode();
     surinameplein();
     const lS = laag('NO_O', 'O_Z', 'NO_ZO');
     const poolS = laagMetingen(NODE, lS).length, pctS = laagLeerPct(NODE, lS);
-    eis('RD0b Surinameplein: 4 metingen staan 4 keer in de pool (was ' + OUD_RD0B_POOL + ')',
+    eis('RD0b drie paren: 4 metingen staan 4 keer in de pool (was ' + OUD_RD0B_POOL + ')',
         poolS === 4 && poolS !== OUD_RD0B_POOL, '4', String(poolS));
     eis('RD0b2 en de regel toont 60% (was ' + OUD_RD0B_PCT + '%)',
         pctS === 60 && pctS !== OUD_RD0B_PCT, '60', String(pctS));

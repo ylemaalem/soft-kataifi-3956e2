@@ -5,7 +5,7 @@
 //  Test bij V11.37.9.
 //
 //  RG1  Rond licht weegt elk dagdeel met de metingen met een gemeten duur (het
-//       geval Stadsring: 45 lege S2 en 1 meting); zonder gemeten duur zoals
+//       veldgeval: 45 lege S2 en 1 meting); zonder gemeten duur zoals
 //       voorheen
 //  RG2  het aantal: '(1×)' in het paneel en '1x' in de dagdeeltegel, niet 46
 //  RG3  na samenvoegen verdwijnt het oude label (sl_richting_ en de keuze van

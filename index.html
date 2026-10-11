@@ -13573,7 +13573,7 @@ function bijwerkLeerkaart(osm) {
 // © 2026 StoplichtIQ — Y. Lemaalem
 //
 // De Rond-licht-rij hieronder woog elk dagdeel met m.length: ook de lege
-// S2-markeringen (duur 0) telden. Stadsring, dag: 46 records, waarvan 45 lege
+// S2-markeringen (duur 0) telden. Een veldgeval, dag: 46 records, waarvan 45 lege
 // S2 van 5 mei en 1 meting, woog 46 keer en trok het percentage naar 20%,
 // waar de gemeten dagdelen samen 83% gaven (STAP 0 van 8 okt). Nu weegt een
 // dagdeel met het aantal metingen met een gemeten duur (heeftGemetenDuur,
@@ -14068,7 +14068,7 @@ function laagGeldigVoor(nodeId) {
 //   1. Liggen twee paren van dezelfde regel binnen 45 graden van elkaar, dan
 //      leest het ene het andere nog eens als buur. Elke meting stond dan twee
 //      of drie keer in de pool. Gemeten op de export van 26 september:
-//      Surinameplein (297021347) Linksaf, drie paren, 4 metingen die 9 keer
+//      het veldgeval RD0b (test_richting_dubbel), Linksaf, drie paren, 4 metingen die 9 keer
 //      telden — 81% op het scherm waar 60% hoorde.
 //   2. Een buuremmer die bij een ANDERE regel hoort telde voor de helft mee.
 //      Sinds V11.17.81 is een regel per definitie één manoeuvre (nadering en
@@ -14197,7 +14197,7 @@ function laagDagdeelPct(nodeId, laag, dd) {
 // Na een tik op een richtingrij of een toevoegknop wordt het rijblok opnieuw
 // getekend, en de rij onder je vinger kan dan de Rond-licht-rij zijn. Een
 // tweede tik (of een tik die het scherm dubbel ziet) zette dan de keuze die je
-// net maakte meteen terug op Rond licht (Mercatorplein 15:46, STAP 0 van 8
+// net maakte meteen terug op Rond licht (een veldgeval uit de STAP 0 van 8
 // okt). Binnen ALG_NA_RIJBLOK_MS na een tikRichting uit het rijblok (element
 // 'rij' of 'toevoeg') doet een tik op Rond licht daarom niets.
 //
@@ -14891,10 +14891,10 @@ async function haalStraatnamenOp() {
 // WAAROM. In Amersfoort ligt 47% van de verkeerslichten in OpenStreetMap
 // alleen op een fietspad of voetpad (346 van 735, 5 km rond het centrum, 8 okt
 // gemeten). Voor een auto is zo'n licht nooit het licht waar hij voor staat,
-// maar de app kon er wel naartoe wisselen. Voorbeeld 7 okt 20:01:43, Stadsring:
-// 3330491752 (Stadsring) -> 3330491754 (fietspad, 6 m na de stopstreep) ->
-// 3330491757 (Stadsring, overkant). Zonder het fietslicht gaat de app in één
-// stap naar 3330491757. In de STAP 0 van 8 okt was dit de enige regel uit de
+// maar de app kon er wel naartoe wisselen. Voorbeeld (test_fietslicht FL2):
+// S1 (het autolicht) -> F1 (fietspad, 6 m na de stopstreep) ->
+// S2 (het autolicht aan de overkant). Zonder het fietslicht gaat de app in één
+// stap naar S2. In de STAP 0 van 8 okt was dit de enige regel uit de
 // kaart die op de stops nergens een goede keuze slechter maakte.
 //
 // WAT. fietsSluitUit houdt zo'n licht buiten de kandidaten van vindDichtbij,
@@ -15169,8 +15169,8 @@ async function fietsHaalOp(lat, lon) {
 // dichtstbijzijnde licht vooruit, en de app wisselde ernaartoe. Gemeten (STAP 0
 // van 9 okt): in de opslaglog van 25 sept tot 7 okt toonde de app in 70 van de
 // 911 regels (7,7%) zo'n licht; in de geschiedenis staan 761 V4-metingen op
-// een licht met een koers tegen de weg in. Voorbeeld 7 okt 20:01:46,
-// Stadsring: Younes reed 41 graden, de app wisselde naar 3330491757, dat op de
+// een licht met een koers tegen de weg in. Voorbeeld: veldgeval A
+// (test_tegenrichting TR6): Younes reed 41 graden, de app wisselde naar een licht dat op de
 // rijbaan van 222 graden staat. Een richtingtag staat maar op 11 van de 77 van
 // zulke lichten, dus de regel leunt daar niet op.
 //

@@ -12,8 +12,8 @@
 //  uit de kaart, met eigen nummers en zonder echte plek.
 //
 //  FL1  de schakelaar, en fail-open: zonder lijst valt niets af
-//  FL2  het veldgeval van 7 okt 20:01:43: na het passeren van een licht op de
-//       Stadsring wisselde de app naar een fietslicht 6 m verderop, en pas
+//  FL2  het veldgeval FL2 (STAP 0 van 8 okt): na het passeren van een licht op de
+//       hoofdweg wisselde de app naar een fietslicht 6 m verderop, en pas
 //       3 s later naar het licht aan de overkant. Met het filter komt het
 //       fietslicht nergens; zonder filter (of zonder lijst) wel, zoals toen
 //  FL3  nooit uitsluiten als het de enige kandidaat is: per GPS-tik gelijk
@@ -278,8 +278,8 @@ async function testFietslicht() {
         && ['motorway', 'trunk', 'primary', 'secondary', 'tertiary', 'unclassified', 'residential', 'living_street', 'service', 'road', 'busway', 'primary_link'].every(w => AUTO_WEGEN.split('|').includes(w)),
       'zes / zestien', FIETS_WEGEN + ' / ' + AUTO_WEGEN.split('|').length);
 
-  // ═══ FL2 — 7 okt 20:01:43, nagebouwd ═══════════════════════
-  // De afstanden uit de kaart, gedraaid naar 'noordwaarts'. S1 is het licht dat de app toonde (Stadsring), F1 het
+  // ═══ FL2 — het veldgeval, nagebouwd ═══════════════════════
+  // De afstanden uit de kaart, gedraaid naar 'noordwaarts'. S1 is het licht dat de app toonde (op de hoofdweg), F1 het
   // fietslicht 39 m verder waar de app naartoe wisselde, S2 het licht aan de overkant (47 m), daarna de volgende
   // kruising op ~280 m. f: 1 = alleen op een fiets- of voetpad.
   const S1 = 9800001, F1 = 9800004, S2 = 9800006;

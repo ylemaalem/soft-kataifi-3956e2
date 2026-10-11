@@ -26,7 +26,7 @@
 //          b  nieuw: wissel binnen 2 s, niet vóór 1 s, route 'dichtbij'
 //          c  'Terug' zet het oude licht vast en de app blijft daar
 //          d  met ruis (1 m rijdend, 3 m stil): >= 18 van 20 binnen 2 s
-//  NB2   Stadsring (4 m, -30 graden): binnen 2 s; oude routes 5 s
+//  NB2   veldgeval NB2 (4 m, -30 graden): binnen 2 s; oude routes 5 s
 //  NB3   patroon 25 sept (15 m, +4 graden): binnen 2 s via 'ver'; oud 5 s
 //  NB4   gepasseerd voetgangerslicht P, app toont kruispuntlicht J
 //          a  stop bij J: geen wissel (maar er WAS bewijs voor P)
@@ -326,7 +326,7 @@ async function testNaderingsbewijs() {
     eis('NB1d met GPS-ruis (1 m rijdend, 3 m stil): minstens 18 van 20 binnen 2 s',
         binnen2 >= 18, '>= 18', binnen2 + ' — ' + ts.join(','));
 
-    // ═══ NB2 — STADSRING (26 sept 11:04) ═════════════════════
+    // ═══ NB2 — HET VELDGEVAL (4 m, -30 graden) ═══════════════
     const S = { W: { id: 7101, x: 9.4, y: 21.0 }, C: { id: 7102, x: -2.0, y: 3.46 } };
     const pS = naderProfiel({ vanAfstand: 125, v0Kmh: 37, a: 1.5, stilS: 20 });
     const optS = { nodes: [S.W, S.C], gekozen: 7101, doel: 7102, profiel: pS, tapBijI: iBij(pS, S.W, 120) };

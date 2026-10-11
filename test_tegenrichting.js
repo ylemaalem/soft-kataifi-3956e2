@@ -21,7 +21,7 @@
 //  TR4  tegenRijrichtingen: oneway yes/-1, rotonde, snelweg, twee richtingen,
 //       geen autoweg, de vorm van de weg
 //  TR5  downloadOSM vult 'eenrichting' uit de kaartvraag, zonder extra vraag
-//  TR6  de vier veldgevallen van 7 okt: 20:01:46, 15:46:52, 18:28:23, 20:21:53
+//  TR6  de vier veldgevallen A, B, C en D
 //  TR7  nooit als enige kandidaat: per GPS-tik gelijk aan de schakelaar uit
 //  TR8  een getikt licht voor de tegenrichting blijft staan, ook als het slot
 //       vervalt
@@ -278,10 +278,10 @@ async function testTegenrichting() {
   // [id, x, y, f, r]. VAN = het licht dat de app vlak daarvoor toonde, TEGEN = het licht voor de tegenrichting waar de app
   // toen naartoe wisselde. De plek van de auto op het moment van die wissel is (0, 0); de koers noordwaarts.
   const VELD = {
-    'A 20:01:46 Stadsring': { van: 9821007, tegen: 9821012, nodes: knopen([[9821001, -6.1, -161.8, 0, [9]], [9821002, 7.8, -147, 1, null], [9821003, 17.9, -138.5, 0, null], [9821004, -16.7, -122.3, 1, null], [9821005, 4.5, -122.2, 1, null], [9821006, -13, -113.5, 0, [180]], [9821007, -2, -5.7, 0, [2]], [9821008, -17.7, 2.2, 1, null], [9821009, -29.1, 17.2, 0, null], [9821010, -22.4, 30.6, 1, null], [9821011, 3.6, 32.9, 1, null], [9821012, -15, 40, 0, [181]], [9821013, -1.3, 266.9, 0, [19]], [9821014, -11.8, 280.1, 1, null], [9821015, 22.5, 298, 1, null], [9821016, -11.8, 306.1, 0, null], [9821017, -1.7, 311.5, 1, null], [9821018, 13.3, 315, 0, [220]], [9821019, 24.5, 317.4, 0, [183]]]) },
-    'B 15:46:52 Mercatorplein': { van: 9822015, tegen: 9822021, pad: [...lijn(-170, -25, 30).map(p => ({ x: -p.y, y: -33, kmh: 30 })), { x: 12, y: -31, kmh: 20 }, { x: 4, y: -25, kmh: 20 }, ...lijn(-18, 330, 36)], nodes: knopen([[9822001, -325.8, -202.8, 0, [4]], [9822002, -342.6, -193.2, 1, null], [9822003, -316.2, -187.8, 1, null], [9822004, -309.9, -182.4, 0, null], [9822005, -347.9, -181.5, 0, null], [9822006, -342.7, -176.4, 1, null], [9822007, -320.5, -173.3, 1, null], [9822008, -334.1, -164.9, 0, [192]], [9822009, -8.5, -63.1, 0, null], [9822010, -320.7, -58.7, 0, [11]], [9822011, -332.9, -49.1, 1, null], [9822012, -310.4, -46.9, 1, null], [9822013, -35.1, -43.9, 0, [90]], [9822014, -346.2, -42.6, 0, [91]], [9822015, 21.2, -31.5, 0, [272]], [9822016, -300, -26.8, 0, [275]], [9822017, -336.3, -23.3, 1, null], [9822018, -312.4, -20.2, 1, null], [9822019, -22.8, -19.7, 1, null], [9822020, -325.2, -10.9, 0, [183]], [9822021, -13.9, -10, 0, [184]], [9822022, -315.4, 202, 0, [2]], [9822023, -313.1, 205.9, 1, null], [9822024, -323.8, 206.2, 1, null], [9822025, -321.2, 210.3, 0, [182]]]) },
-    'C 18:28:23 Surinameplein': { van: 9823013, tegen: 9823026, nodes: knopen([[9823001, -4.5, -245.4, 0, [165]], [9823002, -0.7, -235.2, 0, [162]], [9823003, 79.7, -223.4, 0, [289]], [9823004, 78.5, -216.9, 1, null], [9823005, 59.2, -211.2, 0, [306,310,340]], [9823006, -25.5, -199.9, 1, null], [9823007, 1.4, -195.7, 0, [234]], [9823008, 35, -192.5, 0, [289]], [9823009, -22.5, -188.3, 0, [172]], [9823010, 25.4, -178.6, 0, [310]], [9823011, 22.8, -169.5, 1, null], [9823012, 17.9, -165.6, 1, null], [9823013, 0, -58, 0, [0]], [9823014, 10.5, -48.9, 1, null], [9823015, -28.5, -45.4, 1, null], [9823016, 4.2, -40.2, 1, null], [9823017, -356.8, -38.1, 1, null], [9823018, -38.5, -36.6, 1, null], [9823019, -42.6, -31.8, 0, [89]], [9823020, -359.6, -31.4, 0, null], [9823021, -347.3, -31.4, 0, null], [9823022, -356.9, -25.4, 1, null], [9823023, 4.3, -18.8, 1, null], [9823024, -38.5, -18.7, 1, null], [9823025, -30, -10.3, 1, null], [9823026, -22.4, -9, 0, [179]]]) },
-    'D 20:21:53 Stadsring': { van: 9824007, tegen: 9824012, nodes: knopen([[9824001, 3.5, -160.3, 0, [1]], [9824002, -15.1, -153.2, 1, null], [9824003, 10.8, -151, 1, null], [9824004, 17.5, -137.5, 0, null], [9824005, 6.2, -122.6, 1, null], [9824006, -9.6, -114.6, 0, [182]], [9824007, 1.5, -6.8, 0, [0]], [9824008, -16.1, 1.9, 1, null], [9824009, 5.2, 2, 1, null], [9824010, -29.4, 18.2, 0, null], [9824011, -19.4, 26.7, 1, null], [9824012, -5.5, 41.5, 0, [189]], [9824013, 59.7, 240.6, 0, [20]], [9824014, 73.9, 253.4, 1, null], [9824015, 44.7, 254.8, 1, null], [9824016, 37.4, 260.3, 1, null], [9824017, 86.4, 264.1, 0, [287]], [9824018, 39.8, 268, 0, [114]], [9824019, 47.2, 269.7, 0, [209]], [9824020, 79.3, 275.2, 1, null], [9824021, 66.7, 289.3, 0, [204]]]) },
+    'A rechtdoor': { van: 9821007, tegen: 9821012, nodes: knopen([[9821001, -6.1, -161.8, 0, [9]], [9821002, 7.8, -147, 1, null], [9821003, 17.9, -138.5, 0, null], [9821004, -16.7, -122.3, 1, null], [9821005, 4.5, -122.2, 1, null], [9821006, -13, -113.5, 0, [180]], [9821007, -2, -5.7, 0, [2]], [9821008, -17.7, 2.2, 1, null], [9821009, -29.1, 17.2, 0, null], [9821010, -22.4, 30.6, 1, null], [9821011, 3.6, 32.9, 1, null], [9821012, -15, 40, 0, [181]], [9821013, -1.3, 266.9, 0, [19]], [9821014, -11.8, 280.1, 1, null], [9821015, 22.5, 298, 1, null], [9821016, -11.8, 306.1, 0, null], [9821017, -1.7, 311.5, 1, null], [9821018, 13.3, 315, 0, [220]], [9821019, 24.5, 317.4, 0, [183]]]) },
+    'B wissel in de bocht': { van: 9822015, tegen: 9822021, pad: [...lijn(-170, -25, 30).map(p => ({ x: -p.y, y: -33, kmh: 30 })), { x: 12, y: -31, kmh: 20 }, { x: 4, y: -25, kmh: 20 }, ...lijn(-18, 330, 36)], nodes: knopen([[9822001, -325.8, -202.8, 0, [4]], [9822002, -342.6, -193.2, 1, null], [9822003, -316.2, -187.8, 1, null], [9822004, -309.9, -182.4, 0, null], [9822005, -347.9, -181.5, 0, null], [9822006, -342.7, -176.4, 1, null], [9822007, -320.5, -173.3, 1, null], [9822008, -334.1, -164.9, 0, [192]], [9822009, -8.5, -63.1, 0, null], [9822010, -320.7, -58.7, 0, [11]], [9822011, -332.9, -49.1, 1, null], [9822012, -310.4, -46.9, 1, null], [9822013, -35.1, -43.9, 0, [90]], [9822014, -346.2, -42.6, 0, [91]], [9822015, 21.2, -31.5, 0, [272]], [9822016, -300, -26.8, 0, [275]], [9822017, -336.3, -23.3, 1, null], [9822018, -312.4, -20.2, 1, null], [9822019, -22.8, -19.7, 1, null], [9822020, -325.2, -10.9, 0, [183]], [9822021, -13.9, -10, 0, [184]], [9822022, -315.4, 202, 0, [2]], [9822023, -313.1, 205.9, 1, null], [9822024, -323.8, 206.2, 1, null], [9822025, -321.2, 210.3, 0, [182]]]) },
+    'C enige kandidaat vooruit': { van: 9823013, tegen: 9823026, nodes: knopen([[9823001, -4.5, -245.4, 0, [165]], [9823002, -0.7, -235.2, 0, [162]], [9823003, 79.7, -223.4, 0, [289]], [9823004, 78.5, -216.9, 1, null], [9823005, 59.2, -211.2, 0, [306,310,340]], [9823006, -25.5, -199.9, 1, null], [9823007, 1.4, -195.7, 0, [234]], [9823008, 35, -192.5, 0, [289]], [9823009, -22.5, -188.3, 0, [172]], [9823010, 25.4, -178.6, 0, [310]], [9823011, 22.8, -169.5, 1, null], [9823012, 17.9, -165.6, 1, null], [9823013, 0, -58, 0, [0]], [9823014, 10.5, -48.9, 1, null], [9823015, -28.5, -45.4, 1, null], [9823016, 4.2, -40.2, 1, null], [9823017, -356.8, -38.1, 1, null], [9823018, -38.5, -36.6, 1, null], [9823019, -42.6, -31.8, 0, [89]], [9823020, -359.6, -31.4, 0, null], [9823021, -347.3, -31.4, 0, null], [9823022, -356.9, -25.4, 1, null], [9823023, 4.3, -18.8, 1, null], [9823024, -38.5, -18.7, 1, null], [9823025, -30, -10.3, 1, null], [9823026, -22.4, -9, 0, [179]]]) },
+    'D rechtdoor': { van: 9824007, tegen: 9824012, nodes: knopen([[9824001, 3.5, -160.3, 0, [1]], [9824002, -15.1, -153.2, 1, null], [9824003, 10.8, -151, 1, null], [9824004, 17.5, -137.5, 0, null], [9824005, 6.2, -122.6, 1, null], [9824006, -9.6, -114.6, 0, [182]], [9824007, 1.5, -6.8, 0, [0]], [9824008, -16.1, 1.9, 1, null], [9824009, 5.2, 2, 1, null], [9824010, -29.4, 18.2, 0, null], [9824011, -19.4, 26.7, 1, null], [9824012, -5.5, 41.5, 0, [189]], [9824013, 59.7, 240.6, 0, [20]], [9824014, 73.9, 253.4, 1, null], [9824015, 44.7, 254.8, 1, null], [9824016, 37.4, 260.3, 1, null], [9824017, 86.4, 264.1, 0, [287]], [9824018, 39.8, 268, 0, [114]], [9824019, 47.2, 269.7, 0, [209]], [9824020, 79.3, 275.2, 1, null], [9824021, 66.7, 289.3, 0, [204]]]) },
   };
   const hoekT = (v, k) => Math.abs(((v - k) % 360 + 540) % 360 - 180);
   const isTegen = (n) => !!n && Array.isArray(n.r) && n.r.length > 0 && n.r.every(v => hoekT(v, 0) > 135);   // de koers is overal noordwaarts
@@ -306,23 +306,23 @@ async function testTegenrichting() {
         'met: 0 tikken, zonder: > 0', fouten(t.met) || fouten(t.uit) || uitleg(t));
   }
   {
-    // 15:46:52: de app laat het oude licht los midden in de bocht naar rechts. De koers wijst dan nog 90 tot 135 graden
+    // B: de app laat het oude licht los midden in de bocht naar rechts. De koers wijst dan nog 90 tot 135 graden
     // naast de weg van het tegenlicht, dus de regel geldt nog niet; daarna is het het getoonde licht, en dat blijft.
     const t = tr6.B, i = t.met.rij.findIndex(x => x.app === t.c.tegen);
     const r0 = i >= 0 ? t.met.rij[i] : null, nT = t.c.nodes.find(n => n.id === t.c.tegen);
     const h0 = r0 && r0.koers != null ? Math.round(Math.min(...nT.r.map(v => hoekT(v, r0.koers)))) : null;
     const daarna = i >= 0 && t.met.rij.slice(i + 1).every((x, j) => x.app !== t.c.tegen || t.met.rij[i + j].app === t.c.tegen);
-    eis('TR6B 15:46:52 Mercatorplein: de wissel valt midden in de bocht, waar de koers nog binnen 135 graden van de weg ligt; daarna blijft het als getoond licht staan; met de regel niet langer dan zonder',
+    eis('TR6B veldgeval B: de wissel valt midden in de bocht, waar de koers nog binnen 135 graden van de weg ligt; daarna blijft het als getoond licht staan; met de regel niet langer dan zonder',
         !fouten(t.met) && !fouten(t.uit) && h0 !== null && h0 <= 135 && daarna && t.t.met <= t.t.uit,
         'hoek <= 135 bij de wissel, daarna getoond, met <= zonder', fouten(t.met) || fouten(t.uit) || `hoek ${h0} bij koers ${r0 && Math.round(r0.koers)} | ` + uitleg(t));
   }
   {
-    // 18:28:23: vooruit ligt binnen 400 m geen ander autolicht (het volgende lag toen 463 m verder), dus doet het tegenlicht
+    // C: vooruit ligt binnen 400 m geen ander autolicht (het volgende lag toen 463 m verder), dus doet het tegenlicht
     // mee: nooit uitsluiten als het de enige kandidaat is. Met de regel wel korter dan zonder.
     const t = tr6.C;
     const enige = t.met.rij.filter(x => x.app === t.c.tegen && x.kmh >= 10).every(x => !t.c.nodes.some(n => !n.f && !isTegen(n) && n.y > x.y
       && Math.hypot(n.x - x.x, n.y - x.y) <= 400));
-    eis('TR6C 18:28:23 Surinameplein: het tegenlicht komt alleen in beeld als er vooruit binnen 400 m geen ander autolicht is, en korter dan zonder de regel',
+    eis('TR6C veldgeval C: het tegenlicht komt alleen in beeld als er vooruit binnen 400 m geen ander autolicht is, en korter dan zonder de regel',
         !fouten(t.met) && !fouten(t.uit) && enige && t.t.met < t.t.uit, 'alleen als enige, met < zonder', fouten(t.met) || fouten(t.uit) || `enige: ${enige} | ` + uitleg(t));
   }
   // Elke GPS-tik waarop met de regel tóch een licht voor de tegenrichting in beeld is, valt onder een van de veiligheden:
@@ -363,7 +363,7 @@ async function testTegenrichting() {
 
   // ═══ TR9 — het puur dichtstbijzijnde licht en de schaduwregel ══
   const tA = tr6.A, tD = tr6.D;
-  eis('TR9a puur dichtstbij en de schaduwregel: met de regel nooit een licht voor de tegenrichting zolang je rijdt (Stadsring, twee ritten)',
+  eis('TR9a puur dichtstbij en de schaduwregel: met de regel nooit een licht voor de tegenrichting zolang je rijdt (veldgevallen A en D, twee ritten)',
       tA.alle.puurMet === 0 && tA.alle.regelMet === 0 && tD.alle.puurMet === 0 && tD.alle.regelMet === 0,
       '0 / 0 / 0 / 0', [tA.alle.puurMet, tA.alle.regelMet, tD.alle.puurMet, tD.alle.regelMet].join(' / '));
   eis('TR9b zonder de regel wel (zelfde ritten): het verschil komt van de regel',
