@@ -5,8 +5,8 @@
 //  Test bij V11.37.3: een richtingtik gaat altijd naar het licht waar de box nu
 //  op staat (het getoonde licht, dichtstbijOSM).
 //
-//  Het veldgeval van 4 oktober 19:27: de knoppen verschenen voor licht A
-//  (4065739949); Younes koos daarna uit de lijst licht B (9967542165); zijn
+//  Het veldgeval RT: de knoppen verschenen voor licht A,
+//  en Younes koos daarna uit de lijst licht B; zijn
 //  richtingtik ging toch naar A.
 //
 //  RT1  het veldgeval: de tik gaat naar B; A blijft onaangeroerd; het
@@ -36,7 +36,7 @@ async function testRichtingtik() {
   const fnv = (s) => { let h = 0x811c9dc5; for (let i = 0; i < s.length; i++) { h ^= s.charCodeAt(i); h = Math.imul(h, 0x01000193) >>> 0; } return h.toString(16); };
   const slaap = (ms) => new Promise(r => setTimeout(r, ms));
 
-  const A = { id: 4065739949, lat: 52.1716, lon: 5.4120, naam: 'A' }, B = { id: 9967542165, lat: 52.1719, lon: 5.4127, naam: 'B' };
+  const A = { id: 9990003001, lat: 52.1716, lon: 5.4120, naam: 'A' }, B = { id: 9990003002, lat: 52.1719, lon: 5.4127, naam: 'B' };
   const namen = ['dichtstbijOSM', 'osmCache', 'richtingKnoppenNodeId', 'huidigBevestigdOsmNodeId', 'richtingLockNodeId', 'richtingLockKeuze',
     'richtingLockBron', 'richtingGedruktVoorNode', 'richtingTikTijd', 'richtingTikElement', 'v9PreSelectieAfrij', 'v9AanrijHeading',
     'v9AanrijSnelheidHeading', 'v9DelayedWriteActief', 'v9KandidaatNode', 'preZet', 'preWis', 'bevestigActief', 'fase'];

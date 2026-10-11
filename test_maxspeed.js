@@ -63,7 +63,7 @@ function testMaxspeed() {
         kiesMaxspeed(tweeWegen) === 30, '30', String(kiesMaxspeed(tweeWegen)));
     // Het gemeten praktijkgeval: een oprit van 130 door een stedelijk kruispunt.
     const opritGeval = [
-      NOORD({ name: 'Stadsweg', maxspeed: '50', highway: 'secondary' }),
+      NOORD({ name: 'Weg A', maxspeed: '50', highway: 'secondary' }),
       OOST({ maxspeed: '130', highway: 'motorway_link' })
     ];
     eis('T2b een motorway_link van 130 verhoogt een stedelijke node niet',
@@ -106,22 +106,22 @@ function testMaxspeed() {
     // rijrichting van 90°; de benoemde weg staat er haaks op. Wie naïef op
     // uitlijning zou selecteren, kiest hier de naamloze — en verliest de naam.
     const gemengd = [
-      NOORD({ name: 'Blekerssingel', maxspeed: '50', highway: 'secondary' }),
+      NOORD({ name: 'Weg B', maxspeed: '50', highway: 'secondary' }),
       OOST({ maxspeed: '30', highway: 'service' })              // naamloos, beter uitgelijnd
     ];
     huidigeRichting = 90;
     const gekozen = kiesBesteWeg(gemengd, 90);
     eis('T5 kiesBesteWeg kiest de BENOEMDE weg, ook al ligt de naamloze beter',
-        gekozen && gekozen.tags && gekozen.tags.name === 'Blekerssingel',
-        'Blekerssingel',
+        gekozen && gekozen.tags && gekozen.tags.name === 'Weg B',
+        'Weg B',
         gekozen ? (gekozen.tags.name || '(naamloos!)') : 'null');
     eis('T5b en de limiet komt intussen wél van de naamloze weg',
         kiesMaxspeed(gemengd) === 30, '30', String(kiesMaxspeed(gemengd)));
     // Ook zonder heading, waar kiesBesteWeg zijn eerste terugval gebruikt.
     const zonderHeading = kiesBesteWeg(gemengd, null);
     eis('T5c zonder rijrichting kiest hij nog steeds de benoemde weg',
-        zonderHeading && zonderHeading.tags.name === 'Blekerssingel',
-        'Blekerssingel',
+        zonderHeading && zonderHeading.tags.name === 'Weg B',
+        'Weg B',
         zonderHeading ? (zonderHeading.tags.name || '(naamloos!)') : 'null');
     // En een node met UITSLUITEND naamloze wegen krijgt geen naam, maar wel
     // een limiet — precies de categorie die het oude filter helemaal miste.

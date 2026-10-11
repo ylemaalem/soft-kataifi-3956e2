@@ -9,7 +9,7 @@
 //  kandidaat, het getoonde licht blijft, tik en lijst blijven toegestaan.
 //
 //  Het vaste stratenplan: x naar het oosten, y naar het noorden, in meters; de
-//  auto rijdt noordwaarts. De vier veldgevallen van 7 okt zijn nagebouwd met
+//  auto rijdt noordwaarts. De vier veldgevallen A tot D zijn nagebouwd met
 //  de afstanden en hoeken uit de kaart (gedraaid naar noordwaarts), met eigen
 //  nummers en zonder echte plek. r = de rijrichtingen van de eenrichtingswegen
 //  door het licht, zoals de app ze uit de kaartvraag haalt; f = fietslicht.
@@ -274,7 +274,7 @@ async function testTegenrichting() {
       overpass.length === 1 && /\(way\(bn\.tl\)\["name"\];way\(bn\.tl\)\["maxspeed"\];\);out geom;$/.test(overpass[0].body),
       '1 vraag, ongewijzigd', overpass.length + ' | ' + (overpass[0] ? overpass[0].body.slice(-80) : ''));
 
-  // ═══ TR6 — de vier veldgevallen van 7 okt ══════════════════
+  // ═══ TR6 — de vier veldgevallen A tot D ══════════════════
   // [id, x, y, f, r]. VAN = het licht dat de app vlak daarvoor toonde, TEGEN = het licht voor de tegenrichting waar de app
   // toen naartoe wisselde. De plek van de auto op het moment van die wissel is (0, 0); de koers noordwaarts.
   const VELD = {

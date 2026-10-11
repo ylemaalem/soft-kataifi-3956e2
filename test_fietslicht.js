@@ -17,7 +17,7 @@
 //       3 s later naar het licht aan de overkant. Met het filter komt het
 //       fietslicht nergens; zonder filter (of zonder lijst) wel, zoals toen
 //  FL3  nooit uitsluiten als het de enige kandidaat is: per GPS-tik gelijk
-//  FL4  zoals 27 sept 14:44: de app kiest zelf het autolicht; een tik op het
+//  FL4  zoals in het veldgeval FL4: de app kiest zelf het autolicht; een tik op het
 //       fietslicht (dat daar het goede licht was) blijft staan, ook als het slot
 //       vervalt
 //  FL5  het puur dichtstbijzijnde licht (stilstandscorrectie, snelle route,
@@ -293,7 +293,7 @@ async function testFietslicht() {
   const fl2 = { nodes: veld, start: S1, punten: pad2 };
   const met2 = await rit(fl2), uit2 = await rit({ ...fl2, uit: true }), geen2 = await rit({ ...fl2, lijst: null });
   const k2 = keten(met2), k2u = keten(uit2);
-  eis('FL2a zonder filter (schakelaar uit) wisselt de app na S1 naar het fietslicht F1, zoals op 7 okt',
+  eis('FL2a zonder filter (schakelaar uit) wisselt de app na S1 naar het fietslicht F1, zoals in het veldgeval',
       !fouten(uit2) && k2u.indexOf(S1) >= 0 && k2u[k2u.indexOf(S1) + 1] === F1, 'S1 -> F1', fouten(uit2) || k2u.join(' > '));
   eis('FL2b met het filter komt geen enkel fietslicht in beeld, en na S1 komt geen fietslicht',
       !fouten(met2) && met2.rij.every(x => !fietsIds.has(x.app)) && k2[k2.indexOf(S1) + 1] !== undefined && !fietsIds.has(k2[k2.indexOf(S1) + 1]),
@@ -319,7 +319,7 @@ async function testFietslicht() {
   eis('FL3b ook het puur dichtstbijzijnde licht en de schaduwregel zijn per tik gelijk',
       verschil(met3, uit3, 'puur') === 0 && verschil(met3, uit3, 'regel') === 0, '0 / 0', verschil(met3, uit3, 'puur') + ' / ' + verschil(met3, uit3, 'regel'));
 
-  // ═══ FL4 — zoals 27 sept 14:44 ════════════════════════════
+  // ═══ FL4 — het veldgeval ════════════════════════════
   // Op 60 m voor de stopplek: het autolicht C op 18 m, de fietslichten F2 en F op 23 en 24 m. Younes tikte F (dat was
   // daar het goede licht). De auto stopt hier en blijft staan.
   const C = 9800201, F2 = 9800202, F = 9800203;
@@ -390,7 +390,7 @@ async function testFietslicht() {
       !!g1 && h1.opslag.gebieden.length === 1 && g1.ids.length === 346 && g1.lat === K.lat && g1.r === OSM_RADIUS && h1.na && h1.na.length === 346
         && h1.log.length === 1 && h1.log[0] === 'ok n=346 p=0', 'bewaard, 346, ok', h1.fout || ((g1 ? g1.ids.length : 'geen') + ' / ' + h1.log.join(' | ')));
   const kb = h1.ruw ? h1.ruw.length : 0;
-  eis('FL7c de grootte voor 346 lichten (zoals Amersfoort): onder de 5 KB tekst (in de app-telling, 2 bytes per teken: onder de 10 KB)',
+  eis('FL7c de grootte voor 346 lichten (zoals gebied G1): onder de 5 KB tekst (in de app-telling, 2 bytes per teken: onder de 10 KB)',
       kb > 3000 && kb < 5000, '3-5 KB', (kb / 1000).toFixed(1) + ' KB tekst');
   const h2 = await inFrame('fietsHaalBinnen', { kaart: K, antwoorden: [{ status: 200, json: { remark: 'runtime error: Query timed out', elements: [{ type: 'node', id: 3300000000 }] } }, goed], wachtVragen: 2 });
   eis('FL7d een half antwoord (status 200 met een remark) wordt niet bewaard; de volgende poging wel',

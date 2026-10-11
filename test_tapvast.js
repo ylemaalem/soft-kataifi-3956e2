@@ -160,8 +160,8 @@ function testTapVast() {
     // (8), omdat een menselijke keuze meer bewijs verdient voordat ze opzij
     // gaat. Dat klopte, maar het liet een gat open van 8 tot 20 meter — precies
     // de afstand tussen twee masten op één kruising, waar niets meer corrigeert
-    // zodra er getikt is. Het bewijs daarvoor staat in de meting van 24
-    // september (Landdroststraat, afwM=9).
+    // zodra er getikt is. Het bewijs daarvoor staat in de meting van
+    // veldgeval L (afwM=9).
     //
     // De extra bescherming zit nu in de KOERS in plaats van in de afstand: een
     // tap mag alleen vervallen richting een mast die ook vóór je ligt, dezelfde
@@ -261,9 +261,9 @@ function testTapVast() {
         'lock blijft, teller 0',
         'hand=' + handmatigLockActief + ', teller=' + handLockVervalTeller);
 
-    opzet(46, 8);           // het gemeten Eendrachtsplein-geval: 38 m
+    opzet(46, 8);           // het gemeten veldgeval E: 38 m
     tik(3);
-    eis('B6 het gemeten geval van 12 september (38 m) vervalt nog steeds',
+    eis('B6 het gemeten veldgeval E (38 m) vervalt nog steeds',
         handmatigLockActief === false,
         'lock los', String(handmatigLockActief));
 

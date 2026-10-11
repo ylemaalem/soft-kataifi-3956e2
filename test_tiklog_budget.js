@@ -5,7 +5,7 @@
 //  Test bij V11.36.2: het tikoverzicht (sl_tiklog) houdt twee budgetten bij,
 //  60 regels voor tik, los en de telling per tik ('tel'), en 40 voor de overige
 //  run-regels. Punt 9 uit de opslag-STAP 0 van 30 september: in die export
-//  waren 75 van de 100 regels run-regels, en van de rit van 16:28 stond geen
+//  waren 75 van de 100 regels run-regels, en van één rit stond geen
 //  enkele tik meer in het log.
 //
 //  TK1  de budgetten: 60 + 40 = TIKLOG_MAX (100)
@@ -74,8 +74,8 @@ async function testTiklogBudget() {
         k2c.length === 60 && r2c.length === 65 && k2c[0].n === 20 && k2c[59].n === 79,
         '60 (20-79) + 5 = 65', `${k2c.length} (${k2c[0] && k2c[0].n}-${k2c[59] && k2c[59].n}) + ${r2c.length - k2c.length} = ${r2c.length}`);
 
-    // ═══ TK3 — het veldgeval van 30 september ═══════════════
-    // Eerst een rit met vijf tikken van vier run-regels, dan de rit van 18:21
+    // ═══ TK3 — het veldgeval ═══════════════
+    // Eerst een rit met vijf tikken van vier run-regels, dan een latere rit
     // met twaalf tikken en 1 tot 12 run-regels per tik (gemeten).
     leeg();
     const RIT2 = [4, 5, 1, 5, 6, 12, 4, 4, 2, 8, 1, 2];

@@ -5,7 +5,7 @@
 //  Test bij V11.17.81: geleerde naderingen, en één regel per richting.
 //
 //  HET GEMETEN GEVAL
-//  Node 3330495184 (Arnhemseweg) toonde twee regels 'Rechtsaf', uit
+//  Node RD0c (test_richting_dubbel) toonde twee regels 'Rechtsaf', uit
 //  sl_v5_..._NO_NW_avond en sl_v5_..._N_W_avond. Beide zijn dezelfde manoeuvre:
 //  de aanrijkoersen liggen in één wolk die door de bucketgrens op 22,5 graden
 //  in tweeën wordt gehakt.
@@ -90,17 +90,17 @@ function testNadering() {
     // ANTI-OVERCORRECTIE: dit kruispunt wordt echt vanaf twee kanten benaderd.
     zetHeadings([164,166,165,344,346,345,164,346]);
     n = naderingenVoorNode(NODE);
-    eis('T3 twee tegengestelde naderingen BLIJVEN apart (node 7881376751)',
+    eis('T3 twee tegengestelde naderingen BLIJVEN apart (node T3)',
         n.length === 2, '2 naderingen', n.length + ': ' + gem(n).join(', '));
 
     zetHeadings([62,63,64,71,72,73]);
     n = naderingenVoorNode(NODE);
-    eis('T4 smalle wolk over de grens NO/O wordt één nadering (node 7881213125)',
+    eis('T4 smalle wolk over de grens NO/O wordt één nadering (node T4)',
         n.length === 1, '1 nadering', n.length + ': ' + gem(n).join(', '));
 
     zetHeadings([152,155,160,165,167]);
     n = naderingenVoorNode(NODE);
-    eis('T5 smalle wolk over de grens Z/ZO wordt één nadering (node 4467331940)',
+    eis('T5 smalle wolk over de grens Z/ZO wordt één nadering (node T5)',
         n.length === 1, '1 nadering', n.length + ': ' + gem(n).join(', '));
 
     // ══ T6 — DE KERN ══════════════════════════════════════════

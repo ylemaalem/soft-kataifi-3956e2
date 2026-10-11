@@ -18,12 +18,12 @@
 //  RD0 omgedraaid: de juiste waarde, én de eis dat het niet meer de oude is.
 //  De oude getallen staan als OUD_* in de code, zodat de omslag leesbaar blijft.
 //
-//  DE ECHTE GEVALLEN (export van 26 sept 09:07, recordvormen letterlijk,
+//  DE ECHTE GEVALLEN (export van 26 sept, recordvormen letterlijk,
 //  tijden als leeftijd ten opzichte van een bevroren klok — de rekensom hangt
 //  alleen van die leeftijd af)
 //    RD0b  het veldgeval met drie paren, Linksaf: NO_O, O_Z (dag+avond), NO_ZO
-//    RD0c  3330495184, twee Rechtsaf-regels in twee naderingen
-//    RD0d  4626468927, kruispuntvenster: ZO_ZW met 1 meting naast O_Z met 9
+//    RD0c  een kruispunt met twee Rechtsaf-regels in twee naderingen
+//    RD0d  een kruispuntvenster: ZO_ZW met 1 meting naast O_Z met 9
 //  De node-brede bonussen zijn hier weggelaten (geen sl_bevestig_, geen
 //  gps_tik_score, node niet in osmCache): de toets gaat over de telling.
 //

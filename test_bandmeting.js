@@ -15,7 +15,7 @@
 //  twee, dan is variant B teruggeslopen.
 //
 //  T4b IS EEN ECHT, GEFOTOGRAFEERD GEVAL
-//  Hogeweg Amersfoort, 11 september 2026: de pill toonde '~39s ±46' en de
+//  Veldgeval BM (gefotografeerd): de pill toonde '~39s ±46' en de
 //  BIJNA-knop stond fel. Negenendertig seconden ligt ver buiten ±10s, dus die
 //  knop hoorde grijs te zijn. Dat scenario staat hier letterlijk in.
 //
@@ -188,11 +188,11 @@ function testBandmeting() {
         b8.filter(x => x.s.bijnaFel).map(x => x.a).join(',') || 'geen enkele');
 
     // ══ T4c — HET GEFOTOGRAFEERDE GEVAL: ~39s ±46 ═════════════
-    // Hogeweg Amersfoort, 11 september 2026. Negenendertig seconden voor nul,
+    // Veldgeval BM (gefotografeerd). Negenendertig seconden voor nul,
     // met een band van 46 seconden. De BIJNA-knop stond toen fel; dat hoort niet.
     const hoge = (restS) => {
       fase = 'rood'; groenStart = null;
-      dichtstbijOSM = { id: NODE, lat: 52, lon: 4.7, afstand: 20, naam: 'Hogeweg' };
+      dichtstbijOSM = { id: NODE, lat: 52, lon: 4.7, afstand: 20, naam: 'BM' };
       activeCdDoel = 39 + 0;             // de pill telde af naar 39s
       activeCdModus = CD_VAAG;
       activeCdMin = Math.max(1, activeCdDoel - 46);

@@ -59,7 +59,7 @@ function testNulpunt() {
   const tikOp = verSec => { cdStart = performance.now() - verSec * 1000; tickCd(); };
 
   // ══ T1 — CD_VAAG mag het nulpunt niet vroeg zetten (FIX A) ════
-  // Dit is exact de situatie van de Hogeweg-foto: CD_VAAG met cdMin op de
+  // Dit is exact de situatie van de foto van veldgeval BM: CD_VAAG met cdMin op de
   // bodem 1 en een doel van 20s. Vóór V11.17.64 zette de vroege trigger het
   // nulpunt bij ver=1 en stond KLOPTE de rest van de fase gedempt.
   verseRodeFase(20, CD_VAAG, 1);

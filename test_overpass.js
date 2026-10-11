@@ -218,12 +218,12 @@ async function testOverpass() {
   eis('OV7a vijf gebieden opgehaald: er blijven er vier, het oudste (het eerste) is eruit, en de lijst is ze samen (4 x 1222)',
       !fouten(o7) && g7.length === 4 && !g7.some(g => Math.abs(g.lat - 52.0) < 1e-6) && s7.lichten === 4 * 1222 && o7.vragen.length === 5,
       '4 gebieden, 4888 lichten', fouten(o7) || `${g7.length} gebieden, ${s7.lichten} lichten, ${o7.vragen.length} vragen`);
-  eis('OV7b de opslag van vier gebieden zo groot als Amsterdam (1222 lichten elk): onder 60 KB zoals Safari telt (naam + waarde)',
+  eis('OV7b de opslag van vier gebieden zo groot als gebied G2 (1222 lichten elk): onder 60 KB zoals Safari telt (naam + waarde)',
       kb7 > 40 && kb7 < 60, '40-60 KB', kb7.toFixed(1) + ' KB');
   const o7b = await ov({ antwoorden: [goed(1222, 3300000000), goed(962, 3400000000), goed(346, 3500000000), goed(300, 3600000000)],
     stappen: [0, 6000, 12000, 18000].flatMap(dy => [{ stap: 'kaart', dy }, { stap: 'verder', ms: 10000 }]).concat([{ stap: 'kijk' }]) });
   const kb7b = o7b.stappen[0] && o7b.stappen[0].ruw ? (o7b.stappen[0].ruw.length + FIETS_SLEUTEL.length) / 1024 : 0;
-  eis('OV7c vier gebieden zoals Amsterdam, Rotterdam, Amersfoort en een kleiner vierde (1222, 962, 346, 300 lichten): ~31 KB',
+  eis('OV7c vier gebieden zoals G2, G3, G1 en een kleiner vierde (1222, 962, 346, 300 lichten): ~31 KB',
       kb7b > 25 && kb7b < 36, '25-36 KB', kb7b.toFixed(1) + ' KB');
   const oud1 = { v: 1, t: Date.UTC(2026, 9, 8), lat: 52.0, lon: 5.0, r: OSM_RADIUS, ids: [11, 12, 13] };
   const o7d = await ov({ opslag: oud1, antwoorden: [goed(5, 3800000000)], stappen: [{ stap: 'kaart' }, { stap: 'kijk' }, { stap: 'kaart', dy: 6000 }, { stap: 'verder', ms: 10000 }, { stap: 'kijk' }] });

@@ -10,23 +10,23 @@
 //  auto rijdt (meestal) noordwaarts over x = 0.
 //
 //  AR1  de constanten, en de voorbij-toets zelf (voorbijStap), stap voor stap
-//  AR2  het veldgeval van 4 oktober (19:13:53 en 19:34:20): een tik zet een licht
+//  AR2  het veldgeval AR2 (twee tikken, 20 minuten na elkaar): een tik zet een licht
 //       vast dat al achter de auto ligt; los na twee GPS-tikken, niet na 100 m
 //  AR3  zonder slot: een gepasseerd licht gaat los, ook als de voorsprongregel het
 //       nog vast wilde houden
 //  AR4  geen licht: na het laatste licht, na een herstart met alleen een licht
-//       achter je (3 okt 12:32, 200-382 m), en verder dan 400 m bij stilstand
-//  AR5  de bocht: een goed licht blijft staan (30 sept 16:54: 10 m opzij op 98
-//       graden vlak voor de stop; een koers die achterloopt; Dodeweg 27 sept:
+//       achter je (veldgeval AR4b, 200-382 m), en verder dan 400 m bij stilstand
+//  AR5  de bocht: een goed licht blijft staan (veldgeval AR5a: 10 m opzij op 98
+//       graden vlak voor de stop; een koers die achterloopt; veldgeval AR5c:
 //       stilstand met een oude koers)
 //  AR6  PER GPS-TIK: in elke rit met de regel aan en uit, waar verschilt de keuze?
 //       Alleen waar het licht van 'uit' achter de auto ligt of verder dan 400 m
 //  AR7  waar de regel niets mag veranderen, is elke tik gelijk
 //  AR8  een lopende meting (de uitgestelde V5/V4-schrijving) loopt ook zonder
 //       getoond licht door
-//  AR9  de schaduwregel: de slimmere mastregel (Energieweg) en het vasthouden
-//       (Markerkant)
-//  AR10 de eenmalige reparatie van 4065739949 (optie b)
+//  AR9  de schaduwregel: de slimmere mastregel (AR9a) en het vasthouden
+//       (AR9c)
+//  AR10 de eenmalige reparatie van licht A uit test_richtingtik (optie b)
 //  AR11 regressie: welke functies veranderen, en dat de rest byte-gelijk is
 //
 //  DRAAIEN
@@ -240,7 +240,7 @@ async function testAchter() {
       'Z op <= 400 m; A->0 achter, 0->Z gevonden', `Z vanaf ${z4.y !== undefined ? 700 - z4.y : '-'} m; ${met4.wissel.map(w => `${w.van}>${w.naar} ${w.r}`).join(' ; ')}`);
   eis('AR4c zonder licht loopt elke GPS-tik foutloos, en de fase is leeg', met4.rij.filter(x => x.app === null).every(x => !x.fout && x.fase === null),
       'geen fouten', fouten(met4) || 'ok');
-  // b. 3 oktober 12:32: herstart bij 104 km/u, alleen H achter de auto (200 m) en Z op 900 m vooruit.
+  // b. veldgeval AR4b: herstart bij 104 km/u, alleen H achter de auto (200 m) en Z op 900 m vooruit.
   const ar4b = { nodes: [{ id: H, x: 0, y: -200 }, { id: Z, x: 0, y: 900 }], start: null, punten: lijn(0, 200, 104) };
   const met4b = await rit(ar4b), zonder4b = await rit({ ...ar4b, uitAchter: true });
   eis('AR4d herstart met alleen een licht achter je (200 m): de regel kiest het nooit, en niets op 900 m; zonder de regel wel',
@@ -254,7 +254,7 @@ async function testAchter() {
       'geen; zonder: Z', `${met4c.rij.map(x => x.app).join(',')} / ${zonder4c.rij.map(x => x.app).join(',')}`);
 
   // ═══ AR5 — de bocht ════════════════════════════════════════
-  // a. Markerkant (30 sept 16:54): M 10 m opzij; de auto remt af en stopt 3 m voorbij (98 graden).
+  // a. veldgeval AR5a: M 10 m opzij; de auto remt af en stopt 3 m voorbij (98 graden).
   const rem = [...lijn(-80, -14, 36), { x: 0, y: -8, kmh: 22 }, { x: 0, y: -3, kmh: 14 }, { x: 0, y: 0, kmh: 8 }, { x: 0, y: 2, kmh: 5 }, { x: 0, y: 3, kmh: 2 },
                { x: 0, y: 3, kmh: 0 }, { x: 0, y: 3, kmh: 0 }, { x: 0, y: 3, kmh: 0 }];
   const ar5 = { nodes: [{ id: M, x: 10, y: 0 }, { id: B, x: 0, y: 300 }], start: M, punten: rem };
@@ -269,7 +269,7 @@ async function testAchter() {
   const met5b = await rit(ar5b);
   eis('AR5b met een koers die even 180 graden verkeerd staat, blijft het licht vooruit staan, en het licht achter je komt er niet tussen',
       !fouten(met5b) && met5b.rij.every(x => x.app === E), 'E in elke tik', fouten(met5b) || met5b.rij.map(x => String(x.app).slice(-1)).join(''));
-  // c. Dodeweg (27 sept 15:05): stilstand met een oude koers (66 graden); D ligt op -134 graden en 16 m, E 40 m vooruit.
+  // c. veldgeval AR5c: stilstand met een oude koers (66 graden); D ligt op -134 graden en 16 m, E 40 m vooruit.
   const rad = Math.PI / 180, pk = (gr, m) => ({ x: Math.round(Math.sin(gr * rad) * m * 10) / 10, y: Math.round(Math.cos(gr * rad) * m * 10) / 10 });
   const ar5c = { nodes: [{ id: D, ...pk(66 - 134, 16) }, { id: E, ...pk(66, 40) }], start: null, koersen: [66, 66, 66],
                  punten: [{ x: 0, y: 0, kmh: 0 }, { x: 0, y: 0, kmh: 0 }, { x: 0, y: 0, kmh: 0 }] };
@@ -355,12 +355,12 @@ async function testAchter() {
         headingBuffer.length = 0; for (let i = 0; i < 3; i++) headingBuffer.push(1); regelReset(); meetRingGestopt.delete(REGELLOG_SLEUTEL); localStorage.setItem(REGELLOG_SLEUTEL, '[]'); };
       const tikR = (x, y, kmh) => { klok += 1000; snelheidKmh = kmh; if (kmh < 3) { if (!stilstandSinds) stilstandSinds = klok; } else stilstandSinds = 0;
         const p = LL(x, y); regelTik(p.lat, p.lon); return regelStaat.keuze; };
-      // Energieweg: P gepasseerd, de volgende stopstreep N 59 m verder op dezelfde weg, verder niets.
+      // AR9a: P gepasseerd, de volgende stopstreep N 59 m verder op dezelfde weg, verder niets.
       const P = { id: 9800001, ...LL(0, 0) }, N = { id: 9800002, ...LL(0, 59) };
       opzet([P, N]);
       const keuzes = []; for (let y = -40; y <= 50; y += 6) keuzes.push([y, tikR(0, y, 22)]);
       const opN = keuzes.filter(([y, k]) => k === String(N.id)).map(([y]) => y);
-      eis('AR9a Energieweg: na het passeren van P kiest de regel de stopstreep 59 m verder zodra je het kruispunt over bent (vanaf ~30 m na P), niet pas bij aankomst',
+      eis('AR9a de mastregel: na het passeren van P kiest de regel de stopstreep 59 m verder zodra je het kruispunt over bent (vanaf ~30 m na P), niet pas bij aankomst',
           opN.length > 0 && opN[0] >= 26 && opN[0] <= 38 && keuzes.filter(([y]) => y >= opN[0]).every(([y, k]) => k === String(N.id)),
           'N vanaf ~30 m', keuzes.map(([y, k]) => `${y}:${k === String(P.id) ? 'P' : k === String(N.id) ? 'N' : '-'}`).join(' '));
       // De overkant van hetzelfde kruispunt (25 m na P) wordt tijdens het oversteken nog steeds overgeslagen.
@@ -369,11 +369,11 @@ async function testAchter() {
       const k2 = []; for (let y = -40; y <= 20; y += 6) k2.push([y, tikR(0, y, 22)]);
       eis('AR9b de overkant van hetzelfde kruispunt (25 m na P) slaat de regel tijdens het oversteken nog steeds over',
           !k2.some(([y, k]) => y > 0 && k === String(F.id)), 'F niet na P', k2.map(([y, k]) => `${y}:${k === String(P.id) ? 'P' : k === String(F.id) ? 'F' : k === String(N.id) ? 'N' : '-'}`).join(' '));
-      // Markerkant: M 10 m opzij, de auto stopt 3 m voorbij (98 graden): de regel houdt M vast.
+      // AR9c: M 10 m opzij, de auto stopt 3 m voorbij (98 graden): de regel houdt M vast.
       const Mk = { id: 9800004, ...LL(10, 0) };
       opzet([Mk]);
       const k3 = []; for (const [y, kmh] of [[-60, 30], [-50, 30], [-40, 30], [-30, 30], [-20, 30], [-12, 25], [-6, 20], [-2, 14], [1, 8], [3, 5]]) k3.push(tikR(0, y, kmh));
-      eis('AR9c Markerkant: de regel houdt het licht 10 m opzij vast tot de stop, ook voorbij 60 en 90 graden', k3.slice(1).every(k => k === String(Mk.id)),
+      eis('AR9c het vasthouden: de regel houdt het licht 10 m opzij vast tot de stop, ook voorbij 60 en 90 graden', k3.slice(1).every(k => k === String(Mk.id)),
           'M in elke tik', k3.map(k => k === String(Mk.id) ? 'M' : (k || '-')).join(''));
       eis('AR9d de nieuwe constanten van de schaduwregel: 30 m oversteken, 90 graden en 15 m vasthouden', REGEL_OVERSTEEK_M === 30 && REGEL_HOUD_HOEK === 90 && REGEL_HOUD_M === 15,
           '30/90/15', [REGEL_OVERSTEEK_M, REGEL_HOUD_HOEK, REGEL_HOUD_M].join('/'));
@@ -385,7 +385,7 @@ async function testAchter() {
     }
   }
 
-  // ═══ AR10 — de reparatie van 4065739949 ════════════════════
+  // ═══ AR10 — de eenmalige reparatie (licht A) ════════════════════
   {
     const S = 'sl_richting_4065739949', T = 1791134938561;
     const rec = (over) => ({ cx_zones: [], headings: [214, 216], bevestigingen: 18, laatste_update: T, tikrichting: 'links', tik_bevestigingen: 3, tik_cx_zone: 'links', ...over });
@@ -395,7 +395,7 @@ async function testAchter() {
       localStorage.setItem('sl_opslaglog', '[]');
       opslagSchrijf(S, rec({}));
       const r1 = reparatieRichting4065739949(), na = lees();
-      eis('AR10a met de vingerafdruk (19:28:58,561): tikrichting rechts, 1 bevestiging, zone rechts; de rest en laatste_update blijven',
+      eis('AR10a met de vingerafdruk (de tijd T van de tweede tik): tikrichting rechts, 1 bevestiging, zone rechts; de rest en laatste_update blijven',
           r1 === true && na.tikrichting === 'rechts' && na.tik_bevestigingen === 1 && na.tik_cx_zone === 'rechts' && na.laatste_update === T
             && na.bevestigingen === 18 && JSON.stringify(na.headings) === '[214,216]',
           'rechts/1/rechts', JSON.stringify(na));

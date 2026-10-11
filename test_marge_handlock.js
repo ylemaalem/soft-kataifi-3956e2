@@ -10,7 +10,7 @@
 //  WAAROM SAMEN. Zolang de marge op 20 staat, komt een zojuist ontgrendelde
 //  hand-lock-node niet voorbij de afstandsroute en verandert er niets op het
 //  scherm. Wijziging 2 heeft wijziging 1 nodig om effect te hebben; T4 toetst
-//  die koppeling expliciet op het Eendrachtsplein-scenario.
+//  die koppeling expliciet op het scenario van veldgeval E.
 //
 //  DE MEETBASIS
 //  Export 12 september, 20 afwijkingen: 0 0 0 2 3 4 4 4 6 7 8 8 8 9 11 13 14
@@ -164,7 +164,7 @@ function testMargeHandlock() {
         handmatigLockActief === true,
         'lock blijft staan', 'hand=' + handmatigLockActief);
 
-    // ═══ T4 — HET EENDRACHTSPLEIN-SCENARIO, END TO END ═══════
+    // ═══ T4 — HET SCENARIO VAN VELDGEVAL E, END TO END ═══════
     // afwM 38: vergrendeld op 46 m, het echte licht op 8 m. Eerst vervalt de
     // lock, daarna corrigeert de bestaande route naar de juiste node.
     zetLS('sl_opslaglog', '[]');
@@ -217,7 +217,7 @@ function testMargeHandlock() {
     // naar 8 — niet omdat die redenering fout was, maar omdat ze een gat open
     // liet van 8 tot 20 meter, precies waar de tweede mast van dezelfde
     // kruising staat. Daar corrigeerde niets meer zodra er getikt was
-    // (Landdroststraat, 24 september, afwM=9).
+    // (veldgeval L, afwM=9).
     //
     // De bescherming die V11.18.17 wilde, zit er nog steeds — maar nu in de
     // KOERS en in de teller, niet in de afstand. Vandaar de twee toetsen
@@ -230,11 +230,11 @@ function testMargeHandlock() {
         handmatigLockActief === false && handmatigGeselecteerdNodeId === null,
         'lock los',
         'hand=' + handmatigLockActief + ', node=' + handmatigGeselecteerdNodeId);
-    // en het Hospitaaldreef-geval: even dichtbij, maar naast de auto
+    // en veldgeval H: even dichtbij, maar naast de auto
     opzet({ gekozenAf: 40, closestAf: 28, closestHoek: 95 });
     for (let i = 0; i < 5; i++) checkHandLockVerval(huidigePos.lat, huidigePos.lon);
     eis('T4g dezelfde 12 m laat de tap staan als de mast 95 graden opzij ligt ' +
-        '— het gemeten Hospitaaldreef-geval',
+        '— het gemeten veldgeval H',
         handmatigLockActief === true && handLockVervalTeller === 0,
         'lock blijft, teller 0',
         'hand=' + handmatigLockActief + ', teller=' + handLockVervalTeller);

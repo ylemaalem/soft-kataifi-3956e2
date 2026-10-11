@@ -6,11 +6,11 @@
 //  plek waar meerdere masten staan, waarschuwt — altijd, ook als de app die
 //  cluster deze nadering al eerder aankondigde.
 //
-//  HET GEVAL DAT DEZE LAAG BESTAAT. Landdroststraat, 24 september:
-//    08:11:54  cluster_gemeld            node ...301   45 km/u
-//    08:11:56  node_vergrendeld          node ...301   36 km/u  element=beeld
-//    08:12:02  stilstand_node_afwijking  node ...301    3 km/u  afwM=9
-//    08:12:02  node_vergrendeld          node ...302    3 km/u  element=lijst
+//  HET GEVAL DAT DEZE LAAG BESTAAT. Veldgeval L (test_tap_koers K4):
+//    t+0 s     cluster_gemeld            node L1       45 km/u
+//    t+2 s     node_vergrendeld          node L1       36 km/u  element=beeld
+//    t+8 s     stilstand_node_afwijking  node L1        3 km/u  afwM=9
+//    t+8 s     node_vergrendeld          node L2        3 km/u  element=lijst
 //  Tussen de tik en de zelf ontdekte correctie zat zes seconden stilte, mét
 //  lopende countdown op het verkeerde licht. Drie op zichzelf terechte regels
 //  maakten dat moment onzichtbaar; C4 is de test die precies dát nabouwt.

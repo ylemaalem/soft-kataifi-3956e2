@@ -5,7 +5,7 @@
 //  Test bij V11.17.79: bij stilstand telt de peiling mee in de node-keuze.
 //
 //  HET GEMETEN GEVAL
-//  Export 3 september, 16:59:05. Twee nodes allebei op 22m: de gekozene 49
+//  Een gemeten geval (export van 3 september). Twee nodes allebei op 22m: de gekozene 49
 //  graden uit de rijrichting, de juiste 17 graden. De stilstandtak van
 //  vindDichtbijScore (r8423) kent geen richtingsterm, dus beide scoren exact
 //  0,778689 en alleen conf (spanwijdte 0,05) of de volgorde van osmCache
@@ -82,7 +82,7 @@ function testNodescore() {
   // A krijgt bewust het LAGERE id zodat hij ook in osmCache vooraan staat: bij
   // een exacte scoregelijkstand wint in vindDichtbij de eerste (r8530 gebruikt
   // `>`, niet `>=`). Zo kan de test niet per ongeluk slagen op volgorde.
-  const A_ID = 7888678609, B_ID = 7888678612;
+  const A_ID = 9990002001, B_ID = 9990002002;
 
   function opzet(afA, peilA, afB, peilB, kmh) {
     const A = nodeOp(afA, peilA, A_ID);

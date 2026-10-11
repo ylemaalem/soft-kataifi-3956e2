@@ -4,12 +4,12 @@
 //
 //  Test bij V11.36.3: de tik houdt vast.
 //
-//  DE KLACHT (3 oktober 2026, 13:32, Schipholweg 3909607095, stilstaand op
+//  DE KLACHT (veldgeval TV1, stilstaand op
 //  68 m). Twee rode lichten, tik op het rechter. ~2 s later keek de app naar
 //  het linker en bleef daar, ook toen het rechter groen werd. Younes: "Het
 //  maakt niet uit welke kleur, als hij maar mijn tik vasthoudt."
 //
-//  DE OORZAAK (detlog in de meetdata-export). In de volbeeld-run van 13:32:31.6
+//  DE OORZAAK (detlog in de meetdata-export). In de volbeeld-run van dat moment
 //  lag de dichtstbijzijnde detectie 17 YOLO-px (~100 camerapixels) van de
 //  sticky: jouw lamp ontbrak. Het buurlicht kwam met 6% door de tik-zone, lag
 //  binnen tikStraalYolo() (27 YOLO-px in volbeeld) en werd jouw lamp.
@@ -17,11 +17,11 @@
 //  Het vaste beeld hier is dat van de iPhone: 2160 x 3840, een crop van 0,6
 //  (1296 px) om jouw lamp, en een volbeeldrun op 640/3840. Jouw lamp A staat op
 //  camerapixel (1000, 1800), de buur B 100 px links. A is in de crop 24 YOLO-px
-//  hoog (~48 camerapixels), zoals op 3 oktober. De gewone straal is 162
+//  hoog (~48 camerapixels), zoals in het veldgeval. De gewone straal is 162
 //  camerapixels; de vaste straal 0,37 x 162 = ~60.
 //
 //  TV0  vooraf: het beeld, de twee stralen
-//  TV1  Schipholweg nagespeeld: V11.36.2 neemt de buur, V11.36.3 toont niets
+//  TV1  het veldgeval nagespeeld: V11.36.2 neemt de buur, V11.36.3 toont niets
 //       en houdt jouw lamp vast; de meetregel 'weiger' en v/vs/vd
 //  TV2  stilstand in de crop: 45 px schudden houdt, 70 px is een lege run
 //  TV3  dichtbij (6 m, alles volbeeld): de straal groeit mee met de lamp
@@ -62,7 +62,7 @@ async function testTikVast() {
   const naarCrop = (p) => ({ cx: (p.x - CROP.x) * S_CROP, cy: (p.y - CROP.y) * S_CROP });
   const naarVol  = (p) => ({ cx: p.x * S_VOL + PAD_VOL, cy: p.y * S_VOL });
   const plus = (p, dx, dy = 0) => ({ x: p.x + dx, y: p.y + dy });
-  const H_CROP = 24, H_VOL = 9;                            // hoogtes zoals op 3 oktober
+  const H_CROP = 24, H_VOL = 9;                            // hoogtes zoals in het veldgeval
   const STRAAL_CAM = 80 * VW * 0.6 / 640;                   // 162
 
   const det = (p, klasse = 0, score = 0.35, h = H_CROP, w = 9) => {
@@ -101,7 +101,7 @@ async function testTikVast() {
     stickyDetectie = null; stickyMissTeller = 0; tapSeedDetectie = null; autoSlotUitdager = null;
     vorigeDetectie = null; vergrendeldNodeId = null; zoomVergrendeld = false;
     bboxAnchorCx = null; bboxAnchorCy = null; bboxAnchorTijd = 0;
-    dichtstbijOSM = { id: 3909607095, afstand: opt.afst != null ? opt.afst : 68, lat: 52.3, lon: 4.75 };
+    dichtstbijOSM = { id: 9990005001, afstand: opt.afst != null ? opt.afst : 68, lat: 52.3, lon: 4.75 };
     huidigePos = { lat: 52.3, lon: 4.75 }; snelheidKmh = opt.kmh != null ? opt.kmh : 0;
     voorkeursBboxCx = null; voorkeursBboxCy = null;
     voorkeursBboxRuns = 0; voorkeursBboxTijd = 0; voorkeursBboxStart = 0;
@@ -141,7 +141,7 @@ async function testTikVast() {
         Math.abs(tikStraalCam() - STRAAL_CAM) < 0.01 && Math.abs(rCrop - 80) < 0.1 && Math.abs(rVol - 27) < 0.1,
         '162 / 80 / 27', r1(tikStraalCam()) + ' / ' + r1(rCrop) + ' / ' + r1(rVol));
 
-    // ═══ TV1 — Schipholweg nagespeeld ══════════════════════════
+    // ═══ TV1 — het veldgeval nagespeeld ══════════════════════════
     // Crop, crop, dan de volbeeld-run waarin A ontbreekt en B met 6% binnen de
     // straal staat, dan weer de crop met A en B, en tot slot A groen.
     const reeks1 = () => {
@@ -209,7 +209,7 @@ async function testTikVast() {
 
     // ═══ TV3 — dichtbij: de straal groeit mee met de lamp ══════
     // Op 6 m is elke run volbeeld; de lamp is 47 YOLO-px hoog (282 camerapixels).
-    // Op 30 september 20:22 verschoof hij daar 69-84 px per run.
+    // In een ander veldgeval verschoof hij daar 69-84 px per run.
     schoon({ afst: 6, kmh: 0 }); zetVol();
     tikZet({ det: det(naarVol(A), 0, 0.6, 47), camX: A.x, camY: A.y, camH: 47 / S_VOL }, A.x, A.y);
     const r3 = tikStraalVast() / S_VOL;

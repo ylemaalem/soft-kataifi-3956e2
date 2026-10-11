@@ -4,8 +4,8 @@
 //
 //  Test bij V11.37.2: de snelle stilstandroute voor een tikslot.
 //
-//  Het veldgeval (4 oktober 12:06, Amersfoort), recht noord gedraaid: je stopt
-//  op (0, 0); Schuilenburgerweg C staat 5 m recht vooruit, Ringweg-Randenbroek W
+//  Het veldgeval SN, recht noord gedraaid: je stopt
+//  op (0, 0); licht C staat 5 m recht vooruit, licht W
 //  23 m schuin rechts (52 graden). Tijdens het aanrijden tikte Younes op het
 //  beeld terwijl de app W toonde.
 //
@@ -190,7 +190,7 @@ async function testSnelroute() {
   const wisselTik = (r, naar) => { const i = r.rij.findIndex(x => x.app === naar); return i < 0 ? null : r.rij[i]; };
 
   // ═══ SN2 — het veldgeval ═══════════════════════════════════
-  // De naderingsroute weigerde in het veld (voorbij_weg, 12:06:48); hier staat zij uit, zodat alleen deze route beslist.
+  // De naderingsroute weigerde in het veld (voorbij_weg); hier staat zij uit, zodat alleen deze route beslist.
   const sn2 = await rit({ nodes: veld, start: W, slot: 'tik', lamp: true, uitNadering: true, stukken: aanrij });
   const w2 = wisselTik(sn2, C) || {};
   eis('SN2a wissel naar C op de derde stilstaande GPS-tik: 2 s na het stilvallen (de vervalroute deed er 6,0 over)',

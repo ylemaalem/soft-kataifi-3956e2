@@ -271,7 +271,7 @@ async function testOpslagSafari() {
     leeg();
     logOpslagMis('te_kort', { node: '996805', dur: 3 });
     const smal = (berekenSafariOpslag() || {});
-    osmCache = [{ id: 996806, lat: 52.1, lon: 5.1, naam: '\u2019s-Gravenweg, Amsterdam' }];
+    osmCache = [{ id: 996806, lat: 52.1, lon: 5.1, naam: '\u2019s-Testweg, Teststad' }];
     logOpslagMis('te_kort', { node: '996806', dur: 3 });
     const log5 = localStorage.getItem('sl_opslaglog') || '';
     const s5 = berekenSafariOpslag() || {};

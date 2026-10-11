@@ -6,10 +6,10 @@
 //  (A1: een tik op het beeld wist dat bewijs niet meer; A2: de getikte lamp
 //  overleeft de correctie).
 //
-//  WAT ER GEMETEN IS. Op 25 en 26 september stond de app 10 keer bij
+//  WAT ER GEMETEN IS. Op twee rijdagen stond de app 10 keer bij
 //  stilstand op het verkeerde licht, alle 10 na een tik op het camerabeeld
 //  tijdens het naderen. Bij een licht op 6-27 m herstelde de app na 5-6 s; op
-//  het Bentinckplein (licht op 1-3 m, peiling -131 graden) nooit.
+//  veldgeval NB1 (licht op 1-3 m, peiling -131 graden) nooit.
 //
 //  HOE DEZE SUITE WERKT. Elk scenario draait in een VERSE iframe van de app en
 //  rijdt de echte onGPS, tik voor tik, met een nepklok. Het remprofiel is
@@ -21,13 +21,13 @@
 //  Coördinaten in meters ten opzichte van het stoppunt (0,0), noord = +y, de
 //  auto rijdt noordwaarts.
 //
-//  NB1   Bentinckplein: licht op 1,5 m onder -132 graden, tik tijdens naderen
+//  NB1   veldgeval NB1: licht op 1,5 m onder -132 graden, tik tijdens naderen
 //          a  vooraf, oude routes: binnen 30 s GEEN wissel (de blokkade)
 //          b  nieuw: wissel binnen 2 s, niet vóór 1 s, route 'dichtbij'
 //          c  'Terug' zet het oude licht vast en de app blijft daar
 //          d  met ruis (1 m rijdend, 3 m stil): >= 18 van 20 binnen 2 s
 //  NB2   veldgeval NB2 (4 m, -30 graden): binnen 2 s; oude routes 5 s
-//  NB3   patroon 25 sept (15 m, +4 graden): binnen 2 s via 'ver'; oud 5 s
+//  NB3   het patroon NB3 (15 m, +4 graden): binnen 2 s via 'ver'; oud 5 s
 //  NB4   gepasseerd voetgangerslicht P, app toont kruispuntlicht J
 //          a  stop bij J: geen wissel (maar er WAS bewijs voor P)
 //          b  stop 6 m voorbij P: geen wissel
@@ -39,8 +39,8 @@
 //        RESTZONE, bewust niet getoetst als goedgekeurd gedrag: stop je 0-3 m
 //        ná P terwijl P >= 8 m dichterbij ligt dan J, dan kan de route naar P
 //        wisselen. Dat is met telefoon-GPS niet te onderscheiden van het
-//        Bentinckplein, en door Younes aanvaard (27 sept). Het vangnet is 'Terug'.
-//  NB5   Hospitaaldreef, masten opzij: 95 graden (12,5 m), 97 graden (10 m),
+//        veldgeval NB1, en door Younes aanvaard (27 sept). Het vangnet is 'Terug'.
+//  NB5   veldgeval H, masten opzij: 95 graden (12,5 m), 97 graden (10 m),
 //        144 graden (13 m), en een kruisend licht op 6 m. Nooit een wissel;
 //        97 graden en 6 m worden geweigerd op 'dwars'. Plus 6 m met ruis, 10 keer.
 //  NB6   V11.36.0 A1: een late tik op het beeld (op 8 m) wist het bewijs niet
@@ -58,7 +58,7 @@
 //  NB12  zonder tik, hysterese houdt het verkeerde licht (14 m tegen 3 m):
 //        binnen 2 s; oud 3 s
 //  NB13  twee masten op 3 m van elkaar wisselen elkaar af: het bewijs telt door
-//  NB15  het veld van 27 sept 23:48: zes tikken tot vlak voor de stop.
+//  NB15  het veldgeval NB15: zes tikken tot vlak voor de stop.
 //          a  met de oude tik: wissel na 5 s of later (in het veld: 6 s)
 //          b  V11.36.0: wissel binnen 2 s via de nadering
 //  NB16  V11.36.0 A2: de getikte lamp overleeft de correctie
@@ -274,12 +274,12 @@ async function testNaderingsbewijs() {
     : u.rij.filter(r => r.t != null).slice(0, 6).map(r => `t${r.t}:${r.gekozen}/${r.lock}/n${r.n}`).join(' ');
 
   try {
-    // ═══ NB1 — HET BENTINCKPLEIN ═════════════════════════════
-    // Gelogd op 26 sept 14:04: getoond 28 m onder -70 graden, het juiste licht
+    // ═══ NB1 — HET VELDGEVAL ═════════════════════════════
+    // Gelogd in het veldgeval: getoond 28 m onder -70 graden, het juiste licht
     // op 1-3 m onder -131/-132 graden. Hier: C op 1,5 m, 1,1 m links en 1 m
     // ACHTER de telefoon — precies wat een peiling van -132 graden betekent.
-    const B = { W: { id: 7001, naam: 'Bentinckplein W', x: -26.3, y: 9.6 },
-                C: { id: 7002, naam: 'Bentinckplein C', x: -1.1, y: -1.0 } };
+    const B = { W: { id: 7001, naam: 'NB1 W', x: -26.3, y: 9.6 },
+                C: { id: 7002, naam: 'NB1 C', x: -1.1, y: -1.0 } };
     const pB = naderProfiel({ vanAfstand: 135, v0Kmh: 42, a: 1.5, stilS: 30 });
     const optB = { nodes: [B.W, B.C], gekozen: 7001, doel: 7002, profiel: pB, tapBijI: iBij(pB, B.W, 116) };
     const peil = Math.round(Math.atan2(B.C.x, B.C.y) * 180 / Math.PI);
@@ -336,7 +336,7 @@ async function testNaderingsbewijs() {
         wissel(s1, 7102) != null && wissel(s1, 7102) <= 2 && wissel(s0, 7102) >= 3,
         'nieuw <= 2, oud >= 3', wissel(s1, 7102) + ' / ' + wissel(s0, 7102));
 
-    // ═══ NB3 — HET PATROON VAN 25 SEPT (20:13) ═══════════════
+    // ═══ NB3 — HET PATROON ═══════════════
     const P3 = { W: { id: 7201, x: -26.4, y: 21.4 }, C: { id: 7202, x: 1.05, y: 14.96 } };
     const p3 = naderProfiel({ vanAfstand: 120, v0Kmh: 38, a: 1.5, stilS: 20 });
     const opt3 = { nodes: [P3.W, P3.C], gekozen: 7201, doel: 7202, profiel: p3, tapBijI: iBij(p3, P3.W, 114) };
@@ -395,7 +395,7 @@ async function testNaderingsbewijs() {
     eis('NB4f b met ruis, 10 keer: nooit een wissel naar het gepasseerde licht',
         naarP === 0, 0, naarP);
 
-    // ═══ NB5 — MASTEN OPZIJ (HOSPITAALDREEF) ═════════════════
+    // ═══ NB5 — MASTEN OPZIJ (VELDGEVAL H) ═════════════════
     const pH = naderProfiel({ vanAfstand: 100, v0Kmh: 40, a: 1.5, stilS: 20 });
     const opzij = (x, y) => {
       const W = { id: 7401, x: 0, y: 45 };
@@ -424,7 +424,7 @@ async function testNaderingsbewijs() {
     // ═══ NB6 — EEN LATE TIK ══════════════════════════════════
     // V11.36.0 A1: tot en met V11.34.3 stond hier "een tik op 8 m wist het
     // bewijs, en daarna geldt het oude gedrag". Precies dat gedrag maakte V11.27.0
-    // in het veld onbruikbaar: op 27 september tikte Younes tot 24 m bij 3 km/u,
+    // in het veld onbruikbaar: in veldgeval NB15 tikte Younes tot 24 m bij 3 km/u,
     // en nam de route in negen uur log nul keer een beslissing (zie NB15). Een tik
     // op het BEELD zegt welke lamp, niet welk kruispunt; het bewijs blijft staan.
     // Een keuze uit de LIJST zegt wel welk kruispunt, en wist het nog steeds (NB6c).
@@ -520,7 +520,7 @@ async function testNaderingsbewijs() {
         'bounce, > 7 s', ((log(u9, 'nadering_geweigerd')[0] || {}).poortReden || 'geen') + ', t ' + t9);
 
     // ═══ NB10 — OUD BEWIJS ═══════════════════════════════════
-    // Bentinckplein-opzet (de oude routes kunnen daar niets), en een wachttijd
+    // NB1-opzet (de oude routes kunnen daar niets), en een wachttijd
     // die kunstmatig tot ~18 s na stilstand loopt. Dan is het bewijs > 15 s oud.
     const iB = iStil(pB);
     const u10 = await rit({ ...optB, correctieTijdBijI: iB, correctieTijdDelta: 8000 });
@@ -544,11 +544,11 @@ async function testNaderingsbewijs() {
         maxN(u13) >= 3 && t13 && t13.t != null && t13.t <= 2, 'n>=3, <= 2 s',
         'n max ' + maxN(u13) + ', ' + (t13 ? t13.gekozen + ' op ' + t13.t : 'geen wissel'));
 
-    // ═══ NB15 — HET VELD: 27 SEPTEMBER 23:48 ══════════════════
+    // ═══ NB15 — HET VELDGEVAL ══════════════════
     // Zoals gemeten: de app toonde W (vastgezet door een tik op het beeld op
     // 236 m), het juiste licht C lag recht vooruit, 10 m dichterbij bij de stop.
     // Younes tikte zes keer, de laatste keer vlak voor stilstand (24 m, 3 km/u).
-    // Om 23:48:55 wisselde de app, 6 s na de stop, via de oude route.
+    // Daar wisselde de app, 6 s na de stop, via de oude route.
     const F = { W: { id: 8101, naam: 'veld W', x: -14, y: 24 }, C: { id: 8102, naam: 'veld C', x: 0, y: 14 } };
     const pF = naderProfiel({ vanAfstand: 250, v0Kmh: 47, a: 2.5, stilS: 20 });
     const dC = (p) => Math.hypot(F.C.x - p.x, F.C.y - p.y);

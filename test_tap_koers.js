@@ -13,8 +13,8 @@
 //  precies de afstand tussen twee masten op één kruising. Zat de app daar op de
 //  verkeerde, dan corrigeerde niets: de automatische route is geblokkeerd zodra
 //  er getikt is (poort 5), en de vervalroute wilde 20 meter zien.
-//  Gemeten: Landdroststraat, 24 september. Tik op het beeld om 08:11:56,
-//  stilstand_node_afwijking met afwM=9 om 08:12:02. Dat het die dag kort duurde
+//  Gemeten: veldgeval L. Tik op het beeld,
+//  stilstand_node_afwijking met afwM=9 zes seconden later. Dat het die dag kort duurde
 //  kwam doordat de bestuurder zelf ingreep, niet doordat de app herstelde.
 //
 //  WAAROM DE KOERSTOETS ERBIJ MOEST, EN NIET ERNA
@@ -29,8 +29,8 @@
 //
 //  K1  de gedeelde helper koersAfwijkingNaar
 //  K2  KERN: 8 m dichterbij én vóór je -> de tap vervalt
-//  K3  8 m dichterbij maar naast je -> de tap blijft (Hospitaaldreef)
-//  K4  het Landdroststraat-geval (9 m) — precies het gat, end to end
+//  K3  8 m dichterbij maar naast je -> de tap blijft (veldgeval H)
+//  K4  veldgeval L (9 m) — precies het gat, end to end
 //  K5  onbekende koers -> de rest van het bewijs beslist (bewuste keuze)
 //  K6  REGRESSIE: poort 8 van de automatische correctie is ongewijzigd
 //  K7  REGRESSIE: de teller, de stilstandseisen en route 1 zijn onaangeroerd
@@ -52,7 +52,7 @@ function testTapKoers() {
   };
 
   const LAT = 52.0, LON = 4.7;
-  const LOCK = 9831508301, ANDER = 9831508302;   // de node-ids van 24 september
+  const LOCK = 9990004001, ANDER = 9990004002;   // twee nummers voor veldgeval L (synthetisch)
 
   // meters -> graden op 52 graden noorderbreedte, GEIJKT TEGEN afstand()
   //
@@ -107,8 +107,8 @@ function testTapKoers() {
     const a = naarPunt(opt.anderHoek != null ? opt.anderHoek : 0, anderAf);
     huidigePos = { lat: LAT, lon: LON };
     huidigeRichting = 0;
-    osmCache = [{ id: LOCK, lat: g.lat, lon: g.lon, naam: 'Landdroststraat' },
-                { id: ANDER, lat: a.lat, lon: a.lon, naam: 'Landdroststraat' }];
+    osmCache = [{ id: LOCK, lat: g.lat, lon: g.lon, naam: 'L' },
+                { id: ANDER, lat: a.lat, lon: a.lon, naam: 'L' }];
     dichtstbijOSM = { ...osmCache[0], afstand: lockAf };
     puurDichtsteNodeCache = opt.geenClosest ? null : { ...osmCache[1], afstand: anderAf };
     vorigOsmId = LOCK;
@@ -184,7 +184,7 @@ function testTapKoers() {
         vervaltBij(12) === true, 'lock los bij 12 m', String(vervaltBij(12)));
 
     // ═══ K3 — NAAST JE: DE TAP BLIJFT ════════════════════════
-    // De drie gemeten Hospitaaldreef-gevallen, nu ook tegen de kleinere marge.
+    // De drie gemeten H-gevallen, nu ook tegen de kleinere marge.
     for (const [hoek, afw] of [[95, 33], [97, 35], [144, 33], [95, 9], [61, 20]]) {
       opzet({ lockAf: 45, anderAf: 45 - afw, anderHoek: hoek });
       tik(5);
@@ -198,8 +198,8 @@ function testTapKoers() {
     eis('K3b op exact 60 graden mag hij nog wel — dezelfde operator als poort 8',
         handmatigLockActief === false, 'lock los', String(handmatigLockActief));
 
-    // ═══ K4 — HET LANDDROSTSTRAAT-GEVAL, END TO END ══════════
-    // 24 september, 08:12:02: vergrendeld op ...301, een ander licht 9 m
+    // ═══ K4 — VELDGEVAL L, END TO END ══════════
+    // In veldgeval L: vergrendeld op L1, een ander licht 9 m
     // dichterbij. Met de oude marge van 20 gebeurde er niets en greep de
     // bestuurder zelf in. Met 8 + koerstoets laat de app zelf los en corrigeert
     // de bestaande route daarna naar de juiste mast.
@@ -210,7 +210,7 @@ function testTapKoers() {
         'lock aan, node ' + LOCK,
         'hand=' + handmatigLockActief + ', node=' + dichtstbijOSM.id);
     tik(3);
-    eis('K4b de app laat nu zelf los bij 9 meter — dit deed hij op 24 september niet',
+    eis('K4b de app laat nu zelf los bij 9 meter — dit deed hij in veldgeval L niet',
         handmatigLockActief === false, 'lock los', String(handmatigLockActief));
     const r = logRegels('handlock_vervallen')[0];
     eis('K4c met het gemeten verschil, het aantal bevestigingen en het koersverschil in het log',

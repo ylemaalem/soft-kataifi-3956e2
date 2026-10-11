@@ -67,7 +67,7 @@ function testOpslagExport() {
 
     // ── fixture: JSON én niet-JSON én een vreemde sleutel ─────
     zetRuw(`sl_v4_${NODE}_dag`, JSON.stringify([{ duur: 40, tijd: 1780000001000 }]));
-    zetRuw(`sl_naam_${NODE}`, 'Blekerssingel, Gouda');      // GEEN JSON
+    zetRuw(`sl_naam_${NODE}`, 'Weg B, Teststad');      // GEEN JSON
     zetRuw(`sl_enkelricht_${NODE}`, 'rechtdoor');           // GEEN JSON
     zetRuw(`sl_tag_${NODE}`, 'rond');                       // GEEN JSON
     zetRuw('niet_van_ons_' + NODE, 'x');                    // geen sl_-sleutel
@@ -111,8 +111,8 @@ function testOpslagExport() {
 
     // ── E2: DE KERN — niet-JSON blijft tekst ──────────────────
     eis('E2a een straatnaam gaat als tekst mee',
-        nieuw[`sl_naam_${NODE}`] === 'Blekerssingel, Gouda',
-        'Blekerssingel, Gouda', JSON.stringify(nieuw[`sl_naam_${NODE}`]));
+        nieuw[`sl_naam_${NODE}`] === 'Weg B, Teststad',
+        'Weg B, Teststad', JSON.stringify(nieuw[`sl_naam_${NODE}`]));
     eis('E2b ... en wordt dus NIET null',
         nieuw[`sl_naam_${NODE}`] !== null, 'niet null', nieuw[`sl_naam_${NODE}`]);
     eis('E2c hetzelfde voor sl_enkelricht_',
@@ -178,11 +178,11 @@ function testOpslagExport() {
         /startOpslagBoot[\s\S]{0,200}herstelOpslagGlobals/.test(zc(startApp)),
         'na startOpslagBoot', /startOpslagBoot[\s\S]{0,200}herstelOpslagGlobals/.test(zc(startApp)));
     zetRuw('sl_conflog', JSON.stringify([{ t: 1 }, { t: 2 }]));
-    zetRuw('sl_stad_cache', JSON.stringify({ stad: 'Gouda' }));
+    zetRuw('sl_stad_cache', JSON.stringify({ stad: 'Teststad' }));
     klasseVerdelingLog = []; huidigeStad = null;
     herstelOpslagGlobals();
     eis('E5e conflog komt terug', klasseVerdelingLog.length === 2, 2, klasseVerdelingLog.length);
-    eis('E5f de stad komt terug', huidigeStad === 'Gouda', 'Gouda', huidigeStad);
+    eis('E5f de stad komt terug', huidigeStad === 'Teststad', 'Teststad', huidigeStad);
     // een kapotte waarde mag geen crash geven en geen rommel achterlaten
     zetRuw('sl_conflog', 'geen json');
     klasseVerdelingLog = [{ t: 9 }];

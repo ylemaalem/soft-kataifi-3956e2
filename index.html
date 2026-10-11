@@ -2847,7 +2847,7 @@ function toggleLeerLog() {
 // hoort nooit de reden te zijn dat een meting sneuvelt.
 //
 // WAT HET KOST, EERLIJK. 500 records besloegen op die export precies 2,9
-// dagen rijden (25 aug 14:56 tot 28 aug 13:10). Met 150 records is dat
+// dagen rijden (25 tot 28 aug). Met 150 records is dat
 // venster ongeveer een dag. Voor de vier analyses die dit log lezen
 // (analyse/q4_correctie, t_twijfel, k2_verlaten, pk1_voorbij) betekent dat
 // vaker exporteren, of over minder ritten redeneren. Bewust geaccepteerd:
@@ -2935,7 +2935,7 @@ function peilingTovRijrichting(pos, node, heading) {
 // binnen 20m, en van de 761 paren waar beide namen bekend zijn verschilt de
 // naam in 335 gevallen (44%); van de 164 paren met beide een naderingsprofiel
 // wijkt dat in 65 gevallen (40%) meer dan 60 graden af. Het dichtstbijzijnde
-// bewijsbaar aparte paar ligt 4,2m uit elkaar (Postjesweg / Hoofdweg, 178 graden
+// bewijsbaar aparte paar ligt 4,2m uit elkaar (één kruispunt, 178 graden
 // andere nadering). De marge verbergt dus reële alternatieven; dit veld meet
 // hoe vaak.
 let buurNodeMemo = new Map();
@@ -4122,7 +4122,7 @@ function migratieAfrijConventie() {
 // twee vakjes. Dat levert twee opslagemmers en — omdat renderRichtingBlok op
 // aanrij_afrij groepeert — twee schermregels met HETZELFDE label.
 //
-// Gemeten op node 3330495184 (Arnhemseweg): twee regels 'Rechtsaf', uit
+// Gemeten op node RD0c (test_richting_dubbel): twee regels 'Rechtsaf', uit
 // sl_v5_..._NO_NW_avond en sl_v5_..._N_W_avond. Beide zijn dezelfde fysieke
 // manoeuvre.
 //
@@ -4152,9 +4152,9 @@ function migratieAfrijConventie() {
 //                            allebei in nadering 0, dus de twee 'Rechtsaf'-
 //                            regels worden er een
 //   voorbeeldnode 28 aug  -> 1 nadering (22gr), wolk van 2 graden niet gesplitst
-//   node 7881376751       -> 2 naderingen (165gr, 345gr) BLIJVEN apart; dat is
+//   node T3 (test_nadering) -> 2 naderingen (165gr, 345gr) BLIJVEN apart; dat is
 //                            hetzelfde kruispunt vanaf twee kanten
-//   node 7881213125       -> 1 nadering (68gr), wolk 62-73 over de grens NO/O
+//   node T4 (test_nadering) -> 1 nadering (68gr), wolk 62-73 over de grens NO/O
 //
 // 30 GRADEN. Ondergrens: de halve bucketbreedte is 22,5, dus alles daaronder
 // laat een wolk die net over een grens ligt alsnog splitsen. Bovengrens: bij 45
@@ -4365,7 +4365,7 @@ function richtingLeerPct(metingen, nodeId = null) {
 //
 // Zelfde reden als bij laagMetingen (r12750): dit las laadMV5Geclusterd, dus
 // telden de acht buuremmers mee — voor de helft in het percentage en VOLUIT
-// in het aantal. Het kruispuntvenster toonde daardoor op 4626468927 een emmer
+// in het aantal. Het kruispuntvenster toonde daardoor op het kruispunt van RD0d een emmer
 // met één meting als "58% (10x)". Dit is de bron van dat venster, van de
 // dashboardlijst per rijrichting en van de aantallen waarmee het richtingblok
 // sorteert en de Terug-regels filtert. Nu: één emmer, één keer.
@@ -7154,8 +7154,8 @@ function tapGezien() {
 // V11.36.3: HIER STOND DAT DEZE TOETS "NOOIT EEN VERKEERDE LAMP KAN LATEN
 // VOLGEN", omdat hij alleen een filter verruimt en zelf niets kiest. Dat klopte
 // niet. Wat hier doorkomt, valt niet vanzelf weer af: binnen de straal is het
-// voor de tik-tak een gewone kandidaat. Gemeten op 3 oktober 2026, 13:32:31,
-// Schipholweg (3909607095): in een volbeeld-run zag het model jouw lamp niet,
+// voor de tik-tak een gewone kandidaat. Gemeten in veldgeval TV1
+// (test_tik_vast): in een volbeeld-run zag het model jouw lamp niet,
 // en een buurlicht op ~100 camerapixels kwam met 6% alleen door DEZE drempel
 // door. De tik-tak nam het als jouw lamp en bleef daarna bij de buur. Sinds
 // V11.36.3 houdt tikStraalVast() zo'n buur tegen in de tik-tak zelf, bij
@@ -7261,8 +7261,8 @@ function tikLogNoteer(soort, velden) {
 //
 // WAAROM. Eén ring van TIKLOG_MAX regels voor alles liet de run-regels de
 // tikken wegdrukken. In de export van 30 september waren 75 van de 100 regels
-// run-regels. Samen besloegen ze 4,7 minuut van twee ritten, en van de rit van
-// 16:28 stond geen enkele tik meer in het log, alleen nog negen run-regels.
+// run-regels. Samen besloegen ze 4,7 minuut van twee ritten, en van de tweede
+// rit stond geen enkele tik meer in het log, alleen nog negen run-regels.
 //
 // WAT. Dezelfde sleutel en samen nog steeds TIKLOG_MAX regels, maar in twee
 // budgetten:
@@ -7463,7 +7463,7 @@ function tikTelWaak() {
 // ── V11.33.0: DE TIK WINT, OF DE APP TOONT NIETS ────────────
 // © 2026 StoplichtIQ — Y. Lemaalem
 //
-// Younes' twee eisen bij de klacht van 27 september ("tik op A, hij springt
+// Younes' twee eisen bij een eerdere klacht ("tik op A, hij springt
 // naar B; tik op B, hij springt terug naar A"):
 //   1. een tik weegt zwaarder dan de automatische keuze. Wegspringen naar een
 //      ander licht mag alleen als er bij het getikte licht werkelijk niets te
@@ -7505,7 +7505,7 @@ function tikStraalYolo() {
 // ── V11.36.3: DE TIK HOUDT VAST ─────────────────────────────
 // © 2026 StoplichtIQ — Y. Lemaalem
 //
-// DE KLACHT (3 oktober 2026, 13:32, Schipholweg 3909607095). Twee rode lichten,
+// DE KLACHT (veldgeval TV1, test_tik_vast). Twee rode lichten,
 // tik op het rechter. Na ~2 s keek de app naar het linker en bleef daar, ook
 // toen het rechter groen werd. Opnieuw tikken: hetzelfde. Younes: "Het maakt
 // niet uit welke kleur, als hij maar mijn tik vasthoudt."
@@ -7531,7 +7531,7 @@ function tikStraalYolo() {
 //
 // WAAROM MEE MET DE LAMPHOOGTE. Dichtbij is een lamp groot en schuift zijn
 // midden meer: op 6 m verschoof jouw eigen lamp 69-84 camerapixels per run
-// (30 september, 20:22, geen buur in beeld). Een vaste 60 zou daar jouw lamp
+// (een ander veldgeval, geen buur in beeld). Een vaste 60 zou daar jouw lamp
 // kwijtraken; 0,75 x de hoogte geeft daar de gewone straal. Op 68 m is de lamp
 // ~48 px hoog, dus de straal 60, en een buur op 100 valt erbuiten.
 //
@@ -8244,7 +8244,7 @@ const NODE_CHK_STANDSTILL_DUUR_MS = 3000;  // W3: minimum stilstand-duur voor he
 // steeds opnieuw begint.
 //
 // WAAROM 8 EN NIET HOGER. Bij 8 valt het dichte cluster 8-9-11-13-14-15 binnen
-// bereik, plus de 38 van het Eendrachtsplein. Dekking op de elf gemeten
+// bereik, plus de 38 van veldgeval E. Dekking op de elf gemeten
 // episodes: 5 stuks, tegen 1 bij de oude waarde.
 //
 // EEN WAARSCHUWING BIJ HET LEZEN VAN DE RUIS-GRENS. De afwijking is een
@@ -8300,8 +8300,8 @@ const NODE_CHK_HEADING_MAX_GRAD   = 60;    // W3: heading-match tolerantie (indi
 // corrigeert niets: de automatische route mag niet (poort 5 houdt haar tegen
 // zodra er getikt is) en de vervalroute wil 20 meter zien.
 //
-// Gemeten geval: Landdroststraat, 24 september. Tik op het beeld om 08:11:56,
-// stilstand_node_afwijking met afwM=9 om 08:12:02. Alle vijf de mogelijke
+// Gemeten geval: veldgeval L (test_tap_koers K4). Tik op het beeld,
+// stilstand_node_afwijking met afwM=9 zes seconden later. Alle vijf de mogelijke
 // loslaat-routes zijn nagelopen; geen enkele had bij 9 meter gevuurd. Dat het
 // die dag maar zes seconden duurde, kwam doordat de bestuurder zelf naar de
 // correctielijst greep — niet doordat de app zich herstelde. Younes heeft
@@ -8334,7 +8334,7 @@ const NODE_CHK_LOG_INTERVAL_MS    = 1000;  // W5: [NODE-CHK] throttle voor twijf
 // EXACT gelijk en beslist alleen conf (spanwijdte 0,05), of anders de volgorde
 // waarin osmCache toevallig staat.
 //
-// Gemeten geval, export 3 september, 16:59:05: twee nodes allebei op 22m,
+// Gemeten geval (test_nodescore): twee nodes allebei op 22m,
 // de ene 17 graden uit de rijrichting, de andere 49. De app koos de scheve en
 // de gebruiker moest handmatig corrigeren. Doorgerekend met deze constanten:
 //   stilstandtak, beide 22m : 0,778689 tegen 0,778689  — identiek
@@ -8750,13 +8750,13 @@ function wisselNa(lat, lon) {
 //   - V11.37.4: voorbij is nu dezelfde toets als de achter-regel (voorbijStap:
 //     samen minstens ACHTER_STIJG_M erbij). De masten bij een gepasseerd licht
 //     doen alleen niet mee zolang de auto binnen REGEL_OVERSTEEK_M van dat licht
-//     is: op Energieweg (3 en 4 okt) sloeg de oude regel zo een echte volgende
-//     stopstreep 59 m verder over, en bij Markerkant (30 sept 16:54) het licht
+//     is: bij veldgeval AR9a sloeg de oude regel zo een echte volgende
+//     stopstreep 59 m verder over, en bij veldgeval AR9c het licht
 //     waar Younes stopte. En de huidige keuze laat de regel niet los op de hoek
 //     alleen: tot REGEL_HOUD_HOEK graden zolang de afstand afloopt, of zolang
 //     hij binnen REGEL_HOUD_M staat en niet voorbij is. Nagerekend op de 63
 //     stops (rechte nadering): 6 van de 252 keuzes anders, 5 beter, 4 slechter
-//     (een paar telt twee keer); Energieweg en Markerkant goed.
+//     (een paar telt twee keer); AR9a en AR9c goed.
 //   - de keuze is het dichtstbijzijnde kandidaatlicht, of geen licht.
 //   - V11.37.8: een fiets- of voetgangerslicht alleen als er geen ander
 //     kandidaatlicht is (zie fietsSluitUit). Het eigen vorige antwoord krijgt
@@ -10541,7 +10541,7 @@ function runIsKansloos() {
 // ── V11.34.2: TELLEN IN PLAATS VAN ELK WEGSCHRIJVEN ──────────
 // Tot nu toe schreef elke gegate poging een eigen detlog-regel, en dus de hele
 // ring van 500 opnieuw. In het veld was dat ~8 keer per seconde, 63-67% van de
-// ring was 'gegate', en de ring besloeg nog maar 3 minuten (27 sept 23:47-23:50).
+// ring was 'gegate', en de ring besloeg nog maar 3 minuten.
 // Nu telt de poging alleen: de volgende run-regel draagt het aantal in `gN`, en
 // de minuutlog telt ze per afstandsband. De poort zelf verandert niet.
 function slaKanslozeRunOver() {
@@ -14073,7 +14073,7 @@ function laagGeldigVoor(nodeId) {
 //   2. Een buuremmer die bij een ANDERE regel hoort telde voor de helft mee.
 //      Sinds V11.17.81 is een regel per definitie één manoeuvre (nadering en
 //      bocht); wat daar niet in valt, is volgens de app zelf een andere
-//      manoeuvre. Op 3330495184 leenden twee Rechtsaf-regels in twee
+//      manoeuvre. Op RD0c leenden twee Rechtsaf-regels in twee
 //      naderingen elkaars meting: 23% en 27% waar 14% en 21% hoorde.
 //
 // Nu dezelfde regel die algemeenMetingen al volgde (r1853): per sleutel één
@@ -14101,7 +14101,7 @@ function laagMetingen(nodeId, laag, dd = null) {
 
 // ── V11.34.3: HET PERCENTAGE VAN ÉÉN RIJ, ZOALS HET OP HET SCHERM STAAT ──
 // Alleen voor de logregels richting_tik en v5_vroeg_geschreven (het 47%-geval
-// van 27 september moest met een tijdmachine worden nagerekend). Dezelfde
+// moest met een tijdmachine worden nagerekend). Dezelfde
 // indeling als renderRichtingBlok: een rij is een nadering plus een bocht, en
 // alle paren van de node die daar samenvallen, tellen mee. Rekent alleen.
 function richtingRijPct(nodeId, aanrij, afrij) {
@@ -14888,7 +14888,7 @@ async function haalStraatnamenOp() {
 // ── V11.37.8: FIETS- EN VOETGANGERSLICHTEN ZIJN GEEN KANDIDAAT ──
 // © 2026 StoplichtIQ — Y. Lemaalem
 //
-// WAAROM. In Amersfoort ligt 47% van de verkeerslichten in OpenStreetMap
+// WAAROM. In gebied G1 ligt 47% van de verkeerslichten in OpenStreetMap
 // alleen op een fietspad of voetpad (346 van 735, 5 km rond het centrum, 8 okt
 // gemeten). Voor een auto is zo'n licht nooit het licht waar hij voor staat,
 // maar de app kon er wel naartoe wisselen. Voorbeeld (test_fietslicht FL2):
@@ -14908,8 +14908,8 @@ async function haalStraatnamenOp() {
 //      voorheen. De kaartaanvraag zelf verandert niet;
 //   3. het licht dat de app toont doet altijd mee (zoals bij achterSluitUit).
 //      Zo blijft een getikt of uit de lijst gekozen fietslicht staan, ook als
-//      het tik- of lijstslot vervalt. 27 sept 14:44 tikte Younes het
-//      fietslicht 5959862881, en dat was daar het goede licht;
+//      het tik- of lijstslot vervalt. In veldgeval FL4 tikte Younes het
+//      fietslicht zelf, en dat was daar het goede licht;
 //   4. de tik en de lijst lopen niet via deze functie: die blijven altijd
 //      toegestaan.
 //
@@ -14922,7 +14922,7 @@ async function haalStraatnamenOp() {
 // de OSM-nummers van de verkeerslichten binnen OSM_RADIUS die op een weg uit
 // FIETS_WEGEN liggen en op geen enkele weg uit AUTO_WEGEN. Een licht dat op
 // geen enkele weg ligt, of alleen op iets anders (busbaan, bouwweg), staat er
-// niet in en doet dus gewoon mee. Gemeten op Amersfoort: 346 nummers, 3,8 KB.
+// niet in en doet dus gewoon mee. Gemeten op gebied G1: 346 nummers, 3,8 KB.
 // De aanvraag stuurt dezelfde plek en straal als de kaartaanvraag en geen
 // enkel nummer. Wanneer er opnieuw wordt opgehaald: zie fietsDekking (V11.37.12).
 //
@@ -14989,12 +14989,12 @@ function fietsPuurDichtst(lat, lon, p) {
 // ── V11.37.12: DE LIJST PER GEBIED, EN RUSTIG OPNIEUW PROBEREN ──
 // © 2026 StoplichtIQ — Y. Lemaalem
 //
-// WAAROM. In Amsterdam gaf Overpass op 9 okt om 12:54-12:57 UTC steeds 504
-// ("Dispatcher_Client ... timeout. The server is probably too busy"); om
-// 18:13 UTC lukte dezelfde vraag in 9,5 s (1222 lichten, 13,4 KB). Het ligt
+// WAAROM. In gebied G2 gaf Overpass drie minuten lang steeds 504
+// ("Dispatcher_Client ... timeout. The server is probably too busy"); een
+// paar uur later lukte dezelfde vraag in 9,5 s (1222 lichten, 13,4 KB). Het ligt
 // dus aan de drukte, niet aan de vraag. V11.37.8 probeerde drie keer binnen 6
 // minuten en daarna pas bij de volgende kaart. En er was maar één gebied: wie
-// tussen Amersfoort en Amsterdam reed, haalde steeds opnieuw op, en elke kaart
+// tussen gebied G1 en G2 reed, haalde steeds opnieuw op, en elke kaart
 // (elke 3 km) gaf een nieuwe vraag, want FIETS_ZELFDE_M (1 km) was kleiner dan
 // OSM_REFRESH (3 km).
 //
@@ -15018,9 +15018,9 @@ function fietsPuurDichtst(lat, lon, p) {
 //     als Retry-After zegt.
 // Zonder lijst blijft alles zoals in V11.37.8: er valt niets af (fail-open).
 //
-// OPSLAG, zoals Safari telt: vier gebieden als Amsterdam (13,4 KB), Rotterdam
-// (10,6), Amersfoort (3,8) en een kleiner vierde samen ~31 KB; hoogstens vier
-// keer Amsterdam, ~54 KB. sl_fietspoging blijft onder 0,5 KB.
+// OPSLAG, zoals Safari telt: vier gebieden als G2 (13,4 KB), G3
+// (10,6), G1 (3,8) en een kleiner vierde samen ~31 KB; hoogstens vier
+// keer G2, ~54 KB. sl_fietspoging blijft onder 0,5 KB.
 
 function fietsVandaag() { const d = new Date(Date.now()); return d.getFullYear() + '-' + (d.getMonth() + 1) + '-' + d.getDate(); }
 
@@ -15203,8 +15203,8 @@ async function fietsHaalOp(lat, lon) {
 // en de schaduwregel (regelKies).
 //
 // GEMETEN VOORAF: op de 73 stops valt geen enkel goed licht af; het goede
-// licht met de grootste hoek tussen weg en koers zat op 115 graden (30 sept
-// 16:54, koers van een stilstand), vandaar 135 en de snelheidseis. De wegen
+// licht met de grootste hoek tussen weg en koers zat op 115 graden (veldgeval
+// AR5a, koers van een stilstand), vandaar 135 en de snelheidseis. De wegen
 // van 1664 van de 1675 lichten op alleen eenrichtingswegen zitten in de
 // kaartvraag.
 //
@@ -16956,7 +16956,7 @@ function heropenRichtingKeuze() {
 //    Nu: de knoppen gaan open voor het getoonde licht, en een tag- of VRI-knop
 //    die na een wissel nog in beeld staat, doet niets meer voor het oude licht.
 //
-// 2. EEN RICHTINGTIK DIE NIETS DOET. 4 oktober 19:13-19:14 (Hogeweg): Younes
+// 2. EEN RICHTINGTIK DIE NIETS DOET. Een veldgeval: Younes
 //    tikte 'linksaf' in het blok, en er staat geen enkele richting_tik in de
 //    opslaglog. Er zijn drie manieren waarop dat stil kan gebeuren; nu laat elk
 //    een regel richting_tik_leeg achter, met de reden in poortReden en de knop in
@@ -17048,11 +17048,11 @@ function detLogBestVelden() {
 // alle exports van 25 sept tot 4 okt: 64 richtingtikken, bij 62 daarvan is te
 // zien welk licht er stond, en 5 landden op een ander licht (2 op een ander
 // kruispunt, 3 op een andere mast van hetzelfde kruispunt); 1 V5-meting ging
-// daardoor verloren. Op 4 oktober om 19:27:30 koos Younes uit de lijst
-// Amersfoortsestraat (9967542165); vier seconden later schreef zijn Rechtsaf-tik
-// ('toevoeg') naar 4065739949, het licht van vóór de lijstkeuze, 61 graden
-// opzij. Om 19:28:58 ging 'links' naar datzelfde licht, terwijl Energieweg
-// getoond werd en 4065739949 ruim 1 km achter de auto lag; de linksaf-meting
+// daardoor verloren. In veldgeval RT (test_richtingtik) koos Younes uit de lijst
+// licht B; vier seconden later schreef zijn Rechtsaf-tik
+// ('toevoeg') naar licht A, het licht van vóór de lijstkeuze, 61 graden
+// opzij. Anderhalve minuut later ging 'links' naar datzelfde licht, terwijl een derde
+// licht getoond werd en A ruim 1 km achter de auto lag; de linksaf-meting
 // van het rood erna (38 s) ging verloren.
 //
 // DE REGEL (Younes, 5 oktober): een richtingtik gaat altijd naar het licht waar
@@ -18826,19 +18826,19 @@ function ni_kleur(pct) {
 // ── V11.18.22: EEN BEELD-TAP OP EEN CLUSTER MAG NIET ZWIJGEN ──
 // © 2026 StoplichtIQ — Y. Lemaalem
 //
-// HET GEMETEN GAT. Landdroststraat, 24 september, acht seconden:
-//   08:11:54  cluster_gemeld            node 9831508301   45 km/u
-//   08:11:56  node_vergrendeld          node 9831508301   36 km/u  element=beeld
-//   08:12:02  stilstand_node_afwijking  node 9831508301    3 km/u  afwM=9
-//   08:12:02  node_vergrendeld          node 9831508302    3 km/u  element=lijst
-// De app WIST om 08:11:54 dat hier meerdere masten staan en zei dat ook. Twee
+// HET GEMETEN GAT. Veldgeval L (test_tap_koers K4), acht seconden:
+//   t+0 s     cluster_gemeld            node L1           45 km/u
+//   t+2 s     node_vergrendeld          node L1           36 km/u  element=beeld
+//   t+8 s     stilstand_node_afwijking  node L1            3 km/u  afwM=9
+//   t+8 s     node_vergrendeld          node L2            3 km/u  element=lijst
+// De app WIST op t+0 s dat hier meerdere masten staan en zei dat ook. Twee
 // seconden later zette een tik op het beeld de verkeerde van die masten vast.
 // Daarna bleef het stil, tot de gebruiker het zelf ontdekte en zes seconden
 // later handmatig corrigeerde — met een lopende countdown op het verkeerde licht.
 //
 // WAAROM HET STIL BLEEF — DRIE REGELS, ALLE DRIE TERECHT
 //   1. De clustermelding in updateDichtbij is gethrottled op
-//      laatstGemeldeClusterNode: één melding per nadering. Die van 08:11:54 was
+//      laatstGemeldeClusterNode: één melding per nadering. Die van t+0 s was
 //      er al, dus kwam er geen tweede. Terecht — bij elke GPS-tick melden maakt
 //      een melding waardeloos.
 //   2. meldNodeVermoeden laat bij een cluster juist de TOAST vallen, omdat punt
@@ -18846,7 +18846,7 @@ function ni_kleur(pct) {
 //      kruispunt is er één te veel.
 //   3. TRIGGER 1 van die functie eist NODE_CHK_STANDSTILL_DUUR_MS (3000) aan
 //      stilstand. De auto remde in dit venster van 45 naar 3 km/u en stond om
-//      08:12:02 dus nog geen drie seconden stil. Terecht — rijdend wisselt de
+//      t+8 s dus nog geen drie seconden stil. Terecht — rijdend wisselt de
 //      dichtstbijzijnde node continu en is een melding onbruikbaar.
 //
 // Drie terechte regels die samén precies het moment onzichtbaar maken waarop de
@@ -20611,9 +20611,9 @@ let nodeCorrWeiger = null;   // { poort, afstReden, hoekReden, hoekN, voordeel }
 // en juist bij stilstaan voor een verkeerd licht faalt de eerste en de derde.
 // Op een stadsplein kom je zelden 100 m van de node die je ooit aantikte.
 //
-// Gemeten op 12 september, episode 9 en 10: om 19:02 was node 5501272904 nog
+// Gemeten op 12 september, episode 9 en 10: eerst was node N nog
 // de dichtstbijzijnde en dus een volkomen terechte keuze. Ergens in de 57
-// seconden daarna is erop getikt. Om 19:03:55 lag hij 46 m achter de
+// seconden daarna is erop getikt. Even later lag hij 46 m achter de
 // bestuurder (peiling 178 graden) met een ander licht op 8 m ernaast — en de
 // app hield onverkort vast. De tijdstempel die dit had kunnen oplossen bestaat
 // wel (handmatigGeselecteerdTimestamp) maar wordt nergens gelezen.
@@ -20840,7 +20840,7 @@ function checkHandLockPassage(lat, lon) {
 // rijdend losliet, gebeurde dat 18 keer pas op 90 m of meer voorbij; en in de
 // detlog toonde de app 40 keer een licht dat al achter de auto lag (samen 358 s,
 // mediaan 6 s, langste 29 s), 14 keer zonder enig slot. A3 (V11.37.0) helpt
-// alleen bij een slot, en alleen na het hele kruispunt plus 30 m. Op 3 okt 12:32
+// alleen bij een slot, en alleen na het hele kruispunt plus 30 m. In veldgeval AR4b
 // koos de gewone puntentelling een licht achter de auto op 200-382 m, en
 // daarna toonde de terugval tot 1,7 km een licht omdat er binnen 400 m niets was.
 //
@@ -20854,13 +20854,13 @@ function checkHandLockPassage(lat, lon) {
 //   2. LOSLATEN OP AFSTAND, NIET OP DE HOEK. Is het getoonde licht voorbij, dan
 //      laat de app het los, met én zonder tik- of lijstslot (achterTik). De hoek
 //      laat het getoonde licht nooit los: in een bocht loopt de GPS-koers achter,
-//      en een goed licht ligt dan even opzij of zelfs achter (30 sept 16:54:
+//      en een goed licht ligt dan even opzij of zelfs achter (veldgeval AR5a:
 //      10 m opzij op 98 graden vlak voor de stop). Zolang de afstand niet twee
 //      keer samen 5 m oploopt, blijft het staan.
 //   3. DE HOEK ALLEEN VOOR NIEUWE KANDIDATEN. Een licht dat de app nog niet toont,
 //      komt niet in aanmerking als het meer dan ACHTER_HOEK graden van de
 //      rijrichting af ligt: het ligt achter je. Zo pakt de puntentelling niet
-//      meer een licht achter de auto (3 okt 12:32, 200-382 m).
+//      meer een licht achter de auto (veldgeval AR4b, 200-382 m).
 //   4. GEEN LICHT. Binnen ACHTER_MAX_M geen kandidaat, dan toont de app geen
 //      licht (geenLichtZetten), in plaats van het dichtstbijzijnde op elke
 //      afstand. Ook niet als het de enige kandidaat is.
@@ -21013,19 +21013,19 @@ function geenLichtTekst() {
   leerNaam.textContent = 'Geen stoplicht in de buurt';
 }
 
-// ── V11.37.4: EENMALIGE REPARATIE VAN KRUISPUNT 4065739949 ───────
+// ── V11.37.4: EENMALIGE REPARATIE VAN ÉÉN KRUISPUNT (LICHT A) ───────
 // © 2026 StoplichtIQ — Y. Lemaalem
 //
-// Op 4 oktober kreeg 4065739949 twee richtingtikken die voor een ander licht
-// bedoeld waren (19:27:34 'rechts' voor Amersfoortsestraat, 19:28:58 'links' voor
-// Energieweg, ruim 1 km verder; de fout die V11.37.3 repareerde). Daardoor ging
-// tikrichting van 'rechts' (20 september) naar 'links' en tik_bevestigingen van
+// In veldgeval RT kreeg licht A twee richtingtikken die voor een ander licht
+// bedoeld waren ('rechts' voor licht B en anderhalve minuut later 'links' voor
+// een derde licht, ruim 1 km verder; de fout die V11.37.3 repareerde). Daardoor ging
+// tikrichting van 'rechts' (een eerdere tik) naar 'links' en tik_bevestigingen van
 // 1 naar 3. Younes koos optie b: alleen terugzetten als het record sindsdien
-// niet meer is aangeraakt, herkenbaar aan laatste_update op precies 4 okt
-// 19:28:58,561 (de tweede tik). De rest van het record (passieve koersen,
+// niet meer is aangeraakt, herkenbaar aan laatste_update op precies
+// TIJD hieronder (de tweede tik). De rest van het record (passieve koersen,
 // bevestigingen) blijft staan; laatste_update ook, zodat er geen tijd wordt
 // verzonnen. Een tweede keer doet niets: dan staat er al 'rechts' en 1. De 38 s
-// rood van 19:29 op Energieweg wordt niet nagemaakt.
+// rood daarna bij het derde licht wordt niet nagemaakt.
 //
 // De vingerafdruk staat BINNEN de functie: ze draait bij het opstarten, ver
 // boven deze regel, en een const hier buiten bestaat dan nog niet.
@@ -21440,13 +21440,13 @@ function corrigeerNodeAutomatisch(nieuweNode, reden) {
 // ══ V11.27.0: BEWIJS VERZAMELEN TIJDENS HET NADEREN ══════════
 // © 2026 StoplichtIQ — Y. Lemaalem
 //
-// HET GEMETEN PROBLEEM. Op 25 en 26 september stond de app 10 keer bij
+// HET GEMETEN PROBLEEM. Op twee rijdagen stond de app 10 keer bij
 // stilstand op het verkeerde licht, en alle 10 begonnen met een tik op het
 // camerabeeld tijdens het naderen. Die tik zet de node vast die de app op dat
 // moment toont (r7189), vaak nog op meer dan 100 m. Daarna gold de vervalroute:
 // 3 s stilstand en 3 bevestigingen, dus precies 5 s. Stond het juiste licht op
-// 1-4 m, dan kwam er soms nooit een wissel: op het Bentinckplein (26 sept
-// 14:04) lag de peiling naar het juiste licht op -131 graden en weigerde de
+// 1-4 m, dan kwam er soms nooit een wissel: bij veldgeval NB1
+// lag de peiling naar het juiste licht op -131 graden en weigerde de
 // koerstoets elke tik. Op 1-3 m is de peiling ruis — dezelfde reden waarom de
 // hoekroute onder NODE_HOEK_MIN_AFSTAND_M weigert (r7683).
 //
@@ -21483,7 +21483,7 @@ function corrigeerNodeAutomatisch(nieuweNode, reden) {
 // lage snelheid meldt, 'gestegen' als je vlak na de passage al stilstaat.
 //
 // HET RESTRISICO, bewust aanvaard (Younes, 27 sept). Een node op de stopstreep
-// die 1-2 m achter de telefoon gemeten wordt — het Bentinckplein — is met
+// die 1-2 m achter de telefoon gemeten wordt — veldgeval NB1 — is met
 // telefoon-GPS niet te onderscheiden van een licht dat je 2 m geleden passeerde.
 // Sta je binnen ~3 m ná een licht op je pad stil dat 8 m dichterbij ligt dan het
 // getoonde, dan kan deze route onterecht wisselen. Kwam in geen van de 10
@@ -21641,10 +21641,10 @@ function naderingToastTekst(meter) {
 // ── V11.37.2: DE SNELLE STILSTANDROUTE VOOR EEN TIKSLOT ──────────
 // © 2026 StoplichtIQ — Y. Lemaalem
 //
-// DE KLACHT (Younes, 4 oktober 12:06, Amersfoort): "ik sta stil bij het
+// DE KLACHT (Younes, veldgeval SN, test_snelroute): "ik sta stil bij het
 // verkeerde stoplicht en het duurt 5 seconden of langer". Gemeten in de export
-// van 4 oktober: een tik op 67 m zette Ringweg-Randenbroek vast, terwijl
-// Schuilenburgerweg recht vooruit dichterbij lag. Bij stilstand op 5 m van dat
+// van 4 oktober: een tik op 67 m zette licht W vast, terwijl
+// licht C recht vooruit dichterbij lag. Bij stilstand op 5 m van dat
 // licht weigerde de naderingsroute (voorbij_weg) en wisselde de vervalroute
 // pas na 6,0 s; daarbij gingen 14 s rood en de tik verloren.
 //
@@ -21737,7 +21737,7 @@ function checkTikSlotSnel(lat, lon) {
 // tapSeed), net als een echte node-wissel. Dat is juist als je doorrijdt naar
 // een ander kruispunt. Deze route beslist echter alleen BIJ STILSTAND: het beeld
 // is hetzelfde, de lamp staat op dezelfde plek, alleen de naam van het
-// kruispunt verandert. Gemeten op 27 september om 23:48:55: de correctie liet de
+// kruispunt verandert. Gemeten in veldgeval NB15: de correctie liet de
 // tik los (tiklog 'los', reden 'correctie'), Younes tikte een seconde later
 // opnieuw, en DIE tik zette een harde vergrendeling op het nieuwe licht die 66 m
 // meereed naar het volgende. Twee regels die elk juist lijken, samen een fout.
