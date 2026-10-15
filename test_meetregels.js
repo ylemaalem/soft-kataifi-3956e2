@@ -41,11 +41,13 @@ async function testMeetregels() {
     .replace('|| (afst < DETLOG_MIN_M && !stil) || afst > DETLOG_MAX_M) return;   // V11.37.5: stilstand vlak bij het licht mag', '|| afst < DETLOG_MIN_M || afst > DETLOG_MAX_M) return;')
     .replace('if (snelheidKmh <= 30 && dichtstbijOSM) toonRichtingKnoppen(String(dichtstbijOSM.id));   // V11.37.5: het licht dat de app NU toont, zie isGetoondLicht', 'if (snelheidKmh <= 30) toonRichtingKnoppen(huidigBevestigdOsmNodeId);');
   const terugV11377 = (s) => String(s).replace("  const naExport = () => {};   // V11.37.7: het schaduwlog niet meer wissen; het is een ring (MAX_SCHADUWLOG)", "  const naExport = () => { try { localStorage.removeItem('sl_schaduwlog'); } catch(_) {} };");   // V11.37.7: het schaduwlog wist niet meer (test_getoond_licht); hier terug
-  const zonderV113715 = (s) => String(s).split('\n').filter(l => !/V11\.37\.15(?!\d)/.test(l)).join('\n');   // V11.37.15: de koersmeting (test_koerslog); hier terug
+  const zonderV113717 = (s) => String(s).split('\n').filter(l => !/V11\.37\.17(?!\d)/.test(l)).join('\n');   // V11.37.17: de startlog (test_startlog); hier terug
+  const zonderV113715 = (s) => zonderV113717(s).split('\n').filter(l => !/V11\.37\.15(?!\d)/.test(l)).join('\n');   // V11.37.15: de koersmeting (test_koerslog); hier terug
   const zonderV113713 = (s) => zonderV113715(s).split('\n').filter(l => !/V11\.37\.13(?!\d)/.test(l)).join('\n');   // V11.37.14: R1 en R3 (test_tegenbocht); het oude patroon bij ML7b (onGPS) slikte die regels stil in
   const zonderV113712 = (s) => zonderV113713(s).split('\n').filter(l => !/V11\.37\.12(?!\d)/.test(l)).join('\n');   // V11.37.14: de rem en de fietsdekking (test_overpass); idem
   const zonderV113711 = (s) => zonderV113712(s).split('\n').filter(l => !/V11\.37\.11(?!\d)/.test(l)).join('\n');   // V11.37.14: de tegenrichting-regel (test_tegenrichting); idem
-  const zonderMeet = (f) => terugV11377(terugV11375(f)).split('\n').filter(l => !/V11\.34\.[2-9](?!\d)|V11\.36\.[14](?!\d)|V11\.37\.[15](?!\d)|V11\.37\.15(?!\d)/.test(l)).join('\n');   // V11.36.4: ook de wissellog; V11.37.5: de detlog bij stilstand; V11.37.15: de koersbak
+  const terugV113717 = (s) => String(s).replace("    navigator.geolocation.watchPosition(onGPS, (e)=>{ pGPS.className='pill-dot o'; startLogGpsFout(e); }, { enableHighAccuracy:true, maximumAge:5000, timeout:12000 });   // V11.37.17: de fout ook tellen", "    navigator.geolocation.watchPosition(onGPS, ()=>{ pGPS.className='pill-dot o'; }, { enableHighAccuracy:true, maximumAge:5000, timeout:12000 });");   // V11.37.17: de oude foutroute van de watch terug (test_startlog)
+  const zonderMeet = (f) => terugV11377(terugV11375(terugV113717(f))).split('\n').filter(l => !/V11\.34\.[2-9](?!\d)|V11\.36\.[14](?!\d)|V11\.37\.[15](?!\d)|V11\.37\.15(?!\d)|V11\.37\.17(?!\d)/.test(l)).join('\n');   // V11.36.4: ook de wissellog; V11.37.5: de detlog bij stilstand; V11.37.15: de koersbak; V11.37.17: de startlog
   const lees = (k) => { try { return JSON.parse(localStorage.getItem(k)) || []; } catch (e) { return []; } };
 
   const sleutels = [CAMCAP_SLEUTEL, MODELLOG_SLEUTEL, MINUUTLOG_SLEUTEL];

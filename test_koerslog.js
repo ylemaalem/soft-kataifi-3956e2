@@ -338,7 +338,8 @@ async function testKoerslog() {
 
   // ═══ KL11 — regressie ═══════════════════════════════════════
   const merk = (f) => String(f).split(NL).filter(l => /V11\.37\.15(?!\d)/.test(l)).length;
-  const zonderV113715 = (s) => String(s).split(NL).filter(l => !/V11\.37\.15(?!\d)/.test(l)).join(NL);
+  const zonderV113717 = (s) => String(s).split(NL).filter(l => !/V11\.37\.17(?!\d)/.test(l)).join(NL);   // V11.37.17: de startlog (test_startlog); hier terug
+  const zonderV113715 = (s) => zonderV113717(s).split(NL).filter(l => !/V11\.37\.15(?!\d)/.test(l)).join(NL);
   const V113713 = { onGPS: ['ef388897', 15408, 1], exporteerMeetdata: ['db5a2894', 9165, 2] };
   const telAf = Object.entries(V113713).filter(([n, [h, l, m]]) => merk(window[n]) !== m).map(([n]) => n + ' ' + merk(window[n]));
   eis('KL11a twee functies krijgen regels met merkteken V11.37.15: één in onGPS (de aanroep), twee in exporteerMeetdata (de bak)',
@@ -353,9 +354,12 @@ async function testKoerslog() {
   } catch (e) { code11 = ['fout: ' + e]; }
   const verwacht11 = [/^const APP_VERSIE = 'V11\.37\.15(?!\d) — /, /^uit\.koers = \{\};\s+\/\/ V11\.37\.15(?!\d): /, /^else if \(key === KOERSLOG_SLEUTEL\)\s+doel = uit\.koers;\s+\/\/ V11\.37\.15(?!\d): /,
     /^koersLogTik\(pos\);\s+\/\/ V11\.37\.15(?!\d): meetregel, beslist niets$/];
-  const past11 = code11.length === 4 && verwacht11.every(re => code11.filter(l => re.test(l)).length === 1);
-  eis('KL11c in de bron staat V11.37.15 buiten het commentaar alleen in vier regels: de versie, de bak (twee) en de aanroep; geen andere functie kreeg er een',
-      past11, '4 regels', code11.length + ': ' + code11.map(l => l.slice(0, 40)).join(' | '));
+  // V11.37.17: de versieregel draagt sinds V11.37.17 een later nummer (test_startlog); de drie regels van de meting blijven
+  const versie11 = code11.filter(l => /^const APP_VERSIE/.test(l));
+  const past11 = code11.length - versie11.length === 3 && versie11.length <= 1 && versie11.every(l => verwacht11[0].test(l))
+    && verwacht11.slice(1).every(re => code11.filter(l => re.test(l)).length === 1);
+  eis('KL11c in de bron staat V11.37.15 buiten het commentaar alleen in de bak (twee regels), de aanroep en (tot een latere versie) de versieregel; geen andere functie kreeg er een',
+      past11, '3 regels (+ de versie)', code11.length + ': ' + code11.map(l => l.slice(0, 40)).join(' | '));
   const og = zc(onGPS), iK = og.indexOf('koersLogTik(pos)');
   eis('KL11d in onGPS staat de meting na de koers en de snelheid, vóór de beslisketen (wisselVoor, het slot, updateDichtbij)',
       iK > og.indexOf('voegHeadingToe(pos.coords.heading)') && iK > og.indexOf('snelheidKmh = snelheidMs * 3.6') && og.indexOf('snelheidKmh = snelheidMs * 3.6') > 0

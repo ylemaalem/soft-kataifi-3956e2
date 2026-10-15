@@ -1053,7 +1053,7 @@ if (typeof ort !== 'undefined') {
 //
 // De stijl volgt de eerdere labels: nummer, kastlijntje, korte omschrijving in
 // kleine letters. De CSS zet hem zelf in kapitalen (text-transform:uppercase).
-const APP_VERSIE = 'V11.37.15 — alleen meten: bij 3 tot 10 km/u per GPS-tik de koers van de tik naast de koers uit de plekken';
+const APP_VERSIE = 'V11.37.17 — alleen meten: per app-start de tijd tot camera, model, GPS, kaart en licht, en elk gat zonder run (sl_startlog)';
 
 // ── CONSTANTEN ────────────────────────────────────────────────
 const OSM_RADIUS       = 5000;
@@ -5562,6 +5562,7 @@ function exporteerMeetdata() {
       uit.wissel = {};   // V11.36.4: zie wisselLogNoteer
       uit.regel = {};    // V11.37.1: zie regelTik
       uit.koers = {};    // V11.37.15: zie koersLogTik
+      uit.start = {};    // V11.37.17: zie startLogNieuw
       for (const key of opslagSleutels('')) {                          // V11.23.0
         let doel = null;
         if (key.startsWith('sl_passief_'))       doel = uit.passief;
@@ -5584,6 +5585,7 @@ function exporteerMeetdata() {
         else if (key === WISSELLOG_SLEUTEL)      doel = uit.wissel;     // V11.36.4: elke wissel naar een ander licht
         else if (key === REGELLOG_SLEUTEL)       doel = uit.regel;      // V11.37.1: de schaduwregel
         else if (key === KOERSLOG_SLEUTEL)       doel = uit.koers;      // V11.37.15: de koers bij kruipen
+        else if (key === STARTLOG_SLEUTEL)       doel = uit.start;      // V11.37.17: de startlog
         // V11.17.33 W2: let op de volgorde — 'sl_richtinglog' begint NIET met
         // 'sl_richting_' (na 'sl_richting' volgt 'l', geen '_'), dus deze twee
         // takken kunnen elkaar niet vangen. Toch staat de exacte match eerst.
@@ -9078,6 +9080,7 @@ function minStatNieuw(nu) {
 }
 function minStatZeker() {
   const nu = Date.now();
+  startLaatsteRun = nu;   // V11.37.17: de startlog ziet een run, zie startLogKijk
   if (minStat && nu - minStat.tL > MINUUT_GAT_MS) minStatSluit(minStat.tL, minStat.fL);
   else if (minStat && nu - minStat.t0 >= MINUUT_MS) minStatSluit(nu, frameT);
   if (!minStat) minStatNieuw(nu);
@@ -9116,6 +9119,180 @@ function minStatSluit(eind, fEind) {
     });
   } catch (e) {}
 }
+// ── V11.37.17: DE STARTLOG (ALLEEN METEN) ────────────────────
+// © 2026 StoplichtIQ — Y. Lemaalem
+//
+// WAAROM. Younes: "het duurt de laatste tijd minuten voordat de app verbinding
+// heeft met GPS". De export liet achteraf zien DAT een start traag was (de
+// eerste kaart kwam laat, de minuutlog had gaten zonder nieuwe start), maar
+// niet WAAR het bleef hangen: camera, model, GPS, kaart of het rekenen. Dit is
+// die maat; er verandert niets.
+//
+// WAT. Eén ring van STARTLOG_MAX regels (sl_startlog), twee soorten:
+//   k:'s'  één per app-start (startApp), bijgewerkt als er een mijlpaal bij
+//          komt. Milliseconden na de starttik tot: c (camerastroom), p (video
+//          speelt), w (GPS-watch aangemeld), m (model klaar; 0 = was al klaar;
+//          ml = hoe lang het laden duurde), g (eerste GPS-tik; ga = de
+//          nauwkeurigheid in m), k1 (eerste kaart; kn = aantal lichten), l
+//          (eerste licht in bereik). Tellers: of = mislukte kaartvragen, os =
+//          hun status (504, 429, 'tijd' = afgebroken, 'json', 'net'; hooguit
+//          5), gf = GPS-fouten, gc = de laatste foutcode (1 geen toestemming,
+//          2 geen positie, 3 time-out), vc = keren uit of in beeld, hm = ms uit
+//          beeld.
+//   k:'g'  een gat: langer dan STARTLOG_GAT_MS geen run (geen inferentie, geen
+//          voorbewerking, geen gegate poging) terwijl de pagina in beeld is.
+//          t = de laatste run, d = de duur (per minuut bijgewerkt, en bij het
+//          einde; vb = 1 als het gat eindigde doordat de app uit beeld ging), en
+//          de stand bij het ontdekken: mg (model geladen), wo/wk (worker er /
+//          klaar), ai (aiBezig) en am (ms sinds het laatste bericht aan de
+//          worker), r (video.readyState), pa (video gepauzeerd), tr/mu (camera-
+//          track readyState, muted), rf (ms sinds het laatste lusframe), kl
+//          (runIsKansloos), kb (ms dat een kaartvraag al loopt), gt (ms sinds de
+//          laatste GPS-tik).
+// Lege velden (null, 0, onwaar, lege lijst) gaan er niet in; een mijlpaal en k,
+// t, v, r en d blijven ook bij 0. Geen plek, geen licht, geen naam.
+//
+// KLEIN. Gemeten in test_startlog (SL7): ~185 tekens per volle startregel, ~110
+// per gatregel; een volle ring van 40 is 5,8 K (half gaten) tot 7,2 K tekens
+// (alleen starten). Meer dan de 2-3 KB uit de opdracht; 20 regels zou de helft zijn.
+//
+// ALLEEN METEN. Deze functies lezen de app-toestand en schrijven alleen
+// startMeet, startGat, startGatU, startLaatsteRun, startLaatsteGps,
+// startVerborgenT, startModelMs, kaartVraagT, startTimer en sl_startlog. Een
+// vol quotum staakt alleen dit log voor de sessie, net als de andere meetringen.
+const STARTLOG_SLEUTEL = 'sl_startlog';
+const STARTLOG_MAX     = 40;
+const STARTLOG_GAT_MS  = 30000;
+const STARTLOG_TIK_MS  = 5000;
+const STARTLOG_ALTIJD  = new Set(['k', 't', 'v', 'r', 'd', 'c', 'p', 'w', 'm', 'g', 'k1', 'l']);
+let startMeet = null, startGat = null, startGatU = 0, startLaatsteRun = 0, startLaatsteGps = 0;
+let startVerborgenT = 0, startModelMs = null, kaartVraagT = 0, startTimer = null;
+
+function startLogSchrijf(rec) {
+  if (meetRingGestopt.has(STARTLOG_SLEUTEL)) return;
+  try {
+    const schoon = {};
+    for (const k of Object.keys(rec)) {
+      const v = rec[k];
+      if (v === undefined || v === null) continue;
+      if (!STARTLOG_ALTIJD.has(k) && (v === 0 || v === false || (Array.isArray(v) && !v.length))) continue;
+      schoon[k] = v === true ? 1 : Array.isArray(v) ? v.slice() : v;
+    }
+    let arr = opslagLees(STARTLOG_SLEUTEL, []);
+    if (!Array.isArray(arr)) arr = [];
+    let i = arr.length - 1;
+    while (i >= 0 && !(arr[i] && arr[i].k === schoon.k && arr[i].t === schoon.t)) i--;
+    if (i >= 0) arr[i] = schoon; else arr.push(schoon);
+    if (arr.length > STARTLOG_MAX) arr = arr.slice(-STARTLOG_MAX);
+    if (!opslagSchrijf(STARTLOG_SLEUTEL, arr)) throw new Error('vol');
+  } catch (e) {
+    meetRingGestopt.add(STARTLOG_SLEUTEL);
+    try { localStorage.removeItem(STARTLOG_SLEUTEL); } catch (_) {}
+  }
+}
+
+// Aan het begin van startApp: een nieuwe startregel, en (één keer) de kijker.
+function startLogNieuw() {
+  try {
+    const nu = Date.now();
+    startMeet = { k: 's', t: nu, v: appVersieKort(), m: modelGeladen ? 0 : null, ml: modelGeladen ? startModelMs : null,
+                  of: 0, os: [], gf: 0, gc: null, vc: 0, hm: 0 };
+    startGat = null; startLaatsteRun = nu; startVerborgenT = 0;
+    startLogSchrijf(startMeet);
+    if (!startTimer) startTimer = setInterval(startLogKijk, STARTLOG_TIK_MS);
+  } catch (e) {}
+}
+
+// Een mijlpaal: alleen de eerste keer per start.
+function startLogMijl(veld, extra) {
+  try {
+    if (!startMeet || startMeet[veld] != null) return;
+    startMeet[veld] = Date.now() - startMeet.t;
+    if (extra) Object.assign(startMeet, extra);
+    startLogSchrijf(startMeet);
+  } catch (e) {}
+}
+
+// Elke GPS-tik (onGPS): onthoudt het moment; de eerste per start is een mijlpaal.
+function startLogGps(pos) {
+  try {
+    startLaatsteGps = Date.now();
+    if (startMeet && startMeet.g == null) {
+      const acc = pos && pos.coords ? pos.coords.accuracy : null;
+      startLogMijl('g', { ga: typeof acc === 'number' && isFinite(acc) ? Math.round(acc) : null });
+    }
+  } catch (e) {}
+}
+
+// De foutroute van de GPS-watch.
+function startLogGpsFout(err) {
+  try {
+    if (!startMeet) return;
+    startMeet.gf++;
+    startMeet.gc = err && typeof err.code === 'number' ? err.code : -1;
+    startLogSchrijf(startMeet);
+  } catch (e) {}
+}
+
+// Een mislukte kaartvraag (downloadOSM, in de catch): de status, of wat er misging.
+function startLogKaartFout(status, err) {
+  try {
+    if (!startMeet) return;
+    startMeet.of++;
+    const s = status ? status : err && err.name === 'AbortError' ? 'tijd' : err && err.name === 'SyntaxError' ? 'json' : 'net';
+    if (startMeet.os.length < 5) startMeet.os.push(s);
+    startLogSchrijf(startMeet);
+  } catch (e) {}
+}
+
+// Elke STARTLOG_TIK_MS: is er langer dan STARTLOG_GAT_MS geen run geweest terwijl
+// de pagina in beeld is? Dan een gatregel; die wordt bijgewerkt tot het gat dicht is.
+function startLogKijk() {
+  try {
+    if (!startMeet || document.visibilityState !== 'visible') return;
+    const nu = Date.now();
+    if (startGat) {
+      if (startLaatsteRun > startGat.t) { startGat.d = startLaatsteRun - startGat.t; startLogSchrijf(startGat); startGat = null; }
+      else if (nu - startGatU >= 60000) { startGat.d = nu - startGat.t; startGatU = nu; startLogSchrijf(startGat); }
+      return;
+    }
+    if (nu - startLaatsteRun <= STARTLOG_GAT_MS) return;
+    const tr = cameraTrack;
+    let kl = null;
+    try { kl = runIsKansloos(); } catch (_) {}
+    startGat = { k: 'g', t: startLaatsteRun, d: nu - startLaatsteRun, mg: modelGeladen, wo: !!yoloWorker, wk: workerKlaar, ai: aiBezig,
+                 am: aiBezig && yoloWorker && yoloWorker._startTijd ? nu - yoloWorker._startTijd : null,
+                 r: video ? video.readyState : null, pa: video ? video.paused : null,
+                 tr: tr ? tr.readyState : null, mu: tr ? tr.muted : null,
+                 rf: lastFrameTimestamp ? nu - lastFrameTimestamp : null, kl,
+                 kb: cacheBezig && kaartVraagT ? nu - kaartVraagT : null,
+                 gt: startLaatsteGps ? nu - startLaatsteGps : null };
+    startGatU = nu;
+    startLogSchrijf(startGat);
+  } catch (e) {}
+}
+
+// Uit en in beeld: tellen, de tijd uit beeld optellen, een open gat sluiten bij
+// het weggaan, en bij het terugkomen de klok voor gaten opnieuw laten beginnen
+// (anders telt de tijd uit beeld als gat).
+try {
+  document.addEventListener('visibilitychange', () => {
+    try {
+      if (!startMeet) return;
+      const nu = Date.now();
+      startMeet.vc++;
+      if (document.visibilityState === 'hidden') {
+        startVerborgenT = nu;
+        if (startGat) { startGat.d = nu - startGat.t; startGat.vb = 1; startLogSchrijf(startGat); startGat = null; }
+      } else {
+        if (startVerborgenT) { startMeet.hm += nu - startVerborgenT; startVerborgenT = 0; }
+        startLaatsteRun = Math.max(startLaatsteRun, nu);
+      }
+      startLogSchrijf(startMeet);
+    } catch (e) {}
+  });
+} catch (e) { /* geen document: niets aan de hand */ }
+
 let modelTerugvalFout = null;   // de fout van de eerste laadpoging, als die er was
 
 // Web Worker code
@@ -9167,6 +9344,7 @@ async function laadONNXModel() {
       onnxSession = await ort.InferenceSession.create(modelPad, { executionProviders:['wasm'], graphOptimizationLevel:'all' });
     }
     modelGeladen = true;
+    startModelMs = Math.round(performance.now() - modelLaadStart); startLogMijl('m', { ml: startModelMs });   // V11.37.17: de startlog
     clearInterval(simInt);
     sModelBalk.style.width='100%'; sModelBalk.style.background='var(--groen)';
     sModelPct.textContent='100%';
@@ -14875,6 +15053,7 @@ async function downloadOSM(lat, lon) {
   if (cacheBezig) return;
   if (Date.now() < kaartRem.nietVoor) return;   // V11.37.12: de rem, zie kaartRemNa
   cacheBezig = true;
+  kaartVraagT = Date.now();   // V11.37.17: de startlog ziet hoe lang een kaartvraag loopt
   pOSM.className='pill-dot o'; pOSMT.textContent='laden'; debugWaarden.osm='osm:laden';
   // ── V11.17.88: OOK DE WEGEN MET EEN MAXSPEED OPHALEN ──────
   // © 2026 StoplichtIQ — Y. Lemaalem
@@ -14936,6 +15115,7 @@ async function downloadOSM(lat, lon) {
     logOpslagMis('maxspeed_dekking', { msGedekt, msTotaal: nodes.length });
     for (const sl of osmCache) sl.eenrichting = tegenRijrichtingen(sl.id, nodeWegen.get(sl.id));   // V11.37.11: zie tegenSluitUit
     cacheCentrum={lat,lon}; cacheGeladen=true;
+    startLogMijl('k1', { kn: osmCache.length });   // V11.37.17: de eerste kaart van deze start
     kaartRem.n = 0; kaartRem.nietVoor = 0;   // V11.37.12: gelukt, de rem eraf
     migratieSlPos();
     berekenClusterNodes();   // V11.17.47: eenmalig per cache, voor updateDichtbij hieronder
@@ -14945,6 +15125,7 @@ async function downloadOSM(lat, lon) {
     for (const [key,val] of s2BboxTeller.entries()) if (val===0) s2BboxTeller.delete(key);
     haalStraatnamenOp();
   } catch(e) {
+    startLogKaartFout(kaartRem.fout && kaartRem.fout.status, e);   // V11.37.17: vóór kaartRemNa, die kaartRem.fout leegmaakt
     pOSM.className='pill-dot o'; pOSMT.textContent='Fout'; debugWaarden.osm='osm:fout';
     kaartRemNa();   // V11.37.12: de rem, zie daar
     setTimeout(() => { cacheBezig=false; if(huidigePos)downloadOSM(huidigePos.lat,huidigePos.lon); }, 30000);
@@ -20371,6 +20552,7 @@ function updateDichtbij(lat, lon) {
   const nieuw = vindDichtbij(lat, lon, huidigeRichting);
   if (!nieuw && achterAan()) { if (dichtstbijOSM) geenLichtZetten(); else geenLichtTekst(); return; }   // V11.37.4: zie geenLichtZetten
   if (!nieuw) return;
+  startLogMijl('l');   // V11.37.17: het eerste licht in bereik
   kNaam.textContent = nieuw.naam || (nieuw.slim?'⚡ Slim':'Stoplicht');
   kAf.textContent   = nieuw.afstand<1000 ? `${Math.round(nieuw.afstand)}m` : `${(nieuw.afstand/1000).toFixed(1)}km`;
   kDD.textContent   = `${DD[huidigDDActief()].ic} ${huidigDDActief()}`;
@@ -21875,6 +22057,7 @@ function naderingTerug(oudeId, nieuwId) {
 let eersteGPSVerwerkt = false;
 async function onGPS(pos) {
   const lat=pos.coords.latitude, lon=pos.coords.longitude;
+  startLogGps(pos);   // V11.37.17: de startlog
   if (!eersteGPSVerwerkt) {
     eersteGPSVerwerkt = true;
     if (!cacheBezig) downloadOSM(lat, lon);
@@ -22515,6 +22698,7 @@ function sluitKaartOverlay() {
 
 // ── START ─────────────────────────────────────────────────────
 async function startApp() {
+  startLogNieuw();   // V11.37.17: de startlog, zie daar
   // -- V11.18.21: WACHTEN OP DE OPSLAG-BOOT ------------------
   // (c) 2026 StoplichtIQ - Y. Lemaalem
   //
@@ -22557,8 +22741,10 @@ async function startApp() {
     video.srcObject = stream;
     cameraTrack = stream.getVideoTracks()[0] || null;
     try { camcapNoteer(cameraTrack); } catch (_) {}   // V11.34.2: alleen vastleggen
+    startLogMijl('c');   // V11.37.17
     await forceerVerreFocus(stream);
     await video.play();
+    startLogMijl('p');   // V11.37.17
   } catch(e) {
     document.getElementById('startscherm').classList.remove('weg');
     return;
@@ -22566,7 +22752,8 @@ async function startApp() {
   await activeerWakeLock();
   checkNacht();
   if (navigator.geolocation) {
-    navigator.geolocation.watchPosition(onGPS, ()=>{ pGPS.className='pill-dot o'; }, { enableHighAccuracy:true, maximumAge:5000, timeout:12000 });
+    startLogMijl('w');   // V11.37.17
+    navigator.geolocation.watchPosition(onGPS, (e)=>{ pGPS.className='pill-dot o'; startLogGpsFout(e); }, { enableHighAccuracy:true, maximumAge:5000, timeout:12000 });   // V11.37.17: de fout ook tellen
   }
   bijwerkLeerkaart(null);
   bijwerkDashboardKnop();
