@@ -338,7 +338,8 @@ async function testKoerslog() {
 
   // ═══ KL11 — regressie ═══════════════════════════════════════
   const merk = (f) => String(f).split(NL).filter(l => /V11\.37\.15(?!\d)/.test(l)).length;
-  const zonderV113717 = (s) => String(s).split(NL).filter(l => !/V11\.37\.17(?!\d)/.test(l)).join(NL);   // V11.37.17: de startlog (test_startlog); hier terug
+  const zonderV113718 = (s) => String(s).replace('const d = await kaartLeesInhoud(r, ctrl);   // V11.37.18: ook de inhoud heeft een grens (stond: await r.json()), zie kaartLeesInhoud', 'const d = await r.json();').split(NL).filter(l => !/V11\.37\.18(?!\d)/.test(l)).join(NL);   // V11.37.18: de bewaarde kaart, C5 en C7 (test_kaartbewaar); hier terug
+  const zonderV113717 = (s) => zonderV113718(s).split(NL).filter(l => !/V11\.37\.17(?!\d)/.test(l)).join(NL);   // V11.37.17: de startlog (test_startlog); hier terug
   const zonderV113715 = (s) => zonderV113717(s).split(NL).filter(l => !/V11\.37\.15(?!\d)/.test(l)).join(NL);
   const V113713 = { onGPS: ['ef388897', 15408, 1], exporteerMeetdata: ['db5a2894', 9165, 2] };
   const telAf = Object.entries(V113713).filter(([n, [h, l, m]]) => merk(window[n]) !== m).map(([n]) => n + ' ' + merk(window[n]));

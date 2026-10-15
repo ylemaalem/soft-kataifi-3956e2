@@ -384,7 +384,8 @@ async function testTegenrichting() {
   eis('TR10c als de regel de keuze niet verandert (alleen tegenlichten), komt er geen regel', geenLog7 === 0, '0', String(geenLog7));
 
   // ═══ TR11 — regressie ══════════════════════════════════════
-  const zonder = (s) => String(s).split(NL).filter(l => !/V11\.37\.11(?!\d)|V11\.37\.12(?!\d)|V11\.37\.13(?!\d)|V11\.37\.15(?!\d)|V11\.37\.17(?!\d)/.test(l)).join(NL);   // V11.37.17: ook de startlog (test_startlog); V11.37.12: die regels ook (test_overpass); V11.37.13 ook (test_tegenbocht); V11.37.15 ook (test_koerslog)
+  const zonderV113718 = (s) => String(s).replace('const d = await kaartLeesInhoud(r, ctrl);   // V11.37.18: ook de inhoud heeft een grens (stond: await r.json()), zie kaartLeesInhoud', 'const d = await r.json();').split(NL).filter(l => !/V11\.37\.18(?!\d)/.test(l)).join(NL);   // V11.37.18: de bewaarde kaart, C5 en C7 (test_kaartbewaar); hier terug
+  const zonder = (s) => zonderV113718(s).split(NL).filter(l => !/V11\.37\.11(?!\d)|V11\.37\.12(?!\d)|V11\.37\.13(?!\d)|V11\.37\.15(?!\d)|V11\.37\.17(?!\d)/.test(l)).join(NL);   // V11.37.17: ook de startlog (test_startlog); V11.37.12: die regels ook (test_overpass); V11.37.13 ook (test_tegenbocht); V11.37.15 ook (test_koerslog)
   const merk = (f) => String(f).split(NL).filter(l => /V11\.37\.11(?!\d)/.test(l)).length;
   const V113710 = { vindDichtbij: ['d444ee3', 3717, 4], updateDichtbij: ['7b7fce62', 12303, 1], regelKies: ['cd458100', 2307, 5], onGPS: ['d99821b8', 15000, 1],
     downloadOSM: ['82a16b3c', 4147, 1], logOpslagMis: ['e93caaaf', 16068, 1] };

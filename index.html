@@ -1053,7 +1053,7 @@ if (typeof ort !== 'undefined') {
 //
 // De stijl volgt de eerdere labels: nummer, kastlijntje, korte omschrijving in
 // kleine letters. De CSS zet hem zelf in kapitalen (text-transform:uppercase).
-const APP_VERSIE = 'V11.37.17 — alleen meten: per app-start de tijd tot camera, model, GPS, kaart en licht, en elk gat zonder run (sl_startlog)';
+const APP_VERSIE = 'V11.37.18 — de laatste kaart blijft bewaard, de inhoud van de kaartvraag heeft een grens, en de pil en het onderste vak zeggen waarom er geen kaart is';
 
 // ── CONSTANTEN ────────────────────────────────────────────────
 const OSM_RADIUS       = 5000;
@@ -9164,7 +9164,7 @@ const STARTLOG_SLEUTEL = 'sl_startlog';
 const STARTLOG_MAX     = 40;
 const STARTLOG_GAT_MS  = 30000;
 const STARTLOG_TIK_MS  = 5000;
-const STARTLOG_ALTIJD  = new Set(['k', 't', 'v', 'r', 'd', 'c', 'p', 'w', 'm', 'g', 'k1', 'l']);
+const STARTLOG_ALTIJD  = new Set(['k', 't', 'v', 'r', 'd', 'c', 'p', 'w', 'm', 'g', 'k1', 'l', 'bl', 'bk', 'bv']);   // V11.37.18: bl, bk, bv (de bewaarde kaart)
 let startMeet = null, startGat = null, startGatU = 0, startLaatsteRun = 0, startLaatsteGps = 0;
 let startVerborgenT = 0, startModelMs = null, kaartVraagT = 0, startTimer = null;
 
@@ -9367,6 +9367,7 @@ async function laadONNXModel() {
       yoloWorker = new Worker(workerUrl);
       yoloWorker.onmessage = function(e) {
         const msg = e.data;
+        if (aiVangnetBericht(msg)) return;   // V11.37.18: C7, een laat antwoord na het vangnet, zie daar
         if (msg.type === 'klaar') {
           workerKlaar = true; workerFoutTeller = 0;
         } else if (msg.type === 'resultaat') {
@@ -11711,6 +11712,63 @@ function vglStartSchaduw(modus) {
   } catch (e) { vglLegStil(); }
 }
 
+// ── V11.37.18: EEN VANGNET VOOR aiBezig (C7) ────────────────
+// © 2026 StoplichtIQ — Y. Lemaalem
+//
+// WAAROM. In de worker-route wist voerAIUit zijn eigen vangnet van 3 s (de
+// clearTimeout vóór de return), en daarna zet alleen een antwoord van de
+// worker aiBezig terug. Antwoordt de worker niet, dan blijft aiBezig true en
+// keert elke volgende run meteen terug: het model staat stil tot de app
+// herlaadt, en de startlog ziet een gat zonder einde. Hetzelfde als de
+// voorbewerking gooit terwijl de worker klaar staat: finally zet aiBezig dan
+// niet terug. Beide nagedaan in headless Chrome (STAP 0 van 15 okt).
+//
+// WAT.
+// - In de catch van voerAIUit gaat aiBezig terug: er is dan geen bericht
+//   onderweg (de voorbewerking of postMessage gooide).
+// - Elke AI_VANGNET_TIK_MS kijkt aiVangnet: is aiBezig al AI_VANGNET_MS waar
+//   terwijl de pagina in beeld is (gerekend vanaf het bericht aan de worker,
+//   of vanaf het terugkomen in beeld als dat later was), dan aiBezig vrij en
+//   een logregel ai_vangnet. Een laat antwoord op dat bericht (frameId tot en
+//   met aiVangnetGrens) negeert de worker-route daarna, zodat een antwoord
+//   nooit bij een latere run gaat horen.
+// - Na AI_VANGNET_MAX keer achter elkaar zonder een echt resultaat ertussen:
+//   de worker stoppen. voerAIUit valt dan terug op de bestaande route zonder
+//   worker (onnxSession op de hoofdthread), dezelfde als na WORKER_MAX_FOUTEN
+//   fouten. Een echte herstart (het model opnieuw laden in een nieuwe worker)
+//   is groter en zit hier niet in.
+// De mediane inferentie is ~1,1 s, de langste gemeten 3,3 s; 5 s laat dus ruimte.
+const AI_VANGNET_MS = 5000, AI_VANGNET_TIK_MS = 1000, AI_VANGNET_MAX = 3;
+let aiVangnetGrens = -1, aiVangnetReeks = 0, aiVangnetN = 0, aiZichtbaarT = 0;
+
+function aiVangnet() {
+  try {
+    if (!aiBezig || !yoloWorker || !workerKlaar || !yoloWorker._startTijd) return;
+    if (document.visibilityState !== 'visible') return;
+    if (Date.now() - Math.max(yoloWorker._startTijd, aiZichtbaarT) < AI_VANGNET_MS) return;
+    aiVangnetGrens = frameT; aiVangnetReeks++; aiVangnetN++;
+    aiBezig = false;
+    const stop = aiVangnetReeks >= AI_VANGNET_MAX;
+    if (stop) { try { yoloWorker.terminate(); } catch (e) {} yoloWorker = null; workerKlaar = false; }
+    logOpslagMis('ai_vangnet', { element: stop ? 'worker gestopt' : 'vrij', poortReden: 'n=' + aiVangnetN + ' reeks=' + aiVangnetReeks });
+  } catch (e) {}
+}
+
+// Elk bericht van de worker (yoloWorker.onmessage), als eerste: true = negeren,
+// want het hoort bij een run die het vangnet al heeft losgelaten. Een echt
+// resultaat breekt de reeks.
+function aiVangnetBericht(msg) {
+  if (!msg || (msg.type !== 'resultaat' && msg.type !== 'fout') || typeof msg.frameId !== 'number') return false;
+  if (msg.frameId <= aiVangnetGrens) return true;
+  if (msg.type === 'resultaat') aiVangnetReeks = 0;
+  return false;
+}
+
+try {
+  setInterval(aiVangnet, AI_VANGNET_TIK_MS);
+  document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') aiZichtbaarT = Date.now(); });
+} catch (e) { /* geen document: niets aan de hand */ }
+
 async function voerAIUit() {
   if (!modelGeladen || !onnxSession || video.readyState < 2 || aiBezig) return;
   // V11.17.69: vóór aiBezig. Zou de gate in preprocessVoorYOLO zitten en null
@@ -11760,6 +11818,7 @@ async function voerAIUit() {
     minStatRun(inferentieTijd, detecties);   // V11.34.2: alleen tellen
   } catch(e) {
     debugWaarden.ai = 'ai:err';
+    aiBezig = false;   // V11.37.18: C7, er is geen bericht onderweg (zie aiVangnet)
   } finally {
     clearTimeout(aiTimeout);
     if (!yoloWorker || !workerKlaar) aiBezig = false;
@@ -15049,12 +15108,266 @@ function kaartRemNa() {
   } catch (e) {}
 }
 
+// ── V11.37.18: DE KAART BLIJFT, EN JE ZIET WAAROM ER GEEN IS ──
+// © 2026 StoplichtIQ — Y. Lemaalem
+//
+// WAAROM. Bij een drukke Overpass (502, 504) kwam er na de start geen kaart, en
+// dan leek de app dood: de GPS-pil blauw, de Kaart-pil 'Fout' en onderin 'Wacht
+// op GPS…'. Die tekst staat zo in de HTML en alleen updateDichtbij overschrijft
+// hem, maar die draait pas mét een kaart. En elke start vroeg de hele kaart
+// (~590 KB) opnieuw aan, want hij werd nergens bewaard.
+//
+// WAT.
+// 1. Na elke gelukte kaart gaan osmCache en het midden naar een eigen
+//    IndexedDB (KAART_IDB_NAAM). startApp leest hem zonder te wachten
+//    (kaartBewaardLaad). Zolang er in deze sessie nog geen kaart was, zet een
+//    GPS-tik binnen KAART_BEWAAR_MAX_M van het oude midden hem meteen neer
+//    (kaartBewaardTik). De gewone eerste kaartvraag ververst hem daarna op de
+//    achtergrond. Mislukt die, dan blijft de bewaarde kaart staan en probeert
+//    elke GPS-tik na de rem het opnieuw (kaartRem, zoals altijd).
+// 2. Een tijdslimiet op de inhoud (kaartLeesInhoud): clearTimeout stond vóór
+//    r.json(), dus een download die na de kopregels bleef hangen hield
+//    cacheBezig voor altijd vast, en dan kwam er geen kaartvraag meer.
+// 3. De pil zegt waarom (kaartWeergaveBij): 'Kaart 504', '502', '429',
+//    'time-out', 'netwerk' of 'kapot'; 'Bewaard' als de bewaarde kaart in
+//    gebruik is. Het onderste vak zegt wat er is, zolang er geen kaart is:
+//    'Wacht op GPS…' alleen zonder positie, 'Kaart laden…' tijdens een vraag,
+//    'Geen kaart (504)' met de tijd tot de volgende poging.
+// 4. (C5) De verversing na OSM_REFRESH ook vóór de vroege returns van
+//    updateDichtbij; zie daar.
+//
+// WAAROM EEN EIGEN IndexedDB, EN NIET localStorage OF DE SPIEGEL.
+// - localStorage: Safari geeft 5 MiB voor alles en de leerdata gebruiken daar
+//   al ~2,6 MB van; een kaart is 80 tot 300 KB. Hij zou ook meegaan in elke
+//   export en backup, en meetellen voor de opruimrem.
+// - De spiegel (IDB_NAAM): idbHerstel wist bij elke start wat niet in
+//   localStorage staat, dus daar zou de kaart weer verdwijnen. Een eigen store
+//   erbij vraagt een nieuwe versie van de database met de leerdata.
+// Een eigen database raakt de leerdata dus nergens. Lukt hij niet (privémodus,
+// oud toestel, iOS die hem opruimt), dan is er gewoon geen bewaarde kaart.
+//
+// VEILIG. De bewaarde kaart wordt alleen gebruikt als hij heel is (versie,
+// vorm, elk licht met een eindig nummer, lat en lon), niet ouder dan
+// KAART_BEWAAR_MAX_DAGEN en niet groter dan KAART_BEWAAR_MAX_LICHTEN. Anders
+// negeert de app hem; wissen hoeft niet, de volgende gelukte kaart
+// overschrijft hem. Een kaart met een remark van Overpass (een half antwoord)
+// wordt niet bewaard. Alles staat in een try: de kaart mag de start nooit breken.
+const KAART_IDB_NAAM           = 'StoplichtIQ_Kaart';
+const KAART_IDB_STORE          = 'kaart';
+const KAART_IDB_SLEUTEL        = 'laatste';
+const KAART_BEWAAR_VERSIE      = 1;
+const KAART_BEWAAR_MAX_M       = OSM_REFRESH;   // binnen 3 km van het oude midden: dezelfde dekking als bij de gewone verversing
+const KAART_BEWAAR_MAX_DAGEN   = 30;
+const KAART_BEWAAR_MAX_LICHTEN = 6000;          // de grootste kaart uit de praktijk had 2.277 lichten (zie berekenClusterNodes)
+const KAART_INHOUD_MS          = 30000;         // na de kopregels; de 25 s ervoor blijven zoals ze waren
+let kaartBewaard = null;        // de gelezen en gekeurde kaart, tot hij gebruikt is of niet meer nodig
+let kaartBewaardStand = null;   // null, 'laden', dan 'ok', 'geen', 'kapot', 'oud', 'groot' of 'fout'; daarna 'ver' of 'gebruikt'
+let kaartIsBewaard = false;     // osmCache komt uit de bewaarde kaart en is nog niet ververst
+let kaartFout = null;           // de reden van de laatste mislukte kaartvraag; null na een gelukte
+let kaartBewaarFouten = 0;
+let kaartWeergaveTimer = null;
+
+function kaartIdbOpen() {
+  return new Promise((klaar, mis) => {
+    let v;
+    try { v = indexedDB.open(KAART_IDB_NAAM, 1); } catch (e) { mis(e); return; }
+    v.onupgradeneeded = (e) => {
+      const db = e.target.result;
+      if (!db.objectStoreNames.contains(KAART_IDB_STORE)) db.createObjectStore(KAART_IDB_STORE);
+    };
+    v.onsuccess = (e) => klaar(e.target.result);
+    v.onerror = () => mis(v.error);
+    v.onblocked = () => mis(new Error('geblokkeerd door een ander tabblad'));
+  });
+}
+
+// Keurt een gelezen record: { stand }, en bij stand 'ok' ook { rec } met een
+// verse kopie van de lichten (alleen de velden die downloadOSM zelf zet).
+function kaartKeur(rec, nu) {
+  if (rec === undefined || rec === null) return { stand: 'geen' };
+  if (typeof rec !== 'object' || rec.v !== KAART_BEWAAR_VERSIE || !Array.isArray(rec.lichten)
+      || !Number.isFinite(rec.t) || !Number.isFinite(rec.lat) || !Number.isFinite(rec.lon)) return { stand: 'kapot' };
+  if (rec.lichten.length > KAART_BEWAAR_MAX_LICHTEN) return { stand: 'groot' };
+  if (nu - rec.t > KAART_BEWAAR_MAX_DAGEN * 86400000 || rec.t > nu + 60000) return { stand: 'oud' };
+  const tekst = (x) => (typeof x === 'string' ? x : null);
+  const lichten = [];
+  for (const sl of rec.lichten) {
+    if (!sl || typeof sl !== 'object' || !Number.isFinite(sl.id) || !Number.isFinite(sl.lat) || !Number.isFinite(sl.lon)
+        || Math.abs(sl.lat) > 90 || Math.abs(sl.lon) > 180) return { stand: 'kapot' };
+    lichten.push({ id: sl.id, lat: sl.lat, lon: sl.lon, naam: tekst(sl.naam), straat: tekst(sl.straat), stad: tekst(sl.stad),
+                   maxspeed: Number.isFinite(sl.maxspeed) ? sl.maxspeed : null, slim: !!sl.slim,
+                   eenrichting: Array.isArray(sl.eenrichting) && sl.eenrichting.every(Number.isFinite) ? sl.eenrichting.slice() : null });
+  }
+  if (!lichten.length) return { stand: 'kapot' };
+  return { stand: 'ok', rec: { t: rec.t, lat: rec.lat, lon: rec.lon, lichten } };
+}
+
+// startApp, zonder te wachten: lezen en keuren. Neerzetten gebeurt pas bij een
+// GPS-tik (kaartBewaardTik), want eerst moet de afstand tot het midden bekend zijn.
+async function kaartBewaardLaad() {
+  if (kaartBewaardStand !== null) return;   // één keer per pagina
+  kaartBewaardStand = 'laden';
+  try {
+    if (typeof indexedDB === 'undefined' || !indexedDB) throw new Error('geen IndexedDB');
+    const db = await kaartIdbOpen();
+    let rec;
+    try {
+      rec = await new Promise((klaar, mis) => {
+        const v = db.transaction(KAART_IDB_STORE, 'readonly').objectStore(KAART_IDB_STORE).get(KAART_IDB_SLEUTEL);
+        v.onsuccess = () => klaar(v.result);
+        v.onerror = () => mis(v.error);
+      });
+    } finally { try { db.close(); } catch (e) {} }
+    const k = kaartKeur(rec, Date.now());
+    kaartBewaardStand = k.stand;
+    if (k.stand === 'ok' && !osmCache.length) kaartBewaard = k.rec;   // kwam er al een kaart binnen, dan is hij niet meer nodig
+  } catch (e) { kaartBewaardStand = 'fout'; }
+  startLogMijl('bl', { bs: kaartBewaardStand });
+}
+
+// Elke GPS-tik (onGPS), vóór de eerste kaartvraag. Is er in deze sessie nog
+// geen kaart en ligt de bewaarde dichtbij genoeg: meteen neerzetten. Zolang de
+// kaart de bewaarde is: verversen (downloadOSM; de rem en cacheBezig gelden).
+function kaartBewaardTik(lat, lon) {
+  try {
+    if (kaartBewaard && !cacheGeladen && !osmCache.length) {
+      const af = afstand(lat, lon, kaartBewaard.lat, kaartBewaard.lon);
+      if (af <= KAART_BEWAAR_MAX_M) { const rec = kaartBewaard; kaartBewaard = null; kaartBewaardZet(rec, lat, lon, af); }
+      else if (kaartBewaardStand === 'ok') { kaartBewaardStand = 'ver'; startLogMijl('bv', { bs: 'ver' }); }
+    }
+    if (kaartIsBewaard && !cacheBezig) downloadOSM(lat, lon);
+  } catch (e) {}
+}
+
+// Wat downloadOSM na een gelukte kaart doet, voor zover het de kaart zelf
+// betreft. Niet: de maxspeed-meting (die meet een verse payload), de
+// straatnamen (Nominatim; de verversing doet dat) en updateDichtbij (dat doet
+// onGPS meteen hierna).
+function kaartBewaardZet(rec, lat, lon, af) {
+  osmCache = rec.lichten;
+  buurNodeMemo.clear();
+  cacheCentrum = { lat: rec.lat, lon: rec.lon }; cacheGeladen = true;
+  kaartIsBewaard = true; kaartBewaardStand = 'gebruikt';
+  berekenClusterNodes();
+  fietsNaKaart(lat, lon);
+  const uur = Math.round((Date.now() - rec.t) / 3600000);
+  logOpslagMis('kaart_bewaard', { element: 'n=' + rec.lichten.length, poortReden: 'uur=' + uur + ' af=' + Math.round(af) });
+  startLogMijl('bk', { bn: rec.lichten.length, bo: uur });
+  kaartWeergaveBij();
+}
+
+// Na elke gelukte kaart (downloadOSM): niet meer de bewaarde, geen fout meer,
+// en bewaren voor de volgende start (zonder te wachten).
+function kaartNaDownload(lat, lon, d) {
+  try {
+    kaartIsBewaard = false; kaartFout = null; kaartBewaard = null;
+    if (d && d.remark) return;   // een half antwoord van Overpass: wel gebruiken zoals altijd, niet bewaren
+    kaartBewaar(lat, lon);
+  } catch (e) {}
+}
+
+async function kaartBewaar(lat, lon) {
+  try {
+    if (typeof indexedDB === 'undefined' || !indexedDB || !osmCache.length || osmCache.length > KAART_BEWAAR_MAX_LICHTEN) return;
+    // De kopie nu, vóór de eerste await: osmCache kan intussen weer veranderen.
+    const rec = { v: KAART_BEWAAR_VERSIE, t: Date.now(), lat, lon, r: OSM_RADIUS,
+                  lichten: osmCache.map(sl => ({ id: sl.id, lat: sl.lat, lon: sl.lon, naam: sl.naam, straat: sl.straat, stad: sl.stad,
+                                                 maxspeed: sl.maxspeed, slim: sl.slim, eenrichting: sl.eenrichting })) };
+    const db = await kaartIdbOpen();
+    try {
+      await new Promise((klaar, mis) => {
+        const tx = db.transaction(KAART_IDB_STORE, 'readwrite');
+        tx.objectStore(KAART_IDB_STORE).put(rec, KAART_IDB_SLEUTEL);
+        tx.oncomplete = klaar;
+        tx.onerror = () => mis(tx.error);
+        tx.onabort = () => mis(tx.error || new Error('afgebroken'));
+      });
+    } finally { try { db.close(); } catch (e) {} }
+  } catch (e) { kaartBewaarFouten++; }
+}
+
+// De inhoud van de kaartvraag, met een eigen grens. ctrl.abort() breekt de
+// lopende download af; de race maakt cacheBezig ook vrij als een browser de
+// inhoud na abort() niet zou afbreken. Ging de grens af, dan is de reden
+// altijd een time-out, ook als de afgebroken download eerder met een eigen
+// fout terugkwam (een browser mag dan een TypeError geven).
+function kaartLeesInhoud(r, ctrl) {
+  let tm = null, teLaat = false;
+  const tijdUit = () => new DOMException('de inhoud kwam niet binnen ' + Math.round(KAART_INHOUD_MS / 1000) + ' s', 'AbortError');
+  const grens = new Promise((_, nee) => {
+    tm = setTimeout(() => {
+      teLaat = true;
+      try { ctrl.abort(); } catch (e) {}
+      nee(tijdUit());
+    }, KAART_INHOUD_MS);
+  });
+  return Promise.race([r.json(), grens])
+    .catch((e) => { throw teLaat ? tijdUit() : e; })
+    .finally(() => clearTimeout(tm));
+}
+
+// De reden van een mislukte kaartvraag, kort, voor de pil en het onderste vak.
+// Een fetch die de status niet kan lezen (geen netwerk, of een foutpagina
+// zonder CORS-kop) gooit een TypeError: dat heet hier 'netwerk'.
+function kaartFoutReden(status, e) {
+  if (status) return String(status);
+  const n = e && e.name;
+  if (n === 'AbortError' || n === 'TimeoutError') return 'time-out';
+  if (n === 'TypeError') return 'netwerk';
+  return 'kapot';
+}
+function kaartFoutNoteer(status, e) { try { kaartFout = kaartFoutReden(status, e); } catch (_) {} }
+
+function kaartKlok(ms) {
+  const s = Math.max(0, Math.ceil(ms / 1000));
+  return Math.floor(s / 60) + ':' + String(s % 60).padStart(2, '0');
+}
+
+// De pil en het onderste vak. Bij elke stap van downloadOSM, bij het
+// neerzetten van de bewaarde kaart, en daarna elke seconde (de aftelling).
+// De pil: alleen met een fout of met de bewaarde kaart (de gewone 'laden' en
+// 'Kaart' zet downloadOSM zelf); bij een fout met de tijd tot de volgende
+// poging, want met een bewaarde kaart toont het onderste vak het licht en
+// staat de aftelling nergens anders (gemeten: 'Kaart time-out · 0:36' past op
+// 375 px zonder dat de pillenrij een regel groeit). Het onderste vak: alleen
+// zolang er geen licht getoond wordt omdat de kaart ontbreekt of leeg is.
+function kaartWeergaveBij() {
+  try {
+    if (!kaartWeergaveTimer) kaartWeergaveTimer = setInterval(kaartWeergaveBij, 1000);
+    let pk = null, pt = null;
+    if (cacheBezig) { if (kaartIsBewaard) { pk = 'pill-dot g'; pt = 'Bewaard'; } }
+    else if (kaartFout) {
+      const rest = kaartRem.nietVoor - Date.now();
+      pk = 'pill-dot o'; pt = 'Kaart ' + kaartFout + (rest > 0 ? ' · ' + kaartKlok(rest) : '');
+    }
+    else if (kaartIsBewaard) { pk = 'pill-dot g'; pt = 'Bewaard'; }
+    if (pk && pOSM.className !== pk) pOSM.className = pk;
+    if (pt && pOSMT.textContent !== pt) pOSMT.textContent = pt;
+    if (dichtstbijOSM || (cacheGeladen && osmCache.length)) return;
+    let naam, af = '—', leer;
+    if (cacheGeladen) naam = leer = 'Geen kaartdata';
+    else if (cacheBezig) naam = leer = 'Kaart laden…';
+    else if (kaartFout) {
+      const rest = kaartRem.nietVoor - Date.now();
+      naam = 'Geen kaart (' + kaartFout + ')';
+      af = rest > 0 ? 'over ' + kaartKlok(rest) : 'zo';
+      leer = rest > 0 ? 'Geen kaart · opnieuw over ' + kaartKlok(rest) : 'Geen kaart · zo opnieuw';
+    }
+    else if (!huidigePos) naam = leer = 'Wacht op GPS…';
+    else naam = leer = 'Kaart laden…';
+    if (kNaam.textContent !== naam) kNaam.textContent = naam;
+    if (kAf.textContent !== af) kAf.textContent = af;
+    if (leerNaam.textContent !== leer) leerNaam.textContent = leer;
+  } catch (e) {}
+}
+
 async function downloadOSM(lat, lon) {
   if (cacheBezig) return;
   if (Date.now() < kaartRem.nietVoor) return;   // V11.37.12: de rem, zie kaartRemNa
   cacheBezig = true;
   kaartVraagT = Date.now();   // V11.37.17: de startlog ziet hoe lang een kaartvraag loopt
   pOSM.className='pill-dot o'; pOSMT.textContent='laden'; debugWaarden.osm='osm:laden';
+  kaartWeergaveBij();   // V11.37.18: de pil en het onderste vak volgen de kaartvraag, zie daar
   // ── V11.17.88: OOK DE WEGEN MET EEN MAXSPEED OPHALEN ──────
   // © 2026 StoplichtIQ — Y. Lemaalem
   //
@@ -15082,7 +15395,7 @@ async function downloadOSM(lat, lon) {
     clearTimeout(t);
     if (!r.ok) kaartRem.fout = { status: r.status, ra: (r.headers && typeof r.headers.get === 'function') ? r.headers.get('Retry-After') : null };   // V11.37.12
     if (!r.ok) throw new Error(`HTTP ${r.status}`);
-    const d = await r.json();
+    const d = await kaartLeesInhoud(r, ctrl);   // V11.37.18: ook de inhoud heeft een grens (stond: await r.json()), zie kaartLeesInhoud
     const nodes = (d.elements||[]).filter(el=>el.type==='node');
     const ways  = (d.elements||[]).filter(el=>el.type==='way');
     const nodeWegen = new Map();
@@ -15121,16 +15434,19 @@ async function downloadOSM(lat, lon) {
     berekenClusterNodes();   // V11.17.47: eenmalig per cache, voor updateDichtbij hieronder
     fietsNaKaart(lat, lon);   // V11.37.8: de lijst met fiets- en voetgangerslichten, zie fietsSluitUit
     pOSM.className='pill-dot g'; pOSMT.textContent='Kaart'; debugWaarden.osm=`osm:${osmCache.length}`;
+    kaartNaDownload(lat, lon, d);   // V11.37.18: bewaren voor de volgende start, zie daar
     updateDichtbij(lat, lon);
     for (const [key,val] of s2BboxTeller.entries()) if (val===0) s2BboxTeller.delete(key);
     haalStraatnamenOp();
   } catch(e) {
     startLogKaartFout(kaartRem.fout && kaartRem.fout.status, e);   // V11.37.17: vóór kaartRemNa, die kaartRem.fout leegmaakt
+    kaartFoutNoteer(kaartRem.fout && kaartRem.fout.status, e);   // V11.37.18: de reden voor de pil, ook vóór kaartRemNa
     pOSM.className='pill-dot o'; pOSMT.textContent='Fout'; debugWaarden.osm='osm:fout';
     kaartRemNa();   // V11.37.12: de rem, zie daar
     setTimeout(() => { cacheBezig=false; if(huidigePos)downloadOSM(huidigePos.lat,huidigePos.lon); }, 30000);
   } finally {
     cacheBezig = false;
+    kaartWeergaveBij();   // V11.37.18: nu cacheBezig en de rem kloppen, zie daar
   }
 }
 
@@ -20508,6 +20824,7 @@ async function forceerVerreFocus(stream) {
 
 // ── OSM HELPERS ───────────────────────────────────────────────
 function updateDichtbij(lat, lon) {
+  if (cacheCentrum && afstand(lat,lon,cacheCentrum.lat,cacheCentrum.lon)>OSM_REFRESH && !cacheBezig) downloadOSM(lat, lon);   // V11.37.18: C5, de verversing ook vóór de vroege returns hieronder (de regel onderaan blijft)
   if (!osmCache.length) {
     kNaam.textContent='Geen kaartdata'; kAf.textContent='—';
     // V11.17.9 W1+W2: geen cache = geen twijfel + class wissen
@@ -22058,6 +22375,7 @@ let eersteGPSVerwerkt = false;
 async function onGPS(pos) {
   const lat=pos.coords.latitude, lon=pos.coords.longitude;
   startLogGps(pos);   // V11.37.17: de startlog
+  kaartBewaardTik(lat, lon);   // V11.37.18: de bewaarde kaart neerzetten of verversen, vóór de eerste kaartvraag
   if (!eersteGPSVerwerkt) {
     eersteGPSVerwerkt = true;
     if (!cacheBezig) downloadOSM(lat, lon);
@@ -22718,6 +23036,7 @@ async function startApp() {
   // V11.24.0: de spiegel start ná de boot en wordt NIET afgewacht. De app
   // leest er niets uit, dus wachten zou alleen het startscherm ophouden.
   try { startIdbSpiegel(); } catch(e) { console.warn('[IDB] start mislukt:', e); }
+  kaartBewaardLaad();   // V11.37.18: de bewaarde kaart lezen, zonder te wachten (zie daar)
   initialiseerAudio();
   pGeluid.className = 'pill-dot'+(geluidAan?' g':'');
   pGeluidT.textContent = geluidAan?'SND':'MUTE';

@@ -403,7 +403,8 @@ async function testTegenbocht() {
   const S13 = "    const sleutel = bron + ':' + sl.id + (w ? ':' + w : ''), nu = Date.now();   // V11.37.13: per reden een eigen regel";
   const S12 = "    const sleutel = bron + ':' + sl.id, nu = Date.now();";
   const H12 = "               h: k == null ? null : Math.round(Math.min(...sl.eenrichting.map(r => tegenHoekVerschil(r, k)))) } });";
-  const zonderV113717 = (s) => String(s).split(NL).filter(l => !/V11\.37\.17(?!\d)/.test(l)).join(NL);   // V11.37.17: de startlog (test_startlog); hier terug
+  const zonderV113718 = (s) => String(s).replace('const d = await kaartLeesInhoud(r, ctrl);   // V11.37.18: ook de inhoud heeft een grens (stond: await r.json()), zie kaartLeesInhoud', 'const d = await r.json();').split(NL).filter(l => !/V11\.37\.18(?!\d)/.test(l)).join(NL);   // V11.37.18: de bewaarde kaart, C5 en C7 (test_kaartbewaar); hier terug
+  const zonderV113717 = (s) => zonderV113718(s).split(NL).filter(l => !/V11\.37\.17(?!\d)/.test(l)).join(NL);   // V11.37.17: de startlog (test_startlog); hier terug
   const zonderV113715 = (s) => zonderV113717(s).split(NL).filter(l => !/V11\.37\.15(?!\d)/.test(l)).join(NL);   // V11.37.15: de koersmeting (test_koerslog); hier terug
   const zonder = (s) => zonderV113715(s).replace(S13, S12).replace(H13, H12).split(NL).filter(l => !/V11\.37\.13(?!\d)/.test(l)).join(NL);
   const merk = (f) => String(f).split(NL).filter(l => /V11\.37\.13(?!\d)/.test(l)).length;

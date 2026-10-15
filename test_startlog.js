@@ -104,6 +104,30 @@ async function startRitBinnen(opt) {
   return uit;
 }
 
+// V11.37.18: een gelukte kaart wordt bewaard (StoplichtIQ_Kaart, zie test_kaartbewaar), en de
+// volgende rit zou hem bij de eerste GPS-tik neerzetten. Daarom begint elke rit zonder, en zet
+// de toets het oude record na afloop terug.
+function startlogKaartDb(werk) {
+  return new Promise((ok) => {
+    let v;
+    try { v = indexedDB.open('StoplichtIQ_Kaart', 1); } catch (e) { ok(undefined); return; }
+    v.onupgradeneeded = (e) => { const db = e.target.result; if (!db.objectStoreNames.contains('kaart')) db.createObjectStore('kaart'); };
+    v.onerror = () => ok(undefined);
+    v.onsuccess = (e) => {
+      const db = e.target.result;
+      try {
+        const tx = db.transaction('kaart', 'readwrite'), st = tx.objectStore('kaart');
+        let uit;
+        const vraag = werk(st);
+        if (vraag) vraag.onsuccess = () => { uit = vraag.result; };
+        tx.oncomplete = () => { db.close(); ok(uit); };
+        tx.onerror = tx.onabort = () => { db.close(); ok(undefined); };
+      } catch (e) { db.close(); ok(undefined); }
+    };
+  });
+}
+const startlogZonderKaart = () => startlogKaartDb((st) => { st.delete('laatste'); return null; });
+
 async function testStartlog() {
   const regels = [];
   const eis = (naam, gelukt, verwacht, gekregen) => {
@@ -116,6 +140,7 @@ async function testStartlog() {
   const slaap = (ms) => new Promise(r => setTimeout(r, ms));
   const bewaardLs = localStorage.getItem(STARTLOG_SLEUTEL);
   const herstel = () => { if (bewaardLs === null) localStorage.removeItem(STARTLOG_SLEUTEL); else localStorage.setItem(STARTLOG_SLEUTEL, bewaardLs); meetRingGestopt.delete(STARTLOG_SLEUTEL); };
+  const kaartVoor = await startlogKaartDb((st) => st.get('laatste'));   // V11.37.18: na afloop terug, zie startlogKaartDb
 
   // ═══ SL1-SL6 — met de echte startApp, in een iframe ════════════
   const bron = new URL('test_startlog.js', location.href).href;
@@ -145,6 +170,7 @@ async function testStartlog() {
           await new Promise((r) => setTimeout(r, 250 * poging));
         }
       }
+      await startlogZonderKaart();   // V11.37.18: zonder bewaarde kaart, zie test_kaartbewaar
       return await w.startRitBinnen(opt);
     } catch (e) {
       return { fout: String((e && e.stack) || e).slice(0, 300), ring: [], toestand: {} };
@@ -254,7 +280,8 @@ async function testStartlog() {
 
   // ═══ SL10 — regressie ═══════════════════════════════════════
   const merk = (f) => String(f).split(NL).filter(l => /V11\.37\.17(?!\d)/.test(l)).length;
-  const zonderV113717 = (s) => String(s).replace(STARTLOG_WATCH_NU, STARTLOG_WATCH_OUD).split(NL).filter(l => !/V11\.37\.17(?!\d)/.test(l)).join(NL);
+  const zonderV113718 = (s) => String(s).replace('const d = await kaartLeesInhoud(r, ctrl);   // V11.37.18: ook de inhoud heeft een grens (stond: await r.json()), zie kaartLeesInhoud', 'const d = await r.json();').split(NL).filter(l => !/V11\.37\.18(?!\d)/.test(l)).join(NL);   // V11.37.18: de bewaarde kaart, C5 en C7 (test_kaartbewaar); hier terug
+  const zonderV113717 = (s) => zonderV113718(s).replace(STARTLOG_WATCH_NU, STARTLOG_WATCH_OUD).split(NL).filter(l => !/V11\.37\.17(?!\d)/.test(l)).join(NL);
   const V113715 = { startApp: ['7f067c8a', 4583, 5], onGPS: ['b8aa01fe', 15469, 1], downloadOSM: ['e89feb02', 4655, 3], updateDichtbij: ['67e9f3ec', 12423, 1],
                     laadONNXModel: ['68b764e9', 4402, 1], minStatZeker: ['17831b15', 292, 1], exporteerMeetdata: ['c7a3b47a', 9327, 2] };
   const telAf = Object.entries(V113715).filter(([n, [h, l, m]]) => merk(window[n]) !== m).map(([n]) => n + ' ' + merk(window[n]));
@@ -267,8 +294,8 @@ async function testStartlog() {
     const html = await (await fetch(new URL('index.html', location.href).href + '?t=' + Date.now())).text();
     code10 = html.split(NL).filter(l => /V11\.37\.17(?!\d)/.test(l) && !/^\s*\/\//.test(l)).map(l => l.trim());
   } catch (e) { code10 = ['fout: ' + e]; }
-  eis('SL10c in de bron staat V11.37.17 buiten het commentaar alleen in 15 regels: de versie en de 14 regels in die zeven functies',
-      code10.length === 15 && code10.filter(l => /^const APP_VERSIE = 'V11\.37\.17(?!\d) — /.test(l)).length === 1, '15 regels', code10.length + ': ' + code10.map(l => l.slice(0, 30)).join(' | '));
+  eis('SL10c in de bron staat V11.37.17 buiten het commentaar alleen in de 14 regels in die zeven functies, en hooguit in de versieregel (die draagt nu een later nummer)',
+      code10.filter(l => !/^const APP_VERSIE = /.test(l)).length === 14 && code10.length <= 15, '14 regels (+ de versie)', code10.length + ': ' + code10.map(l => l.slice(0, 30)).join(' | '));   // V11.37.18: de versieregel mag een later nummer dragen
   const sa = zc(startApp);
   const iW = sa.indexOf("startLogMijl('w')"), iWatch = sa.indexOf('navigator.geolocation.watchPosition'), iP = sa.indexOf("startLogMijl('p')"), iPlay = sa.indexOf('await video.play()');
   eis('SL10d in startApp: de start eerst, p direct na video.play, w direct vóór de watch (de volgorde van de app blijft)',
@@ -277,6 +304,7 @@ async function testStartlog() {
   eis('SL10e in downloadOSM: de fout geteld vóór kaartRemNa (die kaartRem.fout leegmaakt)', dl.indexOf('startLogKaartFout(') > 0 && dl.indexOf('startLogKaartFout(') < dl.indexOf('kaartRemNa()'),
       'vóór', 'positie ' + dl.indexOf('startLogKaartFout(') + ' / ' + dl.indexOf('kaartRemNa()'));
 
+  await startlogKaartDb((st) => { if (kaartVoor === undefined) st.delete('laatste'); else st.put(kaartVoor, 'laatste'); return null; });   // V11.37.18
   try { if (typeof idbFlush === 'function') await idbFlush(); } catch (e) {}
   await slaap(50);
   const gefaald = regels.filter(r => r.uitslag === 'GEFAALD');
