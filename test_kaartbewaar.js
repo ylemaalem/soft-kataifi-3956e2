@@ -26,6 +26,15 @@
 //  KB11 C7: aiBezig komt vrij; een laat antwoord wordt genegeerd; na 3 keer de worker uit
 //  KB12 regressie: de zes geraakte functies zonder de V11.37.18-regels byte-gelijk
 //       aan V11.37.17; de merkregels staan op hun plek
+//  KB13 stilstand na twee mislukkingen: na de rem zelf opnieuw, zonder GPS-tik;
+//       nooit vaker dan eens per 20 s, ook als de rem niet zou staan; niet
+//       binnen de rem en niet op het startscherm
+//  KB14 terug in beeld: meteen opnieuw (binnen de rem); uit beeld nooit
+//  KB15 de pil-tik: nu opnieuw, hooguit eens per minuut, met een melding; twee
+//       keer snel = één vraag; niet tijdens een vraag, niet bij een 429 met
+//       wachttijd, niet zonder positie, niet als de kaart er al is
+//  KB16 een fout van een verversing die niet meer nodig is, laat de pil los
+//  In alle ritten: nooit twee kaartvragen tegelijk (maxTegelijk)
 //
 //  Alle plekken en nummers zijn bedacht: een basispunt (52.0000, 5.0000),
 //  lichten met nummers 96100xx, wegen 96200xx, namen 'Weg A' en 'Plaats B'.
@@ -107,7 +116,7 @@ async function kaartRitBinnen(opt) {
   const slaap = (ms) => new Promise(r => echtST(r, ms));
   const factor = opt.factor || 100;
   window.setTimeout = (f, ms, ...a) => echtST(f, (typeof ms === 'number' && ms >= 20000) ? ms / factor : ms, ...a);
-  const uit = { foto: {}, vragen: [], watch: 0, fout: null };
+  const uit = { foto: {}, vragen: [], watch: 0, fout: null, tegelijk: 0, maxTegelijk: 0 };
   try {
     for (const k of ['sl_startlog', 'sl_opslaglog']) localStorage.setItem(k, '[]');
     for (const [k, v] of Object.entries(opt.ls || {})) localStorage.setItem(k, v);
@@ -124,6 +133,9 @@ async function kaartRitBinnen(opt) {
       if (!/out%20geom|out geom/.test(String(o && o.body))) return new Response('druk', { status: 504 });   // de vraag naar de fietslichten: niet geteld
       const m = modi.length > 1 ? modi.shift() : modi[0];
       uit.vragen.push(m);
+      uit.tegelijk++; uit.maxTegelijk = Math.max(uit.maxTegelijk, uit.tegelijk);
+      const klaar = () => { uit.tegelijk--; };
+      try {
       const sig = o && o.signal;
       const af = () => new DOMException('afgebroken', 'AbortError');
       if (/^\d+$/.test(m)) return new Response('druk', { status: Number(m), headers: m === '429' ? { 'Retry-After': '90' } : {} });
@@ -140,9 +152,11 @@ async function kaartRitBinnen(opt) {
       if (m === 'leeg') return new Response(JSON.stringify({ elements: [] }), { status: 200 });
       if (m === 'ok200') await slaap(200);
       return new Response(JSON.stringify(kbKaartJson(m === 'remark')), { status: 200 });
+      } finally { if (!['tijd', 'hang', 'hangdoof'].includes(m)) klaar(); else if (o && o.signal) o.signal.addEventListener('abort', klaar); }
     };
     window.refreshStadIndienNodig = async () => {};
-    window.toonToast = () => {};
+    uit.toasts = [];
+    window.toonToast = (t) => { uit.toasts.push(String(t)); };
     window.haalStraatnamenOp = async () => {};
     const pos = (lat, lon) => ({ coords: { latitude: lat, longitude: lon, accuracy: 9, heading: 0, speed: 5 }, timestamp: Date.now() });
     const foto = () => ({ pil: pOSMT.textContent, pk: pOSM.className, naam: kNaam.textContent, af: kAf.textContent, leer: leerNaam.textContent,
@@ -166,6 +180,16 @@ async function kaartRitBinnen(opt) {
         kaartRem.nietVoor = 0;
       } else if (stap === 'stadwissel') {
         cacheGeladen = false;
+      } else if (stap === 'verborgen' || stap === 'zichtbaar') {
+        const zv = stap === 'verborgen' ? 'hidden' : 'visible';
+        Object.defineProperty(document, 'visibilityState', { get: () => zv, configurable: true });
+        document.dispatchEvent(new Event('visibilitychange'));
+      } else if (stap === 'startscherm') {
+        document.getElementById('startscherm').classList.remove('weg');
+      } else if (stap === 'piltik') {
+        pOSM.parentElement.click();
+      } else if (stap === 'tikklok61') {
+        kaartTikT -= 61000;
       } else if (stap === 'bewaar') {
         const t0 = Date.now() - 5000;
         for (let i = 0; i < 100; i++) { let r = null; try { r = await kbLees(); } catch (e) {} if (r && r.t >= t0) break; await slaap(20); }
@@ -278,7 +302,7 @@ async function testKaartbewaar() {
 
     // ═══ KB3 — bewaarde kaart, verversing mislukt ═══════════════
     const r3 = await rit({ bewaard: kbRec(1), modi: ['504', '504', 'ok'], stappen: ['start', 'lees', [52.0000, 5.0000], 'kaart', { foto: 'fout' },
-      [52.0001, 5.0000], { foto: 'tik2' }, 'rem0', [52.0001, 5.0000], 'kaart', { foto: 'poging2' }, 'rem0', [52.0001, 5.0000], 'kaart', { foto: 'vers' }] });
+      [52.0001, 5.0000], { foto: 'tik2' }, { ms: 400 }, 'rem0', [52.0001, 5.0000], 'kaart', { ms: 400 }, { foto: 'poging2' }, 'rem0', [52.0001, 5.0000], 'kaart', { foto: 'vers' }] });   // ms 400: eerst de timer van 30 s (hier 0,3 s) uit de catch, zie KB3
     const f3 = r3.foto.fout || {};
     eis('KB3a de verversing mislukt (504): de bewaarde kaart blijft, het licht blijft, de pil zegt Kaart 504 met de aftelling (oranje)', f3.geladen && f3.ids === '9610001,9610004' && f3.licht === 9610001 && /^Kaart 504 · \d+:\d\d$/.test(f3.pil) && / o$/.test(f3.pk) && f3.rem === 1,
         'blijft, Kaart 504, rem 1', r3.fout || kort(f3));
@@ -375,6 +399,68 @@ async function testKaartbewaar() {
     const r10 = await rit({ bewaard: undefined, modi: ['ok'], stappen: ['start', 'lees', [52.0000, 5.0000], 'kaart', { foto: 'eerst' }, [52.0000, 5.0500], 'kaart', { foto: 'ver' }] });
     eis('KB10 C5: 3,4 km van het midden zonder licht binnen 400 m (de vroege return): toch een nieuwe kaartvraag, en het midden verschuift',
         (r10.foto.eerst || {}).vragen === 1 && (r10.foto.ver || {}).vragen === 2, '2 vragen', r10.fout || kort(r10.foto.eerst) + ' | ' + kort(r10.foto.ver));
+
+    // ═══ KB13 — stilstand na twee mislukkingen: zelf opnieuw ════
+    const r13 = await rit({ bewaard: undefined, modi: ['504', '504', 'ok'], stappen: ['start', 'lees', [52.0000, 5.0000], 'kaart', { ms: 400 }, 'rem0',
+      [52.0000, 5.0000], 'kaart', { ms: 400 }, { foto: 'twee' }, 'rem0', { ms: 1300 }, 'kaart', { foto: 'zelf' }] });
+    const t13 = r13.foto.twee || {}, z13 = r13.foto.zelf || {};
+    eis('KB13a stilstand na twee mislukkingen (rem 2): zodra de rem voorbij is, zonder GPS-tik zelf opnieuw met de laatste positie; die lukt: de kaart',
+        t13.vragen === 2 && t13.rem === 2 && z13.vragen === 3 && z13.ids === '9610001,9610002,9610003' && z13.pil === 'Kaart' && (r13.opslag || []).some(x => /^kaart_zelf:klok:n=1 rem=2$/.test(x)),
+        '2 vragen, rem 2; dan 3e vraag zonder tik, kaart', r13.fout || kort(t13) + ' | ' + kort(z13));
+    const r13b = await rit({ bewaard: undefined, modi: ['504'], stappen: ['start', 'lees', [52.0000, 5.0000], 'kaart', { ms: 400 }, 'rem0', { ms: 1300 }, 'kaart', { ms: 400 }, { foto: 'zelf' },
+      'rem0', { ms: 2300 }, { foto: 'geenlus' }] });
+    eis('KB13b geen lus: na een zelf-poging die mislukt, en zelfs als de rem dan zou ontbreken (rem op 0 gezet), binnen 20 s geen volgende',
+        (r13b.foto.zelf || {}).vragen === 2 && (r13b.foto.geenlus || {}).vragen === 2 && r13b.maxTegelijk === 1, '2 vragen, en 2 blijft', r13b.fout || kort(r13b.foto.zelf) + ' | ' + kort(r13b.foto.geenlus));
+
+    const r13c = await rit({ bewaard: undefined, modi: ['504', 'ok'], stappen: ['start', 'lees', [52.0000, 5.0000], 'kaart', { ms: 1300 }, { foto: 'binnenrem' },
+      'startscherm', 'rem0', { ms: 1300 }, { foto: 'start' }] });
+    eis('KB13c zelf opnieuw wacht op de rem (1,3 s na de fout: geen vraag), en doet niets op het startscherm (ook niet als de rem voorbij is)',
+        (r13c.foto.binnenrem || {}).vragen === 1 && (r13c.foto.start || {}).vragen === 1 && !(r13c.opslag || []).some(x => /^kaart_zelf/.test(x)),
+        '1 en 1', r13c.fout || kort(r13c.foto.binnenrem) + ' | ' + kort(r13c.foto.start));
+
+    const r13d = await rit({ bewaard: undefined, modi: ['504', 'hang'], factor: 20, stappen: ['start', 'lees', [52.0000, 5.0000], 'kaart', { ms: 1700 }, 'rem0',
+      [52.0000, 5.0000], { ms: 1200 }, { foto: 'tijdens', zonderBij: true }, { ms: 600 }, { foto: 'na' }] });
+    eis('KB13d terwijl een vraag loopt (hier een hangende inhoud, 1,2 s lang), doet zelf opnieuw niets: geen logregel, geen tweede vraag; daarna de time-out',
+        (r13d.foto.tijdens || {}).bezig === true && (r13d.foto.tijdens || {}).vragen === 2 && !(r13d.opslag || []).some(x => /^kaart_zelf/.test(x)) && (r13d.foto.na || {}).fout === 'time-out' && r13d.maxTegelijk === 1,
+        'bezig, 2 vragen, geen kaart_zelf', r13d.fout || kort(r13d.foto.tijdens) + ' | ' + (r13d.opslag || []).filter(x => /kaart_/.test(x)).join(' ; '));
+
+    // ═══ KB14 — terug in beeld ═══════════════════════════════════
+    const r14 = await rit({ bewaard: undefined, modi: ['504', 'ok200'], stappen: ['start', 'lees', [52.0000, 5.0000], 'kaart', { ms: 400 }, 'verborgen', 'rem0', { ms: 1300 },
+      { foto: 'weg', zonderBij: true }, 'zichtbaar', { ms: 40 }, { foto: 'terug', zonderBij: true }, 'kaart', { foto: 'na' }] });
+    eis('KB14 uit beeld geen poging (ook niet na de rem); terug in beeld meteen (binnen 40 ms, dus niet de klok van 1 s), en die lukt',
+        (r14.foto.weg || {}).vragen === 1 && (r14.foto.terug || {}).vragen === 2 && (r14.foto.terug || {}).bezig === true && (r14.opslag || []).some(x => /^kaart_zelf:zicht:/.test(x)) && (r14.foto.na || {}).n === 3,
+        '1, dan 2 (zicht), kaart', r14.fout || kort(r14.foto.weg) + ' | ' + kort(r14.foto.terug));
+
+    // ═══ KB15 — de pil-tik ═══════════════════════════════════════
+    const r15 = await rit({ bewaard: undefined, modi: ['tijd', '504', 'ok'], stappen: ['start', 'lees', 'piltik', { foto: 'voorgps' },
+      [52.0000, 5.0000], 'piltik', 'piltik', { foto: 'tijdens', zonderBij: true }, 'kaart', { foto: 'fout1' },
+      'piltik', { ms: 100 }, 'piltik', 'kaart', { foto: 'tweesnel' }, 'tikklok61', 'piltik', 'kaart', { foto: 'na61' }, 'piltik', { foto: 'erl' }] });
+    const m15 = r15.toasts || [];
+    eis('KB15a zonder positie: niets, melding Nog geen GPS-positie', (r15.foto.voorgps || {}).vragen === 0 && m15[0] === 'Nog geen GPS-positie', '0 vragen, melding', r15.fout || m15[0]);
+    eis('KB15b tijdens een lopende vraag: twee tikken starten niets, melding De kaart wordt al opgehaald (twee keer)',
+        (r15.foto.tijdens || {}).vragen === 1 && (r15.foto.tijdens || {}).bezig === true && m15[1] === 'De kaart wordt al opgehaald' && m15[2] === 'De kaart wordt al opgehaald',
+        '1 vraag', kort(r15.foto.tijdens) + ' | ' + m15.slice(1, 3).join(' / '));
+    eis('KB15c na de mislukking (rem loopt): twee tikken snel achter elkaar = één nieuwe vraag (de rem genegeerd) en daarna Opnieuw kan over 1:00',
+        (r15.foto.fout1 || {}).vragen === 1 && (r15.foto.tweesnel || {}).vragen === 2 && m15[3] === 'Kaart wordt opnieuw opgehaald' && /^Opnieuw kan over (1:00|0:5\d)$/.test(m15[4] || ''),
+        '1, dan 2; meldingen', kort(r15.foto.tweesnel) + ' | ' + m15.slice(3, 5).join(' / '));
+    eis('KB15d na een minuut mag het weer (die lukt: de kaart); en met de kaart er al: niets, melding De kaart is er al',
+        (r15.foto.na61 || {}).vragen === 3 && (r15.foto.na61 || {}).n === 3 && (r15.foto.erl || {}).vragen === 3 && m15[5] === 'Kaart wordt opnieuw opgehaald' && m15[6] === 'De kaart is er al',
+        '3 vragen, kaart; dan niets', kort(r15.foto.erl) + ' | ' + m15.slice(5).join(' / '));
+    eis('KB15e nooit twee kaartvragen tegelijk (tik, klok en GPS-tik door elkaar)', r15.maxTegelijk === 1 && r13.maxTegelijk === 1 && r14.maxTegelijk === 1,
+        '1', [r15.maxTegelijk, r13.maxTegelijk, r14.maxTegelijk].join(', '));
+    const r15b = await rit({ bewaard: undefined, modi: ['429'], stappen: ['start', 'lees', [52.0000, 5.0000], 'kaart', 'piltik', { foto: 'na' }] });
+    eis('KB15f na een 429 met wachttijd (90 s): de tik wacht wat de server vraagt, met de resttijd', (r15b.foto.na || {}).vragen === 1 && /^De kaartserver vraagt te wachten: nog 1:(2|3)\d$/.test((r15b.toasts || [])[0] || ''),
+        '1 vraag, melding', r15b.fout || (r15b.toasts || []).join(' / '));
+    const kn15 = document.getElementById('p-osm').parentElement;
+    eis('KB15g de pil is de knop: het element rond p-osm, en kaartPilTik wijst niets toe buiten de rem, de eigen tikklok en de melding',
+        kn15 && kn15.classList.contains('pill') && !/(?<![.\w$])(osmCache|cacheGeladen|cacheCentrum|cacheBezig|kaartIsBewaard|kaartFout)\s*=(?!=)/.test(zc(kaartPilTik)), 'ja', 'ok');
+
+    // ═══ KB16 — een fout die niet meer geldt ═════════════════════
+    const r16 = await rit({ bewaard: undefined, modi: ['ok', '504'], stappen: ['start', 'lees', [52.0000, 5.0000], 'kaart', [52.0000, 5.0500], 'kaart', { foto: 'ver' },
+      [52.0000, 5.0000], { foto: 'terug' }, 'piltik', { foto: 'tik' }, { ms: 400 }, 'rem0', { ms: 1300 }, { foto: 'klok' }] });   // ms 400: eerst de timer van 30 s (hier 0,3 s) uit de catch, zie KB3
+    eis('KB16 verversing op 3,4 km mislukt: pil Kaart 504 met aftelling; terug binnen 3 km: pil weer Kaart (groen), een tik doet niets (De kaart is er al), en ook na de rem geen zelf-poging',
+        /^Kaart 504 · \d+:\d\d$/.test((r16.foto.ver || {}).pil) && (r16.foto.terug || {}).pil === 'Kaart' && / g$/.test((r16.foto.terug || {}).pk) && (r16.foto.tik || {}).vragen === 2 && (r16.toasts || [])[0] === 'De kaart is er al' && (r16.foto.klok || {}).vragen === 2,
+        'Kaart 504, dan Kaart; geen vraag', r16.fout || kort(r16.foto.ver) + ' | ' + kort(r16.foto.terug) + ' | ' + (r16.toasts || []).join(' / '));
   } finally {
     await herstel();
   }
@@ -385,7 +471,7 @@ async function testKaartbewaar() {
                   rs: Object.getOwnPropertyDescriptor(video, 'readyState'), grens: aiVangnetGrens, reeks: aiVangnetReeks, n: aiVangnetN, zicht: aiZichtbaarT, log: localStorage.getItem('sl_opslaglog') };
     try {
       let gestopt = 0;
-      const nepWorker = () => ({ postMessage() {}, terminate() { gestopt++; }, _startTijd: 0 });
+      const nepWorker = () => ({ postMessage() {}, terminate() { gestopt++; }, _startTijd: 0, _vangnetGezien: true });
       // a) de voorbewerking gooit terwijl de worker klaar staat
       yoloWorker = nepWorker(); workerKlaar = true; modelGeladen = true; onnxSession = onnxSession || {}; aiBezig = false;
       Object.defineProperty(video, 'readyState', { get: () => 4, configurable: true });
@@ -413,6 +499,25 @@ async function testKaartbewaar() {
       for (let i = 0; i < 3; i++) { aiBezig = true; if (yoloWorker) yoloWorker._startTijd = Date.now() - 6000; aiVangnet(); }
       eis('KB11d drie keer achter elkaar zonder resultaat: de worker gestopt (terminate), de route zonder worker neemt het over',
           yoloWorker === null && workerKlaar === false && gestopt === 1 && aiBezig === false, 'gestopt', String(yoloWorker) + ', ' + gestopt);
+      // f) tijdens het laden (workerKlaar onwaar): nooit, ook niet na 60 s
+      gestopt = 0; aiVangnetReeks = 0; aiZichtbaarT = 0;
+      yoloWorker = { postMessage() {}, terminate() { gestopt++; }, _startTijd: Date.now() - 60000 }; workerKlaar = false; aiBezig = true;
+      aiVangnet();
+      eis('KB11f tijdens het laden van het model in de worker (workerKlaar onwaar) loopt de klok niet: na 60 s nog steeds bezig, geen stop',
+          aiBezig === true && yoloWorker !== null && gestopt === 0, 'bezig, worker blijft', aiBezig + ', ' + gestopt);
+      // g) de eerste run van deze worker: pas na 30 s; na het eerste resultaat 5 s
+      workerKlaar = true;
+      yoloWorker._startTijd = Date.now() - 6000; aiVangnet(); const eerste6 = aiBezig;
+      yoloWorker._startTijd = Date.now() - 29000; aiVangnet(); const eerste29 = aiBezig;
+      yoloWorker._startTijd = Date.now() - 31000; aiVangnet(); const eerste31 = aiBezig;
+      const log31 = (JSON.parse(localStorage.getItem('sl_opslaglog') || '[]').filter(r => r.reden === 'ai_vangnet').pop() || {}).poortReden || '';
+      eis('KB11g de eerste run van een worker mag tot 30 s duren: na 6 en 29 s niet vrij, na 31 s wel (logregel met eerste)',
+          eerste6 === true && eerste29 === true && eerste31 === false && / eerste$/.test(log31) && /ms=3\d{4}/.test(log31), 'true, true, false', [eerste6, eerste29, eerste31, log31].join(', '));
+      const gezienVoor = !!yoloWorker._vangnetGezien;
+      aiVangnetBericht({ type: 'resultaat', frameId: frameT + 5 });
+      aiBezig = true; yoloWorker._startTijd = Date.now() - 6000; aiVangnet();
+      eis('KB11h na het eerste echte resultaat geldt voor die worker 5 s: na 6 s vrij',
+          gezienVoor === false && yoloWorker._vangnetGezien === true && aiBezig === false, 'eerst niet gezien, dan 5 s', [gezienVoor, yoloWorker._vangnetGezien, aiBezig].join(', '));
       const lm = laadONNXModel.toString();
       const iMsg = lm.indexOf('const msg = e.data;'), iVang = lm.indexOf('if (aiVangnetBericht(msg)) return;'), iKlaar = lm.indexOf("if (msg.type === 'klaar')");
       eis('KB11e de worker-route kijkt het eerst naar het vangnet (meteen na const msg)', iMsg > 0 && iVang > iMsg && iKlaar > iVang && lm.slice(iMsg, iVang).split(NL).length === 2,

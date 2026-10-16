@@ -11738,29 +11738,42 @@ function vglStartSchaduw(modus) {
 //   fouten. Een echte herstart (het model opnieuw laden in een nieuwe worker)
 //   is groter en zit hier niet in.
 // De mediane inferentie is ~1,1 s, de langste gemeten 3,3 s; 5 s laat dus ruimte.
+//
+// WANNEER DE KLOK LOOPT (vervolg). Alleen als aiBezig waar is, er een worker
+// is en die 'klaar' meldde (het model is in de worker geladen; tijdens het
+// laden staat workerKlaar op false en doet het vangnet niets). Hij telt vanaf
+// het bericht aan de worker (yoloWorker._startTijd, vlak voor postMessage),
+// of vanaf het terugkomen in beeld als dat later was. Tot de worker zijn
+// eerste resultaat gaf (yoloWorker._vangnetGezien) geldt AI_VANGNET_EERSTE_MS
+// in plaats van 5 s: de eerste run na het laden kan op een iPhone veel langer
+// duren, en die mag het vangnet niet als hangen tellen. Een worker die nooit
+// antwoordt, valt na die 30 s alsnog vrij.
 const AI_VANGNET_MS = 5000, AI_VANGNET_TIK_MS = 1000, AI_VANGNET_MAX = 3;
+const AI_VANGNET_EERSTE_MS = 30000;
 let aiVangnetGrens = -1, aiVangnetReeks = 0, aiVangnetN = 0, aiZichtbaarT = 0;
 
 function aiVangnet() {
   try {
     if (!aiBezig || !yoloWorker || !workerKlaar || !yoloWorker._startTijd) return;
     if (document.visibilityState !== 'visible') return;
-    if (Date.now() - Math.max(yoloWorker._startTijd, aiZichtbaarT) < AI_VANGNET_MS) return;
+    const grensMs = yoloWorker._vangnetGezien ? AI_VANGNET_MS : AI_VANGNET_EERSTE_MS;
+    const wacht = Date.now() - Math.max(yoloWorker._startTijd, aiZichtbaarT);
+    if (wacht < grensMs) return;
     aiVangnetGrens = frameT; aiVangnetReeks++; aiVangnetN++;
     aiBezig = false;
     const stop = aiVangnetReeks >= AI_VANGNET_MAX;
     if (stop) { try { yoloWorker.terminate(); } catch (e) {} yoloWorker = null; workerKlaar = false; }
-    logOpslagMis('ai_vangnet', { element: stop ? 'worker gestopt' : 'vrij', poortReden: 'n=' + aiVangnetN + ' reeks=' + aiVangnetReeks });
+    logOpslagMis('ai_vangnet', { element: stop ? 'worker gestopt' : 'vrij', poortReden: 'n=' + aiVangnetN + ' reeks=' + aiVangnetReeks + ' ms=' + wacht + (grensMs === AI_VANGNET_EERSTE_MS ? ' eerste' : '') });
   } catch (e) {}
 }
 
 // Elk bericht van de worker (yoloWorker.onmessage), als eerste: true = negeren,
 // want het hoort bij een run die het vangnet al heeft losgelaten. Een echt
-// resultaat breekt de reeks.
+// resultaat breekt de reeks, en vanaf dan geldt voor deze worker de grens van 5 s.
 function aiVangnetBericht(msg) {
   if (!msg || (msg.type !== 'resultaat' && msg.type !== 'fout') || typeof msg.frameId !== 'number') return false;
   if (msg.frameId <= aiVangnetGrens) return true;
-  if (msg.type === 'resultaat') aiVangnetReeks = 0;
+  if (msg.type === 'resultaat') { aiVangnetReeks = 0; if (yoloWorker) yoloWorker._vangnetGezien = true; }
   return false;
 }
 
@@ -15333,14 +15346,15 @@ function kaartKlok(ms) {
 // zolang er geen licht getoond wordt omdat de kaart ontbreekt of leeg is.
 function kaartWeergaveBij() {
   try {
-    if (!kaartWeergaveTimer) kaartWeergaveTimer = setInterval(kaartWeergaveBij, 1000);
+    if (!kaartWeergaveTimer) kaartWeergaveTimer = setInterval(kaartKlokTik, 1000);
     let pk = null, pt = null;
     if (cacheBezig) { if (kaartIsBewaard) { pk = 'pill-dot g'; pt = 'Bewaard'; } }
-    else if (kaartFout) {
+    else if (kaartFout && (!huidigePos || kaartNodig(huidigePos.lat, huidigePos.lon))) {
       const rest = kaartRem.nietVoor - Date.now();
       pk = 'pill-dot o'; pt = 'Kaart ' + kaartFout + (rest > 0 ? ' · ' + kaartKlok(rest) : '');
     }
     else if (kaartIsBewaard) { pk = 'pill-dot g'; pt = 'Bewaard'; }
+    else if (kaartFout) { pk = 'pill-dot g'; pt = 'Kaart'; }   // de fout was van een verversing die niet meer nodig is: deze kaart dekt de plek
     if (pk && pOSM.className !== pk) pOSM.className = pk;
     if (pt && pOSMT.textContent !== pt) pOSMT.textContent = pt;
     if (dichtstbijOSM || (cacheGeladen && osmCache.length)) return;
@@ -15360,6 +15374,89 @@ function kaartWeergaveBij() {
     if (leerNaam.textContent !== leer) leerNaam.textContent = leer;
   } catch (e) {}
 }
+
+// ── V11.37.18 (vervolg): ZELF OPNIEUW, EN DE PIL ALS KNOP ──────
+// © 2026 StoplichtIQ — Y. Lemaalem
+//
+// WAAROM. Na een mislukte kaartvraag start een GPS-tik de volgende poging
+// (onGPS, kaartBewaardTik, C5 in updateDichtbij). De timer van 30 s in de
+// catch van downloadOSM doet dat ook, maar alleen na de eerste mislukking: na
+// de tweede staat de rem op 48 tot 72 s (KAART_REM_MS, ±20%), dus valt die
+// timer altijd binnen de rem en doet hij niets. Bij stilstand komen er weinig
+// GPS-tikken, en dan wachtte de app langer dan de rem zei.
+//
+// WAT.
+// - kaartZelfOpnieuw: elke seconde (kaartKlokTik) en bij terugkomen in beeld.
+//   Alleen na een mislukte vraag (kaartFout), met een bekende positie (de
+//   laatste GPS-tik), als er nog een kaart nodig is (kaartNodig), de rem
+//   voorbij is, er geen vraag loopt en de pagina in beeld is. Dan één
+//   downloadOSM met de laatste positie. Geen lus: downloadOSM zet cacheBezig
+//   meteen, een mislukking zet de rem opnieuw, en los daarvan nooit vaker dan
+//   KAART_ZELF_MIN_MS (ook als de rem om wat voor reden ook niet zou staan).
+// - kaartPilTik: een tik op de Kaart-pil is 'nu opnieuw', ook binnen de rem,
+//   hooguit één keer per KAART_TIK_MIN_MS, met een melding. Niet bij een 429
+//   zolang de server zelf vraagt te wachten (Retry-After), niet als er al een
+//   vraag loopt, niet zonder positie en niet als de kaart er al is.
+// - Mislukte een verversing die daarna niet meer nodig is (je reed terug binnen
+//   OSM_REFRESH van het midden), dan zegt de pil weer 'Kaart' en niet meer
+//   'Kaart 504': er komt dan ook geen nieuwe poging (kaartWeergaveBij).
+// Twee kaartvragen tegelijk kan niet: alle routes lopen via downloadOSM, en
+// die keert terug zolang cacheBezig waar is (synchroon gezet, vóór de fetch).
+const KAART_ZELF_MIN_MS = 20000;   // kleiner dan de kleinste rem (30 s - 20% = 24 s), dus de rem beslist
+const KAART_TIK_MIN_MS  = 60000;
+let kaartZelfT = 0, kaartZelfN = 0, kaartTikT = 0;
+
+// Is er een (nieuwe) kaart nodig voor deze plek? Dezelfde drie gevallen
+// waarin een GPS-tik downloadOSM aanroept.
+function kaartNodig(lat, lon) {
+  return !cacheGeladen || kaartIsBewaard || !!(cacheCentrum && afstand(lat, lon, cacheCentrum.lat, cacheCentrum.lon) > OSM_REFRESH);
+}
+
+function kaartZelfOpnieuw(bron) {
+  try {
+    if (!kaartFout || !huidigePos || cacheBezig || document.visibilityState !== 'visible') return false;
+    const sch = document.getElementById('startscherm');
+    if (sch && !sch.classList.contains('weg')) return false;   // op het startscherm draait de app niet
+    const nu = Date.now();
+    if (nu < kaartRem.nietVoor || nu - kaartZelfT < KAART_ZELF_MIN_MS) return false;
+    if (!kaartNodig(huidigePos.lat, huidigePos.lon)) return false;
+    kaartZelfT = nu; kaartZelfN++;
+    logOpslagMis('kaart_zelf', { element: bron, poortReden: 'n=' + kaartZelfN + ' rem=' + kaartRem.n });
+    downloadOSM(huidigePos.lat, huidigePos.lon);
+    return true;
+  } catch (e) { return false; }
+}
+
+// Elke seconde: eerst de weergave, dan eventueel zelf opnieuw.
+function kaartKlokTik() {
+  kaartWeergaveBij();
+  kaartZelfOpnieuw('klok');
+}
+
+function kaartPilTik() {
+  try {
+    const nu = Date.now();
+    let tekst;
+    if (cacheBezig) tekst = 'De kaart wordt al opgehaald';
+    else if (!huidigePos) tekst = 'Nog geen GPS-positie';
+    else if (!kaartNodig(huidigePos.lat, huidigePos.lon)) tekst = 'De kaart is er al';
+    else if (kaartFout === '429' && nu < kaartRem.nietVoor) tekst = 'De kaartserver vraagt te wachten: nog ' + kaartKlok(kaartRem.nietVoor - nu);
+    else if (nu - kaartTikT < KAART_TIK_MIN_MS) tekst = 'Opnieuw kan over ' + kaartKlok(KAART_TIK_MIN_MS - (nu - kaartTikT));
+    else {
+      kaartTikT = nu;
+      kaartRem.nietVoor = 0;   // de tik is de uitzondering op de rem; een mislukking zet hem weer (langer)
+      logOpslagMis('kaart_tik', { poortReden: 'rem=' + kaartRem.n });
+      downloadOSM(huidigePos.lat, huidigePos.lon);
+      tekst = 'Kaart wordt opnieuw opgehaald';
+    }
+    toonToast(tekst, { duurMs: 3000 });
+  } catch (e) {}
+}
+
+try {
+  document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') kaartZelfOpnieuw('zicht'); });
+  pOSM.parentElement.addEventListener('click', kaartPilTik);
+} catch (e) { /* geen document: niets aan de hand */ }
 
 async function downloadOSM(lat, lon) {
   if (cacheBezig) return;
