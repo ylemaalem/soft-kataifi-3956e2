@@ -273,14 +273,14 @@ async function testOverpass() {
 
   // ═══ OV11 — regressie ══════════════════════════════════════
   // V11.37.13: R1 en R3 van de tegenrichting-regel (test_tegenbocht): nieuwe regels weg, de twee gewijzigde regels van tegenLog terug.
-  const zonderV113718 = (s) => String(s).replace('const d = await kaartLeesInhoud(r, ctrl);   // V11.37.18: ook de inhoud heeft een grens (stond: await r.json()), zie kaartLeesInhoud', 'const d = await r.json();').split(NL).filter(l => !/V11\.37\.18(?!\d)/.test(l)).join(NL);   // V11.37.18: de bewaarde kaart, C5 en C7 (test_kaartbewaar); hier terug
+  const zonderV113718 = (s) => String(s).replace('const d = await kaartLeesInhoud(r, ctrl);   // V11.37.18: ook de inhoud heeft een grens (stond: await r.json()), zie kaartLeesInhoud', 'const d = await r.json();').replace('setTimeout(() => { if (!cacheBezig && huidigePos && kaartNodig(huidigePos.lat, huidigePos.lon)) downloadOSM(huidigePos.lat, huidigePos.lon); }, 30000);   // V11.37.18: alleen zonder lopende vraag en als er nog een kaart nodig is (stond: cacheBezig=false en altijd downloadOSM, ook naast een lopende vraag), zie kaartNodig', 'setTimeout(() => { cacheBezig=false; if(huidigePos)downloadOSM(huidigePos.lat,huidigePos.lon); }, 30000);').split(NL).filter(l => !/V11\.37\.18(?!\d)/.test(l)).join(NL);   // V11.37.18: de bewaarde kaart, C5 en C7 (test_kaartbewaar); hier terug
   const zonderV113717 = (s) => zonderV113718(s).split(NL).filter(l => !/V11\.37\.17(?!\d)/.test(l)).join(NL);   // V11.37.17: de startlog (test_startlog); hier terug
   const zonderV113715 = (s) => zonderV113717(s).split(NL).filter(l => !/V11\.37\.15(?!\d)/.test(l)).join(NL);   // V11.37.15: de koersmeting (test_koerslog); hier terug
   const terugV113713 = (s) => zonderV113715(s).replace("    const sleutel = bron + ':' + sl.id + (w ? ':' + w : ''), nu = Date.now();   // V11.37.13: per reden een eigen regel", "    const sleutel = bron + ':' + sl.id, nu = Date.now();").replace("               h: k == null ? null : Math.round(Math.min(...sl.eenrichting.map(r => tegenHoekVerschil(r, k)))), ...(w ? { w } : {}) } });   // V11.37.13: met de reden w",
     "               h: k == null ? null : Math.round(Math.min(...sl.eenrichting.map(r => tegenHoekVerschil(r, k)))) } });").split(NL).filter(l => !/V11\.37\.13(?!\d)/.test(l)).join(NL);   // V11.37.13
   const zonder = (s) => terugV113713(s).split(NL).filter(l => !/V11\.37\.12(?!\d)/.test(l)).join(NL);   // V11.37.13: eerst terugV113713
   const merk = (f) => String(f).split(NL).filter(l => /V11\.37\.12(?!\d)/.test(l)).length;
-  const V113711 = { downloadOSM: ['751a75e4', 4278, 4], onGPS: ['146fb83c', 15195, 1] };
+  const V113711 = { downloadOSM: ['86117b9', 4289, 4], onGPS: ['146fb83c', 15195, 1] };   // V11.37.18: twee commentaarregels in downloadOSM zonder plaatsnaam (was 751a75e4/4278); verder byte-gelijk, zie test_kaartbewaar KB12
   const telAf = Object.entries(V113711).filter(([n, [h, l, m]]) => merk(window[n]) !== m).map(([n]) => n + ' ' + merk(window[n]));
   eis('OV11a twee bestaande functies krijgen regels met merkteken V11.37.12 (vier in downloadOSM, één in onGPS); fietsLees, fietsNaKaart en fietsHaalOp zijn nieuw geschreven (OV3-OV9)',
       telAf.length === 0, 'precies zoveel', telAf.join(', ') || 'precies zoveel');

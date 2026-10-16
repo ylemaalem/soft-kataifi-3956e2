@@ -15400,8 +15400,14 @@ function kaartWeergaveBij() {
 // - Mislukte een verversing die daarna niet meer nodig is (je reed terug binnen
 //   OSM_REFRESH van het midden), dan zegt de pil weer 'Kaart' en niet meer
 //   'Kaart 504': er komt dan ook geen nieuwe poging (kaartWeergaveBij).
-// Twee kaartvragen tegelijk kan niet: alle routes lopen via downloadOSM, en
-// die keert terug zolang cacheBezig waar is (synchroon gezet, vóór de fetch).
+// Twee kaartvragen tegelijk kan niet: alle routes lopen via downloadOSM, die
+// keert terug zolang cacheBezig waar is (synchroon gezet, vóór de fetch), en
+// alleen de finally van downloadOSM zet hem weer op false. Tot deze reparatie
+// deed ook de timer van 30 s in de catch dat, en startte hij dan een vraag
+// naast een lopende (gemeten: na de rem zelf opnieuw, terug in beeld, een
+// GPS-tik of een tik op de pil, met een kaartserver die langer nodig had dan
+// de rest van die 30 s). Nu vraagt die timer alleen als er geen vraag loopt en
+// er nog een kaart nodig is (kaartNodig); na een gelukte poging dus niet meer.
 const KAART_ZELF_MIN_MS = 20000;   // kleiner dan de kleinste rem (30 s - 20% = 24 s), dus de rem beslist
 const KAART_TIK_MIN_MS  = 60000;
 let kaartZelfT = 0, kaartZelfN = 0, kaartTikT = 0;
@@ -15474,7 +15480,7 @@ async function downloadOSM(lat, lon) {
   // gedeelde wegen één keer over de lijn gaan.
   //
   // WAAROM NIET way(bn.tl)["highway"], wat breder en simpeler lijkt. Live
-  // gemeten op 5 km rond Amersfoort (741 traffic_signals-nodes):
+  // gemeten op 5 km rond een meetgebied (741 traffic_signals-nodes):
   //
   //   ["name"]                571 kB   dekking 49,3%
   //   ["highway"]             704 kB   dekking 51,7%   (+23,2% payload)
@@ -15507,7 +15513,7 @@ async function downloadOSM(lat, lon) {
     // V11.17.88: msGedekt/msTotaal tellen de werkelijke dekking op het gebied
     // waar daadwerkelijk gereden wordt. De bbox-schatting was daar geen goede
     // maat voor — van de 486 nodes in de export vielen er 298 buiten de
-    // gemeten bbox, grotendeels Amsterdamse. Dit is het cijfer waarop een
+    // gemeten bbox, grotendeels in één andere stad. Dit is het cijfer waarop een
     // latere GLOSA-release beoordeeld wordt.
     let msGedekt = 0;
     osmCache = nodes.map(el => {
@@ -15540,7 +15546,7 @@ async function downloadOSM(lat, lon) {
     kaartFoutNoteer(kaartRem.fout && kaartRem.fout.status, e);   // V11.37.18: de reden voor de pil, ook vóór kaartRemNa
     pOSM.className='pill-dot o'; pOSMT.textContent='Fout'; debugWaarden.osm='osm:fout';
     kaartRemNa();   // V11.37.12: de rem, zie daar
-    setTimeout(() => { cacheBezig=false; if(huidigePos)downloadOSM(huidigePos.lat,huidigePos.lon); }, 30000);
+    setTimeout(() => { if (!cacheBezig && huidigePos && kaartNodig(huidigePos.lat, huidigePos.lon)) downloadOSM(huidigePos.lat, huidigePos.lon); }, 30000);   // V11.37.18: alleen zonder lopende vraag en als er nog een kaart nodig is (stond: cacheBezig=false en altijd downloadOSM, ook naast een lopende vraag), zie kaartNodig
   } finally {
     cacheBezig = false;
     kaartWeergaveBij();   // V11.37.18: nu cacheBezig en de rem kloppen, zie daar

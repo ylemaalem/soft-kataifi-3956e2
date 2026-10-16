@@ -34,6 +34,12 @@
 //       keer snel = één vraag; niet tijdens een vraag, niet bij een 429 met
 //       wachttijd, niet zonder positie, niet als de kaart er al is
 //  KB16 een fout van een verversing die niet meer nodig is, laat de pil los
+//  KB17 de timer van 30 s in de catch van downloadOSM start geen vraag naast een
+//       lopende: na een tik, terug in beeld, een GPS-tik en zelf opnieuw (klok)
+//  KB18 het vangnet zonder de oude timer: een hangende download (inhoud hangt,
+//       abort doet niets, of geen kopregels) komt na 30 s vrij, daarna een poging
+//  KB19 geen extra download: lukt de poging binnen 30 s na een mislukking, dan
+//       vraagt de timer niets meer
 //  In alle ritten: nooit twee kaartvragen tegelijk (maxTegelijk)
 //
 //  Alle plekken en nummers zijn bedacht: een basispunt (52.0000, 5.0000),
@@ -52,6 +58,8 @@
 const KB_IDB = { naam: 'StoplichtIQ_Kaart', store: 'kaart', sleutel: 'laatste' };
 const KB_INHOUD_NU = "    const d = await kaartLeesInhoud(r, ctrl);   // V11.37.18: ook de inhoud heeft een grens (stond: await r.json()), zie kaartLeesInhoud";
 const KB_INHOUD_OUD = "    const d = await r.json();";
+const KB_TIMER_NU = "    setTimeout(() => { if (!cacheBezig && huidigePos && kaartNodig(huidigePos.lat, huidigePos.lon)) downloadOSM(huidigePos.lat, huidigePos.lon); }, 30000);   // V11.37.18: alleen zonder lopende vraag en als er nog een kaart nodig is (stond: cacheBezig=false en altijd downloadOSM, ook naast een lopende vraag), zie kaartNodig";
+const KB_TIMER_OUD = "    setTimeout(() => { cacheBezig=false; if(huidigePos)downloadOSM(huidigePos.lat,huidigePos.lon); }, 30000);";
 
 function kbIdb() {
   return new Promise((ok, nee) => {
@@ -134,7 +142,8 @@ async function kaartRitBinnen(opt) {
       const m = modi.length > 1 ? modi.shift() : modi[0];
       uit.vragen.push(m);
       uit.tegelijk++; uit.maxTegelijk = Math.max(uit.maxTegelijk, uit.tegelijk);
-      const klaar = () => { uit.tegelijk--; };
+      let klaarAl = false;
+      const klaar = () => { if (klaarAl) return; klaarAl = true; uit.tegelijk--; };   // hooguit één keer per vraag
       try {
       const sig = o && o.signal;
       const af = () => new DOMException('afgebroken', 'AbortError');
@@ -148,11 +157,18 @@ async function kaartRitBinnen(opt) {
         } });
         return new Response(body, { status: 200 });
       }
+      if (m === 'traaginhoud') {   // kopregels meteen, de inhoud na opt.traagMs (echte ms); pas dan is de vraag klaar
+        const body = new ReadableStream({ start(c) {
+          const t = echtST(() => { c.enqueue(new TextEncoder().encode(JSON.stringify(kbKaartJson()))); c.close(); klaar(); }, opt.traagMs || 1000);
+          if (sig) sig.addEventListener('abort', () => { clearTimeout(t); try { c.error(af()); } catch (e) {} klaar(); });
+        } });
+        return new Response(body, { status: 200 });
+      }
       if (m === 'kapot') return new Response('<html>storing</html>', { status: 200 });
       if (m === 'leeg') return new Response(JSON.stringify({ elements: [] }), { status: 200 });
       if (m === 'ok200') await slaap(200);
       return new Response(JSON.stringify(kbKaartJson(m === 'remark')), { status: 200 });
-      } finally { if (!['tijd', 'hang', 'hangdoof'].includes(m)) klaar(); else if (o && o.signal) o.signal.addEventListener('abort', klaar); }
+      } finally { if (m === 'traaginhoud') {} else if (!['tijd', 'hang', 'hangdoof'].includes(m)) klaar(); else if (o && o.signal) o.signal.addEventListener('abort', klaar); }
     };
     window.refreshStadIndienNodig = async () => {};
     uit.toasts = [];
@@ -461,6 +477,47 @@ async function testKaartbewaar() {
     eis('KB16 verversing op 3,4 km mislukt: pil Kaart 504 met aftelling; terug binnen 3 km: pil weer Kaart (groen), een tik doet niets (De kaart is er al), en ook na de rem geen zelf-poging',
         /^Kaart 504 · \d+:\d\d$/.test((r16.foto.ver || {}).pil) && (r16.foto.terug || {}).pil === 'Kaart' && / g$/.test((r16.foto.terug || {}).pk) && (r16.foto.tik || {}).vragen === 2 && (r16.toasts || [])[0] === 'De kaart is er al' && (r16.foto.klok || {}).vragen === 2,
         'Kaart 504, dan Kaart; geen vraag', r16.fout || kort(r16.foto.ver) + ' | ' + kort(r16.foto.terug) + ' | ' + (r16.toasts || []).join(' / '));
+
+    // ═══ KB17 — de timer van 30 s start geen tweede vraag ════════
+    // De timer gaat 30 s na een mislukking af (hier 3 s, factor 10). Na 1 s start een nieuwe vraag waarvan
+    // de inhoud 2,5 s onderweg is: de timer valt er middenin (0,5 s marge aan beide kanten, ook tot de
+    // inhoudgrens van 3 s). Was: cacheBezig = false en een vraag erbij (maxTegelijk 2, drie vragen).
+    const k17 = { bewaard: undefined, modi: ['504', 'traaginhoud', 'ok'], factor: 10, traagMs: 2500 };
+    const k17stap = (route) => ['start', 'lees', [52.0000, 5.0000], 'kaart', { ms: 1000 }, ...route, { ms: 3500 }, { foto: 'na' }];
+    const r17a = await rit({ ...k17, stappen: k17stap(['piltik']) });
+    const r17b = await rit({ ...k17, stappen: k17stap(['rem0', 'verborgen', 'zichtbaar']) });
+    const r17c = await rit({ ...k17, stappen: k17stap(['rem0', [52.0000, 5.0000]]) });
+    // zelf opnieuw (klok): de rem eraf na 1,5 s, de klok tikt binnen 1 s (tussen 1,5 en 2,5 s), de inhoud duurt 2,5 s
+    const r17d = await rit({ ...k17, stappen: ['start', 'lees', [52.0000, 5.0000], 'kaart', { ms: 1500 }, 'rem0', { ms: 4500 }, { foto: 'na' }] });
+    const ok17 = (r, bron) => !r.fout && r.maxTegelijk === 1 && r.vragen.length === 2 && (r.foto.na || {}).geladen === true && (r.foto.na || {}).pil === 'Kaart'
+      && (!bron || (r.opslag || []).some(x => x.startsWith(bron)));
+    const k17t = (r) => r.fout || 'max ' + r.maxTegelijk + ', vragen ' + r.vragen.join(',') + ', ' + kort(r.foto.na).slice(0, 80);
+    eis('KB17a tik op de pil na een 504, de kaartserver traag: de timer start er geen vraag naast (max 1, twee vragen, de kaart)', ok17(r17a, 'kaart_tik'), 'max 1, 2 vragen', k17t(r17a));
+    eis('KB17b terug in beeld na de rem, traag: de timer start er geen vraag naast', ok17(r17b, 'kaart_zelf:zicht'), 'max 1, 2 vragen', k17t(r17b));
+    eis('KB17c een GPS-tik na de rem, traag: de timer start er geen vraag naast', ok17(r17c), 'max 1, 2 vragen', k17t(r17c));
+    eis('KB17d stilstand: zelf opnieuw (klok) na de rem, traag: de timer start er geen vraag naast', ok17(r17d, 'kaart_zelf:klok'), 'max 1, 2 vragen', k17t(r17d));
+
+    // ═══ KB18 — het vangnet zonder de oude timer ═════════════════
+    // De oude timer zette cacheBezig op false; hij werd pas in de catch gezet, dus nooit tijdens een
+    // hangende vraag. Wat een hangende vraag vrijmaakt, is de grens uit V11.37.18 (25 s kopregels,
+    // 30 s inhoud; hier 20x zo snel: 1,25 en 1,5 s). Daarna, na de rem, de volgende poging.
+    for (const m of ['hang', 'hangdoof', 'tijd']) {
+      const r = await rit({ bewaard: undefined, modi: [m, 'ok'], factor: 20, stappen: ['start', 'lees', [52.0000, 5.0000], { ms: 400 }, { foto: 'hangt', zonderBij: true },
+        { ms: 1500 }, { foto: 'los', zonderBij: true }, 'rem0', { ms: 1300 }, { foto: 'na' }] });
+      eis('KB18 ' + m + ': de vraag hangt, komt na de grens vrij (time-out, cacheBezig vrij), en na de rem komt de volgende poging met de kaart',
+          !r.fout && (r.foto.hangt || {}).bezig === true && (r.foto.los || {}).bezig === false && (r.foto.los || {}).fout === 'time-out' && (r.foto.los || {}).vragen === 1
+          && r.vragen.length === 2 && (r.foto.na || {}).geladen === true && r.maxTegelijk === 1,
+          'bezig, dan vrij (time-out), dan 2 vragen en de kaart', r.fout || kort(r.foto.hangt).slice(0, 60) + ' | ' + kort(r.foto.los).slice(0, 90) + ' | ' + r.vragen.join(','));
+    }
+
+    // ═══ KB19 — geen extra download ══════════════════════════════
+    // 504, dan binnen 30 s (hier 0,3 s) een gelukte poging: de timer vraagt daarna niets meer. Was: een derde
+    // vraag, de hele kaart nog een keer.
+    const r19 = await rit({ bewaard: undefined, modi: ['504', 'ok', 'ok'], stappen: ['start', 'lees', [52.0000, 5.0000], 'kaart', 'rem0', [52.0000, 5.0000], 'kaart',
+      { foto: 'gelukt' }, { ms: 600 }, { foto: 'na' }] });
+    eis('KB19 lukt de poging binnen 30 s na een mislukking, dan komt er geen derde vraag (de timer ziet dat er geen kaart meer nodig is)',
+        !r19.fout && (r19.foto.gelukt || {}).geladen === true && r19.vragen.length === 2 && (r19.foto.na || {}).vragen === 2 && r19.maxTegelijk === 1,
+        '2 vragen', r19.fout || r19.vragen.join(',') + ' | ' + kort(r19.foto.na).slice(0, 80));
   } finally {
     await herstel();
   }
@@ -534,21 +591,22 @@ async function testKaartbewaar() {
 
   // ═══ KB12 — regressie ═══════════════════════════════════════
   const merk = (f) => String(f).split(NL).filter(l => /V11\.37\.18(?!\d)/.test(l)).length;
-  const zonderV113718 = (s) => String(s).replace(KB_INHOUD_NU, KB_INHOUD_OUD).split(NL).filter(l => !/V11\.37\.18(?!\d)/.test(l)).join(NL);
-  const V113717 = { downloadOSM: ['eb30f65', 4968, 5], updateDichtbij: ['a02224d6', 12487, 1], onGPS: ['37a4a787', 15517, 1], startApp: ['b07bc88b', 4810, 1],
+  const zonderV113718 = (s) => String(s).replace(KB_INHOUD_NU, KB_INHOUD_OUD).replace(KB_TIMER_NU, KB_TIMER_OUD).split(NL).filter(l => !/V11\.37\.18(?!\d)/.test(l)).join(NL);
+  // downloadOSM: ook twee commentaarregels zonder plaatsnaam (was eb30f65/4968); de oude tekst met die twee regels geeft eb30f65/4968 (bewijs in de commit)
+  const V113717 = { downloadOSM: ['89781264', 4979, 6], updateDichtbij: ['a02224d6', 12487, 1], onGPS: ['37a4a787', 15517, 1], startApp: ['b07bc88b', 4810, 1],
                     voerAIUit: ['63720b32', 2522, 1], laadONNXModel: ['ffa1087c', 4538, 1] };
   const telAf = Object.entries(V113717).filter(([n, [h, l, m]]) => merk(window[n]) !== m).map(([n]) => n + ' ' + merk(window[n]));
-  eis('KB12a zes functies krijgen regels met merkteken V11.37.18: downloadOSM 5, de andere 1', telAf.length === 0, 'precies zoveel', telAf.join(', ') || 'precies zoveel');
+  eis('KB12a zes functies krijgen regels met merkteken V11.37.18: downloadOSM 6, de andere 1', telAf.length === 0, 'precies zoveel', telAf.join(', ') || 'precies zoveel');
   const anders = Object.entries(V113717).filter(([n, [h, l]]) => { const s = zonderV113718(window[n]); return fnv(s) !== h || s.length !== l; }).map(x => x[0]);
-  eis('KB12b zonder die regels (en met de oude r.json-regel) byte-gelijk aan V11.37.17', anders.length === 0, 'geen afwijking', anders.join(', ') || 'geen');
+  eis('KB12b zonder die regels (en met de oude r.json- en timerregel) byte-gelijk aan V11.37.17 (downloadOSM: op twee commentaarregels zonder plaatsnaam na)', anders.length === 0, 'geen afwijking', anders.join(', ') || 'geen');
   let code12 = [];
   try {
     const html = await (await fetch(new URL('index.html', location.href).href + '?t=' + Date.now())).text();
     code12 = html.split(NL).filter(l => /V11\.37\.18(?!\d)/.test(l) && !/^\s*\/\//.test(l)).map(l => l.trim());
   } catch (e) { code12 = ['fout: ' + e]; }
-  eis('KB12c in de bron staat V11.37.18 buiten het commentaar alleen in 12 regels: de versie, de startlog-mijlpalen en de 10 regels in die zes functies',
-      code12.length === 12 && code12.filter(l => /^const APP_VERSIE = 'V11\.37\.18(?!\d) — /.test(l)).length === 1 && code12.filter(l => /^const STARTLOG_ALTIJD /.test(l)).length === 1,
-      '12 regels', code12.length + ': ' + code12.map(l => l.slice(0, 30)).join(' | '));
+  eis('KB12c in de bron staat V11.37.18 buiten het commentaar alleen in 13 regels: de versie, de startlog-mijlpalen en de 11 regels in die zes functies',
+      code12.length === 13 && code12.filter(l => /^const APP_VERSIE = 'V11\.37\.18(?!\d) — /.test(l)).length === 1 && code12.filter(l => /^const STARTLOG_ALTIJD /.test(l)).length === 1,
+      '13 regels', code12.length + ': ' + code12.map(l => l.slice(0, 30)).join(' | '));
   const dl = zc(downloadOSM);
   const i = (s) => dl.indexOf(s);
   eis('KB12d in downloadOSM: de weergave na de pil laden, de reden vóór kaartRemNa, bewaren na de groene pil, de weergave na cacheBezig = false in finally',

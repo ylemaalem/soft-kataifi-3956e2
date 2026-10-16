@@ -384,11 +384,11 @@ async function testTegenrichting() {
   eis('TR10c als de regel de keuze niet verandert (alleen tegenlichten), komt er geen regel', geenLog7 === 0, '0', String(geenLog7));
 
   // ═══ TR11 — regressie ══════════════════════════════════════
-  const zonderV113718 = (s) => String(s).replace('const d = await kaartLeesInhoud(r, ctrl);   // V11.37.18: ook de inhoud heeft een grens (stond: await r.json()), zie kaartLeesInhoud', 'const d = await r.json();').split(NL).filter(l => !/V11\.37\.18(?!\d)/.test(l)).join(NL);   // V11.37.18: de bewaarde kaart, C5 en C7 (test_kaartbewaar); hier terug
+  const zonderV113718 = (s) => String(s).replace('const d = await kaartLeesInhoud(r, ctrl);   // V11.37.18: ook de inhoud heeft een grens (stond: await r.json()), zie kaartLeesInhoud', 'const d = await r.json();').replace('setTimeout(() => { if (!cacheBezig && huidigePos && kaartNodig(huidigePos.lat, huidigePos.lon)) downloadOSM(huidigePos.lat, huidigePos.lon); }, 30000);   // V11.37.18: alleen zonder lopende vraag en als er nog een kaart nodig is (stond: cacheBezig=false en altijd downloadOSM, ook naast een lopende vraag), zie kaartNodig', 'setTimeout(() => { cacheBezig=false; if(huidigePos)downloadOSM(huidigePos.lat,huidigePos.lon); }, 30000);').split(NL).filter(l => !/V11\.37\.18(?!\d)/.test(l)).join(NL);   // V11.37.18: de bewaarde kaart, C5 en C7 (test_kaartbewaar); hier terug
   const zonder = (s) => zonderV113718(s).split(NL).filter(l => !/V11\.37\.11(?!\d)|V11\.37\.12(?!\d)|V11\.37\.13(?!\d)|V11\.37\.15(?!\d)|V11\.37\.17(?!\d)/.test(l)).join(NL);   // V11.37.17: ook de startlog (test_startlog); V11.37.12: die regels ook (test_overpass); V11.37.13 ook (test_tegenbocht); V11.37.15 ook (test_koerslog)
   const merk = (f) => String(f).split(NL).filter(l => /V11\.37\.11(?!\d)/.test(l)).length;
   const V113710 = { vindDichtbij: ['d444ee3', 3717, 4], updateDichtbij: ['7b7fce62', 12303, 1], regelKies: ['cd458100', 2307, 5], onGPS: ['d99821b8', 15000, 1],
-    downloadOSM: ['82a16b3c', 4147, 1], logOpslagMis: ['e93caaaf', 16068, 1] };
+    downloadOSM: ['261d2457', 4158, 1], logOpslagMis: ['e93caaaf', 16068, 1] };   // V11.37.18: twee commentaarregels in downloadOSM zonder plaatsnaam (was 82a16b3c/4147); verder byte-gelijk, zie test_kaartbewaar KB12
   const telAf = Object.entries(V113710).filter(([n, [h, l, m]]) => merk(window[n]) !== m).map(([n]) => n + ' ' + merk(window[n]));
   eis('TR11a zes functies veranderen, alleen met regels met merkteken V11.37.11 (vier in vindDichtbij, vijf in regelKies, één in de rest)',
       telAf.length === 0, 'precies zoveel', telAf.join(', ') || 'precies zoveel');

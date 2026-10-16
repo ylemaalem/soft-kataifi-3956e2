@@ -501,7 +501,7 @@ async function testFietslicht() {
   }
 
   // ═══ FL11 — regressie ══════════════════════════════════════
-  const zonderV113718 = (s) => String(s).replace('const d = await kaartLeesInhoud(r, ctrl);   // V11.37.18: ook de inhoud heeft een grens (stond: await r.json()), zie kaartLeesInhoud', 'const d = await r.json();').split('\n').filter(l => !/V11\.37\.18(?!\d)/.test(l)).join('\n');   // V11.37.18: de bewaarde kaart, C5 en C7 (test_kaartbewaar); hier terug
+  const zonderV113718 = (s) => String(s).replace('const d = await kaartLeesInhoud(r, ctrl);   // V11.37.18: ook de inhoud heeft een grens (stond: await r.json()), zie kaartLeesInhoud', 'const d = await r.json();').replace('setTimeout(() => { if (!cacheBezig && huidigePos && kaartNodig(huidigePos.lat, huidigePos.lon)) downloadOSM(huidigePos.lat, huidigePos.lon); }, 30000);   // V11.37.18: alleen zonder lopende vraag en als er nog een kaart nodig is (stond: cacheBezig=false en altijd downloadOSM, ook naast een lopende vraag), zie kaartNodig', 'setTimeout(() => { cacheBezig=false; if(huidigePos)downloadOSM(huidigePos.lat,huidigePos.lon); }, 30000);').split('\n').filter(l => !/V11\.37\.18(?!\d)/.test(l)).join('\n');   // V11.37.18: de bewaarde kaart, C5 en C7 (test_kaartbewaar); hier terug
   const zonderV113717 = (s) => zonderV113718(s).split('\n').filter(l => !/V11\.37\.17(?!\d)/.test(l)).join('\n');   // V11.37.17: de startlog (test_startlog); hier terug
   const zonderV113715 = (s) => zonderV113717(s).split('\n').filter(l => !/V11\.37\.15(?!\d)/.test(l)).join('\n');   // V11.37.15: de koersmeting (test_koerslog); hier terug
   const zonderV113713 = (s) => zonderV113715(s).split('\n').filter(l => !/V11\.37\.13(?!\d)/.test(l)).join('\n');   // V11.37.13: R1 en R3 van de tegenrichting-regel (test_tegenbocht); hier terug
@@ -514,7 +514,7 @@ async function testFietslicht() {
   const merk = (f) => String(f).split(NL).filter(l => /V11\.37\.8(?!\d)/.test(l)).length;
   const V11377 = { vindDichtbij: ['55d1f775', 3320, 3], updateDichtbij: ['42aee748', 12051, 3], regelKies: ['d8d1f767', 1993, 3], wisselLogNoteer: ['c0611735', 1672, 2],
     wisselNa: ['3f24e1b0', 2527, 1], bevestigCountdown: ['3bfe5b10', 15882, 2], geenLichtZetten: ['b480c850', 1591, 2], corrigeerNodeAutomatisch: ['afe7b427', 4118, 2],
-    selecteerNodeHandmatig: ['5275f4dd', 2379, 1], resetNeutraal: ['32f7f3fd', 3510, 1], downloadOSM: ['4711f7f3', 4043, 1] };
+    selecteerNodeHandmatig: ['5275f4dd', 2379, 1], resetNeutraal: ['32f7f3fd', 3510, 1], downloadOSM: ['488a5324', 4054, 1] };   // V11.37.18: twee commentaarregels in downloadOSM zonder plaatsnaam (was 4711f7f3/4043); verder byte-gelijk, zie test_kaartbewaar KB12
   const telAf = Object.entries(V11377).filter(([n, [h, l, m]]) => merk(window[n]) !== m).map(([n]) => n + ' ' + merk(window[n]));
   eis('FL11a elf functies veranderen, alleen met regels met merkteken V11.37.8 (drie in vindDichtbij, updateDichtbij en regelKies; twee of één in de rest)',
       telAf.length === 0, 'precies zoveel', telAf.join(', ') || 'precies zoveel');

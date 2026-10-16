@@ -89,6 +89,7 @@ async function startRitBinnen(opt) {
     uit.gatOpen = (JSON.parse(localStorage.getItem('sl_startlog')) || []).filter(r => r.k === 'g').map(r => ({ ...r }));
     minStatZeker(); startLogKijk();
     // uit beeld: een open gat sluit, geen nieuw gat zolang de pagina weg is
+    await slaap(5);   // anders kan dit tweede gat dezelfde t krijgen als het eerste (zelfde ms), en dan is het voor startLogSchrijf dezelfde regel; in de app kan dat niet: een volgend gat begint na de run die het vorige sloot
     startLaatsteRun = Date.now() - 31000; startLogKijk();
     Object.defineProperty(document, 'visibilityState', { get: () => 'hidden', configurable: true });
     document.dispatchEvent(new Event('visibilitychange'));
@@ -229,7 +230,7 @@ async function testStartlog() {
       tr: 'live', mu: false, rf: 18, kl: false, kb: null, gt: 1020 });
     const ruwM = localStorage.getItem(STARTLOG_SLEUTEL) || '';
     eis('SL7b klein en Latin-1: een volle ring met alleen volle startregels < 8 K tekens, met de helft gatregels < 6,5 K (gemeten)',
-        ruwS.length < 8000 && ruwM.length < 6500 && !/[^ -ÿ]/.test(ruwS + ruwM), '< 8 K en < 6,5 K, Latin-1',
+        ruwS.length < 8000 && ruwM.length < 6500 && !/[^\x00-ÿ]/.test(ruwS + ruwM), '< 8 K en < 6,5 K, Latin-1',
         (ruwS.length / 40).toFixed(1) + ' tekens per startregel: ' + (ruwS.length / 1024).toFixed(1) + ' K; gemengd ' + (ruwM.length / 1024).toFixed(1) + ' K');
     const bewSchrijf = opslagSchrijf;
     opslagSchrijf = (k, v) => (k === STARTLOG_SLEUTEL ? false : bewSchrijf(k, v));
@@ -280,9 +281,9 @@ async function testStartlog() {
 
   // ═══ SL10 — regressie ═══════════════════════════════════════
   const merk = (f) => String(f).split(NL).filter(l => /V11\.37\.17(?!\d)/.test(l)).length;
-  const zonderV113718 = (s) => String(s).replace('const d = await kaartLeesInhoud(r, ctrl);   // V11.37.18: ook de inhoud heeft een grens (stond: await r.json()), zie kaartLeesInhoud', 'const d = await r.json();').split(NL).filter(l => !/V11\.37\.18(?!\d)/.test(l)).join(NL);   // V11.37.18: de bewaarde kaart, C5 en C7 (test_kaartbewaar); hier terug
+  const zonderV113718 = (s) => String(s).replace('const d = await kaartLeesInhoud(r, ctrl);   // V11.37.18: ook de inhoud heeft een grens (stond: await r.json()), zie kaartLeesInhoud', 'const d = await r.json();').replace('setTimeout(() => { if (!cacheBezig && huidigePos && kaartNodig(huidigePos.lat, huidigePos.lon)) downloadOSM(huidigePos.lat, huidigePos.lon); }, 30000);   // V11.37.18: alleen zonder lopende vraag en als er nog een kaart nodig is (stond: cacheBezig=false en altijd downloadOSM, ook naast een lopende vraag), zie kaartNodig', 'setTimeout(() => { cacheBezig=false; if(huidigePos)downloadOSM(huidigePos.lat,huidigePos.lon); }, 30000);').split(NL).filter(l => !/V11\.37\.18(?!\d)/.test(l)).join(NL);   // V11.37.18: de bewaarde kaart, C5 en C7 (test_kaartbewaar); hier terug
   const zonderV113717 = (s) => zonderV113718(s).replace(STARTLOG_WATCH_NU, STARTLOG_WATCH_OUD).split(NL).filter(l => !/V11\.37\.17(?!\d)/.test(l)).join(NL);
-  const V113715 = { startApp: ['7f067c8a', 4583, 5], onGPS: ['b8aa01fe', 15469, 1], downloadOSM: ['e89feb02', 4655, 3], updateDichtbij: ['67e9f3ec', 12423, 1],
+  const V113715 = { startApp: ['7f067c8a', 4583, 5], onGPS: ['b8aa01fe', 15469, 1], downloadOSM: ['b47c263f', 4666, 3], updateDichtbij: ['67e9f3ec', 12423, 1],   // V11.37.18: downloadOSM met twee commentaarregels zonder plaatsnaam (was e89feb02/4655), zie test_kaartbewaar KB12
                     laadONNXModel: ['68b764e9', 4402, 1], minStatZeker: ['17831b15', 292, 1], exporteerMeetdata: ['c7a3b47a', 9327, 2] };
   const telAf = Object.entries(V113715).filter(([n, [h, l, m]]) => merk(window[n]) !== m).map(([n]) => n + ' ' + merk(window[n]));
   eis('SL10a zeven functies krijgen regels met merkteken V11.37.17: startApp 5, downloadOSM 3, exporteerMeetdata 2, de andere 1',
