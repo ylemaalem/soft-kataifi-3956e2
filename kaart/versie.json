@@ -1,0 +1,19 @@
+{
+ "v": 1,
+ "datum": "2026-10-16",
+ "lichten": 43208,
+ "wegen": 31004,
+ "fiets": 19309,
+ "bytes": {
+  "lichten": 18257721,
+  "fiets": 639656
+ },
+ "gzip": {
+  "lichten": 4331430,
+  "fiets": 80853
+ },
+ "sha256": {
+  "lichten": "249f02b9abb8bfaf7723444714ab0ffc6e04683b00366aa251f34c123b2e885d",
+  "fiets": "df69cbafbbeb9e2e095dfd3dbd25c08d8735047ea58c2c02815851f81568c51e"
+ }
+}
