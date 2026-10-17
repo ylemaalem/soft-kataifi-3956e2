@@ -15522,6 +15522,7 @@ try {
 // keuring, sha256, 404, te traag) geeft null en dan stap 3, met een logregel.
 // Na een fout in het bestand zelf (keuring, sha256, 4xx) of in de opslag deze
 // start niet opnieuw; na een netwerkfout hoogstens KAART_BESTAND_POGINGEN keer.
+// Een crash die de app zelf niet merkt, en een geweigerd bestand: zie CRASHBEWAKING.
 //
 // OUDERDOM. Een oud bestand is beter dan geen kaart: het wordt nooit
 // geweigerd. Vanaf KAART_BESTAND_LOG_DAGEN een logregel per start, vanaf
@@ -15566,6 +15567,162 @@ let kaartBestandVakSet = null, kaartBestandVakSetVan = null;
 let kaartBestandOudGemeld = false;
 let kaartBron = null;               // 'bestand' of 'overpass': waar de laatste verse kaart vandaan kwam
 let kaartNetStaart = Promise.resolve(), kaartNetOpen = 0, kaartNetWie = null;
+
+// ── V11.37.20 (CRASHBEWAKING): EEN POGING DIE STIERF ────────────────
+// © 2026 StoplichtIQ — Y. Lemaalem
+//
+// WAAROM. Fouten die de app zelf merkt, vangt kaartBestandHaal op. Een crash
+// door iOS tijdens het ophalen of inlezen (te weinig geheugen) merkt hij niet:
+// de app start opnieuw, haalt het bestand weer, crasht weer, en Overpass krijgt
+// nooit een kans.
+//
+// HOE.
+//   - Vóór het ophalen schrijft kaartBestandHaal een merkteken 'bezig' in de
+//     eigen database (meta), met de fase: haal, wacht (op het model) of lees.
+//     De worker wist het in dezelfde transactie die de nieuwe versie bewaart;
+//     een fout die de app zelf opvangt wist het ook (kaartBestandAfloop). Staat
+//     het er bij de volgende start nog (kaartBestandNaStart), dan stierf de
+//     vorige poging.
+//   - Na zo'n poging, en na een geweigerde of kapotte versie (ook: opslag vol,
+//     geen worker, inlezen dat in beeld langer dan KAART_BESTAND_VERWERK_MS
+//     duurt), een pauze ('pauze' in meta): geen versie.json, niets ophalen,
+//     niets inlezen. Een goed bestand in de telefoon blijft in gebruik; zonder
+//     bestand de bewaarde kaart en Overpass, zoals in V11.37.18.
+//   - Een ontbrekend bestand (http 4xx) geeft geen pauze: er is dan niets
+//     opgehaald (geen 4,4 MB, geen crashkans), en na een reparatie op de server
+//     pakt de telefoon het bij de volgende start meteen op. Deze start niet
+//     opnieuw (kaartBestandGeweigerd), zoals hierboven.
+//   - Na de pauze één nieuwe poging. Mislukt die weer, dan een langere pauze:
+//     KAART_BESTAND_PAUZE_MS keer 3 per keer, hoogstens KAART_BESTAND_PAUZE_MAX_MS
+//     (1, 3, 9, 27, 30, 30 ... dagen). Lukt hij, dan is de pauze weg. Een
+//     netwerkfout telt niet (die mag drie keer per start, zie hierboven), een
+//     ontbrekend bestand ook niet (zie het vorige punt).
+//   - Stond de app bij het wegvallen op de achtergrond (een andere app, het
+//     scherm uit), dan bewijst dat geen crash: iOS sluit apps op de achtergrond
+//     ook zelf. De eerste keer dan geen pauze maar meteen een nieuwe poging; twee
+//     keer op rij wel een pauze.
+//
+// WAAROM 24 UUR. Een crash kost een herstart onderweg. Een korte pauze (een
+// paar uur) legt de nieuwe poging op de volgende rit van dezelfde dag, en een
+// geheugentekort van hetzelfde toestel met hetzelfde bestand komt dan
+// waarschijnlijk terug. 24 uur geeft hoogstens één zo'n herstart per dag, en
+// door het verdrievoudigen na drie mislukkingen hoogstens één per maand. Langer
+// bij de eerste keer kost bij een eenmalige oorzaak (veel andere apps open)
+// dagen zonder bestand. Tijdens de pauze werkt de kaart zoals nu (V11.37.18),
+// dus de pauze kost niets ten opzichte van vandaag.
+//
+// LOG. 'kaart_bestand' stierf of onderbroken (fase, aantal, pauze) bij de start
+// die het merkteken vindt; 'pauze' bij elke start in een pauze. In sl_startlog:
+// kbx (de reden: 'eerdere poging stierf', 'eerdere poging onderbroken' of
+// 'geweigerd: ...'), kbn (mislukte pogingen op rij), kbp (uren pauze nog), en
+// kbv 'pauze'.
+const KAART_BESTAND_PAUZE_MS     = 24 * 3600 * 1000;
+const KAART_BESTAND_PAUZE_MAX_MS = 30 * 24 * 3600 * 1000;
+const KAART_BESTAND_MERK_MS      = 5000;    // een schrijfactie van het merkteken; lukt die niet, dan niet ophalen
+const KAART_BESTAND_STIERF       = 'eerdere poging stierf';
+const KAART_BESTAND_ONDERBROKEN  = 'eerdere poging onderbroken';
+let kaartBestandPauze = null;       // { n: mislukt op rij, p: pauzes op rij, tot, reden, t } uit meta 'pauze', of null
+let kaartBestandMerk = null;        // de poging die nu loopt: { id, t, versie, fase, verborgen, ooit }
+let kaartBestandMerkLuistert = false;
+
+// Een korte schrijfactie in meta, hoogstens KAART_BESTAND_MERK_MS.
+function kaartBestandMetaDoe(fn) {
+  return new Promise((klaar, mis) => {
+    let af = false;
+    const tm = setTimeout(() => { af = true; mis(new Error('merk tijd')); }, KAART_BESTAND_MERK_MS);
+    kaartBestandIdbOpen().then((db) => {
+      const dicht = () => { clearTimeout(tm); try { db.close(); } catch (e) {} };
+      if (af) { dicht(); return; }
+      let tx;
+      try { tx = db.transaction('meta', 'readwrite'); fn(tx.objectStore('meta')); } catch (e) { dicht(); mis(e); return; }
+      tx.oncomplete = () => { dicht(); klaar(); };
+      tx.onerror = tx.onabort = () => { dicht(); mis(tx.error || new Error('merk')); };
+    }, (e) => { clearTimeout(tm); mis(e); });
+  });
+}
+
+// Het merkteken van de poging die nu loopt zetten of bijwerken.
+async function kaartBestandMerkZet(fase, versie) {
+  if (!kaartBestandMerk) kaartBestandMerk = { id: Math.random().toString(36).slice(2), t: Date.now(), versie: String(versie).slice(0, 16), fase, verborgen: false, ooit: false };
+  kaartBestandMerk.fase = fase;
+  kaartBestandMerkLuister();
+  try { if (document.visibilityState === 'hidden') kaartBestandMerk.verborgen = kaartBestandMerk.ooit = true; } catch (e) {}
+  const m = { id: kaartBestandMerk.id, t: kaartBestandMerk.t, versie: kaartBestandMerk.versie, fase, verborgen: kaartBestandMerk.verborgen };
+  await kaartBestandMetaDoe((st) => st.put(m, 'bezig'));
+}
+
+// Staat de app op de achtergrond of weer in beeld: in het merkteken (alleen dat van deze poging).
+function kaartBestandMerkLuister() {
+  if (kaartBestandMerkLuistert) return;
+  kaartBestandMerkLuistert = true;
+  const zicht = (verborgen) => {
+    const m = kaartBestandMerk;
+    if (!m || m.verborgen === verborgen) return;
+    m.verborgen = verborgen; if (verborgen) m.ooit = true;
+    kaartBestandMetaDoe((st) => { const q = st.get('bezig'); q.onsuccess = () => { if (q.result && q.result.id === m.id) st.put({ ...q.result, verborgen }, 'bezig'); }; }).catch(() => {});
+  };
+  try {
+    document.addEventListener('visibilitychange', () => zicht(document.visibilityState === 'hidden'));
+    window.addEventListener('pagehide', () => zicht(true));
+  } catch (e) {}
+}
+
+// Na een poging die de app zelf afsloot: het merkteken weg (als het nog van deze poging is) en zo nodig de pauze erin, in één transactie.
+function kaartBestandAfloop(pauze) {
+  const m = kaartBestandMerk;
+  kaartBestandMerk = null;
+  if (!m && !pauze) return Promise.resolve();
+  return kaartBestandMetaDoe((st) => {
+    if (pauze) st.put(pauze, 'pauze');
+    if (m) { const q = st.get('bezig'); q.onsuccess = () => { if (q.result && q.result.id === m.id) st.delete('bezig'); }; }
+  }).catch(() => {});
+}
+
+// De volgende stand na een mislukte poging; vrij: een eerste onderbreking, nog geen pauze.
+function kaartBestandPauzeNa(reden, oud, vrij) {
+  const n = ((oud && oud.n) || 0) + 1, p = ((oud && oud.p) || 0) + (vrij ? 0 : 1);
+  const duur = vrij ? 0 : Math.min(KAART_BESTAND_PAUZE_MAX_MS, KAART_BESTAND_PAUZE_MS * Math.pow(3, p - 1));
+  return { n, p, tot: vrij ? 0 : Date.now() + duur, reden: String(reden).slice(0, 40), t: Date.now() };
+}
+
+// Loopt er een pauze? (Staat de klok verder terug dan de langste pauze, dan telt hij niet.)
+function kaartBestandPauzeActief() {
+  const p = kaartBestandPauze, nu = Date.now();
+  return !!p && Number.isFinite(p.tot) && p.tot > nu && p.tot - nu <= KAART_BESTAND_PAUZE_MAX_MS;
+}
+
+// De pauze in de startregel: kbx (reden), kbn (mislukt op rij), kbp (uren nog).
+function kaartBestandPauzeLog() {
+  const p = kaartBestandPauze;
+  if (!p || !p.n) return;
+  kaartBestandStartlog('kbx', p.reden);
+  kaartBestandStartlog('kbn', p.n);
+  kaartBestandStartlog('kbp', kaartBestandPauzeActief() ? Math.ceil((p.tot - Date.now()) / 3600000) : null);
+}
+
+// Eén keer per start (kaartBestandMetaLaad): stond het merkteken er nog, dan stierf de vorige poging: een pauze.
+async function kaartBestandNaStart(db, bezig, pauze) {
+  try {
+    kaartBestandPauze = pauze && typeof pauze === 'object' && Number.isFinite(pauze.tot) && Number.isSafeInteger(pauze.n) ? pauze : null;
+    if (bezig && typeof bezig === 'object') {
+      const verborgen = !!bezig.verborgen;
+      const vrij = verborgen && !(kaartBestandPauze && kaartBestandPauze.reden === KAART_BESTAND_ONDERBROKEN);
+      const p = kaartBestandPauze = kaartBestandPauzeNa(verborgen ? KAART_BESTAND_ONDERBROKEN : KAART_BESTAND_STIERF, kaartBestandPauze, vrij);
+      await new Promise((klaar) => {
+        try {
+          const tx = db.transaction('meta', 'readwrite'), st = tx.objectStore('meta');
+          st.put(p, 'pauze'); st.delete('bezig');
+          tx.oncomplete = tx.onerror = tx.onabort = () => klaar();
+        } catch (e) { klaar(); }
+      });
+      kaartBestandLog(verborgen ? 'onderbroken' : 'stierf', p.reden + ' fase=' + String(bezig.fase || '?').slice(0, 6) + ' n=' + p.n + ' pauze=' + Math.round((p.tot ? p.tot - Date.now() : 0) / 3600000) + 'u');
+    } else if (kaartBestandPauzeActief()) {
+      kaartBestandLog('pauze', 'nog ' + Math.ceil((kaartBestandPauze.tot - Date.now()) / 3600000) + 'u n=' + kaartBestandPauze.n + ' ' + kaartBestandPauze.reden);
+    }
+    if (kaartBestandPauzeActief()) kaartBestandStartlog('kbv', 'pauze', true);
+    kaartBestandPauzeLog();
+  } catch (e) {}
+}
 
 // Aan in de gestarte app (het startscherm is weg, zoals in kaartZelfOpnieuw), bovenaan (geen iframe), met een worker en IndexedDB.
 function kaartBestandAan() {
@@ -15679,11 +15836,13 @@ function kaartBestandMetaLaad() {
     let db = null;
     try {
       db = await kaartBestandIdbOpen();
-      const m = await new Promise((klaar, mis) => {
-        const q = db.transaction('meta', 'readonly').objectStore('meta').get('actief');
-        q.onsuccess = () => klaar(q.result);
-        q.onerror = () => mis(q.error);
+      const [m, bezig, pauze] = await new Promise((klaar, mis) => {   // crashbewaking: ook het merkteken en de pauze
+        const tx = db.transaction('meta', 'readonly'), st = tx.objectStore('meta');   // crashbewaking
+        const q = st.get('actief'), qb = st.get('bezig'), qp = st.get('pauze');   // crashbewaking
+        tx.oncomplete = () => klaar([q.result, qb.result, qp.result]);   // crashbewaking
+        tx.onerror = tx.onabort = () => mis(tx.error || q.error);   // crashbewaking
       });
+      await kaartBestandNaStart(db, bezig, pauze);   // crashbewaking: stierf de vorige poging, dan nu een pauze
       if (m === undefined) return;
       if (!kaartBestandMetaGoed(m)) { kaartBestandFout('meta', 'kapot'); return; }
       if (!kaartBestand) kaartBestand = m;
@@ -15771,10 +15930,10 @@ function kaartBestandHaal(v, voorgrond) {
   if (kaartBestandHaalP) return kaartBestandHaalP;
   kaartBestandHaalP = (async () => {
     const versie = v.sha256.lichten + v.sha256.fiets;
-    if (kaartBestandIdbStuk || kaartBestandGeweigerd === versie || kaartBestandPogingen >= KAART_BESTAND_POGINGEN) return false;
+    if (kaartBestandIdbStuk || kaartBestandGeweigerd === versie || kaartBestandPogingen >= KAART_BESTAND_POGINGEN || kaartBestandPauzeActief()) return false;   // crashbewaking: ook niet in de pauze
     kaartBestandPogingen++;
     const t0 = Date.now();
-    let w = null, url = null;
+    let w = null, url = null, nieuwPauze = null;   // crashbewaking: nieuwPauze
     try {
       try {
         url = URL.createObjectURL(new Blob(['(' + kaartBestandWerker.toString() + ')();'], { type: 'application/javascript' }));
@@ -15788,17 +15947,20 @@ function kaartBestandHaal(v, voorgrond) {
         kaartBestandVoortgang = { pct: Math.max(0, Math.min(99, Math.floor(100 * n / totaal))), mb };
         kaartWeergaveBij();
       } : null;
-      const binnen = await kaartNetRij('bestand', () => kaartBestandWerkerVraag(w, { type: 'haal', v, stilMs: KAART_BESTAND_STIL_MS, maxMs: KAART_BESTAND_MAX_MS,
+      const binnen = await kaartNetRij('bestand', async () => { await kaartBestandMerkZet('haal', versie); return kaartBestandWerkerVraag(w, { type: 'haal', v, stilMs: KAART_BESTAND_STIL_MS, maxMs: KAART_BESTAND_MAX_MS,   // crashbewaking: eerst het merkteken
         urls: { lichten: kaartBestandUrl('lichten.json', v.sha256.lichten.slice(0, 16)), fiets: kaartBestandUrl('fiets.json', v.sha256.fiets.slice(0, 16)) } },
-        opVoortgang, KAART_BESTAND_MAX_MS + 10000));
+        opVoortgang, KAART_BESTAND_MAX_MS + 10000); });   // crashbewaking
       if (!binnen || !binnen.ok) throw new Error((binnen && binnen.reden) || 'haal');
       kaartBestandStartlog('kbb', binnen.bytes);
       if (voorgrond) { kaartBestandVoortgang = { klaarzetten: true, mb }; kaartWeergaveBij(); }
+      await kaartBestandMerkZet('wacht', versie);   // crashbewaking
       const wachtMs = await kaartBestandWachtModel();
+      await kaartBestandMerkZet('lees', versie);   // crashbewaking
       const uit = await kaartBestandWerkerVraag(w, { type: 'verwerk', vakLat: KAART_VAK_LAT, vakLon: KAART_VAK_LON, idb: KAART_BESTAND_IDB }, null, KAART_BESTAND_VERWERK_MS);
       if (!uit || !uit.ok) throw new Error((uit && uit.reden) || 'verwerk');
       if (!kaartBestandMetaGoed(uit.meta)) throw new Error('vorm meta');
       kaartBestand = uit.meta;
+      kaartBestandPauze = null;   // crashbewaking: de worker wiste het merkteken en de pauze in de transactie van deze versie
       kaartBestandCellen = new Map();
       kaartBestandOudGemeld = false;
       kaartBestandLog('klaar', 'datum=' + uit.meta.datum + ' n=' + uit.meta.lichten + ' kb=' + Math.round(binnen.bytes / 1024) + ' wacht=' + Math.round(wachtMs / 1000) + 's lees=' + uit.leesMs + 'ms', Date.now() - t0);
@@ -15807,9 +15969,12 @@ function kaartBestandHaal(v, voorgrond) {
     } catch (e) {
       const r = kaartBestandReden(e);
       if (!/^(net|stil|tijd|http 5|werker tijd)/.test(r)) kaartBestandGeweigerd = versie;   // het bestand of de opslag zelf: deze start niet opnieuw
+      const teTraag = r === 'werker tijd' && !!kaartBestandMerk && kaartBestandMerk.fase === 'lees' && !kaartBestandMerk.ooit;   // crashbewaking: inlezen dat in beeld te lang duurde
+      if ((kaartBestandGeweigerd === versie && !/^http 4/.test(r)) || teTraag) { nieuwPauze = kaartBestandPauze = kaartBestandPauzeNa('geweigerd: ' + r, kaartBestandPauze, false); kaartBestandPauzeLog(); }   // crashbewaking: een pauze, zie CRASHBEWAKING
       kaartBestandFout(voorgrond ? 'haal' : 'nieuw', r, Date.now() - t0);
       return false;
     } finally {
+      await kaartBestandAfloop(nieuwPauze);   // crashbewaking: het merkteken weg, de pauze erin (één transactie)
       if (w) { try { w.terminate(); } catch (e) {} }
       if (url) { try { URL.revokeObjectURL(url); } catch (e) {} }
       kaartBestandVoortgang = null;
@@ -15921,7 +16086,7 @@ async function kaartBestandKaart(lat, lon) {
   try {
     await kaartBestandMetaLaad();
     if (kaartBestandIdbStuk) return null;
-    const vP = kaartBestandVersie();
+    const vP = kaartBestandPauzeActief() ? Promise.resolve(null) : kaartBestandVersie();   // crashbewaking: in de pauze geen versie.json; een goed bestand blijft in gebruik
     let d = null;
     if (kaartBestand) {
       vP.then(kaartBestandNieuw);
@@ -16094,6 +16259,7 @@ function kaartBestandWerker() {
         try {
           for (const [k, x] of vakken) st.put('{"n":[' + x.n.join(',') + '],"w":[' + x.w.join(',') + '],"f":[' + x.f.join(',') + ']}', meta.sleutel + ':' + k);
           tx.objectStore('meta').put(meta, 'actief');
+          tx.objectStore('meta').delete('bezig'); tx.objectStore('meta').delete('pauze');   // crashbewaking: gelukt, in dezelfde transactie
         } catch (e) { try { tx.abort(); } catch (_) {} mis(e); return; }
         tx.oncomplete = () => klaar();
         tx.onerror = () => mis(tx.error || new Error('schrijven'));
