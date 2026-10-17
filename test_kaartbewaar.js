@@ -591,11 +591,17 @@ async function testKaartbewaar() {
 
   // ═══ KB12 — regressie ═══════════════════════════════════════
   const merk = (f) => String(f).split(NL).filter(l => /V11\.37\.18(?!\d)/.test(l)).length;
-  const zonderV113718 = (s) => String(s).replace(KB_INHOUD_NU, KB_INHOUD_OUD).replace(KB_TIMER_NU, KB_TIMER_OUD).split(NL).filter(l => !/V11\.37\.18(?!\d)/.test(l)).join(NL);
+  const DL20_NIEUW = "    const d = await kaartHaalKaart(lat, lon, q);   // V11.37.20: eerst het eigen bestand (kaart/), anders de zeven regels die hier stonden (nu in kaartVraagOverpass), zie kaartHaalKaart";   // V11.37.20
+  const DL20_OUD = ['    const ctrl = new AbortController();', '    const t = setTimeout(()=>ctrl.abort(), 25000);',   // V11.37.20: de zeven regels die er tot V11.37.19 stonden
+    "    const r = await fetch(OVERPASS_URL, { method:'POST', body:`data=${encodeURIComponent(q)}`, signal:ctrl.signal });", '    clearTimeout(t);',   // V11.37.20
+    "    if (!r.ok) kaartRem.fout = { status: r.status, ra: (r.headers && typeof r.headers.get === 'function') ? r.headers.get('Retry-After') : null };   // V11.37.12",   // V11.37.20
+    '    if (!r.ok) throw new Error(`HTTP ${r.status}`);', '    const d = await kaartLeesInhoud(r, ctrl);   // V11.37.18: ook de inhoud heeft een grens (stond: await r.json()), zie kaartLeesInhoud'].join(NL);   // V11.37.20
+  const zonderV113720 = (s) => String(s).replace(DL20_NIEUW, DL20_OUD);   // V11.37.20: het eigen kaartbestand (test_kaartbestand); hier de oude zeven regels terug
+  const zonderV113718 = (s) => zonderV113720(s).replace(KB_INHOUD_NU, KB_INHOUD_OUD).replace(KB_TIMER_NU, KB_TIMER_OUD).split(NL).filter(l => !/V11\.37\.18(?!\d)/.test(l)).join(NL);   // V11.37.20: eerst zonderV113720
   // downloadOSM: ook twee commentaarregels zonder plaatsnaam (was eb30f65/4968); de oude tekst met die twee regels geeft eb30f65/4968 (bewijs in de commit)
   const V113717 = { downloadOSM: ['89781264', 4979, 6], updateDichtbij: ['a02224d6', 12487, 1], onGPS: ['37a4a787', 15517, 1], startApp: ['b07bc88b', 4810, 1],
                     voerAIUit: ['63720b32', 2522, 1], laadONNXModel: ['ffa1087c', 4538, 1] };
-  const telAf = Object.entries(V113717).filter(([n, [h, l, m]]) => merk(window[n]) !== m).map(([n]) => n + ' ' + merk(window[n]));
+  const telAf = Object.entries(V113717).filter(([n, [h, l, m]]) => merk(zonderV113720(window[n])) !== m).map(([n]) => n + ' ' + merk(zonderV113720(window[n])));   // V11.37.20: op de tekst van vóór V11.37.20
   eis('KB12a zes functies krijgen regels met merkteken V11.37.18: downloadOSM 6, de andere 1', telAf.length === 0, 'precies zoveel', telAf.join(', ') || 'precies zoveel');
   const anders = Object.entries(V113717).filter(([n, [h, l]]) => { const s = zonderV113718(window[n]); return fnv(s) !== h || s.length !== l; }).map(x => x[0]);
   eis('KB12b zonder die regels (en met de oude r.json- en timerregel) byte-gelijk aan V11.37.17 (downloadOSM: op twee commentaarregels zonder plaatsnaam na)', anders.length === 0, 'geen afwijking', anders.join(', ') || 'geen');
@@ -604,9 +610,11 @@ async function testKaartbewaar() {
     const html = await (await fetch(new URL('index.html', location.href).href + '?t=' + Date.now())).text();
     code12 = html.split(NL).filter(l => /V11\.37\.18(?!\d)/.test(l) && !/^\s*\/\//.test(l)).map(l => l.trim());
   } catch (e) { code12 = ['fout: ' + e]; }
-  eis('KB12c in de bron staat V11.37.18 buiten het commentaar alleen in 13 regels: de versie, de startlog-mijlpalen en de 11 regels in die zes functies',
-      code12.length === 13 && code12.filter(l => /^const APP_VERSIE = 'V11\.37\.18(?!\d) — /.test(l)).length === 1 && code12.filter(l => /^const STARTLOG_ALTIJD /.test(l)).length === 1,
-      '13 regels', code12.length + ': ' + code12.map(l => l.slice(0, 30)).join(' | '));
+  // V11.37.20: de versieregel draagt een later nummer, en de regel met kaartLeesInhoud staat sinds V11.37.20 (met hetzelfde merkteken) in kaartVraagOverpass
+  eis('KB12c in de bron staat V11.37.18 buiten het commentaar alleen in 12 regels: de startlog-mijlpalen, 10 regels in die zes functies en de regel die sinds V11.37.20 in kaartVraagOverpass staat',   // V11.37.20
+      code12.length === 12 && !code12.some(l => /^const APP_VERSIE/.test(l)) && code12.filter(l => /^const STARTLOG_ALTIJD /.test(l)).length === 1   // V11.37.20
+        && code12.filter(l => l.startsWith('return kaartLeesInhoud(r, ctrl);   // V11.37.18')).length === 1 && String(kaartVraagOverpass).includes('    return kaartLeesInhoud(r, ctrl);   // V11.37.18'),   // V11.37.20
+      '12 regels', code12.length + ': ' + code12.map(l => l.slice(0, 30)).join(' | '));   // V11.37.20
   const dl = zc(downloadOSM);
   const i = (s) => dl.indexOf(s);
   eis('KB12d in downloadOSM: de weergave na de pil laden, de reden vóór kaartRemNa, bewaren na de groene pil, de weergave na cacheBezig = false in finally',

@@ -1053,7 +1053,7 @@ if (typeof ort !== 'undefined') {
 //
 // De stijl volgt de eerdere labels: nummer, kastlijntje, korte omschrijving in
 // kleine letters. De CSS zet hem zelf in kapitalen (text-transform:uppercase).
-const APP_VERSIE = 'V11.37.18 — de laatste kaart blijft bewaard, de inhoud van de kaartvraag heeft een grens, en de pil en het onderste vak zeggen waarom er geen kaart is';
+const APP_VERSIE = 'V11.37.20 — de kaart komt uit een eigen bestand voor heel Nederland (kaart/), Overpass alleen nog als reserve';
 
 // ── CONSTANTEN ────────────────────────────────────────────────
 const OSM_RADIUS       = 5000;
@@ -15355,6 +15355,8 @@ function kaartWeergaveBij() {
     }
     else if (kaartIsBewaard) { pk = 'pill-dot g'; pt = 'Bewaard'; }
     else if (kaartFout) { pk = 'pill-dot g'; pt = 'Kaart'; }   // de fout was van een verversing die niet meer nodig is: deze kaart dekt de plek
+    if (cacheBezig && !kaartIsBewaard && kaartBestandVoortgang) { pk = 'pill-dot o'; pt = kaartBestandVoortgang.klaarzetten ? 'laden' : 'Kaart ' + kaartBestandVoortgang.pct + '%'; }   // V11.37.20: het eigen bestand komt binnen, zie kaartBestandHaal
+    else if (!cacheBezig && !pk && !kaartFout && kaartBron === 'bestand' && kaartBestand && kaartBestandDagen(kaartBestand) >= KAART_BESTAND_OUD_DAGEN) { pk = 'pill-dot o'; pt = 'Kaart oud'; }   // V11.37.20: ouder dan KAART_BESTAND_OUD_DAGEN, en toch gebruikt
     if (pk && pOSM.className !== pk) pOSM.className = pk;
     if (pt && pOSMT.textContent !== pt) pOSMT.textContent = pt;
     if (dichtstbijOSM || (cacheGeladen && osmCache.length)) return;
@@ -15369,6 +15371,7 @@ function kaartWeergaveBij() {
     }
     else if (!huidigePos) naam = leer = 'Wacht op GPS…';
     else naam = leer = 'Kaart laden…';
+    if (cacheBezig && kaartBestandVoortgang && naam === 'Kaart laden…') naam = leer = kaartBestandVoortgang.klaarzetten ? 'Kaart klaarzetten…' : 'Kaart ' + kaartBestandVoortgang.pct + '% van ' + kaartBestandVoortgang.mb.toFixed(1).replace('.', ',') + ' MB';   // V11.37.20: kort genoeg voor 320 px (gemeten 99 px; met 'laden ·' 132 px, en er is 126-129 px)
     if (kNaam.textContent !== naam) kNaam.textContent = naam;
     if (kAf.textContent !== af) kAf.textContent = af;
     if (leerNaam.textContent !== leer) leerNaam.textContent = leer;
@@ -15464,6 +15467,664 @@ try {
   pOSM.parentElement.addEventListener('click', kaartPilTik);
 } catch (e) { /* geen document: niets aan de hand */ }
 
+// ── V11.37.20: DE KAART UIT EEN EIGEN BESTAND ──────────────────
+// © 2026 StoplichtIQ — Y. Lemaalem
+//
+// WAAROM. De kaart kwam bij elke vraag van Overpass, en die gaf de laatste
+// weken vaak 502, 504 of niets binnen 25 s; de reserveserver (V11.37.19,
+// geparkeerd) gaf 19 van 19 keer een 500. Zonder kaart geen licht. Alle
+// verkeerslichten van Nederland passen in één bestand: 43.208 lichten,
+// 18,3 MB, 4,3 MB met gzip (STAP 0 van 17 okt). GitHub Pages stuurt JSON
+// gecomprimeerd.
+//
+// WAT.
+//   - De map kaart/ in de repository: lichten.json en fiets.json in de vorm van
+//     de antwoorden van Overpass (gemaakt met kaart/maak.py uit het uittreksel
+//     van Geofabrik), en versie.json met de datum, de aantallen en de sha256.
+//   - Bij elke start (de eerste kaartvraag) haalt de app versie.json
+//     (kaartBestandVersie). lichten.json en fiets.json alleen als hun sha256
+//     anders is dan die van de versie in de telefoon.
+//   - Een worker (kaartBestandWerker) haalt ze op, controleert lengte en
+//     sha256, leest ze regel voor regel, keurt de vorm en de aantallen, en
+//     bewaart ze in vakken van KAART_VAK_LAT x KAART_VAK_LON graden in een
+//     eigen IndexedDB (KAART_BESTAND_IDB): alle vakken en de meta in één
+//     transactie. De oude versie blijft in gebruik tot de nieuwe goedgekeurd
+//     is; haar vakken gaan bij de volgende start weg.
+//   - Elke kaart van OSM_RADIUS wordt uit de vakken geknipt (kaartBestandKnip):
+//     de lichten binnen de straal, gemeten zoals Overpass (KAART_BESTAND_R),
+//     dan de wegen door die lichten, beide op oplopend nummer zoals Overpass.
+//     Het antwoord heeft dezelfde vorm, dus de verwerking in downloadOSM is
+//     ongewijzigd (STAP 0: 300 van 300 plekken dezelfde lichtenlijst).
+//   - De fietslijst net zo (kaartBestandFiets), in de vorm van 'out ids'.
+//
+// VOLGORDE, bij elke kaartvraag van downloadOSM (kaartHaalKaart):
+//   1. Staat er een goed bestand in de telefoon (hoe oud ook): knippen, zonder
+//      netwerk. versie.json loopt ernaast; een nieuwe versie komt op de
+//      achtergrond binnen en vervangt de oude pas na de keuring.
+//   2. Geen goed bestand: versie.json, dan het bestand ophalen OP DE VOORGROND
+//      (de pil zegt 'Kaart 48%', onderin 'Kaart 48% van 4,4 MB'), dan knippen. Staat er een bewaarde kaart
+//      (V11.37.18), dan staat die er intussen al ('Bewaard'), zoals nu.
+//   3. Lukt 1 of 2 niet: de zeven regels van vóór V11.37.20 (Overpass, met de
+//      rem, 25 s en 30 s), nu in kaartVraagOverpass.
+//   Buiten het bestand (geen enkel vak met lichten binnen de straal): stap 3.
+//
+// EEN KAARTVERBINDING TEGELIJK (kaartNetRij): versie.json, het ophalen van
+// het bestand, de kaartvraag en de fietsvraag aan Overpass lopen na elkaar.
+// Knippen uit de telefoon is geen verbinding en wacht nergens op.
+//
+// GEHEUGEN. Ophalen mag terwijl het model laadt (alleen bytes), inlezen niet:
+// dat wacht tot het model klaar is (kaartModelRust), hoogstens tot
+// KAART_BESTAND_MODEL_MAX_MS na het laden van de pagina. Inlezen gebeurt in de
+// worker, dus de herkenning staat er niet voor stil. Daarna staan alleen de
+// vakken van de laatste kaart in het geheugen (hoogstens 6).
+//
+// FOUTEN BLOKKEREN NOOIT. Elke fout (geen worker, geen opslag, opslag vol,
+// keuring, sha256, 404, te traag) geeft null en dan stap 3, met een logregel.
+// Na een fout in het bestand zelf (keuring, sha256, 4xx) of in de opslag deze
+// start niet opnieuw; na een netwerkfout hoogstens KAART_BESTAND_POGINGEN keer.
+//
+// OUDERDOM. Een oud bestand is beter dan geen kaart: het wordt nooit
+// geweigerd. Vanaf KAART_BESTAND_LOG_DAGEN een logregel per start, vanaf
+// KAART_BESTAND_OUD_DAGEN zegt de pil 'Kaart oud'.
+//
+// IN EEN IFRAME (de toetsen) en VÓÓR START (het startscherm staat er nog, zoals
+// op de pagina van een testronde) staat het bestand uit, tenzij een toets
+// kaartBestandAan vervangt: de toetsen bootsen Overpass na en mogen niet
+// ongemerkt het echte bestand krijgen. De app zelf draait nooit in een iframe,
+// en vraagt pas na Start een kaart.
+//
+// LOG. 'kaart_bestand' in de opslaglog bij elke stap die iets ophaalt of
+// misgaat (element: versie, klaar, fout, oud, knip; geen plek). In sl_startlog
+// per start: kbr (de bronnen in volgorde: bewaard, bestand, overpass), kbv
+// (versie: zelfde, nieuw, geen of fout), kbb (opgehaalde bytes), kbm (ms tot de
+// eerste kaart uit het bestand), kbf (de eerste foutreden), kbd (de datum van
+// de data).
+const KAART_BESTAND_AAN          = true;
+const KAART_BESTAND_MAP          = 'kaart/';
+const KAART_BESTAND_IDB          = 'StoplichtIQ_Kaartbestand';
+const KAART_VAK_LAT              = 0.1;     // ~11 km
+const KAART_VAK_LON              = 0.15;    // ~10 km; een kaart van 5 km raakt hoogstens 2 x 3 vakken
+const KAART_BESTAND_R            = 10 * 1000 * 1000 / Math.acos(0);   // de aarde van Overpass: 10.000 km per 90 graden (around.cc), niet de 6.371 km van afstand()
+const KAART_BESTAND_VERSIE_MS    = 15000;
+const KAART_BESTAND_VERSIE_OPNIEUW_MS = 60000;   // na een mislukte versie.json
+const KAART_BESTAND_STIL_MS      = 20000;   // zo lang geen nieuwe bytes: afbreken
+const KAART_BESTAND_MAX_MS       = 180000;  // het hele ophalen
+const KAART_BESTAND_VERWERK_MS   = 120000;  // inlezen, keuren en bewaren in de worker
+const KAART_BESTAND_MODEL_MAX_MS = 60000;   // niet langer op het model wachten (sinds het laden van de pagina)
+const KAART_BESTAND_POGINGEN     = 3;       // ophaalpogingen per start
+const KAART_BESTAND_LOG_DAGEN    = 45;
+const KAART_BESTAND_OUD_DAGEN    = 180;
+const KAART_BESTAND_COPY         = 'The data included in this document is from www.openstreetmap.org. The data is made available under ODbL.';
+let kaartBestand = null;            // de meta van de goede versie in de telefoon, of null
+let kaartBestandMetaP = null;       // het lezen van die meta (één keer per pagina)
+let kaartBestandIdbStuk = false;    // de eigen database ging niet open: niet ophalen
+let kaartBestandVersieP = null, kaartBestandVersieT = 0;
+let kaartBestandHaalP = null, kaartBestandPogingen = 0, kaartBestandGeweigerd = null, kaartBestandNieuwGestart = false;
+let kaartBestandVoortgang = null;   // tijdens het ophalen op de voorgrond: { pct, mb }, daarna { klaarzetten: true }
+let kaartBestandCellen = new Map(); // de geparste vakken van de laatste kaart
+let kaartBestandVakSet = null, kaartBestandVakSetVan = null;
+let kaartBestandOudGemeld = false;
+let kaartBron = null;               // 'bestand' of 'overpass': waar de laatste verse kaart vandaan kwam
+let kaartNetStaart = Promise.resolve(), kaartNetOpen = 0, kaartNetWie = null;
+
+// Aan in de gestarte app (het startscherm is weg, zoals in kaartZelfOpnieuw), bovenaan (geen iframe), met een worker en IndexedDB.
+function kaartBestandAan() {
+  try {
+    const sch = document.getElementById('startscherm');
+    return KAART_BESTAND_AAN && window.top === window && !!sch && sch.classList.contains('weg') && typeof Worker === 'function' && typeof indexedDB !== 'undefined' && !!indexedDB;
+  } catch (e) { return false; }
+}
+
+// Eén kaartverbinding tegelijk: fn start pas als de vorige klaar is. Is er
+// niets bezig, dan start fn meteen (in dezelfde tik, zoals vóór V11.37.20).
+function kaartNetRij(wie, fn) {
+  const doe = () => { kaartNetWie = wie; return fn(); };
+  let p;
+  if (kaartNetOpen === 0) { try { p = Promise.resolve(doe()); } catch (e) { p = Promise.reject(e); } }
+  else p = kaartNetStaart.then(doe);
+  kaartNetOpen++;
+  const klaar = p.finally(() => { kaartNetOpen--; kaartNetWie = null; });
+  kaartNetStaart = klaar.catch(() => {});
+  return klaar;
+}
+
+function kaartBestandUrl(naam, v) {
+  return new URL(KAART_BESTAND_MAP + naam + '?v=' + encodeURIComponent(v), location.href).href;
+}
+
+function kaartBestandLog(element, wat, dur) {
+  try { logOpslagMis('kaart_bestand', { element, poortReden: String(wat).slice(0, 80), dur }); } catch (e) {}
+}
+
+// Een veld in de startregel van deze start (sl_startlog); alleenEerste: niet overschrijven.
+function kaartBestandStartlog(veld, waarde, alleenEerste) {
+  try {
+    if (!startMeet || (alleenEerste && startMeet[veld] != null)) return;
+    startMeet[veld] = waarde;
+    startLogSchrijf(startMeet);
+  } catch (e) {}
+}
+
+// De bronnen van deze start in volgorde (kbr): bewaard, bestand, overpass.
+function kaartBronLijst(bron) {
+  try {
+    if (!startMeet) return;
+    const a = Array.isArray(startMeet.kbr) ? startMeet.kbr : (startMeet.kbr = []);
+    if (a[a.length - 1] !== bron && a.length < 6) { a.push(bron); startLogSchrijf(startMeet); }
+  } catch (e) {}
+}
+
+function kaartBestandReden(e) {
+  const r = e && typeof e === 'object' ? (e.reden || e.message || e.name) : e;
+  return String(r || 'fout').slice(0, 30);
+}
+
+function kaartBestandFout(stap, e, dur) {
+  const r = stap + ':' + kaartBestandReden(e);
+  kaartBestandLog('fout', r, dur);
+  kaartBestandStartlog('kbf', r, true);
+}
+
+function kaartBestandMetaGoed(m) {
+  return !!m && typeof m === 'object' && m.v === 1 && typeof m.sleutel === 'string' && m.sleutel.length >= 8
+    && typeof m.datum === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(m.datum)
+    && !!m.sha && typeof m.sha.lichten === 'string' && typeof m.sha.fiets === 'string'
+    && Array.isArray(m.vakken) && m.vakken.length > 0 && m.vakken.every((k) => typeof k === 'string')
+    && Number.isFinite(m.vakLat) && m.vakLat > 0 && Number.isFinite(m.vakLon) && m.vakLon > 0
+    && Number.isSafeInteger(m.lichten) && m.lichten > 0;
+}
+
+function kaartBestandVersieGoed(v) {
+  const sha = (x) => typeof x === 'string' && /^[0-9a-f]{64}$/.test(x);
+  const n = (x) => Number.isSafeInteger(x) && x > 0;
+  return !!v && typeof v === 'object' && v.v === 1 && typeof v.datum === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(v.datum)
+    && n(v.lichten) && n(v.wegen) && Number.isSafeInteger(v.fiets) && v.fiets >= 0
+    && !!v.bytes && n(v.bytes.lichten) && n(v.bytes.fiets) && v.bytes.lichten <= 100e6 && v.bytes.fiets <= 20e6
+    && !!v.sha256 && sha(v.sha256.lichten) && sha(v.sha256.fiets);
+}
+
+// Hoeveel dagen oud de data zijn (de datum uit het bestand), of null.
+function kaartBestandDagen(m) {
+  const t = m && typeof m.datum === 'string' ? Date.parse(m.datum + 'T00:00:00Z') : NaN;
+  return Number.isFinite(t) ? Math.floor((Date.now() - t) / 86400000) : null;
+}
+
+function kaartBestandOudKijk() {
+  try {
+    if (!kaartBestand || kaartBestandOudGemeld) return;
+    const d = kaartBestandDagen(kaartBestand);
+    if (d != null && d >= KAART_BESTAND_LOG_DAGEN) { kaartBestandOudGemeld = true; kaartBestandLog('oud', 'dagen=' + d + ' datum=' + kaartBestand.datum); }
+  } catch (e) {}
+}
+
+function kaartBestandIdbOpen() {
+  return new Promise((klaar, mis) => {
+    let v;
+    try { v = indexedDB.open(KAART_BESTAND_IDB, 1); } catch (e) { mis(e); return; }
+    v.onupgradeneeded = (e) => {
+      const db = e.target.result;
+      for (const s of ['vak', 'meta']) if (!db.objectStoreNames.contains(s)) db.createObjectStore(s);
+    };
+    v.onsuccess = (e) => klaar(e.target.result);
+    v.onerror = () => mis(v.error);
+    v.onblocked = () => mis(new Error('geblokkeerd'));
+  });
+}
+
+// Eén keer per pagina: de meta van de versie in de telefoon lezen, en de vakken
+// van een vorige versie opruimen.
+function kaartBestandMetaLaad() {
+  if (kaartBestandMetaP) return kaartBestandMetaP;
+  kaartBestandMetaP = (async () => {
+    let db = null;
+    try {
+      db = await kaartBestandIdbOpen();
+      const m = await new Promise((klaar, mis) => {
+        const q = db.transaction('meta', 'readonly').objectStore('meta').get('actief');
+        q.onsuccess = () => klaar(q.result);
+        q.onerror = () => mis(q.error);
+      });
+      if (m === undefined) return;
+      if (!kaartBestandMetaGoed(m)) { kaartBestandFout('meta', 'kapot'); return; }
+      if (!kaartBestand) kaartBestand = m;
+      kaartBestandOudKijk();
+      await new Promise((klaar) => {
+        const tx = db.transaction('vak', 'readwrite');
+        const st = tx.objectStore('vak');
+        const q = st.getAllKeys();
+        q.onsuccess = () => { for (const k of q.result || []) if (typeof k !== 'string' || !k.startsWith(m.sleutel + ':')) st.delete(k); };
+        tx.oncomplete = klaar; tx.onerror = klaar; tx.onabort = klaar;
+      });
+    } catch (e) {
+      if (!db) kaartBestandIdbStuk = true;
+      kaartBestandFout('meta', e);
+    } finally { if (db) { try { db.close(); } catch (e) {} } }
+  })();
+  return kaartBestandMetaP;
+}
+
+// versie.json van de server, of null. Eén keer per start; na een mislukking
+// hoogstens elke KAART_BESTAND_VERSIE_OPNIEUW_MS opnieuw.
+function kaartBestandVersie() {
+  if (kaartBestandVersieP) return kaartBestandVersieP;
+  if (kaartBestandVersieT && Date.now() - kaartBestandVersieT < KAART_BESTAND_VERSIE_OPNIEUW_MS) return Promise.resolve(null);
+  kaartBestandVersieT = Date.now();
+  const p = kaartNetRij('versie', async () => {
+    const ctrl = new AbortController();
+    const tm = setTimeout(() => ctrl.abort(), KAART_BESTAND_VERSIE_MS);
+    try {
+      const r = await fetch(kaartBestandUrl('versie.json', Math.random().toString(36).slice(2)), { cache: 'no-store', signal: ctrl.signal });
+      if (!r || !r.ok) throw new Error('http ' + (r ? r.status : '?'));
+      const v = await r.json();
+      if (!kaartBestandVersieGoed(v)) throw new Error('vorm');
+      return v;
+    } finally { clearTimeout(tm); }
+  }).then((v) => {
+    const zelfde = !!(kaartBestand && kaartBestand.sha.lichten === v.sha256.lichten && kaartBestand.sha.fiets === v.sha256.fiets);
+    kaartBestandStartlog('kbv', zelfde ? 'zelfde' : kaartBestand ? 'nieuw' : 'geen');
+    if (!zelfde) kaartBestandLog('versie', (kaartBestand ? 'nieuw ' : 'geen ') + v.datum);
+    return v;
+  }, (e) => {
+    kaartBestandVersieP = null;
+    kaartBestandStartlog('kbv', 'fout', true);
+    kaartBestandFout('versie', e);
+    return null;
+  });
+  kaartBestandVersieP = p;
+  return p;
+}
+
+// Rust het model? Dan mag het bestand ingelezen worden (zie GEHEUGEN).
+function kaartModelRust() {
+  try {
+    if (workerKlaar) return true;
+    if (debugWaarden && debugWaarden.ai === 'ai:fout') return true;
+    return performance.now() - (modelLaadStart || 0) > KAART_BESTAND_MODEL_MAX_MS;
+  } catch (e) { return true; }
+}
+
+async function kaartBestandWachtModel() {
+  const t0 = Date.now();
+  while (!kaartModelRust()) await new Promise((r) => setTimeout(r, 500));
+  return Date.now() - t0;
+}
+
+// Eén vraag aan de worker; berichten 'voortgang' gaan naar opVoortgang.
+function kaartBestandWerkerVraag(w, bericht, opVoortgang, maxMs) {
+  return new Promise((klaar) => {
+    let tm = null;
+    const af = (m) => { if (tm) clearTimeout(tm); tm = null; w.onmessage = null; w.onerror = null; klaar(m); };
+    tm = setTimeout(() => af({ ok: false, reden: 'werker tijd' }), maxMs);
+    w.onmessage = (e) => {
+      const m = (e && e.data) || {};
+      if (m.type === 'voortgang') { if (opVoortgang) { try { opVoortgang(m); } catch (_) {} } return; }
+      af(m);
+    };
+    w.onerror = (e) => { try { e.preventDefault(); } catch (_) {} af({ ok: false, reden: 'werker' }); };
+    try { w.postMessage(bericht); } catch (e) { af({ ok: false, reden: 'werker' }); }
+  });
+}
+
+// Haalt de serverversie v op en zet hem klaar. voorgrond: de pil en het
+// onderste vak tonen de voortgang. true als hij gekeurd en bewaard is.
+function kaartBestandHaal(v, voorgrond) {
+  if (kaartBestandHaalP) return kaartBestandHaalP;
+  kaartBestandHaalP = (async () => {
+    const versie = v.sha256.lichten + v.sha256.fiets;
+    if (kaartBestandIdbStuk || kaartBestandGeweigerd === versie || kaartBestandPogingen >= KAART_BESTAND_POGINGEN) return false;
+    kaartBestandPogingen++;
+    const t0 = Date.now();
+    let w = null, url = null;
+    try {
+      try {
+        url = URL.createObjectURL(new Blob(['(' + kaartBestandWerker.toString() + ')();'], { type: 'application/javascript' }));
+        w = new Worker(url);
+      } catch (e) { throw new Error('werker'); }
+      const totaal = v.bytes.lichten + v.bytes.fiets;
+      const mb = (v.gzip && Number.isFinite(v.gzip.lichten) && Number.isFinite(v.gzip.fiets) ? v.gzip.lichten + v.gzip.fiets : totaal) / 1e6;
+      if (voorgrond) { kaartBestandVoortgang = { pct: 0, mb }; kaartWeergaveBij(); }
+      const opVoortgang = voorgrond ? (m) => {
+        const n = (m.naam === 'fiets' ? v.bytes.lichten : 0) + (m.n || 0);
+        kaartBestandVoortgang = { pct: Math.max(0, Math.min(99, Math.floor(100 * n / totaal))), mb };
+        kaartWeergaveBij();
+      } : null;
+      const binnen = await kaartNetRij('bestand', () => kaartBestandWerkerVraag(w, { type: 'haal', v, stilMs: KAART_BESTAND_STIL_MS, maxMs: KAART_BESTAND_MAX_MS,
+        urls: { lichten: kaartBestandUrl('lichten.json', v.sha256.lichten.slice(0, 16)), fiets: kaartBestandUrl('fiets.json', v.sha256.fiets.slice(0, 16)) } },
+        opVoortgang, KAART_BESTAND_MAX_MS + 10000));
+      if (!binnen || !binnen.ok) throw new Error((binnen && binnen.reden) || 'haal');
+      kaartBestandStartlog('kbb', binnen.bytes);
+      if (voorgrond) { kaartBestandVoortgang = { klaarzetten: true, mb }; kaartWeergaveBij(); }
+      const wachtMs = await kaartBestandWachtModel();
+      const uit = await kaartBestandWerkerVraag(w, { type: 'verwerk', vakLat: KAART_VAK_LAT, vakLon: KAART_VAK_LON, idb: KAART_BESTAND_IDB }, null, KAART_BESTAND_VERWERK_MS);
+      if (!uit || !uit.ok) throw new Error((uit && uit.reden) || 'verwerk');
+      if (!kaartBestandMetaGoed(uit.meta)) throw new Error('vorm meta');
+      kaartBestand = uit.meta;
+      kaartBestandCellen = new Map();
+      kaartBestandOudGemeld = false;
+      kaartBestandLog('klaar', 'datum=' + uit.meta.datum + ' n=' + uit.meta.lichten + ' kb=' + Math.round(binnen.bytes / 1024) + ' wacht=' + Math.round(wachtMs / 1000) + 's lees=' + uit.leesMs + 'ms', Date.now() - t0);
+      kaartBestandOudKijk();
+      return true;
+    } catch (e) {
+      const r = kaartBestandReden(e);
+      if (!/^(net|stil|tijd|http 5|werker tijd)/.test(r)) kaartBestandGeweigerd = versie;   // het bestand of de opslag zelf: deze start niet opnieuw
+      kaartBestandFout(voorgrond ? 'haal' : 'nieuw', r, Date.now() - t0);
+      return false;
+    } finally {
+      if (w) { try { w.terminate(); } catch (e) {} }
+      if (url) { try { URL.revokeObjectURL(url); } catch (e) {} }
+      kaartBestandVoortgang = null;
+      if (voorgrond && cacheBezig && !kaartIsBewaard) { try { pOSM.className = 'pill-dot o'; pOSMT.textContent = 'laden'; } catch (e) {} }   // weer 'laden' zoals elke kaartvraag; zo blijft 'Kaart 0%' niet staan als nu Overpass volgt
+    }
+  })().finally(() => { kaartBestandHaalP = null; try { kaartWeergaveBij(); } catch (e) {} });
+  return kaartBestandHaalP;
+}
+
+// Na versie.json: is er een nieuwere versie dan die in de telefoon, dan op de achtergrond ophalen (één keer per start).
+function kaartBestandNieuw(v) {
+  try {
+    if (!v || !kaartBestand || kaartBestandNieuwGestart) return;
+    if (kaartBestand.sha.lichten === v.sha256.lichten && kaartBestand.sha.fiets === v.sha256.fiets) return;
+    kaartBestandNieuwGestart = true;
+    kaartBestandHaal(v, false);
+  } catch (e) {}
+}
+
+// De afstand zoals Overpass hem voor around meet (bol van KAART_BESTAND_R).
+function kaartBestandAfstand(la1, lo1, la2, lo2) {
+  const r = Math.PI / 180;
+  const x = Math.sin((la2 - la1) * r / 2) ** 2 + Math.cos(la1 * r) * Math.cos(la2 * r) * Math.sin((lo2 - lo1) * r / 2) ** 2;
+  return 2 * KAART_BESTAND_R * Math.asin(Math.min(1, Math.sqrt(x)));
+}
+
+// De vakken (met lichten) die een cirkel van OSM_RADIUS rond lat, lon kunnen raken.
+function kaartBestandVakkenRond(m, lat, lon) {
+  if (kaartBestandVakSetVan !== m) { kaartBestandVakSet = new Set(m.vakken); kaartBestandVakSetVan = m; }
+  const dLat = (OSM_RADIUS / KAART_BESTAND_R) * 180 / Math.PI * 1.001 + 1e-6;
+  const dLon = dLat / Math.max(0.01, Math.cos(Math.min(89, Math.abs(lat) + dLat) * Math.PI / 180)) * 1.01;
+  const uit = [];
+  for (let a = Math.floor((lat - dLat) / m.vakLat); a <= Math.floor((lat + dLat) / m.vakLat); a++)
+    for (let b = Math.floor((lon - dLon) / m.vakLon); b <= Math.floor((lon + dLon) / m.vakLon); b++)
+      if (kaartBestandVakSet.has(a + '_' + b)) uit.push(a + '_' + b);
+  return uit;
+}
+
+// De vakken lezen (uit het geheugen of de eigen database). Daarna staan alleen deze in het geheugen.
+async function kaartBestandCellenLees(m, sleutels) {
+  const nieuw = new Map(), mist = [];
+  for (const k of sleutels) {
+    const c = kaartBestandCellen.get(m.sleutel + ':' + k);
+    if (c) nieuw.set(m.sleutel + ':' + k, c); else mist.push(k);
+  }
+  if (mist.length) {
+    const db = await kaartBestandIdbOpen();
+    try {
+      const teksten = await new Promise((klaar, mis) => {
+        const tx = db.transaction('vak', 'readonly');
+        const st = tx.objectStore('vak');
+        const res = new Array(mist.length);
+        mist.forEach((k, i) => { const q = st.get(m.sleutel + ':' + k); q.onsuccess = () => { res[i] = q.result; }; });
+        tx.oncomplete = () => klaar(res);
+        tx.onerror = () => mis(tx.error);
+        tx.onabort = () => mis(tx.error || new Error('afgebroken'));
+      });
+      teksten.forEach((t, i) => {
+        if (typeof t !== 'string') throw new Error('vak ontbreekt');
+        const c = JSON.parse(t);
+        if (!c || !Array.isArray(c.n) || !Array.isArray(c.w) || !Array.isArray(c.f)) throw new Error('vak kapot');
+        nieuw.set(m.sleutel + ':' + mist[i], c);
+      });
+    } finally { try { db.close(); } catch (e) {} }
+  }
+  kaartBestandCellen = nieuw;
+  return [...nieuw.values()];
+}
+
+// Een kaart rond lat, lon uit het bestand, in de vorm van het Overpass-antwoord
+// op de vraag van downloadOSM; null als er geen vak met lichten binnen de straal is.
+async function kaartBestandKnip(lat, lon) {
+  const m = kaartBestand;
+  if (!m) return null;
+  const sleutels = kaartBestandVakkenRond(m, lat, lon);
+  if (!sleutels.length) { kaartBestandLog('knip', 'buiten het bestand'); return null; }
+  const cellen = await kaartBestandCellenLees(m, sleutels);
+  const ids = new Set(), lichten = [], wegen = new Map();
+  for (const c of cellen) for (const e of c.n) if (!ids.has(e.id) && kaartBestandAfstand(lat, lon, e.lat, e.lon) <= OSM_RADIUS) { ids.add(e.id); lichten.push(e); }
+  for (const c of cellen) for (const w of c.w) if (!wegen.has(w.id) && w.nodes.some((r) => ids.has(r))) wegen.set(w.id, w);
+  lichten.sort((a, b) => a.id - b.id);
+  const wl = [...wegen.values()].sort((a, b) => a.id - b.id);
+  return { version: 0.6, generator: 'StoplichtIQ kaartbestand', osm3s: { timestamp_osm_base: m.datum, copyright: KAART_BESTAND_COPY }, elements: lichten.concat(wl) };
+}
+
+// De fietslijst rond lat, lon uit het bestand, in de vorm van het antwoord op
+// de vraag van fietsHaalOp ('out ids'); null zonder bestand of buiten het bestand.
+async function kaartBestandFiets(lat, lon) {
+  try {
+    await kaartBestandMetaLaad();
+    const m = kaartBestand;
+    if (!m) return null;
+    const sleutels = kaartBestandVakkenRond(m, lat, lon);
+    if (!sleutels.length) return null;
+    const cellen = await kaartBestandCellenLees(m, sleutels);
+    const ids = [];
+    for (const c of cellen) {
+      const plek = new Map(c.n.map((e) => [e.id, e]));
+      for (const id of c.f) { const e = plek.get(id); if (e && kaartBestandAfstand(lat, lon, e.lat, e.lon) <= OSM_RADIUS) ids.push(id); }
+    }
+    ids.sort((a, b) => a - b);
+    return { version: 0.6, generator: 'StoplichtIQ kaartbestand', osm3s: { timestamp_osm_base: m.datum, copyright: KAART_BESTAND_COPY }, elements: ids.map((id) => ({ type: 'node', id })) };
+  } catch (e) { kaartBestandFout('fiets', e); return null; }
+}
+
+// De kaart uit het bestand (stap 1 en 2 van VOLGORDE), of null.
+async function kaartBestandKaart(lat, lon) {
+  const t0 = Date.now();
+  try {
+    await kaartBestandMetaLaad();
+    if (kaartBestandIdbStuk) return null;
+    const vP = kaartBestandVersie();
+    let d = null;
+    if (kaartBestand) {
+      vP.then(kaartBestandNieuw);
+      d = await kaartBestandKnip(lat, lon);
+    } else {
+      const v = await vP;
+      if (v && await kaartBestandHaal(v, true)) d = await kaartBestandKnip(lat, lon);
+    }
+    if (d) { kaartBestandStartlog('kbm', Date.now() - t0, true); kaartBestandStartlog('kbd', d.osm3s.timestamp_osm_base, true); }
+    return d;
+  } catch (e) {
+    if (kaartBestand) { kaartBestand = null; kaartBestandCellen = new Map(); }   // de vakken zijn niet te lezen: de volgende kaartvraag haalt het bestand opnieuw
+    kaartBestandFout('kaart', e);
+    return null;
+  }
+}
+
+// De kaartvraag van downloadOSM: eerst het eigen bestand, anders Overpass.
+async function kaartHaalKaart(lat, lon, q) {
+  if (kaartBestandAan()) {
+    if (kaartIsBewaard) kaartBronLijst('bewaard');
+    const b = await kaartBestandKaart(lat, lon);
+    if (b) { kaartBron = 'bestand'; kaartBronLijst('bestand'); return b; }
+  }
+  const d = await kaartNetRij('overpass', () => kaartVraagOverpass(q));
+  kaartBron = 'overpass';
+  if (kaartBestandAan()) kaartBronLijst('overpass');
+  return d;
+}
+
+// De zeven regels die tot V11.37.19 in downloadOSM stonden (de laatste geeft nu de inhoud terug).
+async function kaartVraagOverpass(q) {
+    const ctrl = new AbortController();
+    const t = setTimeout(()=>ctrl.abort(), 25000);
+    const r = await fetch(OVERPASS_URL, { method:'POST', body:`data=${encodeURIComponent(q)}`, signal:ctrl.signal });
+    clearTimeout(t);
+    if (!r.ok) kaartRem.fout = { status: r.status, ra: (r.headers && typeof r.headers.get === 'function') ? r.headers.get('Retry-After') : null };   // V11.37.12
+    if (!r.ok) throw new Error(`HTTP ${r.status}`);
+    return kaartLeesInhoud(r, ctrl);   // V11.37.18: ook de inhoud heeft een grens (stond: await r.json()), zie kaartLeesInhoud
+}
+
+// De worker van het kaartbestand. Wordt als tekst gestart (kaartBestandHaal) en
+// gebruikt dus niets van buiten zichzelf. 'haal': beide bestanden ophalen en de
+// lengte en sha256 controleren; 'verwerk': regel voor regel lezen, keuren, in
+// vakken verdelen en in één transactie bewaren.
+function kaartBestandWerker() {
+  let delen = null, opdracht = null;
+  const fout = (r) => { const e = new Error(r); e.reden = r; return e; };
+  const hex = (buf) => Array.from(new Uint8Array(buf), (b) => b.toString(16).padStart(2, '0')).join('');
+  async function haalEen(url, verwacht, o, naam) {
+    const ctrl = new AbortController();
+    const t0 = Date.now();
+    let laatste = t0, n = 0, reden = null;
+    const wacht = setInterval(() => {
+      const nu = Date.now();
+      if (nu - laatste > o.stilMs) { reden = 'stil'; ctrl.abort(); }
+      else if (nu - t0 > o.maxMs) { reden = 'tijd'; ctrl.abort(); }
+    }, 500);
+    try {
+      let r;
+      try { r = await fetch(url, { cache: 'no-store', signal: ctrl.signal }); } catch (e) { throw fout(reden || 'net'); }
+      if (!r.ok) throw fout('http ' + r.status);
+      const stukken = [];
+      const lezer = r.body && r.body.getReader ? r.body.getReader() : null;
+      if (lezer) {
+        let gemeld = 0;
+        for (;;) {
+          let s;
+          try { s = await lezer.read(); } catch (e) { throw fout(reden || 'net'); }
+          if (s.done) break;
+          stukken.push(s.value); n += s.value.length; laatste = Date.now();
+          if (n > verwacht) throw fout('lengte');
+          if (laatste - gemeld >= 250) { gemeld = laatste; self.postMessage({ type: 'voortgang', naam, n }); }
+        }
+      } else {
+        let b;
+        try { b = new Uint8Array(await r.arrayBuffer()); } catch (e) { throw fout(reden || 'net'); }
+        stukken.push(b); n = b.length;
+      }
+      if (n !== verwacht) throw fout(n < verwacht ? 'net kort' : 'lengte');   // te kort: de verbinding brak af
+      const uit = new Uint8Array(n);
+      let p = 0;
+      for (const s of stukken) { uit.set(s, p); p += s.length; }
+      self.postMessage({ type: 'voortgang', naam, n });
+      return uit;
+    } finally { clearInterval(wacht); }
+  }
+  // De elementregels tussen de kop en het slot; elke regel behalve de laatste eindigt op een komma.
+  function regelsVan(bytes, datum) {
+    let tekst;
+    try { tekst = new TextDecoder('utf-8', { fatal: true }).decode(bytes); } catch (e) { throw fout('vorm tekst'); }
+    const regels = tekst.split('\n');
+    tekst = null;
+    const kop = regels[0] || '';
+    if (!kop.endsWith('"elements":[')) throw fout('vorm kop');
+    let k;
+    try { k = JSON.parse(kop + ']}'); } catch (e) { throw fout('vorm kop'); }
+    if (k.version !== 0.6 || !k.osm3s || k.osm3s.timestamp_osm_base !== datum) throw fout('vorm kop');
+    let eind = regels.length - 1;
+    while (eind > 0 && regels[eind] === '') eind--;
+    if (regels[eind] !== ']}') throw fout('vorm eind');
+    const uit = regels.slice(1, eind);
+    return uit.length === 1 && uit[0] === '' ? [] : uit;
+  }
+  function element(r, laatste) {
+    if (r.endsWith(',') === laatste) throw fout('vorm komma');
+    const s = laatste ? r : r.slice(0, -1);
+    try { return [s, JSON.parse(s)]; } catch (e) { throw fout('vorm json'); }
+  }
+  function open(naam) {
+    return new Promise((klaar, mis) => {
+      let q;
+      try { q = indexedDB.open(naam, 1); } catch (e) { mis(e); return; }
+      q.onupgradeneeded = (e) => { const db = e.target.result; for (const s of ['vak', 'meta']) if (!db.objectStoreNames.contains(s)) db.createObjectStore(s); };
+      q.onsuccess = (e) => klaar(e.target.result);
+      q.onerror = () => mis(q.error || new Error('open'));
+      q.onblocked = () => mis(new Error('geblokkeerd'));
+    });
+  }
+  async function verwerk(m) {
+    const v = opdracht && opdracht.v;
+    if (!v || !delen) throw fout('niets');
+    const t0 = Date.now();
+    const vakken = new Map(), lichtVak = new Map();
+    const vak = (k) => { let x = vakken.get(k); if (!x) { x = { n: [], w: [], f: [] }; vakken.set(k, x); } return x; };
+    let regels = regelsVan(delen.lichten, v.datum);
+    delen.lichten = null;
+    let nN = 0, nW = 0;
+    for (let i = 0; i < regels.length; i++) {
+      const [s, e] = element(regels[i], i === regels.length - 1);
+      if (e && e.type === 'node') {
+        if (nW) throw fout('vorm volgorde');
+        if (!(Number.isSafeInteger(e.id) && e.id > 0 && Number.isFinite(e.lat) && Number.isFinite(e.lon) && Math.abs(e.lat) <= 90 && Math.abs(e.lon) <= 180)) throw fout('vorm licht');
+        if (lichtVak.has(e.id)) throw fout('vorm dubbel');
+        const k = Math.floor(e.lat / m.vakLat) + '_' + Math.floor(e.lon / m.vakLon);
+        lichtVak.set(e.id, k); vak(k).n.push(s); nN++;
+      } else if (e && e.type === 'way') {
+        const nd = e.nodes, g = e.geometry;
+        if (!(Number.isSafeInteger(e.id) && Array.isArray(nd) && Array.isArray(g) && nd.length >= 2 && nd.length === g.length
+              && nd.every(Number.isSafeInteger) && g.every((p) => p && Number.isFinite(p.lat) && Number.isFinite(p.lon)))) throw fout('vorm weg');
+        const ks = new Set();
+        for (const id of nd) { const k = lichtVak.get(id); if (k) ks.add(k); }
+        if (!ks.size) throw fout('vorm weg');
+        for (const k of ks) vak(k).w.push(s);
+        nW++;
+      } else throw fout('vorm soort');
+    }
+    regels = null;
+    if (nN !== v.lichten || nW !== v.wegen) throw fout('aantal');
+    const fr = regelsVan(delen.fiets, v.datum);
+    delen = null;
+    let nF = 0;
+    for (let i = 0; i < fr.length; i++) {
+      const e = element(fr[i], i === fr.length - 1)[1];
+      const k = e && e.type === 'node' && Number.isSafeInteger(e.id) ? lichtVak.get(e.id) : undefined;
+      if (!k) throw fout('vorm fiets');
+      vak(k).f.push(e.id); nF++;
+    }
+    if (nF !== v.fiets) throw fout('aantal fiets');
+    const meta = { v: 1, sleutel: v.sha256.lichten.slice(0, 16), datum: v.datum, sha: { lichten: v.sha256.lichten, fiets: v.sha256.fiets },
+                   lichten: nN, wegen: nW, fiets: nF, vakken: [...vakken.keys()].sort(), vakLat: m.vakLat, vakLon: m.vakLon };
+    const leesMs = Date.now() - t0;
+    let db;
+    try {
+      db = await open(m.idb);
+      await new Promise((klaar, mis) => {
+        let tx;
+        try { tx = db.transaction(['vak', 'meta'], 'readwrite'); } catch (e) { mis(e); return; }
+        const st = tx.objectStore('vak');
+        try {
+          for (const [k, x] of vakken) st.put('{"n":[' + x.n.join(',') + '],"w":[' + x.w.join(',') + '],"f":[' + x.f.join(',') + ']}', meta.sleutel + ':' + k);
+          tx.objectStore('meta').put(meta, 'actief');
+        } catch (e) { try { tx.abort(); } catch (_) {} mis(e); return; }
+        tx.oncomplete = () => klaar();
+        tx.onerror = () => mis(tx.error || new Error('schrijven'));
+        tx.onabort = () => mis(tx.error || new Error('afgebroken'));
+      });
+    } catch (e) {
+      throw fout(('opslag ' + ((e && e.name) || '')).trim());
+    } finally { if (db) { try { db.close(); } catch (_) {} } }
+    return { meta, leesMs, ms: Date.now() - t0 };
+  }
+  self.onmessage = async (ev) => {
+    const m = (ev && ev.data) || {};
+    if (m.type === 'haal') {
+      opdracht = m;
+      try {
+        const lichten = await haalEen(m.urls.lichten, m.v.bytes.lichten, m, 'lichten');
+        if (hex(await crypto.subtle.digest('SHA-256', lichten)) !== m.v.sha256.lichten) throw fout('sha');
+        const fiets = await haalEen(m.urls.fiets, m.v.bytes.fiets, m, 'fiets');
+        if (hex(await crypto.subtle.digest('SHA-256', fiets)) !== m.v.sha256.fiets) throw fout('sha');
+        delen = { lichten, fiets };
+        self.postMessage({ type: 'binnen', ok: true, bytes: lichten.length + fiets.length });
+      } catch (e) { self.postMessage({ type: 'binnen', ok: false, reden: (e && e.reden) || ('haal ' + ((e && e.name) || '')).trim() }); }
+    } else if (m.type === 'verwerk') {
+      try {
+        const u = await verwerk(m);
+        self.postMessage({ type: 'klaar', ok: true, meta: u.meta, leesMs: u.leesMs, ms: u.ms });
+      } catch (e) { self.postMessage({ type: 'klaar', ok: false, reden: (e && e.reden) || ('vorm ' + ((e && e.name) || '')).trim() }); }
+    }
+  };
+}
+
 async function downloadOSM(lat, lon) {
   if (cacheBezig) return;
   if (Date.now() < kaartRem.nietVoor) return;   // V11.37.12: de rem, zie kaartRemNa
@@ -15492,13 +16153,7 @@ async function downloadOSM(lat, lon) {
   // dezelfde dekking voor een zevende van de extra kosten.
   const q = `[out:json][timeout:25];node["highway"="traffic_signals"](around:${OSM_RADIUS},${lat},${lon})->.tl;.tl out body;(way(bn.tl)["name"];way(bn.tl)["maxspeed"];);out geom;`;
   try {
-    const ctrl = new AbortController();
-    const t = setTimeout(()=>ctrl.abort(), 25000);
-    const r = await fetch(OVERPASS_URL, { method:'POST', body:`data=${encodeURIComponent(q)}`, signal:ctrl.signal });
-    clearTimeout(t);
-    if (!r.ok) kaartRem.fout = { status: r.status, ra: (r.headers && typeof r.headers.get === 'function') ? r.headers.get('Retry-After') : null };   // V11.37.12
-    if (!r.ok) throw new Error(`HTTP ${r.status}`);
-    const d = await kaartLeesInhoud(r, ctrl);   // V11.37.18: ook de inhoud heeft een grens (stond: await r.json()), zie kaartLeesInhoud
+    const d = await kaartHaalKaart(lat, lon, q);   // V11.37.20: eerst het eigen bestand (kaart/), anders de zeven regels die hier stonden (nu in kaartVraagOverpass), zie kaartHaalKaart
     const nodes = (d.elements||[]).filter(el=>el.type==='node');
     const ways  = (d.elements||[]).filter(el=>el.type==='way');
     const nodeWegen = new Map();
@@ -15819,6 +16474,8 @@ async function fietsHaalOp(lat, lon) {
     const q = `[out:json][timeout:25];node["highway"="traffic_signals"](around:${OSM_RADIUS},${lat},${lon})->.tl;`
       + `way(bn.tl)["highway"~"^(${FIETS_WEGEN})$"]->.fw;way(bn.tl)["highway"~"^(${AUTO_WEGEN})$"]->.aw;`
       + `node.tl(w.fw)->.fn;node.tl(w.aw)->.an;(.fn; - .an;)->.alleen;.alleen out ids;`;
+    let d = kaartBestandAan() ? await kaartBestandFiets(lat, lon) : null;   // V11.37.20: eerst het eigen bestand (kaart/fiets.json), zie kaartBestandFiets
+    if (!d) d = await kaartNetRij('fiets', async () => {   // V11.37.20: anders Overpass zoals hieronder, binnen de ene kaartverbinding (kaartNetRij)
     const ctrl = new AbortController();
     const tm = setTimeout(() => ctrl.abort(), 30000);
     let d;
@@ -15831,6 +16488,7 @@ async function fietsHaalOp(lat, lon) {
       }
       d = await r.json();
     } finally { clearTimeout(tm); }
+    return d; });   // V11.37.20
     if (!d || !Array.isArray(d.elements)) throw new Error('vorm');
     // Overpass meldt een time-out soms met status 200, een half antwoord en
     // een remark. Een halve lijst is erger dan geen lijst: dan niet bewaren.
@@ -23060,7 +23718,7 @@ function openKaartOverlay() {
     }).setView([centerLat, centerLon], zoom);
     L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
       maxZoom: 19,
-      attribution: '© OpenStreetMap'
+      attribution: '© <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener">OpenStreetMap-bijdragers</a> (<a href="https://opendatacommons.org/licenses/odbl/" target="_blank" rel="noopener">ODbL</a>)'   // V11.37.20: de bron en de licentie, zoals de OSMF-richtlijnen vragen (osmfoundation.org/wiki/Licence/Attribution_Guidelines)
     }).addTo(kaartMap);
   } else {
     kaartMap.setView([centerLat, centerLon], zoom);
