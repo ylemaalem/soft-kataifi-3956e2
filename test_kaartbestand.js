@@ -31,6 +31,8 @@
 //       verlopen ervan, een goed bestand tijdens de pauze, het wissen na succes, een
 //       geweigerd bestand niet steeds opnieuw, de achtergrond, te traag inlezen;
 //       KF27 de achtergrond en weer in beeld in het merkteken; KF24b een ontbrekend bestand geeft geen pauze
+//  KF28 een database die nooit antwoordt: na 10 s de kaart van Overpass, en de volgende starts niet weer 10 s
+//  KF29 een tik op de Kaart-pil tijdens de pauze: de pauze weg, één nieuwe poging, het aantal blijft in de log
 //
 //  Alle plekken, nummers en namen zijn bedacht: een basispunt (52.0000, 5.0000),
 //  lichten 97000xx, wegen 98000xx, punten 97900xx, namen 'Weg A' tot 'Weg E'.
@@ -151,12 +153,14 @@ async function kaartBestandRitBinnen(opt) {
     if (b && b.type === 'verwerk') { if (opt.achtergrond && kaartBestandMerk) kaartBestandMerk.ooit = true; return vr(w, b, v, opt.leesMaxMs); } return vr(w, b, v, ms); }; }
   const fasen = []; { const mz = window.kaartBestandMerkZet; window.kaartBestandMerkZet = (f, v) => { fasen.push(f); return mz(f, v); }; }
   if (opt.startlog) startMeet = { k: 's', t: Date.now() };
+  uit.dbOpen = 0; { const io = window.kaartBestandIdbOpen; const na = opt.dbHangt ? 0 : opt.dbHangtNa != null ? opt.dbHangtNa : Infinity;   // de database antwoordt nooit (dbHangt), of pas na dbHangtNa keer openen niet meer
+    window.kaartBestandIdbOpen = () => { uit.dbOpen++; return uit.dbOpen > na ? new Promise(() => {}) : opt.dbTraagMs ? slaap(opt.dbTraagMs).then(io) : io(); }; }   // dbTraagMs: de database antwoordt wel, maar pas na zoveel ms
   if (opt.geenAfloop) window.kaartBestandAfloop = async () => { kaartBestandMerk = null; };   // de pagina stierf net na de transactie van de nieuwe versie
   let zicht = null;   // de achtergrond nabootsen (KF27): visibilityState pas vervangen als een stap erom vraagt
   const zet = (z) => { if (zicht === null) { try { Object.defineProperty(document, 'visibilityState', { configurable: true, get: () => zicht }); } catch (e) {} } zicht = z; document.dispatchEvent(new Event('visibilitychange')); };
   window.refreshStadIndienNodig = async () => {};
   window.haalStraatnamenOp = async () => {};
-  window.toonToast = () => {};
+  uit.toasts = []; window.toonToast = (s) => { uit.toasts.push(String(s)); };   // de meldingen bewaren (KF29)
   let open = 0;
   window.fetch = async (url, init) => {
     if (String(url) !== OVERPASS_URL) return echtFetch(url, init);
@@ -210,6 +214,9 @@ async function kaartBestandRitBinnen(opt) {
         uit.haalInPauze = { terug: await kaartBestandHaal(v, true), lichten: uit.vragen['lichten.json'] || 0 };
         kaartBestandPauze = oud;
       }
+      else if (typeof stap === 'object' && stap.ls) { for (const [k, v] of Object.entries(stap.ls)) { if (v === null) localStorage.removeItem(k); else localStorage.setItem(k, JSON.stringify(v)); } }   // de omwikkeling van localStorage werkt de cache van de app zelf bij
+      else if (typeof stap === 'object' && stap.wacht) { await slaap(stap.wacht); }
+      else if (stap === 'tik') { kaartPilTik(); await slaap(50); await rust(); uit.tikken = (uit.tikken || []).concat([foto()]); }
       else if (stap === 'haalKapot') {
         // na een geslaagde poging in dezelfde start een kapotte (andere) versie op de achtergrond: de pauze telt vanaf nul
         const v = JSON.parse(opt.bestanden['versie.json']); v.sha256 = { ...v.sha256, lichten: v.sha256.lichten.replace(/^./, c => c === 'a' ? 'b' : 'a') };
@@ -234,6 +241,7 @@ async function kaartBestandRitBinnen(opt) {
     }
     uit.log = (JSON.parse(localStorage.getItem('sl_opslaglog') || '[]') || []).filter(r => r.reden === 'kaart_bestand').map(r => r.element + ': ' + r.poortReden);
     uit.fasen = fasen;
+    uit.dbMerk = JSON.parse(localStorage.getItem('sl_kaartdb') || 'null');
     if (opt.startlog && startMeet) { uit.startlog = {}; for (const k of ['kbx', 'kbn', 'kbp', 'kbv', 'kbf', 'kbr']) if (startMeet[k] != null) uit.startlog[k] = startMeet[k]; }
     uit.eind = foto();
     uit.aan = kaartBestandAan();
@@ -291,7 +299,7 @@ async function testKaartbestand() {
           await new Promise((r) => setTimeout(r, 250 * poging));
         }
       }
-      return JSON.parse(JSON.stringify(await w.kaartBestandRitBinnen(opt)));
+      return JSON.parse(JSON.stringify(await Promise.race([w.kaartBestandRitBinnen(opt), slaap(90000).then(() => { throw new Error('de rit hing (90 s)'); })])));   // een hang wordt een rode controle, geen hangende toets
     } catch (e) {
       return { fout: String((e && e.stack) || e).slice(0, 300), vragen: {}, stappen: [], fotos: {}, log: [] };
     } finally {
@@ -598,6 +606,56 @@ async function testKaartbestand() {
           && ((r27c.zicht || [])[1] || {}).verborgen === false && r27d.log.some(x => /^stierf: eerdere poging stierf fase=lees n=1 pauze=24u$/.test(x)) && r27d.eind.bron === 'overpass',
         'onderbroken; stierf', r27a.fout || r27b.fout || r27c.fout || r27d.fout || kort(r27a.zicht) + ' ' + r27b.log.join(' ; ') + ' | ' + kort(r27c.zicht) + ' ' + r27d.log.join(' ; '));
 
+    // KF28: een database die nooit antwoordt
+    const r28a = await rit({ bestanden: goed, overpass: 'ok', ovKaart: ovRef, dbHangt: true, startlog: true, stappen: [P0, 'opnieuw', 'fiets'] });
+    eis('KF28 de database antwoordt nooit: na 10 s de kaart van Overpass (één vraag, nooit twee open), logreden db-timeout (n=1, pauze 24 u), merkteken in localStorage; een tweede kaartvraag en de fietsvraag wachten niet opnieuw (de database één keer geopend)',
+        !r28a.fout && r28a.eind.bron === 'overpass' && r28a.eind.ids === '9610001,9610003' && r28a.maxTegelijk === 1 && r28a.duur >= 10000 && r28a.duur < 16000 && r28a.dbOpen === 1
+          && r28a.log.some(x => /^db: db-timeout n=1 pauze=24u$/.test(x)) && r28a.startlog.kbx === 'db-timeout' && r28a.startlog.kbn === 1 && r28a.startlog.kbp === 24 && /^db:db-timeout$/.test(r28a.startlog.kbf)
+          && r28a.dbMerk && r28a.dbMerk.n === 1 && !r28a.vragen['lichten.json'],
+        'na 10 s Overpass', r28a.fout || r28a.eind.bron + ' ' + r28a.duur + ' ms, open ' + r28a.dbOpen + ', max ' + r28a.maxTegelijk + ' | ' + r28a.log.join(' ; ') + ' | ' + kort(r28a.startlog) + ' ' + kort(r28a.dbMerk));
+    const hang1 = { t: Date.now() - 60000, n: 1 };
+    const r28b = await rit({ bestanden: goed, overpass: 'ok', ovKaart: ovRef, dbHangt: true, startlog: true, stappen: [{ ls: { sl_kaartdb: hang1 } }, P0] });
+    eis('KF28b de volgende start (merkteken van een hangende database, 24 uur nog niet om): de database niet aangeraakt, geen versie.json, meteen de kaart van Overpass (niet 10 s), logregel pauze db-timeout',
+        !r28b.fout && r28b.eind.bron === 'overpass' && r28b.dbOpen === 0 && !r28b.vragen['versie.json'] && r28b.duur < 5000 && r28b.log.some(x => /^pauze: db-timeout nog 2[34]u n=1$/.test(x)) && r28b.startlog.kbv === 'pauze' && r28b.startlog.kbx === 'db-timeout',
+        'meteen Overpass', r28b.fout || r28b.eind.bron + ' ' + r28b.duur + ' ms, open ' + r28b.dbOpen + ' | ' + r28b.log.join(' ; ') + ' | ' + kort(r28b.startlog));
+    const r28c = await rit({ bestanden: goed, overpass: '502', stappen: [{ ls: { sl_kaartdb: { t: Date.now() - 25 * UUR, n: 1 } } }, P0] });
+    const r28d = await rit({ bestanden: goed, overpass: 'ok', ovKaart: ovRef, dbHangt: true, stappen: [{ ls: { sl_kaartdb: { t: Date.now() - 25 * UUR, n: 1 } } }, P0] });
+    eis('KF28c na de pauze één nieuwe poging: antwoordt de database weer, dan de kaart uit het bestand en het merkteken weg; hangt hij weer, dan n=2 (72 uur)',
+        !r28c.fout && !r28d.fout && r28c.eind.bron === 'bestand' && r28c.dbMerk === null && r28d.eind.bron === 'overpass' && r28d.dbMerk && r28d.dbMerk.n === 2 && r28d.log.some(x => /^db: db-timeout n=2 pauze=72u$/.test(x)),
+        'weg; n=2', r28c.fout || r28d.fout || r28c.eind.bron + ' ' + kort(r28c.dbMerk) + ' | ' + r28d.eind.bron + ' ' + kort(r28d.dbMerk) + ' ' + r28d.log.join(' ; '));
+
+    // KF28d: een goed bestand in de telefoon, de database hangt pas bij het lezen van de vakken
+    const r28e = await rit({ bestanden: goed, overpass: '502', stappen: [P0] });
+    const r28f = await rit({ bestanden: goed, overpass: 'ok', ovKaart: ovRef, ovFiets: [9610003], dbHangtNa: 1, stappen: [P0, 'fiets'] }, false);
+    eis('KF28d de database hangt pas bij het lezen van de vakken: na 10 s de kaart van Overpass; de fietsvraag daarna wacht niet opnieuw 10 s (de database deze start uit, twee keer geopend)',
+        !r28e.fout && !r28f.fout && r28e.eind.bron === 'bestand' && r28f.eind.bron === 'overpass' && r28f.dbOpen === 2 && r28f.duur >= 10000 && r28f.duur < 16000 && r28f.overpassFiets === 1 && r28f.log.some(x => /^db: db-timeout n=1/.test(x)),
+        'na 10 s Overpass, fiets meteen', r28e.fout || r28f.fout || r28f.eind.bron + ' ' + r28f.duur + ' ms, open ' + r28f.dbOpen + ', fiets ' + r28f.overpassFiets + ' | ' + r28f.log.join(' ; '));
+
+    const r28g = await rit({ bestanden: goed, overpass: '502', stappen: [P0] });
+    const r28h = await rit({ bestanden: goed, overpass: 'ok', ovKaart: ovRef, ovFiets: [9610003], dbTraagMs: 11000, stappen: [P0, { wacht: 2500 }, 'fiets'] }, false);
+    eis('KF28e de database is traag (antwoordt na 11 s): na 10 s de kaart van Overpass; daarna blijft de database deze start uit, ook als hij alsnog antwoordt (de fietsvraag wacht niet opnieuw, één keer geopend)',
+        !r28g.fout && !r28h.fout && r28h.eind.bron === 'overpass' && r28h.dbOpen === 1 && r28h.overpassFiets === 1 && r28h.duur < 16000,
+        'fiets meteen', r28g.fout || r28h.fout || r28h.eind.bron + ' ' + r28h.duur + ' ms, open ' + r28h.dbOpen + ', fiets ' + r28h.overpassFiets + ' | ' + r28h.log.join(' ; '));
+
+    // KF29: een tik op de Kaart-pil tijdens de pauze
+    const pauze29 = { n: 2, p: 2, tot: Date.now() + 3 * DAG, reden: 'eerdere poging stierf', t: Date.now() };
+    const r29 = await rit({ bestanden: goed, overpass: 'ok', ovKaart: ovRef, stappen: [{ zet: { pauze: pauze29 } }, P0, 'tik', 'meta'] });
+    const t29 = r29.tikken || [];
+    eis('KF29 tijdens de pauze (kaart van Overpass): een tik heft de pauze op en doet één nieuwe poging: de kaart uit het bestand, de bestaande melding Kaart wordt opnieuw opgehaald, logregel opgeheven met n=2 (het aantal blijft zichtbaar)',
+        !r29.fout && r29.stappen[0].bron === 'overpass' && t29.length === 1 && t29[0].bron === 'bestand' && r29.toasts[0] === 'Kaart wordt opnieuw opgehaald'
+          && r29.vragen['lichten.json'] === 1 && r29.log.some(x => /^pauze: opgeheven door tik n=2$/.test(x)) && !r29.metaRec.pauze,
+        'opgeheven, één poging', r29.fout || (r29.stappen[0] || {}).bron + ' -> ' + t29.map(x => x.bron).join(',') + ' | ' + kort(r29.toasts) + ' | lichten ' + r29.vragen['lichten.json'] + ' | ' + r29.log.join(' ; ') + ' | ' + kort(r29.metaRec));
+    const r29b = await rit({ bestanden: await v8('sha'), overpass: 'ok', ovKaart: ovRef, stappen: [{ zet: { pauze: pauze29 } }, P0, 'tik', 'tik', 'meta'] });
+    eis('KF29b mislukt de poging na de tik weer (sha256): een nieuwe, langere pauze (n=3, 9 dagen); een tweede tik binnen een minuut: de bestaande melding Opnieuw kan over …, en niets opgehaald (geen lus door herhaald tikken)',
+        !r29b.fout && r29b.vragen['lichten.json'] === 1 && r29b.toasts[0] === 'Kaart wordt opnieuw opgehaald' && /^Opnieuw kan over /.test(r29b.toasts[1] || '')
+          && pz(r29b).n === 3 && pz(r29b).p === 3 && Math.round((pz(r29b).tot - pz(r29b).t) / DAG) === 9 && r29b.eind.bron === 'overpass',
+        'n=3, tweede tik niets', r29b.fout || kort(r29b.toasts) + ' | lichten ' + r29b.vragen['lichten.json'] + ' | ' + kort(r29b.metaRec) + ' ' + r29b.eind.bron);
+
+    const r29c = await rit({ bestanden: await v8('sha'), overpass: 'ok', ovKaart: ovRef, stappen: [P0, 'tik', 'meta'] });
+    eis('KF29c een pauze door een weigering in dezelfde start: een tik doet toch één nieuwe poging (lichten.json twee keer) en daarna een langere pauze (n=2)',
+        !r29c.fout && r29c.vragen['lichten.json'] === 2 && r29c.toasts[0] === 'Kaart wordt opnieuw opgehaald' && pz(r29c).n === 2 && pz(r29c).p === 2,
+        'twee keer, n=2', r29c.fout || 'lichten ' + r29c.vragen['lichten.json'] + ' | ' + kort(r29c.toasts) + ' | ' + kort(r29c.metaRec));
+
     // ═══ KF16 — regressie ═══════════════════════════════════════
     const DL20_NIEUW = "    const d = await kaartHaalKaart(lat, lon, q);   // V11.37.20: eerst het eigen bestand (kaart/), anders de zeven regels die hier stonden (nu in kaartVraagOverpass), zie kaartHaalKaart";
     const DL_OUD = ['    const ctrl = new AbortController();', '    const t = setTimeout(()=>ctrl.abort(), 25000);',
@@ -623,7 +681,10 @@ async function testKaartbestand() {
       fietsLees: ['3decdc6d', 314], fietsLaad: ['c920654a', 154], fietsGedekt: ['f6776294', 196], fietsBewaar: ['2879ff66', 358], fietsDekking: ['ef0400e2', 402],
       fietsNaKaart: ['76a98f2c', 137], fietsPlan: ['3889ea07', 214], fietsWacht: ['398bd178', 277], fietsPoging: ['69721b85', 208], fietsPogingSchrijf: ['59a8b634', 233],
       fietsPogingen: ['410660e5', 214], afstand: ['c006e195', 264], startLogSchrijf: ['5d6078c', 942], startLogMijl: ['67b9f11f', 246], kaartKlok: ['20547389', 142] };
-    const anders2 = Object.entries(ONGEWIJZIGD).filter(([n, [h, l]]) => { const s = String(window[n]); return fnv(s) !== h || s.length !== l; }).map(x => x[0]);
+    const zonderCb = (f) => String(f).split(NL).filter(l => !/crashbewaking/.test(l)).join(NL);   // kaartPilTik kreeg twee regels met merkteken crashbewaking (de pauze opheffen)
+    const anders2 = Object.entries(ONGEWIJZIGD).filter(([n, [h, l]]) => { const s = zonderCb(window[n]); return fnv(s) !== h || s.length !== l; }).map(x => x[0]);
+    eis('KF16e kaartPilTik: precies twee regels met merkteken crashbewaking (de rest byte-gelijk, zie KF16c); de andere 47 functies hebben er geen',
+        String(kaartPilTik).split(NL).filter(l => /crashbewaking/.test(l)).length === 2 && Object.keys(ONGEWIJZIGD).filter(n => n !== 'kaartPilTik' && /crashbewaking/.test(String(window[n]))).length === 0, '2 en 0', String(String(kaartPilTik).split(NL).filter(l => /crashbewaking/.test(l)).length));
     eis('KF16c 48 functies rond de kaart, de lichtkeuze, de fietslijst en de startlog zijn byte-gelijk aan V11.37.18', anders2.length === 0, 'geen afwijking', anders2.join(', ') || 'geen');
     const ov7 = String(kaartVraagOverpass);
     eis('KF16d de zeven oude regels staan nu in kaartVraagOverpass (de laatste geeft de inhoud terug)',

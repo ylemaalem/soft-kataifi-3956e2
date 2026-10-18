@@ -15448,6 +15448,8 @@ function kaartPilTik() {
     let tekst;
     if (cacheBezig) tekst = 'De kaart wordt al opgehaald';
     else if (!huidigePos) tekst = 'Nog geen GPS-positie';
+    else if (kaartBestandPauzeActief() && nu - kaartTikT < KAART_TIK_MIN_MS) tekst = 'Opnieuw kan over ' + kaartKlok(KAART_TIK_MIN_MS - (nu - kaartTikT));   // crashbewaking: de bestaande regel en melding
+    else if (kaartBestandPauzeActief()) { kaartTikT = nu; kaartBestandPauzeOpheffen(); downloadOSM(huidigePos.lat, huidigePos.lon); tekst = 'Kaart wordt opnieuw opgehaald'; }   // crashbewaking: de pauze weg en één nieuwe poging, zie OPHEFFEN
     else if (!kaartNodig(huidigePos.lat, huidigePos.lon)) tekst = 'De kaart is er al';
     else if (kaartFout === '429' && nu < kaartRem.nietVoor) tekst = 'De kaartserver vraagt te wachten: nog ' + kaartKlok(kaartRem.nietVoor - nu);
     else if (nu - kaartTikT < KAART_TIK_MIN_MS) tekst = 'Opnieuw kan over ' + kaartKlok(KAART_TIK_MIN_MS - (nu - kaartTikT));
@@ -15611,6 +15613,20 @@ let kaartNetStaart = Promise.resolve(), kaartNetOpen = 0, kaartNetWie = null;
 // dagen zonder bestand. Tijdens de pauze werkt de kaart zoals nu (V11.37.18),
 // dus de pauze kost niets ten opzichte van vandaag.
 //
+// DE DATABASE HANGT. Openen en lezen van de eigen database hebben een grens van
+// KAART_BESTAND_DB_MS (kaartBestandDbGrens). Daarna: logreden 'db-timeout', de
+// database deze start uit (kaartBestandIdbStuk), en de kaart van Overpass via de
+// gewone weg (kaartNetRij: nooit twee kaartverbindingen tegelijk). Omdat een
+// hangende database niets kan bewaren, staat het merkteken daarvan in
+// localStorage (KAART_BESTAND_DB_SLEUTEL); de volgende starts raken de database
+// dan niet aan (geen 10 s wachten), met dezelfde pauzes: 1, 3, 9, 27, 30 dagen.
+// Antwoordt de database daarna weer binnen de grens, dan gaat het merkteken weg.
+//
+// OPHEFFEN. Een tik op de Kaart-pil tijdens de pauze (kaartPilTik, met de
+// bestaande regel van één keer per minuut en de bestaande melding) heft de pauze
+// op en doet één nieuwe poging; het aantal blijft staan (log en meta). Een
+// hangende database heft een tik niet op.
+//
 // LOG. 'kaart_bestand' stierf of onderbroken (fase, aantal, pauze) bij de start
 // die het merkteken vindt; 'pauze' bij elke start in een pauze. In sl_startlog:
 // kbx (de reden: 'eerdere poging stierf', 'eerdere poging onderbroken' of
@@ -15624,6 +15640,60 @@ const KAART_BESTAND_ONDERBROKEN  = 'eerdere poging onderbroken';
 let kaartBestandPauze = null;       // { n: mislukt op rij, p: pauzes op rij, tot, reden, t } uit meta 'pauze', of null
 let kaartBestandMerk = null;        // de poging die nu loopt: { id, t, versie, fase, verborgen, ooit }
 let kaartBestandMerkLuistert = false;
+const KAART_BESTAND_DB_MS        = 10000;   // openen en lezen van de eigen database; daarna Overpass
+const KAART_BESTAND_DB_SLEUTEL   = 'sl_kaartdb';   // { t, n }: de database hing (n keer op rij)
+let kaartBestandDbTijd = false;     // deze start hing de database al
+
+// Een belofte van de eigen database met een grens: na KAART_BESTAND_DB_MS 'db-timeout' (en de database deze start uit).
+function kaartBestandDbGrens(p) {
+  return new Promise((klaar, mis) => {
+    let af = false;
+    const tm = setTimeout(() => { af = true; kaartBestandDbHangt(); mis(new Error('db-timeout')); }, KAART_BESTAND_DB_MS);
+    p.then((x) => { clearTimeout(tm); if (af && x && typeof x.close === 'function') { try { x.close(); } catch (e) {} } klaar(x); }, (e) => { clearTimeout(tm); mis(e); });
+  });
+}
+
+function kaartBestandDbDuur(n) { return Math.min(KAART_BESTAND_PAUZE_MAX_MS, KAART_BESTAND_PAUZE_MS * Math.pow(3, n - 1)); }
+
+// De database hing: deze start uit, en het merkteken in localStorage (de database zelf kan niets bewaren).
+function kaartBestandDbHangt() {
+  if (kaartBestandDbTijd) return;
+  kaartBestandDbTijd = true; kaartBestandIdbStuk = true;
+  try {
+    const oud = opslagLees(KAART_BESTAND_DB_SLEUTEL, null);
+    const n = ((oud && Number.isSafeInteger(oud.n) && oud.n) || 0) + 1, u = Math.round(kaartBestandDbDuur(n) / 3600000);
+    opslagSchrijf(KAART_BESTAND_DB_SLEUTEL, { t: Date.now(), n });
+    kaartBestandFout('db', 'db-timeout');
+    kaartBestandLog('db', 'db-timeout n=' + n + ' pauze=' + u + 'u');
+    kaartBestandStartlog('kbx', 'db-timeout'); kaartBestandStartlog('kbn', n); kaartBestandStartlog('kbp', u);
+  } catch (e) {}
+}
+
+// Bij het begin van een start: hing de database eerder en loopt die pauze nog, dan de database niet aanraken (true).
+function kaartBestandDbPauzeKijk() {
+  try {
+    const o = opslagLees(KAART_BESTAND_DB_SLEUTEL, null);
+    if (!o || !Number.isFinite(o.t) || !Number.isSafeInteger(o.n) || o.n < 1) return false;
+    const rest = o.t + kaartBestandDbDuur(o.n) - Date.now();
+    if (!(rest > 0 && rest <= KAART_BESTAND_PAUZE_MAX_MS)) return false;
+    kaartBestandIdbStuk = true;
+    const u = Math.ceil(rest / 3600000);
+    kaartBestandLog('pauze', 'db-timeout nog ' + u + 'u n=' + o.n);
+    kaartBestandStartlog('kbv', 'pauze', true); kaartBestandStartlog('kbx', 'db-timeout'); kaartBestandStartlog('kbn', o.n); kaartBestandStartlog('kbp', u);
+    return true;
+  } catch (e) { return false; }
+}
+
+// Een tik op de Kaart-pil tijdens de pauze (kaartPilTik): de pauze weg, het aantal blijft; één nieuwe poging deze start.
+function kaartBestandPauzeOpheffen() {
+  const p = kaartBestandPauze;
+  if (!p) return;
+  kaartBestandPauze = { ...p, tot: 0, t: Date.now() };
+  kaartBestandGeweigerd = null; kaartBestandNieuwGestart = false; kaartBestandPogingen = Math.min(kaartBestandPogingen, KAART_BESTAND_POGINGEN - 1);
+  kaartBestandLog('pauze', 'opgeheven door tik n=' + p.n);
+  kaartBestandStartlog('kbp', null);
+  kaartBestandMetaDoe((st) => st.put(kaartBestandPauze, 'pauze')).catch(() => {});
+}
 
 // Een korte schrijfactie in meta, hoogstens KAART_BESTAND_MERK_MS.
 function kaartBestandMetaDoe(fn) {
@@ -15832,9 +15902,10 @@ function kaartBestandIdbOpen() {
 // van een vorige versie opruimen.
 function kaartBestandMetaLaad() {
   if (kaartBestandMetaP) return kaartBestandMetaP;
-  kaartBestandMetaP = (async () => {
+  kaartBestandMetaP = kaartBestandDbGrens((async () => {   // crashbewaking: een grens van KAART_BESTAND_DB_MS om openen en lezen
     let db = null;
     try {
+      if (kaartBestandDbPauzeKijk()) return;   // crashbewaking: de database hing eerder, deze start niet aanraken
       db = await kaartBestandIdbOpen();
       const [m, bezig, pauze] = await new Promise((klaar, mis) => {   // crashbewaking: ook het merkteken en de pauze
         const tx = db.transaction('meta', 'readonly'), st = tx.objectStore('meta');   // crashbewaking
@@ -15842,6 +15913,7 @@ function kaartBestandMetaLaad() {
         tx.oncomplete = () => klaar([q.result, qb.result, qp.result]);   // crashbewaking
         tx.onerror = tx.onabort = () => mis(tx.error || q.error);   // crashbewaking
       });
+      if (!kaartBestandDbTijd && opslagLees(KAART_BESTAND_DB_SLEUTEL, null)) opslagVerwijder(KAART_BESTAND_DB_SLEUTEL);   // crashbewaking: de database antwoordt weer binnen de grens
       await kaartBestandNaStart(db, bezig, pauze);   // crashbewaking: stierf de vorige poging, dan nu een pauze
       if (m === undefined) return;
       if (!kaartBestandMetaGoed(m)) { kaartBestandFout('meta', 'kapot'); return; }
@@ -15858,7 +15930,7 @@ function kaartBestandMetaLaad() {
       if (!db) kaartBestandIdbStuk = true;
       kaartBestandFout('meta', e);
     } finally { if (db) { try { db.close(); } catch (e) {} } }
-  })();
+  })()).catch(() => {});   // crashbewaking: na de grens gaat de kaartvraag door (kaartBestandIdbStuk)
   return kaartBestandMetaP;
 }
 
@@ -16021,9 +16093,10 @@ async function kaartBestandCellenLees(m, sleutels) {
     if (c) nieuw.set(m.sleutel + ':' + k, c); else mist.push(k);
   }
   if (mist.length) {
-    const db = await kaartBestandIdbOpen();
+    if (kaartBestandIdbStuk) throw new Error('db uit');   // crashbewaking: de database hing deze start al
+    const db = await kaartBestandDbGrens(kaartBestandIdbOpen());   // crashbewaking: met grens
     try {
-      const teksten = await new Promise((klaar, mis) => {
+      const teksten = await kaartBestandDbGrens(new Promise((klaar, mis) => {   // crashbewaking: met grens
         const tx = db.transaction('vak', 'readonly');
         const st = tx.objectStore('vak');
         const res = new Array(mist.length);
@@ -16031,7 +16104,7 @@ async function kaartBestandCellenLees(m, sleutels) {
         tx.oncomplete = () => klaar(res);
         tx.onerror = () => mis(tx.error);
         tx.onabort = () => mis(tx.error || new Error('afgebroken'));
-      });
+      }));   // crashbewaking
       teksten.forEach((t, i) => {
         if (typeof t !== 'string') throw new Error('vak ontbreekt');
         const c = JSON.parse(t);
