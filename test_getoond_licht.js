@@ -23,6 +23,8 @@
 //      document.head.appendChild(s);
 //      s.onload = () => testGetoondLicht().then(r => console.table(r.regels));
 // ═══════════════════════════════════════════════════════════════
+// V11.37.21: de regels met dit merkteken weg, zodat de vergelijkingen hieronder de functies van vóór V11.37.21 blijven toetsen (zie test_meetwerk21)
+function zonderV113721(s) { return String(s).split('\n').filter(l => !/V11\.37\.21(?!\d)/.test(l)).join('\n'); }
 
 async function testGetoondLicht() {
   const regels = [];
@@ -138,7 +140,7 @@ async function testGetoondLicht() {
   const V11376 = { exporteerMeetdata: ['71d08542', 9147], tekenRadarSheet: ['aec656b5', 5759], updateDebugOverlay: ['c6db2f01', 1018] };
   const veranderd = Object.entries(V11376).filter(([n, [h, l]]) => { const s = String(window[n]); return s.split('\n').filter(r => /V11\.37\.7(?!\d)/.test(r)).length !== 1; }).map(x => x[0]);
   eis('GL4a in elk van de drie functies staat precies één regel met merkteken V11.37.7', veranderd.length === 0, 'drie keer één', veranderd.join(', ') || 'drie keer één');
-  const anders3 = Object.entries(V11376).filter(([n, [h, l]]) => { const s = terug[n](String(window[n])); return fnv(s) !== h || s.length !== l; }).map(x => x[0]);
+  const anders3 = Object.entries(V11376).filter(([n, [h, l]]) => { const s = terug[n](zonderV113721(window[n])); return fnv(s) !== h || s.length !== l; }).map(x => x[0]);
   eis('GL4b met die ene regel terug zijn exporteerMeetdata, tekenRadarSheet en updateDebugOverlay byte-gelijk aan V11.37.6', anders3.length === 0, 'geen afwijking', anders3.join(', ') || 'geen');
   const nogOud = ['tekenRadarSheet', 'updateDebugOverlay'].filter(n => /huidigBevestigdOsmNodeId/.test(String(window[n])));
   eis('GL4c de radar en de debugregel lezen huidigBevestigdOsmNodeId niet meer', nogOud.length === 0, 'geen', nogOud.join(', ') || 'geen');
@@ -153,7 +155,7 @@ async function testGetoondLicht() {
   const zonderV113712 = (s) => zonderV113713(s).split('\n').filter(l => !/V11\.37\.12(?!\d)/.test(l)).join('\n');   // V11.37.12: de rem op de kaartvraag en de dekking van de fietslijst (test_overpass); hier terug
   const zonderV113711 = (s) => zonderV113712(s).split('\n').filter(l => !/V11\.37\.11(?!\d)/.test(l)).join('\n');   // V11.37.11: de tegenrichting-regel (test_tegenrichting); hier terug
   const terugV11378 = (s) => zonderV113711(s).replace("      if (wisselStaat.min === null || af < wisselStaat.min) { wisselStaat.min = af; wisselStaat.minT = Date.now(); }   // V11.37.8: en wanneer (tMin)", "      if (wisselStaat.min === null || af < wisselStaat.min) wisselStaat.min = af;").replace("  if (!dichtstbijOSM) { logOpslagMis('bevestig_geen_licht', { element: categorie }); return; }   // V11.37.8: niet meer stil", "  if (!dichtstbijOSM) return;").split('\n').filter(l => !/V11\.37\.8(?!\d)/.test(l)).join('\n');   // V11.37.8: het fietsfilter en de bevroren knoppen (test_fietslicht); hier terug
-  const anders = Object.entries(KEUZE).filter(([n, [h, l]]) => { const s = terugV11378(window[n]); return fnv(s) !== h || s.length !== l; }).map(x => x[0]);
+  const anders = Object.entries(KEUZE).filter(([n, [h, l]]) => { const s = terugV11378(zonderV113721(window[n])); return fnv(s) !== h || s.length !== l; }).map(x => x[0]);
   eis('GL4d de lichtkeuze en de knoppen zijn byte-gelijk aan V11.37.6 (veertien functies, onGPS en NB14 inbegrepen)', anders.length === 0, 'geen afwijking', anders.join(', ') || 'geen');
 
   try { if (typeof idbFlush === 'function') await idbFlush(); } catch (e) {}

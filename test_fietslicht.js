@@ -40,6 +40,8 @@
 //      document.head.appendChild(s);
 //      s.onload = () => testFietslicht().then(r => console.table(r.regels));
 // ═══════════════════════════════════════════════════════════════
+// V11.37.21: de regels met dit merkteken weg, zodat de vergelijkingen hieronder de functies van vóór V11.37.21 blijven toetsen (zie test_meetwerk21)
+function zonderV113721(s) { return String(s).split('\n').filter(l => !/V11\.37\.21(?!\d)/.test(l)).join('\n'); }
 
 // ── Draait IN een iframe: een rit met de echte onGPS ─────────
 // opt: { nodes: [{ id, x, y, f }], lijst (null = geen lijst; anders de f-lichten), uit (schakelaar uit),
@@ -524,7 +526,7 @@ async function testFietslicht() {
   const telAf = Object.entries(V11377).filter(([n, [h, l, m]]) => merk(window[n]) !== m).map(([n]) => n + ' ' + merk(window[n]));
   eis('FL11a elf functies veranderen, alleen met regels met merkteken V11.37.8 (drie in vindDichtbij, updateDichtbij en regelKies; twee of één in de rest)',
       telAf.length === 0, 'precies zoveel', telAf.join(', ') || 'precies zoveel');
-  const anders = Object.entries(V11377).filter(([n, [h, l]]) => { const s = terug(window[n]); return fnv(s) !== h || s.length !== l; }).map(x => x[0]);
+  const anders = Object.entries(V11377).filter(([n, [h, l]]) => { const s = terug(zonderV113721(window[n])); return fnv(s) !== h || s.length !== l; }).map(x => x[0]);
   eis('FL11b met die regels terug (twee waren een andere regel, de rest is nieuw) zijn ze byte-gelijk aan V11.37.7',
       anders.length === 0, 'geen afwijking', anders.join(', ') || 'geen');
   const ONGEWIJZIGD = { onGPS: ['d99821b8', 15000], vindDichtbijScore: ['bc9b7937', 2105], achterTik: ['e9e105a3', 1583], achterSluitUit: ['6b7a87d8', 383],
@@ -533,7 +535,7 @@ async function testFietslicht() {
     tikRichting: ['b44110d5', 4619], isGetoondLicht: ['36a3cc63', 126], tickCd: ['b9fe419c', 25016], verwerkBevestigLeren: ['9163848', 8583],
     meetBevestigMoment: ['1174330f', 4946], updateBevestigKnopStaat: ['d82919e1', 1359], bevestigMarkerSleutel: ['d404cc32', 157], wisselVoor: ['b58f23a8', 937],
     koppelBboxAanNode: ['bb6c053d', 1563], vindOsmMatchOpRichting: ['51d96aa', 661] };
-  const anders2 = Object.entries(ONGEWIJZIGD).filter(([n, [h, l]]) => { const s = zonderV113711(window[n]); return fnv(s) !== h || s.length !== l; }).map(x => x[0]);
+  const anders2 = Object.entries(ONGEWIJZIGD).filter(([n, [h, l]]) => { const s = zonderV113711(zonderV113721(window[n])); return fnv(s) !== h || s.length !== l; }).map(x => x[0]);
   eis('FL11c tweeëntwintig functies die V11.37.8 niet raakt (onGPS, de puntentelling, de loslaatroutes, de correcties, de tik, tickCd, het leren, de knopstaat, het koppelen aan een lamp): byte-gelijk aan V11.37.7',
       anders2.length === 0, 'geen afwijking', anders2.join(', ') || 'geen');
 

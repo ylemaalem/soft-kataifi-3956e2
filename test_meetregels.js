@@ -25,6 +25,8 @@
 //      document.head.appendChild(s);
 //      s.onload = () => testMeetregels().then(r => console.table(r.regels));
 // ═══════════════════════════════════════════════════════════════
+// V11.37.21: de regels met dit merkteken weg, zodat de vergelijkingen hieronder de functies van vóór V11.37.21 blijven toetsen (zie test_meetwerk21)
+function zonderV113721(s) { return String(s).split('\n').filter(l => !/V11\.37\.21(?!\d)/.test(l)).join('\n'); }
 
 async function testMeetregels() {
   const regels = [];
@@ -243,7 +245,7 @@ async function testMeetregels() {
     // niet meer, en dat toetst test_gate T9.
     const V1134_1 = { laadONNXModel: ['68bca74a', 3813], voerAIUit: ['3ca5a888', 2330], detLogSchrijf: ['113e60c6', 2607],
                       startApp: ['f6f7a306', 4498], exporteerMeetdata: ['ef1e19bb', 7864] };
-    const afw = Object.entries(V1134_1).filter(([n, [h, l]]) => { const s = zonderMeet(eval(n)); return fnv(s) !== h || s.length !== l; }).map(x => x[0]);
+    const afw = Object.entries(V1134_1).filter(([n, [h, l]]) => { const s = zonderMeet(zonderV113721(eval(n))); return fnv(s) !== h || s.length !== l; }).map(x => x[0]);
     eis('ML7a zonder de V11.34.2-regels zijn de vijf geraakte functies byte-gelijk aan V11.34.1',
         afw.length === 0, 'geen afwijking', afw.join(', ') || 'geen');
     const ONGEMOEID = { selecteerBesteDetectie: ['79a403fa', 14376], postprocessYOLO: ['42b30c6', 4725],
@@ -266,9 +268,9 @@ async function testMeetregels() {
       .replace('kandidaatPos ?? (dichtstbijOSM ? { lat: dichtstbijOSM.lat, lon: dichtstbijOSM.lon } : { lat, lon }),   // V11.37.4', 'kandidaatPos ?? { lat: dichtstbijOSM.lat, lon: dichtstbijOSM.lon },');
     const af2 = Object.entries(ONGEMOEID).filter(([n, [h, l]]) => {
       // V11.36.4: onGPS kreeg drie meetregels (de wissellog), met merkteken.
-      const s = n === 'selecteerBesteDetectie' ? terugV11363(String(eval(n)))
-              : n === 'onGPS' ? terugV11374(zonderV113711(eval(n))).split('\n').filter(l => !/V11\.36\.4(?!\d)|V11\.37\.[124](?!\d)/.test(l))   /* V11.37.2: de snelle stilstandroute is gedrag, zie test_snelroute SN6b; V11.37.4: de achter-regel, zie test_achter */.join('\n')   // V11.37.14: zonderV113711
-              : terugV11375(eval(n)).split('\n').filter(l => !/V11\.37\.5(?!\d)/.test(l)).join('\n');   // V11.37.5: postprocessYOLO en verwerkDetecties, zie test_knoppen
+      const s = n === 'selecteerBesteDetectie' ? terugV11363(zonderV113721(eval(n)))
+              : n === 'onGPS' ? terugV11374(zonderV113711(zonderV113721(eval(n)))).split('\n').filter(l => !/V11\.36\.4(?!\d)|V11\.37\.[124](?!\d)/.test(l))   /* V11.37.2: de snelle stilstandroute is gedrag, zie test_snelroute SN6b; V11.37.4: de achter-regel, zie test_achter */.join('\n')   // V11.37.14: zonderV113711
+              : terugV11375(zonderV113721(eval(n))).split('\n').filter(l => !/V11\.37\.5(?!\d)/.test(l)).join('\n');   // V11.37.5: postprocessYOLO en verwerkDetecties, zie test_knoppen
       return fnv(s) !== h || s.length !== l; }).map(x => x[0]);
     eis('ML7b de keuze, de run, de poort, de lus en de GPS: negen functies byte-gelijk aan V11.34.1 (selecteerBesteDetectie zonder de V11.36.3-regels)',
         af2.length === 0, 'geen afwijking', af2.join(', ') || 'geen');

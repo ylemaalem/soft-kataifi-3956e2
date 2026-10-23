@@ -263,8 +263,9 @@ function testRondLicht() {
     if (knop) knop.click();
     eis('R5e een klik voegt samen: de richting-emmer is weg, de V4-metingen blijven',
         localStorage.getItem('sl_v5_' + NODE + '_N_W_' + DD) === null
-          && JSON.parse(localStorage.getItem('sl_v4_' + NODE + '_' + DD)).length === v4Voor,
-        'N>W weg, V4 ' + v4Voor,
+          && JSON.parse(localStorage.getItem('sl_v4_' + NODE + '_' + DD)).length === v4Voor + 1   // V11.37.21: de V5-meting had geen V4-tweeling en staat nu in V4 (bron merge_v5), zie test_meetwerk21
+          && JSON.parse(localStorage.getItem('sl_v4_' + NODE + '_' + DD)).some(m => m.bron === 'merge_v5' && m.duur === 30),   // V11.37.21
+        'N>W weg, V4 ' + (v4Voor + 1) + ' met de kopie',   // V11.37.21
         'N>W ' + (localStorage.getItem('sl_v5_' + NODE + '_N_W_' + DD) === null ? 'weg' : 'bestaat')
           + ', V4 ' + JSON.parse(localStorage.getItem('sl_v4_' + NODE + '_' + DD)).length);
 

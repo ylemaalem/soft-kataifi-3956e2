@@ -27,6 +27,8 @@
 //      document.head.appendChild(s);
 //      s.onload = () => testPassage().then(r => console.table(r.regels));
 // ═══════════════════════════════════════════════════════════════
+// V11.37.21: de regels met dit merkteken weg, zodat de vergelijkingen hieronder de functies van vóór V11.37.21 blijven toetsen (zie test_meetwerk21)
+function zonderV113721(s) { return String(s).split('\n').filter(l => !/V11\.37\.21(?!\d)/.test(l)).join('\n'); }
 
 // ── Draait IN een iframe: een rit met de echte onGPS ─────────
 async function passageRitBinnen(opt) {
@@ -280,7 +282,7 @@ async function testPassage() {
   const zonderV113713 = (s) => zonderV113715(s).split(NL).filter(l => !/V11\.37\.13(?!\d)/.test(l)).join(NL);   // V11.37.14: R1 en R3 (test_tegenbocht); het oude patroon hieronder slikte die regels stil in
   const zonderV113712 = (s) => zonderV113713(s).split(NL).filter(l => !/V11\.37\.12(?!\d)/.test(l)).join(NL);   // V11.37.14: de rem en de fietsdekking (test_overpass); idem
   const zonderV113711 = (s) => zonderV113712(s).split(NL).filter(l => !/V11\.37\.11(?!\d)/.test(l)).join(NL);   // V11.37.14: de tegenrichting-regel (test_tegenrichting); idem
-  const g = terugV11374(zonderV113711(onGPS)).split(NL).filter(l => !/V11\.36\.4(?!\d)|V11\.37\.[0124](?!\d)/.test(l)).join(NL);   // V11.37.14: zonderV113711
+  const g = terugV11374(zonderV113711(zonderV113721(onGPS))).split(NL).filter(l => !/V11\.36\.4(?!\d)|V11\.37\.[0124](?!\d)/.test(l)).join(NL);   // V11.37.14: zonderV113711
   eis('PS9a onGPS zonder de A3-regel en de meetregels is byte-gelijk aan V11.34.1',
       fnv(g) === '58346b1c' && g.length === 14246, '58346b1c / 14246', fnv(g) + ' / ' + g.length);
   const vast = String(isStoplichtVoorbij);

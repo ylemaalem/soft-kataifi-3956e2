@@ -28,6 +28,8 @@
 //      document.head.appendChild(s);
 //      s.onload = () => testKnoppen().then(r => console.table(r.regels));
 // ═══════════════════════════════════════════════════════════════
+// V11.37.21: de regels met dit merkteken weg, zodat de vergelijkingen hieronder de functies van vóór V11.37.21 blijven toetsen (zie test_meetwerk21)
+function zonderV113721(s) { return String(s).split('\n').filter(l => !/V11\.37\.21(?!\d)/.test(l)).join('\n'); }
 
 async function testKnoppen() {
   const regels = [];
@@ -224,7 +226,7 @@ async function testKnoppen() {
   const zonderV113712 = (s) => zonderV113713(s).split('\n').filter(l => !/V11\.37\.12(?!\d)/.test(l)).join('\n');   // V11.37.12: de rem op de kaartvraag en de dekking van de fietslijst (test_overpass); hier terug
   const zonderV113711 = (s) => zonderV113712(s).split('\n').filter(l => !/V11\.37\.11(?!\d)/.test(l)).join('\n');   // V11.37.11: de tegenrichting-regel (test_tegenrichting); hier terug
   const terugV11378 = (s) => zonderV113711(s).replace("      if (wisselStaat.min === null || af < wisselStaat.min) { wisselStaat.min = af; wisselStaat.minT = Date.now(); }   // V11.37.8: en wanneer (tMin)", "      if (wisselStaat.min === null || af < wisselStaat.min) wisselStaat.min = af;").replace("  if (!dichtstbijOSM) { logOpslagMis('bevestig_geen_licht', { element: categorie }); return; }   // V11.37.8: niet meer stil", "  if (!dichtstbijOSM) return;").split('\n').filter(l => !/V11\.37\.8(?!\d)/.test(l)).join('\n');   // V11.37.8: het fietsfilter en de bevroren knoppen (test_fietslicht); hier terug
-  const anders = Object.entries(V11374).filter(([n, [h, l]]) => { const s = terugV11378(window[n]); return fnv(s) !== h || s.length !== l; }).map(x => x[0]);
+  const anders = Object.entries(V11374).filter(([n, [h, l]]) => { const s = terugV11378(zonderV113721(window[n])); return fnv(s) !== h || s.length !== l; }).map(x => x[0]);
   eis('KM6a de lichtkeuze is onaangeroerd: achttien functies (onGPS, NB14, de achter-regel, de schaduwregel, de wissellog) byte-gelijk aan V11.37.4',
       anders.length === 0, 'geen afwijking', anders.join(', ') || 'geen');
   const merk = (f) => (String(f).match(/V11\.37\.5(?!\d)/g) || []).length;

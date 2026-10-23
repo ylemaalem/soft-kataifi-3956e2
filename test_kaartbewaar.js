@@ -54,6 +54,8 @@
 //      document.head.appendChild(s);
 //      s.onload = () => testKaartbewaar().then(r => console.table(r.regels));
 // ═══════════════════════════════════════════════════════════════
+// V11.37.21: de regels met dit merkteken weg, zodat de vergelijkingen hieronder de functies van vóór V11.37.21 blijven toetsen (zie test_meetwerk21)
+function zonderV113721(s) { return String(s).split('\n').filter(l => !/V11\.37\.21(?!\d)/.test(l)).join('\n'); }
 
 const KB_IDB = { naam: 'StoplichtIQ_Kaart', store: 'kaart', sleutel: 'laatste' };
 const KB_INHOUD_NU = "    const d = await kaartLeesInhoud(r, ctrl);   // V11.37.18: ook de inhoud heeft een grens (stond: await r.json()), zie kaartLeesInhoud";
@@ -603,7 +605,7 @@ async function testKaartbewaar() {
                     voerAIUit: ['63720b32', 2522, 1], laadONNXModel: ['ffa1087c', 4538, 1] };
   const telAf = Object.entries(V113717).filter(([n, [h, l, m]]) => merk(zonderV113720(window[n])) !== m).map(([n]) => n + ' ' + merk(zonderV113720(window[n])));   // V11.37.20: op de tekst van vóór V11.37.20
   eis('KB12a zes functies krijgen regels met merkteken V11.37.18: downloadOSM 6, de andere 1', telAf.length === 0, 'precies zoveel', telAf.join(', ') || 'precies zoveel');
-  const anders = Object.entries(V113717).filter(([n, [h, l]]) => { const s = zonderV113718(window[n]); return fnv(s) !== h || s.length !== l; }).map(x => x[0]);
+  const anders = Object.entries(V113717).filter(([n, [h, l]]) => { const s = zonderV113718(zonderV113721(window[n])); return fnv(s) !== h || s.length !== l; }).map(x => x[0]);
   eis('KB12b zonder die regels (en met de oude r.json- en timerregel) byte-gelijk aan V11.37.17 (downloadOSM: op twee commentaarregels zonder plaatsnaam na)', anders.length === 0, 'geen afwijking', anders.join(', ') || 'geen');
   let code12 = [];
   try {

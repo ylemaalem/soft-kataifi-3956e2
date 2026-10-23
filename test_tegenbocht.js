@@ -39,6 +39,8 @@
 //      document.head.appendChild(s);
 //      s.onload = () => testTegenbocht().then(r => console.table(r.regels));
 // ═══════════════════════════════════════════════════════════════
+// V11.37.21: de regels met dit merkteken weg, zodat de vergelijkingen hieronder de functies van vóór V11.37.21 blijven toetsen (zie test_meetwerk21)
+function zonderV113721(s) { return String(s).split('\n').filter(l => !/V11\.37\.21(?!\d)/.test(l)).join('\n'); }
 
 // ── Draait IN een iframe: een rit met de echte onGPS ─────────
 // opt: { nodes: [{ id, x, y, f, r }], start, uit (de hele tegenrichting-regel uit), r13uit (alleen R1 en R3 uit),
@@ -419,7 +421,7 @@ async function testTegenbocht() {
   const telAf = Object.entries(V113712).filter(([n, [h, l, m]]) => merk(window[n]) !== m).map(([n]) => n + ' ' + merk(window[n]));
   eis('TB11a zes functies veranderen, alleen met regels met merkteken V11.37.13 (één in vindDichtbij, tegenKoers, tegenSluitUit, onGPS en vergrendelNodeHandmatig; drie in tegenLog, waarvan twee gewijzigd)',
       telAf.length === 0, 'precies zoveel', telAf.join(', ') || 'precies zoveel');
-  const anders = Object.entries(V113712).filter(([n, [h, l]]) => { const s = zonder(window[n]); return fnv(s) !== h || s.length !== l; }).map(x => x[0]);
+  const anders = Object.entries(V113712).filter(([n, [h, l]]) => { const s = zonder(zonderV113721(window[n])); return fnv(s) !== h || s.length !== l; }).map(x => x[0]);
   eis('TB11b zonder die regels (en met de twee regels van tegenLog terug) byte-gelijk aan V11.37.12', anders.length === 0, 'geen afwijking', anders.join(', ') || 'geen');
   const ONGEWIJZIGD = { updateDichtbij: ['67e9f3ec', 12423], regelKies: ['80ca7466', 2976], logOpslagMis: ['6d7fd828', 16172],
     tegenIsTegen: ['a03bdbeb', 263], tegenRijrichtingen: ['54bb2b55', 1112], tegenPuurDichtst: ['3c123d89', 515],

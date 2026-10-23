@@ -37,6 +37,8 @@
 //      document.head.appendChild(s);
 //      s.onload = () => testStartlog().then(r => console.table(r.regels));
 // ═══════════════════════════════════════════════════════════════
+// V11.37.21: de regels met dit merkteken weg, zodat de vergelijkingen hieronder de functies van vóór V11.37.21 blijven toetsen (zie test_meetwerk21)
+function zonderV113721(s) { return String(s).split('\n').filter(l => !/V11\.37\.21(?!\d)/.test(l)).join('\n'); }
 
 const STARTLOG_WATCH_NU = "    navigator.geolocation.watchPosition(onGPS, (e)=>{ pGPS.className='pill-dot o'; startLogGpsFout(e); }, { enableHighAccuracy:true, maximumAge:5000, timeout:12000 });   // V11.37.17: de fout ook tellen";
 const STARTLOG_WATCH_OUD = "    navigator.geolocation.watchPosition(onGPS, ()=>{ pGPS.className='pill-dot o'; }, { enableHighAccuracy:true, maximumAge:5000, timeout:12000 });";
@@ -294,7 +296,7 @@ async function testStartlog() {
   const telAf = Object.entries(V113715).filter(([n, [h, l, m]]) => merk(window[n]) !== m).map(([n]) => n + ' ' + merk(window[n]));
   eis('SL10a zeven functies krijgen regels met merkteken V11.37.17: startApp 5, downloadOSM 3, exporteerMeetdata 2, de andere 1',
       telAf.length === 0, 'precies zoveel', telAf.join(', ') || 'precies zoveel');
-  const anders = Object.entries(V113715).filter(([n, [h, l]]) => { const s = zonderV113717(window[n]); return fnv(s) !== h || s.length !== l; }).map(x => x[0]);
+  const anders = Object.entries(V113715).filter(([n, [h, l]]) => { const s = zonderV113717(zonderV113721(window[n])); return fnv(s) !== h || s.length !== l; }).map(x => x[0]);
   eis('SL10b zonder die regels (en met de oude foutroute van de watch) byte-gelijk aan V11.37.15', anders.length === 0, 'geen afwijking', anders.join(', ') || 'geen');
   let code10 = [];
   try {

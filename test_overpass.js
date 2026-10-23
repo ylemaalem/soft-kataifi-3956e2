@@ -32,6 +32,8 @@
 //      document.head.appendChild(s);
 //      s.onload = () => testOverpass().then(r => console.table(r.regels));
 // ═══════════════════════════════════════════════════════════════
+// V11.37.21: de regels met dit merkteken weg, zodat de vergelijkingen hieronder de functies van vóór V11.37.21 blijven toetsen (zie test_meetwerk21)
+function zonderV113721(s) { return String(s).split('\n').filter(l => !/V11\.37\.21(?!\d)/.test(l)).join('\n'); }
 
 // ── Draait IN een iframe: de klok, de wachtrij en de antwoorden van Overpass ──
 // opt.antwoorden: [{ status, ra?, ids? }] in volgorde (de laatste herhaalt zich).
@@ -290,7 +292,7 @@ async function testOverpass() {
   const telAf = Object.entries(V113711).filter(([n, [h, l, m]]) => merk(zonderV113720(window[n])) !== m).map(([n]) => n + ' ' + merk(zonderV113720(window[n])));   // V11.37.20: op de tekst van vóór V11.37.20 (één regel staat nu in kaartVraagOverpass)
   eis('OV11a twee bestaande functies krijgen regels met merkteken V11.37.12 (vier in downloadOSM, één in onGPS); fietsLees, fietsNaKaart en fietsHaalOp zijn nieuw geschreven (OV3-OV9)',
       telAf.length === 0, 'precies zoveel', telAf.join(', ') || 'precies zoveel');
-  const anders = Object.entries(V113711).filter(([n, [h, l]]) => { const s = zonder(window[n]); return fnv(s) !== h || s.length !== l; }).map(x => x[0]);
+  const anders = Object.entries(V113711).filter(([n, [h, l]]) => { const s = zonder(zonderV113721(window[n])); return fnv(s) !== h || s.length !== l; }).map(x => x[0]);
   eis('OV11b zonder die regels (alle zijn nieuw) byte-gelijk aan V11.37.11', anders.length === 0, 'geen afwijking', anders.join(', ') || 'geen');
   const ONGEWIJZIGD = { vindDichtbij: ['f8fd9aa9', 4395], updateDichtbij: ['67e9f3ec', 12423], regelKies: ['80ca7466', 2976], logOpslagMis: ['6d7fd828', 16172],
     fietsSluitUit: ['ec1d273c', 170], isFietsLicht: ['89f184ad', 98], fietsPuurDichtst: ['2a9b09f8', 418], fietsTerug: ['6f950997', 372],

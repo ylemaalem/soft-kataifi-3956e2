@@ -32,6 +32,8 @@
 //  clear(): de omwikkeling van V11.24.0 ziet clear() niet), en zet na afloop
 //  alles exact terug.
 // ═══════════════════════════════════════════════════════════════
+// V11.37.21: de regels met dit merkteken weg, zodat de vergelijkingen hieronder de functies van vóór V11.37.21 blijven toetsen (zie test_meetwerk21)
+function zonderV113721(s) { return String(s).split('\n').filter(l => !/V11\.37\.21(?!\d)/.test(l)).join('\n'); }
 
 async function testOpslagSafari() {
   const echteGrens = window.opruimGrens;   // V11.37.10, zie SA3
@@ -210,7 +212,7 @@ async function testOpslagSafari() {
     const afw2 = Object.entries(ONGEMOEID).filter(([n, [h, l]]) => fnv(String(eval(n))) !== h || String(eval(n)).length !== l).map(x => x[0]);
     eis('SA5b de UTF-16-telling, de passen en het overzicht zijn onaangeroerd', afw2.length === 0, 'geen afwijking', afw2.join(', ') || 'geen');
     const terugV11377 = (s) => String(s).replace("  const naExport = () => {};   // V11.37.7: het schaduwlog niet meer wissen; het is een ring (MAX_SCHADUWLOG)", "  const naExport = () => { try { localStorage.removeItem('sl_schaduwlog'); } catch(_) {} };");   // V11.37.7: het schaduwlog wist niet meer (test_getoond_licht); hier terug
-    const zonder = terugV11377(exporteerMeetdata).split('\n').filter(l => !/V11\.34\.[2-9](?!\d)|V11\.36\.[14](?!\d)|V11\.37\.1(?!\d)|V11\.37\.15(?!\d)|V11\.37\.17(?!\d)/.test(l)).join('\n');   // V11.36.4: de wisselbak; V11.37.15: de koersbak; V11.37.17: de startbak
+    const zonder = terugV11377(zonderV113721(exporteerMeetdata)).split('\n').filter(l => !/V11\.34\.[2-9](?!\d)|V11\.36\.[14](?!\d)|V11\.37\.1(?!\d)|V11\.37\.15(?!\d)|V11\.37\.17(?!\d)/.test(l)).join('\n');   // V11.36.4: de wisselbak; V11.37.15: de koersbak; V11.37.17: de startbak
     eis('SA5c exporteerMeetdata zonder meetregels is nog steeds V11.34.1', fnv(zonder) === 'ef1e19bb' && zonder.length === 7864,
         'ef1e19bb / 7864', fnv(zonder) + ' / ' + zonder.length);
     zet('sl_v4_996803_dag', [{ duur: 42, tijd: 3 }]);

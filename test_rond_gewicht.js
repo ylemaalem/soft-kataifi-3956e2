@@ -26,6 +26,8 @@
 //      document.head.appendChild(s);
 //      s.onload = () => testRondGewicht().then(r => console.table(r.regels));
 // ═══════════════════════════════════════════════════════════════
+// V11.37.21: de regels met dit merkteken weg, zodat de vergelijkingen hieronder de functies van vóór V11.37.21 blijven toetsen (zie test_meetwerk21)
+function zonderV113721(s) { return String(s).split('\n').filter(l => !/V11\.37\.21(?!\d)/.test(l)).join('\n'); }
 
 async function testRondGewicht() {
   const regels = [];
@@ -290,7 +292,7 @@ async function testRondGewicht() {
     mergeRichtingen: ['808553a5', 7340, 2], mergeUndoUitvoeren: ['8fe778b', 560, 1], kiesLaagAlgemeen: ['53d548ba', 1323, 1], ruimBevestigLusOp: ['a6c7c94', 2489, 1] };
   const telAf = Object.entries(V11378).filter(([n, [h, l, m]]) => merk(window[n]) !== m).map(([n]) => n + ' ' + merk(window[n]));
   eis('RG7a zeven functies veranderen, alleen met regels met merkteken V11.37.9', telAf.length === 0, 'precies zoveel', telAf.join(', ') || 'precies zoveel');
-  const anders = Object.entries(V11378).filter(([n, [h, l]]) => { const s = terug(window[n]); return fnv(s) !== h || s.length !== l; }).map(x => x[0]);
+  const anders = Object.entries(V11378).filter(([n, [h, l]]) => { const s = terug(zonderV113721(window[n])); return fnv(s) !== h || s.length !== l; }).map(x => x[0]);
   eis('RG7b met die regels terug (vier waren een andere regel, de rest is nieuw) byte-gelijk aan V11.37.8', anders.length === 0, 'geen afwijking', anders.join(', ') || 'geen');
   const zonderV113718 = (s) => String(s).replace('const d = await kaartLeesInhoud(r, ctrl);   // V11.37.18: ook de inhoud heeft een grens (stond: await r.json()), zie kaartLeesInhoud', 'const d = await r.json();').split('\n').filter(l => !/V11\.37\.18(?!\d)/.test(l)).join('\n');   // V11.37.18: de bewaarde kaart, C5 en C7 (test_kaartbewaar); hier terug
   const zonderV113717 = (s) => zonderV113718(s).split('\n').filter(l => !/V11\.37\.17(?!\d)/.test(l)).join('\n');   // V11.37.17: de startlog (test_startlog); hier terug
@@ -302,7 +304,7 @@ async function testRondGewicht() {
     kiesLaagRichting: ['94ad3b74', 596], verplaatsAlgemeenNaarRichting: ['f66a53f0', 2052], herstelRvVoorMerge: ['ea697b84', 2338], analyseerBevestigLus: ['e4d5feee', 1468],
     bijwerkLeerkaart: ['8344c773', 8107], laagMetingen: ['ca21e0f9', 421], richtingLeerPct: ['e4a7222', 925], vindDichtbij: ['d444ee3', 3717], updateDichtbij: ['7b7fce62', 12303],
     onGPS: ['d99821b8', 15000], bevestigCountdown: ['8457401d', 16073], verwerkBevestigLeren: ['9163848', 8583], slaOpIntern: ['c284229a', 2342], toonMergeDialoog: ['6d14fe13', 3633] };
-  const anders2 = Object.entries(ONGEWIJZIGD).filter(([n, [h, l]]) => { const s = zonderV113711(window[n]); return fnv(s) !== h || s.length !== l; }).map(x => x[0]);
+  const anders2 = Object.entries(ONGEWIJZIGD).filter(([n, [h, l]]) => { const s = zonderV113711(zonderV113721(window[n])); return fnv(s) !== h || s.length !== l; }).map(x => x[0]);
   eis('RG7c achttien functies die V11.37.9 niet raakt (het leren, de percentages, de tik, de verhuizing, de lichtkeuze, de knoppen): byte-gelijk aan V11.37.8',
       anders2.length === 0, 'geen afwijking', anders2.join(', ') || 'geen');
 

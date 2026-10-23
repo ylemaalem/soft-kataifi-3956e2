@@ -26,6 +26,8 @@
 //      document.head.appendChild(s);
 //      s.onload = () => testOpruimSafari().then(r => console.table(r.regels));
 // ═══════════════════════════════════════════════════════════════
+// V11.37.21: de regels met dit merkteken weg, zodat de vergelijkingen hieronder de functies van vóór V11.37.21 blijven toetsen (zie test_meetwerk21)
+function zonderV113721(s) { return String(s).split('\n').filter(l => !/V11\.37\.21(?!\d)/.test(l)).join('\n'); }
 
 async function testOpruimSafari() {
   const regels = [];
@@ -204,7 +206,7 @@ async function testOpruimSafari() {
     ruimRedundantePosCache: ['ec31b124', 380], berekenLocalStorageKB: ['8fd8ab6c', 193], ruimOpslagNuOp: ['4dbcfffc', 3289], slaOpIntern: ['c284229a', 2342],
     vindDichtbij: ['d444ee3', 3717], vindDichtbijScore: ['bc9b7937', 2105], updateDichtbij: ['7b7fce62', 12303], onGPS: ['d99821b8', 15000], downloadOSM: ['261d2457', 4158],   // V11.37.18: downloadOSM met twee commentaarregels zonder plaatsnaam (was 82a16b3c/4147), zie test_kaartbewaar KB12
     renderRichtingBlok: ['173947bd', 18753], opslagOverzicht: ['5ff742b9', 1762], verwerkS2: ['d60b1d38', 1964], bevestigCountdown: ['8457401d', 16073] };
-  const anders2 = Object.entries(ONGEWIJZIGD).filter(([n, [h, l]]) => { const s = zonderV113711(window[n]); return fnv(s) !== h || s.length !== l; }).map(x => x[0]);
+  const anders2 = Object.entries(ONGEWIJZIGD).filter(([n, [h, l]]) => { const s = zonderV113711(zonderV113721(window[n])); return fnv(s) !== h || s.length !== l; }).map(x => x[0]);
   eis('OS8c zeventien functies die V11.37.10 niet raakt (de passen, de teller, de Safari-meting, de knop, het leren, de lichtkeuze, de kaart): byte-gelijk aan V11.37.9',
       anders2.length === 0, 'geen afwijking', anders2.join(', ') || 'geen');
 

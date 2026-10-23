@@ -37,6 +37,8 @@
 //      document.head.appendChild(s);
 //      s.onload = () => testTegenrichting().then(r => console.table(r.regels));
 // ═══════════════════════════════════════════════════════════════
+// V11.37.21: de regels met dit merkteken weg, zodat de vergelijkingen hieronder de functies van vóór V11.37.21 blijven toetsen (zie test_meetwerk21)
+function zonderV113721(s) { return String(s).split('\n').filter(l => !/V11\.37\.21(?!\d)/.test(l)).join('\n'); }
 
 // ── Draait IN een iframe: een rit met de echte onGPS ─────────
 // opt: { nodes: [{ id, x, y, f, r }], lijst (null = geen fietslijst), uit (de tegenrichting-regel uit), start,
@@ -398,7 +400,7 @@ async function testTegenrichting() {
   const telAf = Object.entries(V113710).filter(([n, [h, l, m]]) => merk(window[n]) !== m).map(([n]) => n + ' ' + merk(window[n]));
   eis('TR11a zes functies veranderen, alleen met regels met merkteken V11.37.11 (vier in vindDichtbij, vijf in regelKies, één in de rest)',
       telAf.length === 0, 'precies zoveel', telAf.join(', ') || 'precies zoveel');
-  const anders = Object.entries(V113710).filter(([n, [h, l]]) => { const s = zonder(window[n]); return fnv(s) !== h || s.length !== l; }).map(x => x[0]);
+  const anders = Object.entries(V113710).filter(([n, [h, l]]) => { const s = zonder(zonderV113721(window[n])); return fnv(s) !== h || s.length !== l; }).map(x => x[0]);
   eis('TR11b zonder die regels (alle zijn nieuw) byte-gelijk aan V11.37.10', anders.length === 0, 'geen afwijking', anders.join(', ') || 'geen');
   // V11.37.12 schrijft fietsHaalOp en fietsNaKaart opnieuw (test_overpass); die staan hier niet meer.
   const ONGEWIJZIGD = { vindDichtbijScore: ['bc9b7937', 2105], achterSluitUit: ['6b7a87d8', 383], fietsSluitUit: ['ec1d273c', 170], fietsPuurDichtst: ['2a9b09f8', 418],
@@ -407,7 +409,7 @@ async function testTegenrichting() {
     checkHandLockVerval: ['2df4f7ed', 5513], checkHandLockPassage: ['7f001264', 1768], checkTikSlotSnel: ['d3a8edbe', 2071], verzamelNaderingsBewijs: ['3d6ad85f', 3526],
     checkNaderingsCorrectie: ['6aeb87b3', 3595], regelTik: ['9c1b361b', 3087], peilingDuidelijkBeter: ['a1d2a5c1', 1471], berekenLateraleOffset: ['189b7879', 328],
     wisselLogNoteer: ['9c1383d4', 1904], bevestigCountdown: ['8457401d', 16073], slaOpIntern: ['c284229a', 2342], tikRichting: ['b44110d5', 4619] };
-  const anders2 = Object.entries(ONGEWIJZIGD).filter(([n, [h, l]]) => { const s = String(window[n]); return fnv(s) !== h || s.length !== l; }).map(x => x[0]);
+  const anders2 = Object.entries(ONGEWIJZIGD).filter(([n, [h, l]]) => { const s = zonderV113721(window[n]); return fnv(s) !== h || s.length !== l; }).map(x => x[0]);
   eis('TR11c tweeëntwintig functies die V11.37.11 niet raakt (de puntentelling, de achter-regel, het fietsfilter, de correcties, de tik, de loslaatroutes, de wissellog, het leren): byte-gelijk aan V11.37.10',
       anders2.length === 0, 'geen afwijking', anders2.join(', ') || 'geen');
 

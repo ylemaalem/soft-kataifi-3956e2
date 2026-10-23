@@ -42,6 +42,8 @@
 //      document.head.appendChild(s);
 //      s.onload = () => testTikVast().then(r => console.table(r.regels));
 // ═══════════════════════════════════════════════════════════════
+// V11.37.21: de regels met dit merkteken weg, zodat de vergelijkingen hieronder de functies van vóór V11.37.21 blijven toetsen (zie test_meetwerk21)
+function zonderV113721(s) { return String(s).split('\n').filter(l => !/V11\.37\.21(?!\d)/.test(l)).join('\n'); }
 
 async function testTikVast() {
   const regels = [];
@@ -326,7 +328,7 @@ async function testTikVast() {
       postprocessYOLO: ['42b30c6', 4725], tapZwakPositie: ['49f903a8', 295], tikStraalYolo: ['7014cad2', 165],
       tikStraalCam: ['83ae570a', 208], tikTelRun: ['3475f84', 550], preprocessVoorYOLO: ['f379eecc', 2733] };
     // V11.37.5: postprocessYOLO kreeg vijf regels met merkteken (de beste kandidaat voor de detlog, zie test_knoppen).
-    const afw = Object.entries(ONGEMOEID).filter(([n, [h, l]]) => { const s = String(eval(n)).split('\n').filter(l => !/V11\.37\.5(?!\d)/.test(l)).join('\n'); return fnv(s) !== h || s.length !== l; }).map(x => x[0]);
+    const afw = Object.entries(ONGEMOEID).filter(([n, [h, l]]) => { const s = zonderV113721(eval(n)).split('\n').filter(l => !/V11\.37\.5(?!\d)/.test(l)).join('\n'); return fnv(s) !== h || s.length !== l; }).map(x => x[0]);
     eis('TV10d twaalf functies rond de keuze zijn byte-gelijk aan V11.36.2 (voorspelling, auto-slot, tik-zone, run)',
         afw.length === 0, 'geen afwijking', afw.join(', ') || 'geen');
 

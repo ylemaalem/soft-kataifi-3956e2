@@ -42,6 +42,8 @@
 //      document.head.appendChild(s);
 //      s.onload = () => testTikWint().then(r => console.table(r.regels));
 // ═══════════════════════════════════════════════════════════════
+// V11.37.21: de regels met dit merkteken weg, zodat de vergelijkingen hieronder de functies van vóór V11.37.21 blijven toetsen (zie test_meetwerk21)
+function zonderV113721(s) { return String(s).split('\n').filter(l => !/V11\.37\.21(?!\d)/.test(l)).join('\n'); }
 
 async function testTikWint() {
   const regels = [];
@@ -410,7 +412,7 @@ async function testTikWint() {
     const zonderV113712 = (s) => zonderV113713(s).split('\n').filter(l => !/V11\.37\.12(?!\d)/.test(l)).join('\n');   // V11.37.14: de rem en de fietsdekking (test_overpass); idem
     const zonderV113711 = (s) => zonderV113712(s).split('\n').filter(l => !/V11\.37\.11(?!\d)/.test(l)).join('\n');   // V11.37.14: de tegenrichting-regel (test_tegenrichting); idem
     const zonderMeet = (s) => terugV11378(terugV11377(terugV11375(terugV11374(zonderV113711(s))))).split('\n').filter(l => !/V11\.34\.[2-9](?!\d)|V11\.36\.[124](?!\d)|V11\.37\.[1245](?!\d)/.test(l)).join('\n');   // V11.36.4: de wissellog; V11.37.4: de achter-regel; V11.37.5: zie test_knoppen; V11.37.14: zonderV113711
-    const anders = Object.entries(ONGEWIJZIGD).filter(([n, [h, l]]) => fnv(zonderMeet(String(eval(n)))) !== h || zonderMeet(String(eval(n))).length !== l).map(x => x[0]);
+    const anders = Object.entries(ONGEWIJZIGD).filter(([n, [h, l]]) => fnv(zonderMeet(zonderV113721(eval(n)))) !== h || zonderMeet(zonderV113721(eval(n))).length !== l).map(x => x[0]);
     eis('TW9d vijftien functies die V11.33.0 niet raakt, zijn byte-gelijk aan V11.32.0 (NB14 inbegrepen)',
         anders.length === 0, 'geen afwijking', anders.join(', ') || 'geen');
 

@@ -46,6 +46,8 @@
 //      document.head.appendChild(s);
 //      s.onload = () => testKaartbestand().then(r => console.table(r.regels));
 // ═══════════════════════════════════════════════════════════════
+// V11.37.21: de regels met dit merkteken weg, zodat de vergelijkingen hieronder de functies van vóór V11.37.21 blijven toetsen (zie test_meetwerk21)
+function zonderV113721(s) { return String(s).split('\n').filter(l => !/V11\.37\.21(?!\d)/.test(l)).join('\n'); }
 
 const KF_IDB = 'StoplichtIQ_Kaartbestand';
 const KF_COPY = 'The data included in this document is from www.openstreetmap.org. The data is made available under ODbL.';
@@ -682,7 +684,7 @@ async function testKaartbestand() {
       fietsNaKaart: ['76a98f2c', 137], fietsPlan: ['3889ea07', 214], fietsWacht: ['398bd178', 277], fietsPoging: ['69721b85', 208], fietsPogingSchrijf: ['59a8b634', 233],
       fietsPogingen: ['410660e5', 214], afstand: ['c006e195', 264], startLogSchrijf: ['5d6078c', 942], startLogMijl: ['67b9f11f', 246], kaartKlok: ['20547389', 142] };
     const zonderCb = (f) => String(f).split(NL).filter(l => !/crashbewaking/.test(l)).join(NL);   // kaartPilTik kreeg twee regels met merkteken crashbewaking (de pauze opheffen)
-    const anders2 = Object.entries(ONGEWIJZIGD).filter(([n, [h, l]]) => { const s = zonderCb(window[n]); return fnv(s) !== h || s.length !== l; }).map(x => x[0]);
+    const anders2 = Object.entries(ONGEWIJZIGD).filter(([n, [h, l]]) => { const s = zonderCb(zonderV113721(window[n])); return fnv(s) !== h || s.length !== l; }).map(x => x[0]);
     eis('KF16e kaartPilTik: precies twee regels met merkteken crashbewaking (de rest byte-gelijk, zie KF16c); de andere 47 functies hebben er geen',
         String(kaartPilTik).split(NL).filter(l => /crashbewaking/.test(l)).length === 2 && Object.keys(ONGEWIJZIGD).filter(n => n !== 'kaartPilTik' && /crashbewaking/.test(String(window[n]))).length === 0, '2 en 0', String(String(kaartPilTik).split(NL).filter(l => /crashbewaking/.test(l)).length));
     eis('KF16c 48 functies rond de kaart, de lichtkeuze, de fietslijst en de startlog zijn byte-gelijk aan V11.37.18', anders2.length === 0, 'geen afwijking', anders2.join(', ') || 'geen');

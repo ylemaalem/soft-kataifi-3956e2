@@ -1053,7 +1053,7 @@ if (typeof ort !== 'undefined') {
 //
 // De stijl volgt de eerdere labels: nummer, kastlijntje, korte omschrijving in
 // kleine letters. De CSS zet hem zelf in kapitalen (text-transform:uppercase).
-const APP_VERSIE = 'V11.37.20 — de kaart komt uit een eigen bestand voor heel Nederland (kaart/), Overpass alleen nog als reserve';
+const APP_VERSIE = 'V11.37.21 — meten en dataveiligheid: samenvoegen bewaart elke meting, een eigen stoplog, en de badge zegt wat er bekend is';
 
 // ── CONSTANTEN ────────────────────────────────────────────────
 const OSM_RADIUS       = 5000;
@@ -5563,6 +5563,7 @@ function exporteerMeetdata() {
       uit.regel = {};    // V11.37.1: zie regelTik
       uit.koers = {};    // V11.37.15: zie koersLogTik
       uit.start = {};    // V11.37.17: zie startLogNieuw
+      uit.stop = {}; uit.inert = {};   // V11.37.21: zie stopLogTik en bevestigInertTel
       for (const key of opslagSleutels('')) {                          // V11.23.0
         let doel = null;
         if (key.startsWith('sl_passief_'))       doel = uit.passief;
@@ -5586,6 +5587,8 @@ function exporteerMeetdata() {
         else if (key === REGELLOG_SLEUTEL)       doel = uit.regel;      // V11.37.1: de schaduwregel
         else if (key === KOERSLOG_SLEUTEL)       doel = uit.koers;      // V11.37.15: de koers bij kruipen
         else if (key === STARTLOG_SLEUTEL)       doel = uit.start;      // V11.37.17: de startlog
+        else if (key === STOPLOG_SLEUTEL)        doel = uit.stop;       // V11.37.21: elke stop, met positie
+        else if (key === INERT_SLEUTEL)          doel = uit.inert;      // V11.37.21: weggegooide KLOPTE/BIJNA-tikken
         // V11.17.33 W2: let op de volgorde — 'sl_richtinglog' begint NIET met
         // 'sl_richting_' (na 'sl_richting' volgt 'l', geen '_'), dus deze twee
         // takken kunnen elkaar niet vangen. Toch staat de exacte match eerst.
@@ -8930,6 +8933,200 @@ function regelTik(lat, lon) {
   } catch (e) {}
 }
 
+// ── V11.37.21: DE STOPLOG (ALLEEN METEN) ─────────────────────
+// © 2026 StoplichtIQ — Y. Lemaalem
+//
+// WAAROM. In sl_regellog duwden de afwijkingsregels de stopregels uit de ring
+// (in de exports tot 22 okt: 159 afwijkingen tegen 41 stops), en een stopregel
+// had geen positie, dus achteraf was niet na te rekenen bij welk licht de auto
+// stond. Hier krijgt elke stop een eigen ring die door niets anders gevuld wordt.
+//
+// WAT ER PER STOP STAAT (één regel, REGEL_STOP_MS na het stilvallen, alleen met
+// een licht binnen REGEL_STOP_MAX_M; dezelfde stop als in regelTik):
+//   t, la/lo   de stopplek op 5 decimalen (~1 m), k de koers
+//   c100/c50/c30  de STOPLOG_KAND dichtstbijzijnde lichten binnen
+//              STOPLOG_STRAAL_M, gezien vanaf de plek 100/50/30 m vóór de stop:
+//              [id, afstand, peiling tov de koers, merk]
+//   c0         hetzelfde op de stopplek, met de score van vindDichtbijScore x 100
+//   a100..a2, r100..r2  wat de app en de schaduwregel daar toonden
+//   z          de kale score-keuze op de stopplek (zie hieronder)
+//   sl         het slot (hand, auto of -); wr/wt de laatste wissel naar het
+//              getoonde licht en hoeveel s na het stilvallen (negatief = ervoor);
+//              tk/tn de laatste tik: hoeveel s vóór de stop, op welk licht
+//   bij het wegrijden aangevuld: e (het licht bij het wegrijden), du (stopduur,
+//   s), m/md (licht en duur van een meting tijdens de stop, uit de opslaglog)
+//   merk: 'f' fiets of voet, 't' tegen de koers, 'v' gepasseerd
+//
+// WAT DE APP ZONDER JOU HAD GEKOZEN: NIET VOLLEDIG TE LOGGEN. vindDichtbij heeft
+// bijwerkingen (tegenLog schrijft in de opslaglog, peilingDuidelijkBeter zet
+// diagnosewaarden) en geeft het GETOONDE licht voorrang (de hysterese en de
+// uitzonderingen in fietsSluitUit, tegenSluitUit en achterSluitUit). Tijdens een
+// slot is het getoonde licht jouw keuze, dus een extra aanroep zou jouw keuze
+// teruggeven. Wat wel veilig kan: z = de kandidaat met de hoogste
+// vindDichtbijScore (alleen lezen), zonder fiets-, tegen- en gepasseerde lichten.
+// Dat is de eerste keuze van de app zonder voorsprong voor het getoonde licht en
+// zonder de peiling-tiebreak: een benadering, geen naspeling.
+//
+// PRIVACY. De positie blijft op de telefoon, maar staat wel in de meetdata-export
+// en in de backup. Zo'n export bevat dus locatiegegevens.
+//
+// OPSLAG. Ongeveer 0,6 KB per stop, hoogstens STOPLOG_MAX stops (~36 KB); daarna
+// valt de oudste eruit. Een vol quotum staakt alleen dit log (meetRingSchrijf)
+// en kost nooit een meting. PUUR OBSERVEREND: niets hieronder verandert een keuze.
+const STOPLOG_SLEUTEL  = 'sl_stoplog';
+const STOPLOG_MAX      = 60;
+const STOPLOG_KAND     = 3;
+const STOPLOG_STRAAL_M = 150;
+const STOPLOG_SPOOR_N  = 120;   // nieuwe posities, ruim genoeg voor 100 m terugkijken
+let stopStaat = { pos: null, spoor: [], stop: null };
+
+// De lichten rond een plek, dichtstbij eerst. Alleen lezen.
+function stopKandidaten(lat, lon) {
+  const uit = [];
+  if (!Array.isArray(osmCache) || !osmCache.length) return uit;
+  const dLat = STOPLOG_STRAAL_M / 111320, dLon = STOPLOG_STRAAL_M / (111320 * Math.cos(lat * Math.PI / 180));
+  for (const sl of osmCache) {
+    if (typeof sl.lat !== 'number' || typeof sl.lon !== 'number') continue;
+    if (Math.abs(sl.lat - lat) > dLat || Math.abs(sl.lon - lon) > dLon) continue;
+    const d = afstand(lat, lon, sl.lat, sl.lon);
+    if (d <= STOPLOG_STRAAL_M) uit.push({ sl, d });
+  }
+  uit.sort((a, b) => a.d - b.d);
+  return uit;
+}
+function stopMerk(sl) {
+  return (isFietsLicht(sl.id) ? 'f' : '') + (tegenIsTegen(sl) ? 't' : '') + (achterIsVoorbij(sl.id) ? 'v' : '');
+}
+function stopRij(k, lat, lon, koers) {
+  const p = koers != null ? peilingTovRijrichting({ lat, lon }, k.sl, koers) : null;
+  const rij = [Number(k.sl.id), Math.round(k.d), p];
+  const m = stopMerk(k.sl);
+  if (m) rij.push(m);
+  return rij;
+}
+
+function stopLogTik(lat, lon) {
+  try {
+    if (!cacheGeladen || !osmCache.length || typeof lat !== 'number' || typeof lon !== 'number') return;
+    const st = stopStaat, nu = Date.now();
+    const kmh = (typeof snelheidKmh === 'number' && !isNaN(snelheidKmh)) ? snelheidKmh : 0;
+    const app = dichtstbijOSM ? Number(dichtstbijOSM.id) : null;
+    const rg = (regelStaat && regelStaat.keuze != null) ? Number(regelStaat.keuze) : null;
+    const kr = getSmoothedHeading();
+    const koers = (kr != null && Number.isFinite(kr)) ? Math.round(kr) : null;
+    if (!st.pos || st.pos.lat !== lat || st.pos.lon !== lon) {
+      st.pos = { lat, lon };
+      st.spoor.push({ lat, lon, k: koers, a: app, r: rg });
+      if (st.spoor.length > STOPLOG_SPOOR_N) st.spoor.shift();
+    }
+    const stil = kmh < NODE_CHK_STANDSTILL_KMH && stilstandSinds > 0;
+    if (!stil) {
+      if (kmh >= REGEL_MIN_KMH && st.stop) { stopLogAf(st.stop, nu, app); st.stop = null; }
+      return;
+    }
+    if (!st.stop) st.stop = { t0: stilstandSinds, lat, lon, klaar: false, geschreven: false };
+    if (st.stop.klaar || nu - st.stop.t0 < REGEL_STOP_MS) return;
+    st.stop.klaar = true;
+    const S = st.stop;
+    const bij = (id) => { const n = regelNode(id); return n ? afstand(S.lat, S.lon, n.lat, n.lon) : Infinity; };
+    if (Math.min(bij(app), bij(rg)) > REGEL_STOP_MAX_M) return;
+    const r5 = (x) => Math.round(x * 1e5) / 1e5;
+    const rec = { t: S.t0, la: r5(S.lat), lo: r5(S.lon), k: koers };
+    for (const m of [100, 50, 30]) {
+      for (let i = st.spoor.length - 1; i >= 0; i--) {
+        const p = st.spoor[i];
+        if (afstand(p.lat, p.lon, S.lat, S.lon) >= m) {
+          rec['a' + m] = p.a; rec['r' + m] = p.r;
+          rec['c' + m] = stopKandidaten(p.lat, p.lon).slice(0, STOPLOG_KAND).map(k => stopRij(k, p.lat, p.lon, p.k));
+          break;
+        }
+      }
+    }
+    rec.a2 = app; rec.r2 = rg;
+    const met = stopKandidaten(S.lat, S.lon).map(k => {
+      const s = vindDichtbijScore(S.lat, S.lon, koers != null ? koers : 0, k.sl);
+      return { k, s: s ? s.score : null };
+    });
+    rec.c0 = met.slice(0, STOPLOG_KAND).map(({ k, s }) => {
+      const rij = stopRij(k, S.lat, S.lon, koers);
+      if (rij.length === 3) rij.push('');
+      rij.push(s != null ? Math.round(s * 100) : null);
+      return rij;
+    });
+    let z = null, zs = -Infinity;
+    for (const { k, s } of met) { if (s != null && s > zs && !stopMerk(k.sl)) { zs = s; z = Number(k.sl.id); } }
+    rec.z = z;
+    rec.sl = handmatigLockActief ? (stilstandAutoLock ? 'auto' : 'hand') : '-';
+    try {
+      const ring = opslagLees(WISSELLOG_SLEUTEL, []);
+      if (Array.isArray(ring)) for (let i = ring.length - 1; i >= 0; i--) {
+        if (ring[i].t < S.t0 - 120000) break;
+        if (Number(ring[i].naar) === app) { rec.wr = ring[i].r; rec.wt = Math.round((ring[i].t - S.t0) / 100) / 10; break; }
+      }
+    } catch (e) {}
+    try {
+      const ring = opslagLees(TIKLOG_SLEUTEL, []);
+      if (Array.isArray(ring)) for (let i = ring.length - 1; i >= 0; i--) {
+        const x = ring[i];
+        if (!x || x.t > nu) continue;
+        if (x.t < S.t0 - 300000) break;
+        if (x.s === 'tik') { rec.tk = Math.round((S.t0 - x.t) / 100) / 10; if (x.node != null) rec.tn = Number(x.node); break; }
+      }
+    } catch (e) {}
+    for (const k of Object.keys(rec)) if (rec[k] === null || rec[k] === undefined) delete rec[k];
+    meetRingSchrijf(STOPLOG_SLEUTEL, STOPLOG_MAX, rec);
+    S.geschreven = !meetRingGestopt.has(STOPLOG_SLEUTEL);
+  } catch (e) {}
+}
+
+// Bij het wegrijden: welk licht gold er, hoe lang stond de auto, en landde er
+// tijdens de stop een meting (de opslaglog, reden 'ok')?
+function stopLogAf(S, nu, app) {
+  if (!S || !S.geschreven || meetRingGestopt.has(STOPLOG_SLEUTEL)) return;
+  try {
+    const arr = opslagLees(STOPLOG_SLEUTEL, []);
+    if (!Array.isArray(arr) || !arr.length) return;
+    const rec = arr[arr.length - 1];
+    if (!rec || rec.t !== S.t0) return;
+    if (app != null) rec.e = app;
+    rec.du = Math.round((nu - S.t0) / 1000);
+    const log = opslagLees('sl_opslaglog', []);
+    if (Array.isArray(log)) for (let i = log.length - 1; i >= 0; i--) {
+      const x = log[i];
+      if (!x || x.t > nu) continue;
+      if (x.t < S.t0) break;
+      if (x.reden === 'ok' && x.node != null) { rec.m = Number(x.node); if (typeof x.dur === 'number') rec.md = Math.round(x.dur); break; }
+    }
+    if (!opslagSchrijf(STOPLOG_SLEUTEL, arr)) throw new Error('vol');
+  } catch (e) {
+    meetRingGestopt.add(STOPLOG_SLEUTEL);
+    try { localStorage.removeItem(STOPLOG_SLEUTEL); } catch (_) {}
+  }
+}
+
+// ── V11.37.21: WEGGEGOOIDE KLOPTE- EN BIJNA-TIKKEN TELLEN (ALLEEN METEN) ──
+// © 2026 StoplichtIQ — Y. Lemaalem
+//
+// Een KLOPTE- of BIJNA-tik die volgens de app niets toevoegt (klopteIsNoOp,
+// bijnaIsNoOp) wordt niet bewaard; een FOUT-tik altijd. De opslaglog noteert het
+// wel (bevestig_klopte_inert enz.), maar die ring rolt binnen een ritdag over.
+// Deze teller blijft staan, zodat te zien is hoe scheef de verhouding KLOPTE/FOUT
+// daardoor is. Ook de tikken die vroeg doorgelaten werden (de camera zag al
+// groen) tellen mee, apart. Eén kleine sleutel (~120 tekens), groeit niet.
+// Bewust NIET onder sl_bevestig_: alles met dat voorvoegsel wordt gelezen als de
+// bevestigingen van een licht. Een vol quotum: de teller mist een tik, verder
+// niets.
+const INERT_SLEUTEL = 'sl_inertteller';
+function bevestigInertTel(soort) {
+  try {
+    let o = opslagLees(INERT_SLEUTEL, null);
+    if (!o || typeof o !== 'object' || Array.isArray(o)) o = { sinds: Date.now(), klopte: 0, bijna: 0, klopteVroeg: 0, bijnaVroeg: 0 };
+    o[soort] = (o[soort] || 0) + 1;
+    o.laatst = Date.now();
+    opslagSchrijf(INERT_SLEUTEL, o);
+  } catch (e) {}
+}
+
 // ── V11.37.15: DE KOERS BIJ KRUIPEN (ALLEEN METEN) ────────────
 // © 2026 StoplichtIQ — Y. Lemaalem
 //
@@ -9567,6 +9764,8 @@ function preprocessVoorYOLO() {
   // huidigeCropRatio wordt binnen berekenCropRegio bijgewerkt; op een
   // skipCrop-run draait die functie niet, dus dan is er geen ratio.
   detLogRatio = skipCrop ? null : huidigeCropRatio;
+  if (!cropRegio) detLogRatio = null;   // V11.37.21: zonder crop (onder 15 m) geen oude ratio in de detlog
+  detLogGeenCrop = (!skipCrop && !cropRegio) ? (typeof afst === 'number' && afst < 15 ? 'dichtbij' : 'geen') : null;   // V11.37.21: waarom er geen crop was
   if (cropRegio) laatsteCropRegio = cropRegio;
 
   if (!skipCrop && cropHintTeller > 0) {
@@ -13462,11 +13661,13 @@ function bevestigCountdown(categorie) {
       logOpslagMis('bevestig_klopte_vroeg', {
         node: dichtstbijOSM.id, dur: _dur
       });
+      bevestigInertTel('klopteVroeg');   // V11.37.21: alleen tellen
       // bewust GEEN return: de tik telt.
     } else {
       logOpslagMis('bevestig_klopte_inert', {
         node: dichtstbijOSM.id, dur: _dur
       });
+      bevestigInertTel('klopte');   // V11.37.21: alleen tellen
       return;
     }
   }
@@ -13501,9 +13702,11 @@ function bevestigCountdown(categorie) {
     const _bdur = _br ? (Date.now() - _br.t) / 1000 : null;
     if (aiKleur === 'groen') {
       logOpslagMis('bevestig_bijna_vroeg', { node: dichtstbijOSM.id, dur: _bdur });
+      bevestigInertTel('bijnaVroeg');   // V11.37.21: alleen tellen
       // bewust GEEN return: de camera ziet het groen al, de gebruiker heeft gelijk.
     } else {
       logOpslagMis('bevestig_bijna_inert', { node: dichtstbijOSM.id, dur: _bdur });
+      bevestigInertTel('bijna');   // V11.37.21: alleen tellen
       return;
     }
   }
@@ -13754,6 +13957,38 @@ function checkOsmVoorspelling() {
   }
 }
 
+// ── V11.37.21: DE BADGE ZEGT WAT ER BEKEND IS ─────────────────
+// © 2026 StoplichtIQ — Y. Lemaalem
+//
+// De badge telde laadM-records ('12x gezien'), en dat zijn ook nul-records
+// (S2-markeringen van vóór V11.2.0, duur 0) en bevestig-correcties. 'Nieuw'
+// betekende: geen enkel V4-record en geen V5 in dit dagdeel. Een licht dat je
+// alleen op groen passeerde, bleef daardoor 'Nieuw', en dat las als 'kwijt'.
+// Nu drie gevallen, alleen weergave:
+//   'N metingen'               echte roodmetingen (duur > 0, geen bevestig-
+//                              correctie), alle dagdelen; plus ' · V9: Mx' zoals
+//                              voorheen voor de richtingmetingen van dit dagdeel
+//   'Gezien, nog niet geleerd' geen meting, wel een klok- of S2-moment, een
+//                              groenfase of een nul-record
+//   'Nieuw'                    niets bekend
+// Het percentage, het dashboard en de filters tellen zoals ze telden.
+function leerBadgeTekst(nodeId, dd) {
+  let n = 0, gezien = false;
+  for (const d of Object.keys(DD)) {
+    for (const m of laadM(nodeId, d)) {
+      if (m && m.duur > 0 && !String(m.bron || '').startsWith('bevestig')) n++;
+      else if (m) gezien = true;
+    }
+  }
+  const v5 = haalAlleV5MetingenVoorNode(nodeId, dd).length;
+  if (n > 0) return { tekst: (n === 1 ? '1 meting' : n + ' metingen') + (v5 > 0 ? ` · V9: ${v5}x` : ''), bekend: true };
+  if (v5 > 0) return { tekst: `V9: ${v5}x`, bekend: true };
+  const heeft = (k) => { const a = opslagLees(k, null); return Array.isArray(a) && a.length > 0; };
+  if (!gezien) gezien = heeft('sl_klok_' + nodeId) || heeft('sl_s2_' + nodeId)
+    || Object.keys(DD).some(d => heeft(`${LS_PREFIX}${nodeId}_${d}_groen`));
+  return gezien ? { tekst: 'Gezien, nog niet geleerd', bekend: false } : { tekst: 'Nieuw', bekend: false };
+}
+
 // ── LEER KAART ─────────────────────────────────────────────────
 function bijwerkLeerkaart(osm) {
   if (!osm) {
@@ -13784,6 +14019,9 @@ function bijwerkLeerkaart(osm) {
     leerBadge.textContent=`${totM}x gezien${v5Label}`;
     leerBadge.className='leer-nieuw-badge bekend';
   } else { leerBadge.textContent='Nieuw'; leerBadge.className='leer-nieuw-badge'; }
+  const _lb = leerBadgeTekst(osm.id, dd);   // V11.37.21: de tekst hierboven telde ook nul-records; deze telt alleen echte metingen, zie leerBadgeTekst
+  leerBadge.textContent = _lb.tekst;   // V11.37.21
+  leerBadge.className = _lb.bekend ? 'leer-nieuw-badge bekend' : 'leer-nieuw-badge';   // V11.37.21
   leerPctBalk.style.width=pct+'%'; leerPctBalk.style.background=kleur;
   // V9: toon richting-bron in percentage label
   const aanrij = v9AanrijHeading != null ? gpsHeadingNaarWindrichting(v9AanrijSnelheidHeading ?? v9AanrijHeading) : null;
@@ -20179,6 +20417,55 @@ function telAlgemeenVerplaatsbaar(nodeId) {
   return n;
 }
 
+// ── V11.37.21: SAMENVOEGEN GOOIT NOOIT EEN UNIEKE METING WEG ──
+// © 2026 StoplichtIQ — Y. Lemaalem
+//
+// Samenvoegen met Algemeen haalt de V5-emmer weg in de veronderstelling dat
+// elke meting erin ook in V4 staat (de tweeling, zie herstelRvVoorMerge). Dat
+// klopt bijna altijd: in de backups van 11 aug tot 22 okt hadden 448 van de 456
+// V5-metingen hun V4-tweeling, steeds binnen 16 s en in hetzelfde dagdeel. Maar
+// 2 V5-metingen verdwenen zonder tweeling. Daarom nu per meting: staat er geen
+// tweeling, dan eerst een kopie in de V4-emmer van hetzelfde dagdeel (met bron
+// 'merge_v5' als merkteken), en pas dan gaat de V5-emmer weg.
+//
+// Tweeling = een V4-record van dezelfde node (elk dagdeel) met een duur binnen
+// 1 s en een tijd binnen MERGE_TWEELING_MS. Ruim boven de gemeten 16 s, zodat
+// een gewone tweeling nooit gemist wordt; een gemiste tweeling kost hooguit een
+// dubbele meting, een valse tweeling zou een meting kosten. Geen MAX_METINGEN-
+// knip hier: een knip zou een andere meting kunnen kosten.
+// De schrijfactie staat binnen de try van mergeRichtingen: een vol quotum gooit,
+// en dan zet de snapshot alles terug (de V4-emmers zitten in die snapshot).
+const MERGE_TWEELING_MS = 60000;
+function mergeHeeftTweeling(nodeId, rec) {
+  if (!rec || typeof rec.duur !== 'number') return true;   // geen duur: niets te bewaren
+  for (const d of Object.keys(DD)) {
+    let arr;
+    try { arr = JSON.parse(localStorage.getItem(`${LS_PREFIX}${nodeId}_${d}`)); } catch (e) { continue; }
+    if (!Array.isArray(arr)) continue;
+    for (const x of arr) {
+      if (x && typeof x.duur === 'number' && Math.abs(Math.round(x.duur) - Math.round(rec.duur)) <= 1
+          && Math.abs((x.tijd || 0) - (rec.tijd || 0)) <= MERGE_TWEELING_MS) return true;
+    }
+  }
+  return false;
+}
+function mergeBewaarWezen(nodeId, dd, bronArr) {
+  const wezen = (bronArr || []).filter(r => r && r.duur > 0 && !mergeHeeftTweeling(nodeId, r));
+  if (!wezen.length) return 0;
+  const sleutel = `${LS_PREFIX}${nodeId}_${dd}`;
+  let arr;
+  try { arr = JSON.parse(localStorage.getItem(sleutel)); } catch (e) { arr = null; }
+  if (!Array.isArray(arr)) arr = [];
+  for (const r of wezen) {
+    const kopie = { duur: r.duur, tijd: r.tijd, gewicht: r.gewicht ?? 1.0, bron: 'merge_v5' };
+    if (r.zo === 1 || r.zo === 0) kopie.zo = r.zo;
+    arr.push(kopie);
+  }
+  localStorage.setItem(sleutel, JSON.stringify(arr));   // gooit bij een vol quotum: rollback in mergeRichtingen
+  logOpslagMis('merge_v5_kopie', { node: nodeId, dur: wezen.length });
+  return wezen.length;
+}
+
 function mergeRichtingen(nodeId, bron, doel) {
   // 1. undo-snapshot van alle betrokken sleutels
   //
@@ -20240,6 +20527,7 @@ function mergeRichtingen(nodeId, bron, doel) {
       if (doel === 'ALGEMEEN') {
         // De metingen staan al in V4 en tellen daar sinds herstelRvVoorMerge
         // hierboven ook weer méé — pas daarmee is dit werkelijk verliesloos.
+        mergeBewaarWezen(nodeId, d, bronArr);   // V11.37.21: een meting zonder V4-tweeling eerst naar V4, zie daar
         localStorage.removeItem(bronKey);
       } else {
         const doelKey = v5Sleutel(nodeId, doel.aanrij, doel.afrij, d);
@@ -21573,6 +21861,7 @@ let detLogBest = null;          // V11.37.5: de beste kandidaat van de laatste r
 let detLogStop = false;   // true na quota-fout: schrijven definitief gestaakt
 let detLogArr  = null;    // in-memory buffer; pas gevuld bij de eerste schrijfactie
 let detLogGegate = 0;     // V11.34.2: gegate pogingen sinds de vorige run
+let detLogGeenCrop = null;   // V11.37.21: waarom deze run geen crop had, zie preprocessVoorYOLO
 
 function detLogSchrijf() {
   // V11.34.2: het aantal gaat met DEZE run mee en begint daarna opnieuw, ook
@@ -21615,6 +21904,7 @@ function detLogSchrijf() {
       inf:    num(gemiddeldeInferentieTijd)
     };
     if (gN > 0) rec.gN = gN;   // V11.34.2: alleen als er gegate pogingen waren
+    if (detLogGeenCrop) rec.gc = detLogGeenCrop;   // V11.37.21: geen crop in deze run (ratio leeg): 'dichtbij' = onder 15 m, 'geen' = anders
     if (stil) { detLogStilLaatst = Date.now(); rec.stil = 1; Object.assign(rec, detLogBestVelden()); }   // V11.37.5: zie detLogBestVelden
     if (detLogArr === null) {
       try { detLogArr = JSON.parse(localStorage.getItem('sl_detlog')) || []; }
@@ -23501,6 +23791,7 @@ async function onGPS(pos) {
   if (cacheGeladen) meldNodeVermoeden(lat, lon);    // V11.18.12: zie daar
   wisselNa(lat, lon);   // V11.36.4: meetregel, beslist niets
   regelTik(lat, lon);   // V11.37.1: meetregel, beslist niets
+  stopLogTik(lat, lon);   // V11.37.21: meetregel, beslist niets
   refreshStadIndienNodig(lat, lon);
 
   // V9.0: Nadering detectie + delayed write

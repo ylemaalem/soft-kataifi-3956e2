@@ -37,6 +37,8 @@
 //      document.head.appendChild(s);
 //      s.onload = () => testAchter().then(r => console.table(r.regels));
 // ═══════════════════════════════════════════════════════════════
+// V11.37.21: de regels met dit merkteken weg, zodat de vergelijkingen hieronder de functies van vóór V11.37.21 blijven toetsen (zie test_meetwerk21)
+function zonderV113721(s) { return String(s).split('\n').filter(l => !/V11\.37\.21(?!\d)/.test(l)).join('\n'); }
 
 // ── Draait IN een iframe: een rit met de echte onGPS ─────────
 // opt: { nodes: [{ id, x, y }], start, slot: 'tik'|'lijst'|null, lamp, lampZiet, koersen, uitAchter, v9: { node, duur },
@@ -437,7 +439,7 @@ async function testAchter() {
   eis('AR11b updateDichtbij: één regel met merkteken; zonder die regel byte-gelijk aan V11.37.3 (e82d3c0 / 11914)',
       merk(updateDichtbij) === 1 && fnv(zonder374(terugV11378(updateDichtbij))) === 'e82d3c0' && zonder374(terugV11378(updateDichtbij)).length === 11914,
       '1 regel, e82d3c0 / 11914', merk(updateDichtbij) + ' regel(s), ' + fnv(zonder374(terugV11378(updateDichtbij))) + ' / ' + zonder374(terugV11378(updateDichtbij)).length);
-  const og = zonder374(terugV11374(zonderV113711(onGPS)));
+  const og = zonder374(terugV11374(zonderV113711(zonderV113721(onGPS))));
   eis('AR11c onGPS: vijf regels met merkteken (de aanroep en vier V9-regels); met die vier terug en de aanroep weg byte-gelijk aan V11.37.3 (e1da9bf9 / 14694)',
       merk(onGPS) === 5 && fnv(og) === 'e1da9bf9' && og.length === 14694, '5 regels, e1da9bf9 / 14694', merk(onGPS) + ' regels, ' + fnv(og) + ' / ' + og.length);
   const V11373 = { vindDichtbijScore: ['bc9b7937', 2105], checkHandLockVerval: ['2df4f7ed', 5513], checkNodeCorrectieStilstand: ['8c801fd8', 4751],

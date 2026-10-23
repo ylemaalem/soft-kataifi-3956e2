@@ -35,6 +35,8 @@
 //      document.head.appendChild(s);
 //      s.onload = () => testKoerslog().then(r => console.table(r.regels));
 // ═══════════════════════════════════════════════════════════════
+// V11.37.21: de regels met dit merkteken weg, zodat de vergelijkingen hieronder de functies van vóór V11.37.21 blijven toetsen (zie test_meetwerk21)
+function zonderV113721(s) { return String(s).split('\n').filter(l => !/V11\.37\.21(?!\d)/.test(l)).join('\n'); }
 
 // ── Draait IN een iframe: een rit met de echte onGPS ─────────
 // opt: { nodes, start, tik, zonderMeting, punten: [{ x, y, kmh, koers }] }; kmh 0 = stilstaan, koers leeg = geen koers
@@ -345,7 +347,7 @@ async function testKoerslog() {
   const telAf = Object.entries(V113713).filter(([n, [h, l, m]]) => merk(window[n]) !== m).map(([n]) => n + ' ' + merk(window[n]));
   eis('KL11a twee functies krijgen regels met merkteken V11.37.15: één in onGPS (de aanroep), twee in exporteerMeetdata (de bak)',
       telAf.length === 0, 'precies zoveel', telAf.join(', ') || 'precies zoveel');
-  const anders = Object.entries(V113713).filter(([n, [h, l]]) => { const s = zonderV113715(window[n]); return fnv(s) !== h || s.length !== l; }).map(x => x[0]);
+  const anders = Object.entries(V113713).filter(([n, [h, l]]) => { const s = zonderV113715(zonderV113721(window[n])); return fnv(s) !== h || s.length !== l; }).map(x => x[0]);
   eis('KL11b zonder die regels (alle drie nieuw) byte-gelijk aan V11.37.13', anders.length === 0, 'geen afwijking', anders.join(', ') || 'geen');
   // In de bron van de app: buiten het commentaar staat V11.37.15 alleen in de versie, de bak (twee regels) en de aanroep.
   let code11 = [];
