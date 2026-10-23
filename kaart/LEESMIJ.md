@@ -32,9 +32,11 @@ Eén keer per maand is genoeg (gemeten: in 45 dagen veranderde 1,6% van de licht
    ```
    (ongeveer 1,4 GB; de md5 moet kloppen).
 2. Op een nieuwe tak vanaf main: `python kaart/maak.py <uittreksel.osm.pbf>` (pyosmium nodig: `python -m pip install osmium`; ongeveer 4 minuten). Het script stopt als het aantal lichten meer dan 2% of het aantal wegen meer dan 3% verandert.
-3. De toetsen draaien, in elk geval `test_kaartbestand.js` en `test_privacyscan.js`, en daarna alle suites.
-4. Committen met alleen aantallen in het bericht (geen namen of nummers), en een rapport schrijven.
-5. Pushen pas nadat Claude het rapport beoordeeld heeft en Younes "ga verder" zegt.
+3. Wees-leerdata tellen, vóór het publiceren (sinds V11.37.21). Neem de nieuwste backup van Younes en zoek elk lichtnummer met leerdata (`sl_v4_`, `sl_v5_`, `sl_bevestig_`, `sl_klok_`, met een meting met duur > 0) op in de nieuwe `lichten.json`. Ontbreekt een nummer, dan heeft OSM dat licht opnieuw ingetekend: zoek per ontbrekend nummer een kandidaat binnen 15 m in de nieuwe kaart. Rapporteer dit eerst aan Younes (aantal nummers, aantal metingen, met en zonder kandidaat), vóór er iets gepubliceerd wordt. De leerdata zelf wordt niet aangeraakt. Bij de kaart van V11.37.20 waren het er 0 (486 nummers met metingen, alle 486 aanwezig).
+4. De toetsen draaien, in elk geval `test_kaartbestand.js` en `test_privacyscan.js`, en daarna alle suites.
+5. Committen met alleen aantallen in het bericht (geen namen of nummers), en een rapport schrijven.
+6. Pushen pas nadat Claude het rapport beoordeeld heeft en Younes "ga verder" zegt.
+7. Na de push op de echte iPhone de vervangroute toetsen: start de app via het icoon en controleer in de startlog dat `kbv` op `nieuw` staat en dat de kaart uit het bestand komt. Die route (een nieuwe versie vervangt de oude) is in het veld nog niet doorlopen; tot 22 okt waren alleen de eerste start en 'zelfde' gezien (34 starts, 33 keer zelfde).
 
 Gebruik het uittreksel daarna niet meer: het mag weg (1,4 GB).
 
