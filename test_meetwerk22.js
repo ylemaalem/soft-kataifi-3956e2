@@ -8,7 +8,8 @@
 //       "nog ~Y s" bij de p90, nagerekend op een kleine emmer
 //  MV2  de schaduw route 2 (sl_m5log): alleen bij een rode fase zonder gezien
 //       begin; één regel per rode fase, met de echte duur bij groen; een vorige
-//       die nooit afsloot krijgt e 'open', groen op een ander licht e 'ander'
+//       die nooit afsloot krijgt e 'open', groen op een ander licht e 'ander';
+//       een bron met een pijl wordt Latin-1 opgeslagen (MV2f)
 //  MV3  startCd: met en zonder de schaduw dezelfde countdown op het scherm; de
 //       schaduw draagt het getoonde getal; rood naar groen sluit hem af
 //  MV4  einde gemist: een rode fase zonder groen krijgt een regel x:'eg' in de
@@ -28,9 +29,13 @@
 //  MV11 regressie: zonder de regels met merkteken V11.37.22 zijn de acht
 //       geraakte functies byte-gelijk aan V11.37.21 (6b4bcd9), en de leer- en
 //       keuzefuncties zijn niet aangeraakt
+//  MV12 een fout IN de nieuwe code (een hulpfunctie gooit, of het lezen en
+//       schrijven van de nieuwe logs gooit) raakt de countdown, de fase, de
+//       leerdata, de metingen en de keuze per GPS-tik niet; de detlog loopt door
 //
 //  Alle plekken en nummers zijn bedacht: een rechte weg naar het noorden vanaf
-//  een basispunt (52.0000, 5.0000), lichten met nummers 96022xx.
+//  een basispunt (52.0000, 5.0000), lichten met nummers 96022xx (MV12: verse
+//  nummers vanaf 900000000, per run anders, zodat er geen restdata meetelt).
 //
 //  DRAAIEN
 //    python testserver.py 8765     (in de repo-map; wachtrij 128, zie testserver.py)
@@ -163,7 +168,95 @@ async function meetwerk22Binnen(soort, opt) {
     const naS = lees(PASSAGE_SLEUTEL);
     return { naP, naQ, naR, naS, gestopt: meetRingGestopt.has(PASSAGE_SLEUTEL), sleutelEr: localStorage.getItem(PASSAGE_SLEUTEL) !== null };
   }
+  if (soort === 'pijl') {
+    dichtstbijOSM = { id: N, lat: 52, lon: 5, afstand: 30 };
+    fase = 'rood'; zagRoodOvergang = false; faseStart = performance.now() - 1000; cdWallStart = 555; activeCdDoel = 30;
+    m5Start(N, 'dag', null, null, 'V5 ' + String.fromCharCode(0x2191));
+    m5Sluit(20, 'groen');
+    return { rec: lees(M5_SLEUTEL).slice(-1)[0] || null, ruw: localStorage.getItem(M5_SLEUTEL) || '' };
+  }
+
+  if (soort === 'gif') return await meetwerk22Gif(opt);
   return null;
+}
+
+// ── MV12: draait IN een iframe. Dezelfde scenario's met de nieuwe haken uit ('zonder'),
+// met een fout binnen de nieuwe code ('gifA': m5Rest, passageKleur en stopTwijfel gooien)
+// of met een fout bij het lezen en schrijven van de nieuwe logs ('gifB'). ──
+async function meetwerk22Gif(opt) {
+  const stand = opt.stand, N = opt.N;
+  window.__gifTel = 0;
+  const gooi = (wat) => () => { window.__gifTel++; throw new Error('gif ' + wat); };
+  if (stand === 'zonder') {
+    window.m5Start = () => {}; window.m5Sluit = () => {}; window.eindeGemistLog = () => {};
+    window.eindeGemistHersteld = () => {}; window.passageTik = () => {}; window.stopTwijfel = () => null;
+  } else if (stand === 'gifA') {
+    window.m5Rest = gooi('m5Rest'); window.passageKleur = gooi('passageKleur'); window.stopTwijfel = gooi('stopTwijfel');
+  } else if (stand === 'gifB') {
+    const nieuw = new Set([M5_SLEUTEL, PASSAGE_SLEUTEL]);
+    const mrs = meetRingSchrijf, ol = opslagLees, os = opslagSchrijf;
+    window.meetRingSchrijf = (k, m, r) => { if (nieuw.has(k)) { window.__gifTel++; throw new Error('gif ' + k); } return mrs(k, m, r); };
+    window.opslagLees = (k, d) => { if (nieuw.has(k)) { window.__gifTel++; throw new Error('gif ' + k); } return ol(k, d); };
+    window.opslagSchrijf = (k, v) => { if (nieuw.has(k)) { window.__gifTel++; throw new Error('gif ' + k); } return os(k, v); };
+  }
+  if (opt.scen === 'rit') {
+    const r = await meetwerkRitBinnen(opt.rit);
+    return { gifTel: window.__gifTel,
+      kern: { keuze: r.rij.map(x => [x.y, x.app, x.slot, x.auto, x.regel]),
+              logs: [(r.wissel || []).map(x => [x.t, x.van, x.naar, x.r, x.kmh, x.pl]), (r.tik || []).map(x => [x.s, x.reden || x.tak || '']), r.regellog, (r.opslag || []).map(x => [x.reden, x.node])],
+              stop: (r.stop || []).map(x => { const y = Object.assign({}, x); delete y.tw; return y; }) } };
+  }
+  let klok = 1790000000000, pn = 5000000;
+  Date.now = () => klok;
+  performance.now = () => pn;
+  if (opt.scen === 'det') {
+    detLogStop = false; detLogArr = null; localStorage.setItem('sl_detlog', '[]');
+    detLogAfst = 50; snelheidKmh = 30; detLogBest = { cx: 320 };
+    const voor = laatsteDetectiesStelsel;
+    laatsteDetectiesStelsel = { get s() { window.__gifTel++; throw new Error('gif stelsel'); }, px: 0, py: 0, x: 0, y: 0 };
+    let ontsnapt = null;
+    try { detLogSchrijf(); } catch (e) { ontsnapt = String(e && e.message || e); }
+    const naGif = JSON.parse(localStorage.getItem('sl_detlog') || '[]').length;
+    laatsteDetectiesStelsel = voor;
+    try { detLogSchrijf(); } catch (e) { ontsnapt = ontsnapt || String(e && e.message || e); }
+    return { ontsnapt, naGif, naGewoon: JSON.parse(localStorage.getItem('sl_detlog') || '[]').length, gestopt: detLogStop, gifTel: window.__gifTel };
+  }
+  const dd = huidigDDActief();
+  opslagSchrijf('sl_v4_' + N + '_' + dd, [20, 40, 40, 60].map((d, i) => ({ duur: d, tijd: klok - 1000 * (i + 1), gewicht: 1 })));
+  const staat = () => ({ fase, fs: faseStart === null ? null : Math.round(pn - faseStart), node: faseNodeId, bev: faseBevestigd, zag: zagRoodOvergang,
+    lf: laatsteFase, lfs: laatsteFaseStart === null ? null : Math.round(pn - laatsteFaseStart), lfn: laatsteFaseNodeId,
+    doel: activeCdDoel, modus: activeCdModus, min: activeCdMin, max: activeCdMax, bron: huidigCdBron, cdWall: cdWallStart, cdNode: cdWallNodeId,
+    getal: cdPillGetal.textContent, label: cdPillLabel.textContent, actief: cdPill.classList.contains('actief') });
+  const stappen = [];
+  const stap = (naam, fn) => { let fout = null; try { fn(); } catch (e) { fout = String(e && e.message || e); } stappen.push({ naam, fout, staat: staat() }); };
+  const licht = () => { dichtstbijOSM = { id: N, lat: 52, lon: 5, afstand: 30 }; };
+  const rood = (zag, sec) => { licht(); fase = 'rood'; faseStart = pn - sec * 1000; faseNodeId = String(N); zagRoodOvergang = zag; };
+  if (opt.scen === 'cd') {
+    rood(false, 0.5); cdWallStart = null; cdWallNodeId = null; activeCdDoel = 0;
+    stap('startCd', () => startCd());
+    klok += 25000; pn += 25000;
+    stap('rood naar groen (meting)', () => verwerkFase('groen', true, 0.9));
+    klok += 2000; pn += 2000;
+    stap('groen', () => verwerkFase('groen', true, 0.9));
+  }
+  if (opt.scen === 'eg') {
+    rood(true, 12); stap('beeindigFase wissel', () => beeindigFase('wissel'));
+    rood(false, 3); cdWallStart = 444; activeCdDoel = 40;
+    stap('startCd zonder gezien begin', () => startCd());
+    klok += 6000; pn += 6000;
+    stap('resetNeutraal uitval', () => resetNeutraal('dropout'));
+    laatsteFase = 'rood'; laatsteFaseStart = pn - 6000; laatsteFaseNodeId = String(N); licht();
+    stap('verwerkFase rood (terugkeer)', () => verwerkFase('rood', true, 0.9));
+    klok += 20000; pn += 20000;
+    stap('rood naar groen (meting)', () => verwerkFase('groen', true, 0.9));
+    rood(false, 20); stap('beeindigFase geen', () => beeindigFase('geen'));
+    rood(false, 4); stap('resetNeutraal startscherm', () => resetNeutraal('startscherm'));
+  }
+  const leer = {};
+  for (let i = 0; i < localStorage.length; i++) { const k = localStorage.key(i); if (/^sl_(v4|v5|v10|passief|klok|s2|bevestig|richting|enkelricht|neutraal)_/.test(k) && k.includes(String(N))) leer[k] = localStorage.getItem(k); }
+  let opslag = [];
+  try { opslag = (JSON.parse(localStorage.getItem('sl_opslaglog')) || []).filter(x => String(x.node) === String(N)).map(x => [x.reden, x.node, x.dur]); } catch (e) { opslag = 'onleesbaar'; }
+  return { gifTel: window.__gifTel, kern: { stappen, leer, opslag } };
 }
 
 async function testMeetwerk22() {
@@ -272,6 +365,13 @@ async function testMeetwerk22() {
     eis('MV2e een licht zonder metingen: wel een regel (nm 0, zonder q), met de echte duur', !!m5.leeg && m5.leeg.nm === 0 && !('q' in m5.leeg) && m5.leeg.w === 12,
         'nm 0, w 12', kort(m5.leeg));
   }
+
+  // ═══ MV2f — geen teken boven U+00FF in de schaduw ═════════════
+  const pijl = await inFrame((w) => w.meetwerk22Binnen('pijl'));
+  const BS = String.fromCharCode(92);
+  eis('MV2f een bron met een pijl (V5 en U+2191) gaat via latin1Veilig de schaduw in: geen teken boven U+00FF in sl_m5log, anders telt Safari de hele sleutel dubbel',
+      !pijl.fout && !!pijl.rec && pijl.rec.b === 'V5 ' + BS + 'u2191' && pijl.rec.w === 20 && pijl.ruw.length > 0 && ![...pijl.ruw].some(c => c.charCodeAt(0) > 255),
+      'V5 ' + BS + 'u2191, alles Latin-1', pijl.fout || kort(pijl.rec));
 
   // ═══ MV3 — startCd: het scherm verandert niet ════════════════
   const met = await inFrame((w) => w.meetwerk22Binnen('startcd', { groen: true }));
@@ -454,6 +554,36 @@ async function testMeetwerk22() {
   const vol = await inFrame((w) => w.meetwerk22Binnen('passage', { vol: true }));
   eis('MV10b een vol quotum bij de passagelog: alleen dat log stopt (sleutel weg); de passage-rekening crasht niet',
       !vol.fout && vol.gestopt === true && vol.sleutelEr === false, 'gestopt, weg', vol.fout || kort({ g: vol.gestopt, er: vol.sleutelEr }));
+
+  // ═══ MV12 — een fout in de nieuwe code raakt niets ═══════════
+  // Elke stand in een eigen iframe met een vers licht (geen restdata); vergeleken met de
+  // stand 'zonder' (de haken uit = V11.37.21) via JSON met gesorteerde sleutels.
+  const canon = (x) => JSON.stringify(x, (k, v) => (v && typeof v === 'object' && !Array.isArray(v)) ? Object.fromEntries(Object.keys(v).sort().map(q => [q, v[q]])) : v);
+  const basis12 = 900000000 + Math.floor(Math.random() * 1e6) * 100;
+  const STANDEN12 = ['zonder', 'gifA', 'gifB'];
+  const uit12 = {}, tel12 = {}, fout12 = [];
+  for (const scen of ['cd', 'eg', 'rit']) {
+    uit12[scen] = {}; tel12[scen] = {};
+    for (const stand of STANDEN12) {
+      const N12 = basis12 + 10 * STANDEN12.indexOf(stand) + (scen === 'eg' ? 1000 : 0);
+      const opt12 = { stand, scen, N: N12, rit: scen === 'rit' ? ritten[0][1] : null };
+      const r = await inFrame((w) => w.meetwerk22Binnen('gif', opt12));
+      if (r.fout) { fout12.push(scen + '/' + stand + ': ' + r.fout); continue; }
+      uit12[scen][stand] = canon(r.kern).split(String(N12)).join('N');
+      tel12[scen][stand] = r.gifTel;
+      for (const s of (r.kern.stappen || [])) if (s.fout) fout12.push(scen + '/' + stand + ' ' + s.naam + ': ' + s.fout);
+    }
+  }
+  const gelijk12 = (scen) => !!uit12[scen].zonder && STANDEN12.every(s => uit12[scen][s] === uit12[scen].zonder);
+  eis('MV12a een fout binnen de nieuwe code (m5Rest, passageKleur, stopTwijfel) of bij het lezen en schrijven van sl_m5log en sl_passagelog: de countdown (doel, modus, band, bron, pill), de fase na elke stap, de leerdata en de metingen blijven gelijk aan zonder de haken',
+      fout12.length === 0 && gelijk12('cd') && gelijk12('eg') && tel12.cd.gifA >= 1 && tel12.cd.gifB >= 1 && tel12.eg.gifA >= 1 && tel12.eg.gifB >= 4,
+      'gelijk, en de fouten zijn echt gegooid', kort({ fout12, tel: [tel12.cd, tel12.eg], gelijk: [gelijk12('cd'), gelijk12('eg')] }));
+  eis('MV12b dezelfde fouten in een rit met de echte onGPS (stop voor een licht): in elke GPS-tik dezelfde keuze, hetzelfde slot en dezelfde wissel-, tik-, regel-, opslag- en stoplog',
+      gelijk12('rit') && tel12.rit.gifA >= 10 && tel12.rit.gifB >= 1, 'gelijk', kort({ tel: tel12.rit, gelijk: gelijk12('rit') }));
+  const det12 = await inFrame((w) => w.meetwerk22Binnen('gif', { stand: 'met', scen: 'det', N: basis12 + 5000 }));
+  eis('MV12c een fout in de nieuwe detlog-velden ontsnapt niet: alleen die ene detlogregel valt weg, het log loopt door',
+      !det12.fout && det12.ontsnapt === null && det12.naGif === 0 && det12.naGewoon === 1 && det12.gestopt === false && det12.gifTel === 1,
+      'geen fout, 0 dan 1', kort(det12));
 
   // ═══ MV11 — regressie ════════════════════════════════════════
   const V113721 = { startCd: ['490b39a0', 7140], verwerkFase: ['6a38a072', 12634], beeindigFase: ['7dc8111e', 1286], resetNeutraal: ['7eea8c30', 3601],

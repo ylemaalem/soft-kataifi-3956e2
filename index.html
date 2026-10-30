@@ -9293,7 +9293,7 @@ function m5Start(nodeId, dd, aanrijRichting, preSelectieAfrij, bron) {
     const m = m5Metingen(nodeId, dd, aanrijRichting, preSelectieAfrij, bron) || [];
     const paren = [];
     for (const x of m) { if (!x || !(x.duur > 0)) continue; const w = gew(x.tijd); if (w > 0) paren.push({ d: x.duur, w }); }
-    const rec = { t: Date.now(), n, dd, b: bron || null, nm: paren.length,
+    const rec = { t: Date.now(), n, dd, b: bron ? latin1Veilig(bron) : null, nm: paren.length,   // latin1Veilig: 'V5 ↑' zou Safari de hele sleutel dubbel laten tellen
                   g: activeCdDoel > 0 ? Math.round(activeCdDoel) : null,
                   vs: faseStart !== null ? Math.round((performance.now() - faseStart) / 1000) : null };
     if (paren.length) {
