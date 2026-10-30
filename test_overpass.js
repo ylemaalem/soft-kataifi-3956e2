@@ -300,7 +300,7 @@ async function testOverpass() {
     tegenKoers: ['67e36df', 149], tegenLog: ['75f6b5b4', 569], vindDichtbijScore: ['bc9b7937', 2105], achterSluitUit: ['6b7a87d8', 383],
     checkNodeCorrectieStilstand: ['8c801fd8', 4751], selecteerNodeHandmatig: ['8c3e7846', 2480], haalStraatnamenOp: ['2a318437', 1102],
     berekenClusterNodes: ['3c2246d1', 1361], migratieSlPos: ['2f5621af', 396] };
-  const anders2 = Object.entries(ONGEWIJZIGD).filter(([n, [h, l]]) => { const s = terugV113713(window[n]); return fnv(s) !== h || s.length !== l; }).map(x => x[0]);   // V11.37.13: terugV113713
+  const anders2 = Object.entries(ONGEWIJZIGD).filter(([n, [h, l]]) => { const s = terugV113713(zonderV113721(window[n])); return fnv(s) !== h || s.length !== l; }).map(x => x[0]);   // V11.37.13: terugV113713; V11.37.21: het logveld n in logOpslagMis eruit
   eis('OV11c eenentwintig functies die V11.37.12 niet raakt (de lichtkeuze, het fietsfilter zelf, de tegenrichting-regel, het log, de kaartverwerking): byte-gelijk aan V11.37.11',
       anders2.length === 0, 'geen afwijking', anders2.join(', ') || 'geen');
 

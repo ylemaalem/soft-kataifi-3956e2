@@ -35,7 +35,7 @@ async function testMeetregelsCorrectie() {
   const fnv = (s) => { let h = 0x811c9dc5; for (let i = 0; i < s.length; i++) { h ^= s.charCodeAt(i); h = Math.imul(h, 0x01000193) >>> 0; } return h.toString(16); };
   const slaap = (ms) => new Promise(r => setTimeout(r, ms));
   // V11.36.0: ook de twee A2-regels (gedrag, getoetst in test_naderingsbewijs NB16) gaan eruit.
-  const zonderMeet = (f) => String(f).split('\n').filter(l => !/V11\.34\.[3-9](?!\d)|V11\.36\.0(?!\d) A2|V11\.37\.5(?!\d)|V11\.37\.11(?!\d)/.test(l)).join('\n');   // V11.37.5: meetregels, zie test_knoppen; V11.37.11: het logveld tegen (test_tegenrichting)
+  const zonderMeet = (f) => String(f).split('\n').filter(l => !/V11\.34\.[3-9](?!\d)|V11\.36\.0(?!\d) A2|V11\.37\.5(?!\d)|V11\.37\.11(?!\d)|V11\.37\.21(?!\d)/.test(l)).join('\n');   // V11.37.5: meetregels, zie test_knoppen; V11.37.11: het logveld tegen (test_tegenrichting); V11.37.21: het logveld n (test_meetwerk21)
 
   // De opslag van deze pagina gaat sleutel voor sleutel terug.
   const snap = {};

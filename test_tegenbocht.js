@@ -430,7 +430,7 @@ async function testTegenbocht() {
     selecteerNodeHandmatig: ['8c3e7846', 2480], corrigeerNodeAutomatisch: ['17ca8090', 4208], checkHandLockVerval: ['2df4f7ed', 5513],
     checkHandLockPassage: ['7f001264', 1768], checkTikSlotSnel: ['d3a8edbe', 2071], checkNaderingsCorrectie: ['6aeb87b3', 3595], geenLichtZetten: ['5c1824fd', 1675],
     achterTik: ['e9e105a3', 1583], regelTik: ['9c1b361b', 3087], downloadOSM: ['b47c263f', 4666] };   // V11.37.18: twee commentaarregels in downloadOSM zonder plaatsnaam (was e89feb02/4655); verder byte-gelijk, zie test_kaartbewaar KB12
-  const anders2 = Object.entries(ONGEWIJZIGD).filter(([n, [h, l]]) => { const s = zonderV113717(window[n]); return fnv(s) !== h || s.length !== l; }).map(x => x[0]);   // V11.37.17: de startlog (test_startlog) eerst eruit
+  const anders2 = Object.entries(ONGEWIJZIGD).filter(([n, [h, l]]) => { const s = zonderV113717(zonderV113721(window[n])); return fnv(s) !== h || s.length !== l; }).map(x => x[0]);   // V11.37.17: de startlog (test_startlog) eerst eruit; V11.37.21: het logveld n in logOpslagMis
   eis('TB11c drieëntwintig functies die V11.37.13 niet raakt (de puntentelling, het puur dichtstbijzijnde licht, de schaduwregel, het fietsfilter, de tegenrichting-regel zelf, de correcties, de loslaatroutes, de lijst, de kaart, het log): byte-gelijk aan V11.37.12',
       anders2.length === 0, 'geen afwijking', anders2.join(', ') || 'geen');
 

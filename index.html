@@ -3183,6 +3183,7 @@ function logOpslagMis(reden, extra) {
     if (e.resetAf != null)  rec.resetAf  = Math.round(e.resetAf);              // V11.34.3
     if (e.resetNa != null)  rec.resetNa  = Math.round(e.resetNa * 10) / 10;    // V11.34.3
     if (e.rPct != null)     rec.rPct     = e.rPct;                             // V11.34.3
+    if (e.n != null)        rec.n        = e.n;   // V11.37.21: een aantal (merge_v5_kopie), los van dur dat een duur is
     if (anderLicht) {   // V11.37.5: zie bij buurGek
       rec.gt = String(dichtstbijOSM.id);   // V11.37.5
       if (huidigePos && typeof logNode.lat === 'number') rec.afN = num(afstand(huidigePos.lat, huidigePos.lon, logNode.lat, logNode.lon));   // V11.37.5
@@ -8937,7 +8938,7 @@ function regelTik(lat, lon) {
 // © 2026 StoplichtIQ — Y. Lemaalem
 //
 // WAAROM. In sl_regellog duwden de afwijkingsregels de stopregels uit de ring
-// (in de exports tot 22 okt: 159 afwijkingen tegen 41 stops), en een stopregel
+// (in de exports tot de bouw: 159 afwijkingen tegen 41 stops), en een stopregel
 // had geen positie, dus achteraf was niet na te rekenen bij welk licht de auto
 // stond. Hier krijgt elke stop een eigen ring die door niets anders gevuld wordt.
 //
@@ -20422,23 +20423,30 @@ function telAlgemeenVerplaatsbaar(nodeId) {
 //
 // Samenvoegen met Algemeen haalt de V5-emmer weg in de veronderstelling dat
 // elke meting erin ook in V4 staat (de tweeling, zie herstelRvVoorMerge). Dat
-// klopt bijna altijd: in de backups van 11 aug tot 22 okt hadden 448 van de 456
-// V5-metingen hun V4-tweeling, steeds binnen 16 s en in hetzelfde dagdeel. Maar
-// 2 V5-metingen verdwenen zonder tweeling. Daarom nu per meting: staat er geen
-// tweeling, dan eerst een kopie in de V4-emmer van hetzelfde dagdeel (met bron
-// 'merge_v5' als merkteken), en pas dan gaat de V5-emmer weg.
+// klopt bijna altijd: in alle backups tot de bouw van deze release hadden 448
+// van de 456 V5-metingen hun V4-tweeling, steeds binnen 16 s en in hetzelfde
+// dagdeel. Maar 2 V5-metingen verdwenen zonder tweeling. Daarom nu per meting:
+// staat er geen tweeling, dan eerst een kopie in de V4-emmer van hetzelfde
+// dagdeel (met bron 'merge_v5' als merkteken), en pas dan gaat de V5-emmer weg.
 //
-// Tweeling = een V4-record van dezelfde node (elk dagdeel) met een duur binnen
-// 1 s en een tijd binnen MERGE_TWEELING_MS. Ruim boven de gemeten 16 s, zodat
-// een gewone tweeling nooit gemist wordt; een gemiste tweeling kost hooguit een
-// dubbele meting, een valse tweeling zou een meting kosten. Geen MAX_METINGEN-
-// knip hier: een knip zou een andere meting kunnen kosten.
+// Tweeling = een V4-record van dezelfde node met een duur binnen 1 s en een
+// tijd binnen MERGE_TWEELING_MS, eerst gezocht in hetzelfde dagdeel en daarna
+// in de andere (een rode fase over een dagdeelgrens heen). 25 s: ruim boven de
+// gemeten 16 s, zodat een gewone tweeling niet gemist wordt, en ruim onder één
+// verkeerslichtcyclus. Met 60 s kon bij een vaste cyclus van 50 s de VORIGE
+// rode fase (zelfde duur, 50 s eerder) voor tweeling doorgaan, en dan ging de
+// meting alsnog verloren. Een gemiste tweeling kost hooguit een dubbele meting,
+// een valse tweeling kost een meting. Geen MAX_METINGEN-knip hier: een knip zou
+// een andere meting kunnen kosten.
+// De kopie heeft geen veld 'richting' (een V5-record heeft geen koers). De enige
+// lezer van dat veld, berekenDekkingScore, slaat records zonder richting over.
 // De schrijfactie staat binnen de try van mergeRichtingen: een vol quotum gooit,
 // en dan zet de snapshot alles terug (de V4-emmers zitten in die snapshot).
-const MERGE_TWEELING_MS = 60000;
-function mergeHeeftTweeling(nodeId, rec) {
+const MERGE_TWEELING_MS = 25000;
+function mergeHeeftTweeling(nodeId, rec, dd) {
   if (!rec || typeof rec.duur !== 'number') return true;   // geen duur: niets te bewaren
-  for (const d of Object.keys(DD)) {
+  const volgorde = Object.keys(DD).sort((a, b) => (b === dd) - (a === dd));   // eerst het eigen dagdeel
+  for (const d of volgorde) {
     let arr;
     try { arr = JSON.parse(localStorage.getItem(`${LS_PREFIX}${nodeId}_${d}`)); } catch (e) { continue; }
     if (!Array.isArray(arr)) continue;
@@ -20450,7 +20458,7 @@ function mergeHeeftTweeling(nodeId, rec) {
   return false;
 }
 function mergeBewaarWezen(nodeId, dd, bronArr) {
-  const wezen = (bronArr || []).filter(r => r && r.duur > 0 && !mergeHeeftTweeling(nodeId, r));
+  const wezen = (bronArr || []).filter(r => r && r.duur > 0 && !mergeHeeftTweeling(nodeId, r, dd));
   if (!wezen.length) return 0;
   const sleutel = `${LS_PREFIX}${nodeId}_${dd}`;
   let arr;
@@ -20462,7 +20470,7 @@ function mergeBewaarWezen(nodeId, dd, bronArr) {
     arr.push(kopie);
   }
   localStorage.setItem(sleutel, JSON.stringify(arr));   // gooit bij een vol quotum: rollback in mergeRichtingen
-  logOpslagMis('merge_v5_kopie', { node: nodeId, dur: wezen.length });
+  logOpslagMis('merge_v5_kopie', { node: nodeId, n: wezen.length });   // een aantal, geen duur
   return wezen.length;
 }
 

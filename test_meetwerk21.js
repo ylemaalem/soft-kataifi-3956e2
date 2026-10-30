@@ -6,7 +6,8 @@
 //
 //  MW1  samenvoegen met Algemeen gooit nooit een unieke meting weg: een
 //       V5-meting zonder V4-tweeling gaat eerst als kopie (bron merge_v5) naar
-//       V4; met een tweeling (duur binnen 1 s, tijd binnen 60 s, elk dagdeel)
+//       V4; met een tweeling (duur binnen 1 s, tijd binnen 25 s, eerst het
+//       eigen dagdeel, dan de andere)
 //       verandert V4 niet; een vol quotum draait alles terug
 //  MW2  de stoplog: een eigen ring met positie, kandidaten op 100/50/30 m en bij
 //       stilstand, de kale score-keuze, het slot, en bij het wegrijden het licht
@@ -20,7 +21,7 @@
 //  MW6  de badge: 'N metingen' (alleen duur > 0, geen bevestig-correctie),
 //       'Gezien, nog niet geleerd', 'Nieuw'; en hij past op 320 px
 //  MW7  de export heeft de bakken 'stop' en 'inert'
-//  MW8  regressie: zonder de regels met merkteken V11.37.21 zijn de zeven
+//  MW8  regressie: zonder de regels met merkteken V11.37.21 zijn de acht
 //       geraakte functies byte-gelijk aan V11.37.20
 //
 //  Alle plekken en nummers zijn bedacht: een rechte weg naar het noorden vanaf
@@ -139,14 +140,14 @@ async function testMeetwerk21() {
     // b: zonder tweeling: eerst een kopie, met de velden en het merkteken
     r = voeg([...basis], [{ duur: 85, tijd: T0, gewicht: 1, bron: 'tik', zo: 0 }]);
     const k = r.dag.find(m => m.bron === 'merge_v5');
-    eis('MW1b zonder tweeling: de meting staat daarna in V4 (duur, tijd, gewicht, zo, bron merge_v5) en de V5-emmer is weg; één logregel merge_v5_kopie met dur 1',
+    eis('MW1b zonder tweeling: de meting staat daarna in V4 (duur, tijd, gewicht, zo, bron merge_v5) en de V5-emmer is weg; één logregel merge_v5_kopie met n 1 (een aantal) en dur leeg',
         r.v5 === null && r.dag.length === 3 && !!k && k.duur === 85 && k.tijd === T0 && k.gewicht === 1 && k.zo === 0
-          && r.kopie.length === 1 && r.kopie[0].dur === 1 && String(r.kopie[0].node) === String(N1),
+          && r.kopie.length === 1 && r.kopie[0].n === 1 && r.kopie[0].dur == null && String(r.kopie[0].node) === String(N1),
         'V4 3 met de kopie', 'V4 ' + r.dag.length + ' ' + kort(k) + ' log ' + kort(r.kopie));
     // c: de grenzen van de tweeling
     const grens = (d4, dt) => voeg([...basis, { duur: d4, tijd: T0 - dt, gewicht: 1 }], [{ duur: 30, tijd: T0, gewicht: 1 }]).dag.length;
-    const c1 = grens(31, 40000), c2 = grens(32, 1000), c3 = grens(30, 61000), c4 = grens(30, -60000), c5 = grens(30, -61000);
-    eis('MW1c tweeling = duur binnen 1 s en tijd binnen 60 s, voor en na: 31 s op 40 s geen kopie; 32 s, of 61 s ervoor, of 61 s erna wel; 60 s erna geen',
+    const c1 = grens(31, 20000), c2 = grens(32, 1000), c3 = grens(30, 26000), c4 = grens(30, -25000), c5 = grens(30, -26000);
+    eis('MW1c tweeling = duur binnen 1 s en tijd binnen 25 s, voor en na: 31 s op 20 s geen kopie; 32 s, of 26 s ervoor, of 26 s erna wel; 25 s erna geen',
         c1 === 3 && c2 === 4 && c3 === 4 && c4 === 3 && c5 === 4, '3 / 4 / 4 / 3 / 4', [c1, c2, c3, c4, c5].join(' / '));
     // d: een tweeling in een ander dagdeel telt ook
     r = voeg([...basis], [{ duur: 30, tijd: T0, gewicht: 1 }], [{ duur: 30, tijd: T0 - 3000, gewicht: 1 }]);
@@ -155,9 +156,9 @@ async function testMeetwerk21() {
     // e: gemengd: drie metingen, één met tweeling
     r = voeg([...basis, { duur: 30, tijd: T0 - 2000, gewicht: 1 }],
              [{ duur: 30, tijd: T0, gewicht: 1 }, { duur: 55, tijd: T0 - 3600000, gewicht: 1 }, { duur: 12, tijd: T0 - 7200000, gewicht: 0.6, zo: 1 }]);
-    eis('MW1e drie V5-metingen, één met tweeling: precies twee kopieën (55 s en 12 s, zo 1 mee), logregel dur 2',
+    eis('MW1e drie V5-metingen, één met tweeling: precies twee kopieën (55 s en 12 s, zo 1 mee), logregel n 2',
         r.dag.length === 5 && r.dag.filter(m => m.bron === 'merge_v5').map(m => m.duur).sort().join(',') === '12,55'
-          && r.dag.find(m => m.duur === 12).zo === 1 && r.dag.find(m => m.duur === 12).gewicht === 0.6 && r.kopie.length === 1 && r.kopie[0].dur === 2,
+          && r.dag.find(m => m.duur === 12).zo === 1 && r.dag.find(m => m.duur === 12).gewicht === 0.6 && r.kopie.length === 1 && r.kopie[0].n === 2,
         'V4 5', 'V4 ' + r.dag.length + ' ' + kort(r.dag.filter(m => m.bron === 'merge_v5')));
     // f: een vol quotum bij de kopie: alles terug, de V5-meting bestaat nog
     const bewSet = Storage.prototype.setItem;
@@ -180,6 +181,54 @@ async function testMeetwerk21() {
     eis('MW1h mergeHeeftTweeling: een record zonder duur telt als bewaard (er valt niets te kopiëren), en een lege V4 is geen tweeling',
         mergeHeeftTweeling(String(N1), { tijd: T0 }) === true && (() => { for (const d of Object.keys(DD)) zet('sl_v4_' + N1 + '_' + d, null); return mergeHeeftTweeling(String(N1), { duur: 20, tijd: T0 }) === false; })(),
         'true / false', 'zie functie');
+    // i: een vaste cyclus van 50 s: de vorige rode fasen (zelfde duur, 50 en 100 s eerder) zijn GEEN tweeling
+    r = voeg([...basis, { duur: 30, tijd: T0 - 100000, gewicht: 1 }, { duur: 30, tijd: T0 - 50000, gewicht: 1 }], [{ duur: 30, tijd: T0, gewicht: 1 }]);
+    eis('MW1i vaste cyclus 50 s: de vorige rode fase (30 s, 50 s eerder) is geen tweeling, dus de 30 s-meting komt als kopie in V4 (met 60 s ging hij verloren)',
+        r.v5 === null && r.dag.length === 5 && r.dag.filter(m => m.bron === 'merge_v5' && m.duur === 30 && m.tijd === T0).length === 1,
+        'V4 5 met de kopie', 'V4 ' + r.dag.length + ' ' + kort(r.dag.filter(m => m.bron === 'merge_v5')));
+    // j: eerst het eigen dagdeel; een tweeling over de dagdeelgrens (ander dagdeel, binnen 25 s) telt nog
+    for (const d of Object.keys(DD)) zet('sl_v4_' + N1 + '_' + d, null);
+    zet('sl_v4_' + N1 + '_dag', [{ duur: 30, tijd: T0 - 4000, gewicht: 1 }]);
+    zet('sl_v4_' + N1 + '_avond', [{ duur: 30, tijd: T0 - 3000, gewicht: 1 }]);
+    const bewGet = Storage.prototype.getItem, gelezen = [];
+    Storage.prototype.getItem = function (kk) { if (String(kk).startsWith('sl_v4_' + N1 + '_')) gelezen.push(kk); return bewGet.call(this, kk); };
+    let j1, j2;
+    try { j1 = mergeHeeftTweeling(String(N1), { duur: 30, tijd: T0 }, 'avond'); } finally { Storage.prototype.getItem = bewGet; }
+    zet('sl_v4_' + N1 + '_avond', null);
+    zet('sl_v4_' + N1 + '_ochtend', [{ duur: 30, tijd: T0 - 20000, gewicht: 1 }]);
+    zet('sl_v4_' + N1 + '_dag', null);
+    j2 = mergeHeeftTweeling(String(N1), { duur: 30, tijd: T0 }, 'dag');
+    eis('MW1j de zoektocht begint in het eigen dagdeel (avond eerst gelezen, en daar meteen gevonden); een tweeling in een ander dagdeel binnen 25 s (dagdeelgrens) telt ook',
+        j1 === true && gelezen[0] === 'sl_v4_' + N1 + '_avond' && gelezen.length === 1 && j2 === true,
+        'true, eerst avond, 1 sleutel / true', j1 + ', ' + gelezen.join(' ') + ' / ' + j2);
+    // k: A2 — de kopie heeft geen richtingveld; de lezers rekenen er gewoon mee
+    r = voeg([...basis], [{ duur: 85, tijd: T0, gewicht: 1, zo: 0 }]);
+    const kk2 = r.dag.find(m => m.bron === 'merge_v5');
+    const dek = berekenDekkingScore(String(N1)), pct = berekenLeerPct(String(N1)), gg = gewGem(laadM(String(N1), 'dag'));
+    const modus = bepaalCdModus(gg, laadM(String(N1), 'dag'));
+    eis('MW1k de kopie heeft geen veld richting, en dekking, leerpercentage, gewGem en de modus rekenen er zonder NaN mee (gewGem van 40/22/85 = 40)',
+        !!kk2 && !('richting' in kk2) && Number.isFinite(dek) && Number.isFinite(pct) && gg === 40 && !!modus && typeof modus.modus === 'string',
+        'geen richting, eindige getallen, 40', kort({ richting: kk2 && kk2.richting, dek, pct, gg, modus: modus && modus.modus }));
+    // l: A3 — rollback-bewijs: twee dagdelen, de tweede kopie mislukt; ALLE sleutels van de node zijn daarna byte-gelijk
+    const allesVan = () => { const o = {}; for (let i = 0; i < localStorage.length; i++) { const kx = localStorage.key(i); if (kx.includes('_' + N1 + '_') || kx.endsWith('_' + N1)) o[kx] = localStorage.getItem(kx); } return o; };
+    for (const d of Object.keys(DD)) { zet('sl_v4_' + N1 + '_' + d, null); zet('sl_v5_' + N1 + '_N_W_' + d, null); }
+    zet('sl_v4_' + N1 + '_dag', [...basis, { duur: 30, tijd: T0 - 5000, gewicht: 1, rv: 1, rvK: 'N_W' }]);
+    zet('sl_v4_' + N1 + '_avond', [{ duur: 50, tijd: T0 - 5000000, gewicht: 1 }]);
+    zet('sl_v5_' + N1 + '_N_W_dag', [{ duur: 30, tijd: T0, gewicht: 1 }, { duur: 77, tijd: T0 - 600000, gewicht: 1 }]);
+    zet('sl_v5_' + N1 + '_N_W_avond', [{ duur: 66, tijd: T0 - 4000000, gewicht: 1 }]);
+    const voor = allesVan();
+    const v4avK = 'sl_v4_' + N1 + '_avond';
+    Storage.prototype.setItem = function (kk, vv) {
+      if (kk === v4avK && String(vv).includes('merge_v5')) { const e = new Error('vol'); e.name = 'QuotaExceededError'; throw e; }
+      return bewSet.call(this, kk, vv);
+    };
+    nodeInfoNodeId = String(N1);
+    try { mergeRichtingen(String(N1), { aanrij: 'N', afrij: 'W' }, 'ALGEMEEN'); } finally { Storage.prototype.setItem = bewSet; }
+    const na = allesVan();
+    const verschil = [...new Set([...Object.keys(voor), ...Object.keys(na)])].filter(kx => voor[kx] !== na[kx]);
+    eis('MW1l rollback-bewijs: de kopie in dag lukte en de V5-dagemmer was al weg, de kopie in avond faalt: daarna is elke sleutel van de node byte-gelijk aan vooraf (ook het rv-stempel en beide V5-emmers), en er staat geen undo klaar',
+        verschil.length === 0 && Object.keys(voor).length >= 4 && mergeUndoBuffer === null,
+        '0 verschillen', verschil.length + ' verschillen: ' + verschil.join(' ') + ', undo ' + (mergeUndoBuffer === null ? 'leeg' : 'gezet'));
   } catch (e) {
     eis('MW1 crash', false, 'geen fout', String(e && e.stack || e).slice(0, 300));
   } finally {
@@ -471,12 +520,13 @@ async function testMeetwerk21() {
   // ═══ MW8 — regressie ═════════════════════════════════════════
   const V113720 = {
     mergeRichtingen: ['3db111bf', 7634], preprocessVoorYOLO: ['f379eecc', 2733], detLogSchrijf: ['83e7c261', 3366],
-    bevestigCountdown: ['8457401d', 16073], exporteerMeetdata: ['594f2f13', 9482], bijwerkLeerkaart: ['8344c773', 8107], onGPS: ['9c40a4a2', 15631] };
+    bevestigCountdown: ['8457401d', 16073], exporteerMeetdata: ['594f2f13', 9482], bijwerkLeerkaart: ['8344c773', 8107], onGPS: ['9c40a4a2', 15631],
+    logOpslagMis: ['6d7fd828', 16172] };
   // Gemeten in de bron van V11.37.20 (54b6afa) in een eigen headless Chrome, niet afgeleid uit deze versie.
   const merk = (f) => String(f).split(NL).filter(l => /V11\.37\.21(?!\d)/.test(l)).length;
-  const telVerwacht = { mergeRichtingen: 1, preprocessVoorYOLO: 2, detLogSchrijf: 1, bevestigCountdown: 4, exporteerMeetdata: 3, bijwerkLeerkaart: 3, onGPS: 1 };
+  const telVerwacht = { mergeRichtingen: 1, preprocessVoorYOLO: 2, detLogSchrijf: 1, bevestigCountdown: 4, exporteerMeetdata: 3, bijwerkLeerkaart: 3, onGPS: 1, logOpslagMis: 1 };
   const telAf = Object.entries(telVerwacht).filter(([n, m]) => merk(window[n]) !== m).map(([n]) => n + ' ' + merk(window[n]));
-  eis('MW8a zeven functies krijgen regels met merkteken V11.37.21: bevestigCountdown 4, exporteerMeetdata 3, bijwerkLeerkaart 3, preprocessVoorYOLO 2, de andere 1',
+  eis('MW8a acht functies krijgen regels met merkteken V11.37.21: bevestigCountdown 4, exporteerMeetdata 3, bijwerkLeerkaart 3, preprocessVoorYOLO 2, de andere 1',
       telAf.length === 0, 'precies zoveel', telAf.join(', ') || 'precies zoveel');
   const anders = Object.entries(V113720).filter(([n, [h, l]]) => { const s = zonderV113721(window[n]); return fnv(s) !== h || s.length !== l; })
     .map(([n]) => n + ' ' + fnv(zonderV113721(window[n])) + '/' + zonderV113721(window[n]).length);
@@ -486,9 +536,9 @@ async function testMeetwerk21() {
     const html = await (await fetch(new URL('index.html', location.href).href + '?t=' + Date.now())).text();
     code = html.split(NL).filter(l => /V11\.37\.21(?!\d)/.test(l) && !/^\s*\/\//.test(l));
   } catch (e) { code = ['fout: ' + e]; }
-  eis('MW8c in de bron staat V11.37.21 buiten het commentaar alleen in de versie, die vijftien regels in de zeven functies, de declaratie van detLogGeenCrop en de regel in het merge-blok niet (dat heeft zijn eigen kop)',
-      code.length === 17 && code.filter(l => /^const APP_VERSIE = 'V11\.37\.21(?!\d) — /.test(l)).length === 1 && code.filter(l => /^let detLogGeenCrop/.test(l)).length === 1,
-      '17 regels', code.length + ': ' + code.map(l => l.trim().slice(0, 30)).join(' | '));
+  eis('MW8c in de bron staat V11.37.21 buiten het commentaar alleen in de versie, die zestien regels in de acht functies, de declaratie van detLogGeenCrop en de regel in het merge-blok niet (dat heeft zijn eigen kop)',
+      code.length === 18 && code.filter(l => /^const APP_VERSIE = 'V11\.37\.21(?!\d) — /.test(l)).length === 1 && code.filter(l => /^let detLogGeenCrop/.test(l)).length === 1,
+      '18 regels', code.length + ': ' + code.map(l => l.trim().slice(0, 30)).join(' | '));
 
   Date.now = bewNu;
   try { if (typeof idbFlush === 'function') await idbFlush(); } catch (e) {}
