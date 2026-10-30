@@ -537,8 +537,8 @@ async function testMeetwerk21() {
     code = html.split(NL).filter(l => /V11\.37\.21(?!\d)/.test(l) && !/^\s*\/\//.test(l));
   } catch (e) { code = ['fout: ' + e]; }
   eis('MW8c in de bron staat V11.37.21 buiten het commentaar alleen in de versie, die zestien regels in de acht functies, de declaratie van detLogGeenCrop en de regel in het merge-blok niet (dat heeft zijn eigen kop)',
-      code.length === 18 && code.filter(l => /^const APP_VERSIE = 'V11\.37\.21(?!\d) — /.test(l)).length === 1 && code.filter(l => /^let detLogGeenCrop/.test(l)).length === 1,
-      '18 regels', code.length + ': ' + code.map(l => l.trim().slice(0, 30)).join(' | '));
+      code.filter(l => !/^const APP_VERSIE = /.test(l)).length === 17 && code.filter(l => /^let detLogGeenCrop/.test(l)).length === 1,   // V11.37.22: de versieregel telt niet mee, die gaat met elke release mee
+      '17 regels naast de versie', code.length + ': ' + code.map(l => l.trim().slice(0, 30)).join(' | '));
 
   Date.now = bewNu;
   try { if (typeof idbFlush === 'function') await idbFlush(); } catch (e) {}
@@ -548,6 +548,6 @@ async function testMeetwerk21() {
 }
 
 // V11.37.21: dezelfde helper als in de andere toetsen; hier voor MW8
-function zonderV113721(s) { return String(s).split('\n').filter(l => !/V11\.37\.21(?!\d)/.test(l)).join('\n'); }
+function zonderV113721(s) { return String(s).split('\n').filter(l => !/V11\.37\.21(?!\d)|V11\.37\.22(?!\d)/.test(l)).join('\n'); }   // V11.37.22: ook de meetregels van V11.37.22 (test_meetwerk22)
 
 if (typeof window !== 'undefined') { window.testMeetwerk21 = testMeetwerk21; window.meetwerkRitBinnen = meetwerkRitBinnen; }

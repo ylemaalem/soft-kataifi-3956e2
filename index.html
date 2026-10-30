@@ -1053,7 +1053,7 @@ if (typeof ort !== 'undefined') {
 //
 // De stijl volgt de eerdere labels: nummer, kastlijntje, korte omschrijving in
 // kleine letters. De CSS zet hem zelf in kapitalen (text-transform:uppercase).
-const APP_VERSIE = 'V11.37.21 — meten en dataveiligheid: samenvoegen bewaart elke meting, een eigen stoplog, en de badge zegt wat er bekend is';
+const APP_VERSIE = 'V11.37.22 — alleen meten: een passagelog, rode fasen zonder einde, een schaduw voor de wachttijd en een twijfelvlag';
 
 // ── CONSTANTEN ────────────────────────────────────────────────
 const OSM_RADIUS       = 5000;
@@ -5565,6 +5565,7 @@ function exporteerMeetdata() {
       uit.koers = {};    // V11.37.15: zie koersLogTik
       uit.start = {};    // V11.37.17: zie startLogNieuw
       uit.stop = {}; uit.inert = {};   // V11.37.21: zie stopLogTik en bevestigInertTel
+      uit.passage = {}; uit.m5 = {};   // V11.37.22: zie passageTik en m5Start
       for (const key of opslagSleutels('')) {                          // V11.23.0
         let doel = null;
         if (key.startsWith('sl_passief_'))       doel = uit.passief;
@@ -5590,6 +5591,8 @@ function exporteerMeetdata() {
         else if (key === STARTLOG_SLEUTEL)       doel = uit.start;      // V11.37.17: de startlog
         else if (key === STOPLOG_SLEUTEL)        doel = uit.stop;       // V11.37.21: elke stop, met positie
         else if (key === INERT_SLEUTEL)          doel = uit.inert;      // V11.37.21: weggegooide KLOPTE/BIJNA-tikken
+        else if (key === PASSAGE_SLEUTEL)        doel = uit.passage;   // V11.37.22: passages en einde gemist
+        else if (key === M5_SLEUTEL)             doel = uit.m5;   // V11.37.22: schaduw wachttijd
         // V11.17.33 W2: let op de volgorde — 'sl_richtinglog' begint NIET met
         // 'sl_richting_' (na 'sl_richting' volgt 'l', geen '_'), dus deze twee
         // takken kunnen elkaar niet vangen. Toch staat de exacte match eerst.
@@ -9074,6 +9077,7 @@ function stopLogTik(lat, lon) {
         if (x.s === 'tik') { rec.tk = Math.round((S.t0 - x.t) / 100) / 10; if (x.node != null) rec.tn = Number(x.node); break; }
       }
     } catch (e) {}
+    try { rec.tw = stopTwijfel(app, S.lat, S.lon); } catch (e) {}   // V11.37.22: twijfelvlag, alleen loggen
     for (const k of Object.keys(rec)) if (rec[k] === null || rec[k] === undefined) delete rec[k];
     meetRingSchrijf(STOPLOG_SLEUTEL, STOPLOG_MAX, rec);
     S.geschreven = !meetRingGestopt.has(STOPLOG_SLEUTEL);
@@ -9126,6 +9130,221 @@ function bevestigInertTel(soort) {
     o.laatst = Date.now();
     opslagSchrijf(INERT_SLEUTEL, o);
   } catch (e) {}
+}
+
+// ── V11.37.22: ALLEEN METEN — PASSAGES, EINDE GEMIST, SCHADUW WACHTTIJD ──
+// © 2026 StoplichtIQ — Y. Lemaalem
+//
+// Niets in dit blok beslist iets: geen keuze, geen countdown, geen leerdata.
+// Drie logs, elk een eigen ring via meetRingSchrijf (een vol quotum staakt
+// alleen dat log en wist het).
+//
+// 1. sl_passagelog (PASSAGE_MAX regels, ~0,1 KB per regel). Per licht dat de
+//    app toonde en dat de auto tot PASSAGE_NADER_M naderde: de koers bij 60 m,
+//    de kleur bij het eerste zicht en de afstand daar, de kleur op 50 m, of de
+//    auto stilstond en hoe lang (binnen 60 m), de kleinste afstand, en het licht
+//    daarvoor met de tijd ertussen. Een passage sluit als het licht
+//    PASSAGE_DICHT_MS niet meer getoond is of de auto PASSAGE_VER_M weg is.
+//    Waarom: een doorrit op groen kwam nergens terecht, dus de kleur bij
+//    aankomst en "wat doet B na A" waren niet te meten.
+// 2. In dezelfde ring, met x:'eg': een rode fase die eindigde zonder dat de
+//    app groen zag (uitval, wissel, hand, weg, start). Met de minstens-duur en
+//    of het begin gezien was. Tot nu toe verdwenen die spoorloos. Bij uitval kan
+//    de fase binnen het continuïteitsvenster terugkomen; dan krijgt de regel h:1.
+//    Niet in de leerdata.
+// 3. sl_m5log (M5_MAX regels, ~0,25 KB per regel). Schaduw voor route 2: bij
+//    een countdown-start zonder gezien begin de mediane WACHTTIJD bij willekeurige
+//    aankomst uit dezelfde emmer, met de banden p25-p75 en p10-p90, de rest na
+//    10, 20 en 30 s wachten, en wat "langer dan normaal, nog ~Y s" bij de p90 zou
+//    zeggen. Bij groen (of einde gemist) komt de echte duur erbij. Het scherm
+//    toont gewoon het oude getal.
+//    De wachttijd: met w = gew(tijd) en d de gemeten duren is de kans dat je bij
+//    willekeurige aankomst nog meer dan x s wacht G(x) = som w*max(0, d-x) /
+//    som w*d. Na x s wachten is de rest u het kwantiel met G(x+u) = (1-q)*G(x).
+//    Dit is de controle-variant van de leave-one-out (alle metingen als
+//    volledig): daar was de mediane fout in route 2 9 s tegen 11 s (n=865).
+//
+// Bij volle opslag: alleen het betreffende log stopt en wordt gewist; de app
+// merkt er verder niets van.
+const PASSAGE_SLEUTEL  = 'sl_passagelog';
+const PASSAGE_MAX      = 300;
+const PASSAGE_DICHT_MS = 20000;
+const PASSAGE_VER_M    = 200;
+const PASSAGE_NADER_M  = 40;
+const M5_SLEUTEL       = 'sl_m5log';
+const M5_MAX           = 150;
+const EG_REDEN = { dropout: 'uitval', stale: 'uitval', wissel: 'wissel', handmatig: 'hand', correctie: 'hand', geen: 'weg', startscherm: 'start' };
+let passageStaat = { open: new Map(), vorige: null, tVorig: 0 };
+let m5Open = null;
+
+function passageKleur(id) {
+  if (!fase || String(faseNodeId) !== String(id)) return null;
+  return fase === 'rood' ? 'r' : fase === 'groen' ? 'g' : fase === 'oranje' ? 'o' : null;
+}
+function passageTik(lat, lon) {
+  try {
+    if (typeof lat !== 'number' || typeof lon !== 'number') return;
+    const st = passageStaat, nu = Date.now();
+    const dt = st.tVorig ? Math.min(5, Math.max(0, (nu - st.tVorig) / 1000)) : 0;
+    st.tVorig = nu;
+    const kmh = (typeof snelheidKmh === 'number' && !isNaN(snelheidKmh)) ? snelheidKmh : 0;
+    const sl = dichtstbijOSM;
+    if (sl && typeof sl.lat === 'number' && typeof sl.lon === 'number') {
+      const id = Number(sl.id);
+      let p = st.open.get(id);
+      if (!p) { p = { t: nu, n: id, lat: sl.lat, lon: sl.lon, ma: Infinity, w: 0 }; st.open.set(id, p); }
+      p.laatst = nu;
+      const d = afstand(lat, lon, sl.lat, sl.lon);
+      if (d < p.ma) p.ma = d;
+      const c = passageKleur(id);
+      if (c && p.c1 === undefined) { p.c1 = c; p.d1 = Math.round(d); }
+      if (d <= 50 && p.c50 === undefined) p.c50 = c || '-';
+      if (d <= 60 && p.k === undefined) { const k = getSmoothedHeading(); if (k != null && Number.isFinite(k)) p.k = Math.round(k); }
+      if (d <= 60 && kmh < NODE_CHK_STANDSTILL_KMH) p.w += dt;
+    }
+    for (const [id, p] of st.open) {
+      if (sl && Number(sl.id) === id) continue;
+      if (nu - p.laatst > PASSAGE_DICHT_MS || afstand(lat, lon, p.lat, p.lon) > PASSAGE_VER_M) {
+        st.open.delete(id);
+        passageSchrijf(p);
+      }
+    }
+  } catch (e) {}
+}
+function passageSchrijf(p) {
+  if (!(p.ma <= PASSAGE_NADER_M)) return;   // nooit echt genaderd: een wissel onderweg, geen passage
+  const w = Math.round(p.w);
+  const rec = { t: p.t, n: p.n, k: p.k, d1: p.d1, c1: p.c1, c50: p.c50, s: w >= 2 ? 1 : 0, w, ma: Math.round(p.ma) };
+  const v = passageStaat.vorige;
+  if (v) { rec.v = v.n; rec.vt = Math.round((p.t - v.eind) / 1000); }
+  passageStaat.vorige = { n: p.n, eind: p.laatst };
+  for (const k of Object.keys(rec)) if (rec[k] === null || rec[k] === undefined) delete rec[k];
+  meetRingSchrijf(PASSAGE_SLEUTEL, PASSAGE_MAX, rec);
+}
+
+// Een rode fase eindigt zonder groen. Aangeroepen vanuit beeindigFase en
+// resetNeutraal, VOORDAT die de fase wissen.
+function eindeGemistLog(reden) {
+  try {
+    if (fase !== 'rood' || faseStart === null || faseNodeId === null) return;
+    const mn = Math.round((performance.now() - faseStart) / 1000);
+    if (!(mn >= 1)) return;
+    const r = EG_REDEN[reden] || String(reden || '?');
+    const n = Number(faseNodeId);
+    meetRingSchrijf(PASSAGE_SLEUTEL, PASSAGE_MAX,
+      { t: Date.now(), x: 'eg', n, dd: huidigDDActief(), b: zagRoodOvergang ? 1 : 0, mn, r });
+    if (r === 'uitval') { if (m5Open && m5Open.n === n) m5Open.rec.u = (m5Open.rec.u || 0) + 1; }
+    else m5Sluit(null, r, mn);
+  } catch (e) {}
+}
+// De fase kwam binnen het continuïteitsvenster terug: de laatste uitval-regel van
+// dit licht was geen einde.
+function eindeGemistHersteld(nodeId) {
+  if (meetRingGestopt.has(PASSAGE_SLEUTEL)) return;
+  try {
+    const arr = opslagLees(PASSAGE_SLEUTEL, []);
+    if (!Array.isArray(arr)) return;
+    const n = Number(nodeId), grens = Date.now() - FASE_CONTINUITEIT_MS - 5000;
+    for (let i = arr.length - 1; i >= 0; i--) {
+      const x = arr[i];
+      if (!x || x.t < grens) break;
+      if (x.x === 'eg' && x.n === n && x.r === 'uitval' && !x.h) {
+        x.h = 1;
+        if (!opslagSchrijf(PASSAGE_SLEUTEL, arr)) throw new Error('vol');
+        break;
+      }
+    }
+  } catch (e) {
+    meetRingGestopt.add(PASSAGE_SLEUTEL);
+    try { localStorage.removeItem(PASSAGE_SLEUTEL); } catch (_) {}
+  }
+}
+
+// Dezelfde emmer als berekenSchaduwWaarden (daar gekopieerd, niet aangeroepen,
+// zodat die functie ongewijzigd blijft).
+function m5Metingen(nodeId, dd, aanrijRichting, preSelectieAfrij, bron) {
+  if (!nodeId || !dd || !bron) return null;
+  if (bron === 'V5 alle') return haalAlleV5MetingenVoorNode(nodeId, dd);
+  if (bron === 'V5 ↑') {
+    const h = v9AanrijSnelheidHeading ?? v9AanrijHeading;
+    if (h != null && aanrijRichting) return laadMV5Geclusterd(nodeId, aanrijRichting, berekenAfrijRichtingViaTik(h, 'rechtdoor'), dd);
+    return null;
+  }
+  if (bron.startsWith('V5 ') && aanrijRichting && preSelectieAfrij) return laadMV5Geclusterd(nodeId, aanrijRichting, preSelectieAfrij, dd);
+  if (bron === 'V4' || bron === 'v4_s2bevestigd' || bron === 'v4_multi' || bron === 'V4_fallback' || bron === 'v4_geen_richtingdata') return laadM(nodeId, dd);
+  return null;
+}
+// De rest u (hele seconden) na x s wachten, kwantiel q; null als niemand zo lang wacht.
+function m5Rest(paren, x, q) {
+  const G = (y) => { let s = 0; for (const p of paren) if (p.d > y) s += p.w * (p.d - y); return s; };
+  const g0 = G(x);
+  if (!(g0 > 0)) return null;
+  const doel = (1 - q) * g0;
+  let lo = 0, hi = CD_COND_MAX_W;
+  for (let i = 0; i < 40; i++) { const mid = (lo + hi) / 2; if (G(x + mid) > doel) lo = mid; else hi = mid; }
+  return Math.round(hi);
+}
+function m5Start(nodeId, dd, aanrijRichting, preSelectieAfrij, bron) {
+  try {
+    if (fase !== 'rood' || zagRoodOvergang) return;   // alleen route 2: begin niet gezien
+    const n = Number(nodeId), sleutel = n + ':' + cdWallStart;
+    if (m5Open && m5Open.sleutel === sleutel) return;   // dezelfde rode fase (verversing of uitval)
+    if (m5Open) m5Sluit(null, 'open');                  // een vorige die nooit afsloot
+    const m = m5Metingen(nodeId, dd, aanrijRichting, preSelectieAfrij, bron) || [];
+    const paren = [];
+    for (const x of m) { if (!x || !(x.duur > 0)) continue; const w = gew(x.tijd); if (w > 0) paren.push({ d: x.duur, w }); }
+    const rec = { t: Date.now(), n, dd, b: bron || null, nm: paren.length,
+                  g: activeCdDoel > 0 ? Math.round(activeCdDoel) : null,
+                  vs: faseStart !== null ? Math.round((performance.now() - faseStart) / 1000) : null };
+    if (paren.length) {
+      const r = (x, q) => m5Rest(paren, x, q);
+      rec.q = r(0, 0.5); rec.b50 = [r(0, 0.25), r(0, 0.75)]; rec.b80 = [r(0, 0.10), r(0, 0.90)];
+      rec.c10 = r(10, 0.5); rec.c20 = r(20, 0.5); rec.c30 = r(30, 0.5);
+      if (rec.b80[1] != null) rec.ov = [rec.b80[1], r(rec.b80[1], 0.5)];
+    }
+    m5Open = { sleutel, n, rec };
+  } catch (e) {}
+}
+function m5Sluit(werkS, reden, mn) {
+  try {
+    if (!m5Open) return;
+    const o = m5Open; m5Open = null;
+    const rec = o.rec;
+    rec.e = reden;
+    if (reden === 'groen') {
+      const nu = dichtstbijOSM ? Number(dichtstbijOSM.id) : null;
+      if (nu === o.n && typeof werkS === 'number' && isFinite(werkS)) rec.w = Math.round(werkS);
+      else rec.e = 'ander';
+    } else if (typeof mn === 'number') rec.mn = mn;
+    for (const k of Object.keys(rec)) if (rec[k] === null || rec[k] === undefined) delete rec[k];
+    meetRingSchrijf(M5_SLEUTEL, M5_MAX, rec);
+  } catch (e) {}
+}
+
+// De twijfelvlag van de stoplog: 'b' een ander licht binnen 10 m van het gekozen
+// licht dat vanaf de stopplek binnen 25 graden ligt; 'w' het gekozen licht ligt
+// op geen weg met een naam of maxspeed in de kaart; 'g' het kruispunt (lichten
+// tot 30 m van elkaar, geketend) is breder dan 100 m. null = geen twijfel.
+function stopTwijfel(appId, lat, lon) {
+  if (appId == null || !Array.isArray(osmCache)) return null;
+  const a = osmCache.find(s => Number(s.id) === Number(appId));
+  if (!a || typeof a.lat !== 'number') return null;
+  const pos = { lat, lon }, pa = peilingNaar(pos, a);
+  const kand = stopKandidaten(lat, lon).map(k => k.sl);
+  let v = '';
+  if (pa != null && kand.some(s => Number(s.id) !== Number(appId) && afstand(a.lat, a.lon, s.lat, s.lon) <= 10
+        && Math.abs(((peilingNaar(pos, s) - pa + 540) % 360) - 180) <= 25)) v += 'b';
+  if (!a.straat && a.maxspeed == null) v += 'w';
+  const zit = new Set([a]), rij = [a];
+  while (rij.length) {
+    const x = rij.pop();
+    for (const y of kand) if (!zit.has(y) && afstand(x.lat, x.lon, y.lat, y.lon) <= 30) { zit.add(y); rij.push(y); }
+  }
+  const lijst = [...zit];
+  let br = 0;
+  for (let i = 0; i < lijst.length; i++) for (let j = i + 1; j < lijst.length; j++) br = Math.max(br, afstand(lijst[i].lat, lijst[i].lon, lijst[j].lat, lijst[j].lon));
+  if (br > 100) v += 'g';
+  return v || null;
 }
 
 // ── V11.37.15: DE KOERS BIJ KRUIPEN (ALLEEN METEN) ────────────
@@ -12459,6 +12678,7 @@ function resetNeutraal(reden) {
   // 26x op nul, wat niet bewees dat er geen missers waren.
   zichtResetMis = aiMissRuns;
   zichtResetStaleMs = (staleFaseSinds !== null) ? Date.now() - staleFaseSinds : null;
+  eindeGemistLog(reden);   // V11.37.22: idem, bij uitval, stale en het startscherm
   fase = null; faseStart = null; faseBevestigd = null; // V11.5.4
   faseBalk.className=''; faseLamp.className='';
   faseWoord.textContent='—'; faseSub.textContent='Richt camera op stoplicht';
@@ -12543,6 +12763,7 @@ function resetNeutraal(reden) {
 //   activeCdModus  — hoort bij activeCdDoel, gaat mee met stap 2
 function beeindigFase(reden) {
   faseEindeReden = reden; faseEindeTijd = Date.now();   // V11.37.5: zie zichtOorzaak
+  eindeGemistLog(reden);   // V11.37.22: een rode fase zonder groen niet meer spoorloos (passagelog), vóór het wissen
   // Gated op een lopende fase: zonder die gate vuurt dit bij elke node-wissel
   // en verdringt het de andere redenen uit de 500-records-ringbuffer.
   if (fase !== null && faseStart !== null) {
@@ -12724,6 +12945,7 @@ function verwerkFase(nieuw, horizontaal, conf=null) {
   // hierboven, dus consistente roodduur.
   if (fase === 'rood' && nieuw === 'groen' && faseStart) {
     slaPassiefMeting((nu - faseStart) / 1000);
+    m5Sluit((nu - faseStart) / 1000, 'groen');   // V11.37.22: de echte duur bij de schaduw
     schaduwLogSluit((nu - faseStart) / 1000);   // V11.17.30 W3: zelfde roodduur
     // V11.17.32 W2 / V11.17.57: zelfde roodduur, nu met reden.
     herzieningLogSluit((nu - faseStart) / 1000, 'groen');
@@ -12768,6 +12990,7 @@ function verwerkFase(nieuw, horizontaal, conf=null) {
         && String(dichtstbijOSM.id) === laatsteFaseNodeId) {
       const oudeFaseStart = faseStart;
       faseStart = laatsteFaseStart;
+      if (nieuw === 'rood') eindeGemistHersteld(laatsteFaseNodeId);   // V11.37.22: de uitval was geen einde
       if (nieuw === 'groen' && !groenStart) {
         groenStart = laatsteFaseStart;
       }
@@ -12950,6 +13173,7 @@ function startCd() {
       }
       schaduwWaarden = berekenSchaduwWaarden(dichtstbijOSM.id, dd, aanrij, v9PreSelectieAfrij, v9bron.bron);
       schaduwCountdownNul = { m1: null, m2: null, m3: null, m4: null };
+      m5Start(dichtstbijOSM.id, dd, aanrij, v9PreSelectieAfrij, v9bron.bron);   // V11.37.22: schaduw wachttijd (alleen zonder gezien begin), zie m5Start
     } else if (v9bron && v9bron.lerend) {
       cdStart = null;
       activeCdDoel = 0;
@@ -12971,6 +13195,7 @@ function startCd() {
         huidigCdWaarde = gem;
         schaduwWaarden = berekenSchaduwWaarden(dichtstbijOSM.id, dd, aanrij, v9PreSelectieAfrij, 'V4_fallback');
         schaduwCountdownNul = { m1: null, m2: null, m3: null, m4: null };
+        m5Start(dichtstbijOSM.id, dd, aanrij, v9PreSelectieAfrij, 'V4_fallback');   // V11.37.22: idem
       }
     }
   }
@@ -21913,6 +22138,10 @@ function detLogSchrijf() {
     };
     if (gN > 0) rec.gN = gN;   // V11.34.2: alleen als er gegate pogingen waren
     if (detLogGeenCrop) rec.gc = detLogGeenCrop;   // V11.37.21: geen crop in deze run (ratio leeg): 'dichtbij' = onder 15 m, 'geen' = anders
+    const stDet = laatsteDetectiesStelsel;   // V11.37.22: de camerahoek meetbaar maken (zie hieronder)
+    if (detLogBest && stDet && stDet.s > 0 && vW > 0) rec.cxv = Math.round(((detLogBest.cx - stDet.px) / stDet.s + stDet.x) / vW * 1000) / 1000;   // V11.37.22: midden van de beste box als fractie van de videobreedte
+    const koDet = getSmoothedHeading();   // V11.37.22
+    if (koDet != null && Number.isFinite(koDet)) { rec.ko = Math.round(koDet); if (dichtstbijOSM && huidigePos) rec.kh = peilingTovRijrichting(huidigePos, dichtstbijOSM, koDet); }   // V11.37.22: koers en kaarthoek (peiling min koers)
     if (stil) { detLogStilLaatst = Date.now(); rec.stil = 1; Object.assign(rec, detLogBestVelden()); }   // V11.37.5: zie detLogBestVelden
     if (detLogArr === null) {
       try { detLogArr = JSON.parse(localStorage.getItem('sl_detlog')) || []; }
@@ -23800,6 +24029,7 @@ async function onGPS(pos) {
   wisselNa(lat, lon);   // V11.36.4: meetregel, beslist niets
   regelTik(lat, lon);   // V11.37.1: meetregel, beslist niets
   stopLogTik(lat, lon);   // V11.37.21: meetregel, beslist niets
+  passageTik(lat, lon);   // V11.37.22: meetregel, beslist niets
   refreshStadIndienNodig(lat, lon);
 
   // V9.0: Nadering detectie + delayed write
