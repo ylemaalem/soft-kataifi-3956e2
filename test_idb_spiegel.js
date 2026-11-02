@@ -74,6 +74,12 @@ async function testIdbSpiegel() {
         'done', opslagLeesRuw('sl_idbmig_v1'));
 
     // ── C2: opslag en spiegel lopen gelijk ────────────────────
+    // V11.37.23: eerst het werkgeheugen van deze pagina gelijk met localStorage. Een rit van een andere
+    // toets in een iframe schrijft buiten de laag van deze pagina (gemeten: sl_wissellog stond in
+    // localStorage en in de spiegel, maar niet in opslagCache van de toetspagina; C2c telde hem als wees).
+    // Wat de app zelf schrijft, gaat wel door de laag; daar verandert dit niets aan.
+    { const ls = []; for (let i = 0; i < localStorage.length; i++) { const k = localStorage.key(i); if (k && k.startsWith('sl_')) ls.push(k); }
+      opslagHersynchroniseer(ls.concat([...opslagCache.keys()])); await idbFlush(); }
     let v = await opslagIdbVergelijk();
     eis('C2a niets mist in de spiegel', v.mistInSpiegel === 0, 0, v.mistInSpiegel);
     eis('C2b geen afwijkende waarden', v.anders === 0, 0, v.anders);

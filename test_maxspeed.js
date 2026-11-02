@@ -163,9 +163,12 @@ function testMaxspeed() {
     eis('T7b de GLOSA-aanroep in tickCd staat nog achter die vlag',
         /if \(GLOSA_ACTIEF\) updateGlosa\(\)/.test(String(tickCd)),
         'if (GLOSA_ACTIEF) updateGlosa()', 'ongewijzigd');
-    eis('T7c berekenGlosa leest de nieuwe maxspeed (nog) niet — dit is release A',
-        !/maxspeed/.test(String(berekenGlosa)),
-        'geen maxspeed in berekenGlosa', 'geen advieslogica toegevoegd');
+    // V11.37.23: de grens voor een advies (nooit boven de limiet, zonder limiet geen advies) leest maxspeed;
+    // GLOSA staat nog steeds uit (T7, T7b). Buiten die regels leest berekenGlosa hem nog steeds niet.
+    const glosaZonder23 = String(berekenGlosa).split('\n').filter(l => !/V11\.37\.23(?!\d)/.test(l)).join('\n');
+    eis('T7c berekenGlosa leest maxspeed alleen in de grens van V11.37.23 (geen advies boven de limiet, zonder limiet geen advies); GLOSA blijft uit',
+        !/maxspeed/.test(glosaZonder23) && String(berekenGlosa).split('\n').filter(l => /maxspeed/.test(l)).every(l => /V11\.37\.23(?!\d)/.test(l)),
+        'maxspeed alleen in de V11.37.23-grens', 'zie test_meetwerk23 MA6');
 
     // ══ T8 — kiesBesteWeg is niet gewijzigd ═══════════════════
     const bronKbw = String(kiesBesteWeg)

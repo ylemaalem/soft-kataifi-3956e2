@@ -345,7 +345,7 @@ async function testTiklog() {
                   ['vindDichtbij', '2db98dab', 2954]];
     // V11.37.4: zonder de vier regels met merkteken (de achter-regel, zie test_achter).
     const zonder374 = (s) => s.split('\n').filter(l => !/V11\.37\.4(?!\d)/.test(l)).join('\n');
-    const zonderV113718 = (s) => String(s).replace('const d = await kaartLeesInhoud(r, ctrl);   // V11.37.18: ook de inhoud heeft een grens (stond: await r.json()), zie kaartLeesInhoud', 'const d = await r.json();').split('\n').filter(l => !/V11\.37\.18(?!\d)/.test(l)).join('\n');   // V11.37.18: de bewaarde kaart, C5 en C7 (test_kaartbewaar); hier terug
+    const zonderV113718 = (s) => String(s).split('\n').filter(l => !/V11\.37\.23(?!\d)/.test(l)).join('\n').replace('const d = await kaartLeesInhoud(r, ctrl);   // V11.37.18: ook de inhoud heeft een grens (stond: await r.json()), zie kaartLeesInhoud', 'const d = await r.json();').split('\n').filter(l => !/V11\.37\.18(?!\d)/.test(l)).join('\n');   // V11.37.18: de bewaarde kaart, C5 en C7 (test_kaartbewaar); hier terug; V11.37.23: eerst de regels van V11.37.23 weg (test_meetwerk23)
     const zonderV113717 = (s) => zonderV113718(s).split('\n').filter(l => !/V11\.37\.17(?!\d)/.test(l)).join('\n');   // V11.37.17: de startlog (test_startlog); hier terug
     const zonderV113713 = (s) => zonderV113717(s).split('\n').filter(l => !/V11\.37\.13(?!\d)/.test(l)).join('\n');   // V11.37.13: R1 en R3 van de tegenrichting-regel (test_tegenbocht); hier terug
     const zonderV113712 = (s) => zonderV113713(s).split('\n').filter(l => !/V11\.37\.12(?!\d)/.test(l)).join('\n');   // V11.37.12: de rem op de kaartvraag en de dekking van de fietslijst (test_overpass); hier terug
@@ -535,7 +535,7 @@ async function testTiklog() {
       tel = telRegels();
       eis('TL8i zoeken en de eerste match tellen mee: z 1, m 1, k 1, d2 60 (van de tikplek)',
           z1.afwijsReden === 'tik_zoekt' && !!z2.s1 && tel.length === 1
-            && tel[0].z === 1 && tel[0].m === 1 && tel[0].l === 0 && tel[0].k === 1 && tel[0].d2 === 60,
+            && tel[0].z === 1 && tel[0].m === 1 && tel[0].l === 0 && tel[0].k === 1 && Math.abs(tel[0].d2 - 60) <= 1,   // V11.37.23: 59 bij een venster van 390-430 px breed (de afronding van de schaal), zie test_meetwerk23
           'zoekt, A, 0/1/1/60', z1.afwijsReden + ', ' + (z2.s1 ? r1(z2.s1.cx) : 'geen') + ', ' + tel.map(r => `${r.l}/${r.z}/${r.m}/${r.k}/${r.d2}`).join(' ; '));
       // volbeeld: d2 blijft in camerapixels (de straal is daar 27 YOLO-px)
       schoon(); leegTik(); tikTel = null; zetVol();

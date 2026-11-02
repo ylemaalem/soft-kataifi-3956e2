@@ -47,7 +47,7 @@
 //      s.onload = () => testKaartbestand().then(r => console.table(r.regels));
 // ═══════════════════════════════════════════════════════════════
 // V11.37.21: de regels met dit merkteken weg, zodat de vergelijkingen hieronder de functies van vóór V11.37.21 blijven toetsen (zie test_meetwerk21)
-function zonderV113721(s) { return String(s).split('\n').filter(l => !/V11\.37\.21(?!\d)|V11\.37\.22(?!\d)/.test(l)).join('\n'); }   // V11.37.22: ook de meetregels van V11.37.22 (test_meetwerk22)
+function zonderV113721(s) { return String(s).split('\n').filter(l => !/V11\.37\.21(?!\d)|V11\.37\.22(?!\d)|V11\.37\.23(?!\d)/.test(l)).join('\n'); }   // V11.37.22: ook de meetregels van V11.37.22 (test_meetwerk22); V11.37.23: idem (test_meetwerk23)
 
 const KF_IDB = 'StoplichtIQ_Kaartbestand';
 const KF_COPY = 'The data included in this document is from www.openstreetmap.org. The data is made available under ODbL.';
@@ -257,6 +257,27 @@ async function kaartBestandRitBinnen(opt) {
 }
 
 // ── Draait op de testpagina ──────────────────────────────────
+// V11.37.23: een rit in een iframe opent daar de IndexedDB-spiegel en schrijft er (onder meer sl_camcap en
+// sl_wissellog). Haalde de toets die sleutels daarna uit localStorage, dan bleven ze als wees in de spiegel
+// staan, en faalde test_idb_spiegel (C2c, C3c, C9a) als hij ná deze toets draaide. Dit ruimt alleen wezen op
+// (in de spiegel, niet in localStorage), en alleen als de spiegel-database al bestaat.
+async function idbWeesWeg23() {
+  try {
+    await new Promise((r) => setTimeout(r, 600));   // een laatste bundel uit de iframe (IDB_FLUSH_MS)
+    if (typeof indexedDB === 'undefined' || typeof indexedDB.databases !== 'function') return -1;
+    const lijst = await indexedDB.databases();
+    if (!lijst.some((d) => d.name === IDB_NAAM)) return 0;
+    const db = await new Promise((ok, nee) => { const r = indexedDB.open(IDB_NAAM); r.onsuccess = () => ok(r.result); r.onerror = () => nee(r.error); });
+    try {
+      if (!db.objectStoreNames.contains(IDB_STORE)) return 0;
+      const sleutels = await new Promise((ok, nee) => { const r = db.transaction(IDB_STORE).objectStore(IDB_STORE).getAllKeys(); r.onsuccess = () => ok(r.result); r.onerror = () => nee(r.error); });
+      const wees = sleutels.filter((k) => typeof k === 'string' && localStorage.getItem(k) === null);
+      if (wees.length) await new Promise((ok, nee) => { const tx = db.transaction(IDB_STORE, 'readwrite'); for (const k of wees) tx.objectStore(IDB_STORE).delete(k); tx.oncomplete = ok; tx.onerror = () => nee(tx.error); });
+      return wees.length;
+    } finally { db.close(); }
+  } catch (e) { return -1; }
+}
+
 async function testKaartbestand() {
   const regels = [];
   const eis = (naam, gelukt, verwacht, gekregen) => { regels.push({ test: naam, uitslag: gelukt ? 'OK' : 'GEFAALD', verwacht, gekregen }); return gelukt; };
@@ -684,7 +705,9 @@ async function testKaartbestand() {
       fietsNaKaart: ['76a98f2c', 137], fietsPlan: ['3889ea07', 214], fietsWacht: ['398bd178', 277], fietsPoging: ['69721b85', 208], fietsPogingSchrijf: ['59a8b634', 233],
       fietsPogingen: ['410660e5', 214], afstand: ['c006e195', 264], startLogSchrijf: ['5d6078c', 942], startLogMijl: ['67b9f11f', 246], kaartKlok: ['20547389', 142] };
     const zonderCb = (f) => String(f).split(NL).filter(l => !/crashbewaking/.test(l)).join(NL);   // kaartPilTik kreeg twee regels met merkteken crashbewaking (de pauze opheffen)
-    const anders2 = Object.entries(ONGEWIJZIGD).filter(([n, [h, l]]) => { const s = zonderCb(zonderV113721(window[n])); return fnv(s) !== h || s.length !== l; }).map(x => x[0]);
+    // V11.37.23: in refreshStadIndienNodig is één regel vervangen (de positie afgerond, zie test_meetwerk23); hier de oude regel terug
+    const terugV113723 = (f) => String(f).replace("const r = await fetch(`https://nominatim.openstreetmap.org/reverse?lat=${stadAfgerond(lat)}&lon=${stadAfgerond(lon)}&zoom=10&format=json`, { headers:{'User-Agent':'StoplichtIQ/8.8'} });   // V11.37.23: de positie afgerond op 0,01 graad (~1 km), zie stadAfgerond", "const r = await fetch(`https://nominatim.openstreetmap.org/reverse?lat=${lat}&lon=${lon}&zoom=10&format=json`, { headers:{'User-Agent':'StoplichtIQ/8.8'} });");
+    const anders2 = Object.entries(ONGEWIJZIGD).filter(([n, [h, l]]) => { const s = zonderCb(zonderV113721(terugV113723(window[n]))); return fnv(s) !== h || s.length !== l; }).map(x => x[0]);
     eis('KF16e kaartPilTik: precies twee regels met merkteken crashbewaking (de rest byte-gelijk, zie KF16c); de andere 47 functies hebben er geen',
         String(kaartPilTik).split(NL).filter(l => /crashbewaking/.test(l)).length === 2 && Object.keys(ONGEWIJZIGD).filter(n => n !== 'kaartPilTik' && /crashbewaking/.test(String(window[n]))).length === 0, '2 en 0', String(String(kaartPilTik).split(NL).filter(l => /crashbewaking/.test(l)).length));
     eis('KF16c 48 functies rond de kaart, de lichtkeuze, de fietslijst en de startlog zijn byte-gelijk aan V11.37.18', anders2.length === 0, 'geen afwijking', anders2.join(', ') || 'geen');
@@ -705,6 +728,7 @@ async function testKaartbestand() {
     await slaap(50);
     herstel();
   }
+  await idbWeesWeg23();   // V11.37.23: wezen van de iframe-ritten uit de spiegel, zie idbWeesWeg23
   const gefaald = regels.filter(r => r.uitslag === 'GEFAALD');
   return { geslaagd: regels.length - gefaald.length, gefaald: gefaald.length, regels };
 }

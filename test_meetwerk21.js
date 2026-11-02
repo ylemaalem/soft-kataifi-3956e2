@@ -548,6 +548,6 @@ async function testMeetwerk21() {
 }
 
 // V11.37.21: dezelfde helper als in de andere toetsen; hier voor MW8
-function zonderV113721(s) { return String(s).split('\n').filter(l => !/V11\.37\.21(?!\d)|V11\.37\.22(?!\d)/.test(l)).join('\n'); }   // V11.37.22: ook de meetregels van V11.37.22 (test_meetwerk22)
+function zonderV113721(s) { return String(s).split('\n').filter(l => !/V11\.37\.21(?!\d)|V11\.37\.22(?!\d)|V11\.37\.23(?!\d)/.test(l)).join('\n'); }   // V11.37.22: ook de meetregels van V11.37.22 (test_meetwerk22); V11.37.23: idem (test_meetwerk23)
 
 if (typeof window !== 'undefined') { window.testMeetwerk21 = testMeetwerk21; window.meetwerkRitBinnen = meetwerkRitBinnen; }

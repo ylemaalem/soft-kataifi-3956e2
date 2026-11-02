@@ -38,7 +38,7 @@
 //      s.onload = () => testStartlog().then(r => console.table(r.regels));
 // ═══════════════════════════════════════════════════════════════
 // V11.37.21: de regels met dit merkteken weg, zodat de vergelijkingen hieronder de functies van vóór V11.37.21 blijven toetsen (zie test_meetwerk21)
-function zonderV113721(s) { return String(s).split('\n').filter(l => !/V11\.37\.21(?!\d)|V11\.37\.22(?!\d)/.test(l)).join('\n'); }   // V11.37.22: ook de meetregels van V11.37.22 (test_meetwerk22)
+function zonderV113721(s) { return String(s).split('\n').filter(l => !/V11\.37\.21(?!\d)|V11\.37\.22(?!\d)|V11\.37\.23(?!\d)/.test(l)).join('\n'); }   // V11.37.22: ook de meetregels van V11.37.22 (test_meetwerk22); V11.37.23: idem (test_meetwerk23)
 
 const STARTLOG_WATCH_NU = "    navigator.geolocation.watchPosition(onGPS, (e)=>{ pGPS.className='pill-dot o'; startLogGpsFout(e); }, { enableHighAccuracy:true, maximumAge:5000, timeout:12000 });   // V11.37.17: de fout ook tellen";
 const STARTLOG_WATCH_OUD = "    navigator.geolocation.watchPosition(onGPS, ()=>{ pGPS.className='pill-dot o'; }, { enableHighAccuracy:true, maximumAge:5000, timeout:12000 });";
@@ -130,6 +130,27 @@ function startlogKaartDb(werk) {
   });
 }
 const startlogZonderKaart = () => startlogKaartDb((st) => { st.delete('laatste'); return null; });
+
+// V11.37.23: een rit in een iframe opent daar de IndexedDB-spiegel en schrijft er (onder meer sl_camcap en
+// sl_wissellog). Haalde de toets die sleutels daarna uit localStorage, dan bleven ze als wees in de spiegel
+// staan, en faalde test_idb_spiegel (C2c, C3c, C9a) als hij ná deze toets draaide. Dit ruimt alleen wezen op
+// (in de spiegel, niet in localStorage), en alleen als de spiegel-database al bestaat.
+async function idbWeesWeg23() {
+  try {
+    await new Promise((r) => setTimeout(r, 600));   // een laatste bundel uit de iframe (IDB_FLUSH_MS)
+    if (typeof indexedDB === 'undefined' || typeof indexedDB.databases !== 'function') return -1;
+    const lijst = await indexedDB.databases();
+    if (!lijst.some((d) => d.name === IDB_NAAM)) return 0;
+    const db = await new Promise((ok, nee) => { const r = indexedDB.open(IDB_NAAM); r.onsuccess = () => ok(r.result); r.onerror = () => nee(r.error); });
+    try {
+      if (!db.objectStoreNames.contains(IDB_STORE)) return 0;
+      const sleutels = await new Promise((ok, nee) => { const r = db.transaction(IDB_STORE).objectStore(IDB_STORE).getAllKeys(); r.onsuccess = () => ok(r.result); r.onerror = () => nee(r.error); });
+      const wees = sleutels.filter((k) => typeof k === 'string' && localStorage.getItem(k) === null);
+      if (wees.length) await new Promise((ok, nee) => { const tx = db.transaction(IDB_STORE, 'readwrite'); for (const k of wees) tx.objectStore(IDB_STORE).delete(k); tx.oncomplete = ok; tx.onerror = () => nee(tx.error); });
+      return wees.length;
+    } finally { db.close(); }
+  } catch (e) { return -1; }
+}
 
 async function testStartlog() {
   const regels = [];
@@ -316,6 +337,7 @@ async function testStartlog() {
   await startlogKaartDb((st) => { if (kaartVoor === undefined) st.delete('laatste'); else st.put(kaartVoor, 'laatste'); return null; });   // V11.37.18
   try { if (typeof idbFlush === 'function') await idbFlush(); } catch (e) {}
   await slaap(50);
+  await idbWeesWeg23();   // V11.37.23: wezen van de iframe-ritten uit de spiegel, zie idbWeesWeg23
   const gefaald = regels.filter(r => r.uitslag === 'GEFAALD');
   return { geslaagd: regels.length - gefaald.length, gefaald: gefaald.length, regels };
 }

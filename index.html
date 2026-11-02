@@ -1053,7 +1053,7 @@ if (typeof ort !== 'undefined') {
 //
 // De stijl volgt de eerdere labels: nummer, kastlijntje, korte omschrijving in
 // kleine letters. De CSS zet hem zelf in kapitalen (text-transform:uppercase).
-const APP_VERSIE = 'V11.37.22 — alleen meten: een passagelog, rode fasen zonder einde, een schaduw voor de wachttijd en een twijfelvlag';
+const APP_VERSIE = 'V11.37.23 — veilige straatnamen, een eerlijke modelmelding, minder plaatsdata naar buiten, en twee meetvelden';
 
 // ── CONSTANTEN ────────────────────────────────────────────────
 const OSM_RADIUS       = 5000;
@@ -5302,6 +5302,7 @@ function schaduwLogSluit(werkDur) {
       dow: now.getDay(),
       uur: now.getHours()
     };
+    if (rec.bron) rec.bron = latin1Veilig(rec.bron);   // V11.37.23: 'V5 ↑' liet Safari de hele sleutel dubbel tellen (alleen het weggeschreven veld; huidigCdBron blijft gelijk)
     let arr;
     try { arr = JSON.parse(localStorage.getItem('sl_schaduwlog')) || []; } catch(_) { arr = []; }
     if (!Array.isArray(arr)) arr = [];
@@ -5428,6 +5429,7 @@ function herzieningLogSluit(werkDur, reden) {
       voorlMs: tel ? num(tel.voorlMs) : null,
       sprong:  tel ? num(tel.sprong) : null
     };
+    if (rec.bron) rec.bron = latin1Veilig(rec.bron);   // V11.37.23: idem, zie schaduwLogSluit
     let arr;
     try { arr = JSON.parse(localStorage.getItem('sl_herzieninglog')) || []; } catch(_) { arr = []; }
     if (!Array.isArray(arr)) arr = [];
@@ -9198,6 +9200,7 @@ function passageTik(lat, lon) {
       if (d < p.ma) p.ma = d;
       const c = passageKleur(id);
       if (c && p.c1 === undefined) { p.c1 = c; p.d1 = Math.round(d); }
+      if (c === 'r' && p.dr === undefined) p.dr = Math.round(d);   // V11.37.23: de afstand bij het eerste rood (dr), zie het blok V11.37.23
       if (d <= 50 && p.c50 === undefined) p.c50 = c || '-';
       if (d <= 60 && p.k === undefined) { const k = getSmoothedHeading(); if (k != null && Number.isFinite(k)) p.k = Math.round(k); }
       if (d <= 60 && kmh < NODE_CHK_STANDSTILL_KMH) p.w += dt;
@@ -9218,6 +9221,7 @@ function passageSchrijf(p) {
   const v = passageStaat.vorige;
   if (v) { rec.v = v.n; rec.vt = Math.round((p.t - v.eind) / 1000); }
   passageStaat.vorige = { n: p.n, eind: p.laatst };
+  if (p.dr !== undefined) rec.dr = p.dr; if (p.zh) rec.zh = 1;   // V11.37.23: dr en zh, zie het blok V11.37.23
   for (const k of Object.keys(rec)) if (rec[k] === null || rec[k] === undefined) delete rec[k];
   meetRingSchrijf(PASSAGE_SLEUTEL, PASSAGE_MAX, rec);
 }
@@ -9233,6 +9237,7 @@ function eindeGemistLog(reden) {
     const n = Number(faseNodeId);
     meetRingSchrijf(PASSAGE_SLEUTEL, PASSAGE_MAX,
       { t: Date.now(), x: 'eg', n, dd: huidigDDActief(), b: zagRoodOvergang ? 1 : 0, mn, r });
+    try { egAanvul(n); } catch (_) {}   // V11.37.23: zh, d1 en dr bij deze regel, zie het blok V11.37.23
     if (r === 'uitval') { if (m5Open && m5Open.n === n) m5Open.rec.u = (m5Open.rec.u || 0) + 1; }
     else m5Sluit(null, r, mn);
   } catch (e) {}
@@ -9316,6 +9321,7 @@ function m5Sluit(werkS, reden, mn) {
       if (nu === o.n && typeof werkS === 'number' && isFinite(werkS)) rec.w = Math.round(werkS);
       else rec.e = 'ander';
     } else if (typeof mn === 'number') rec.mn = mn;
+    try { m5Aanvul(rec, o.n); } catch (_) {}   // V11.37.23: zh, d1 en dr, zie het blok V11.37.23
     for (const k of Object.keys(rec)) if (rec[k] === null || rec[k] === undefined) delete rec[k];
     meetRingSchrijf(M5_SLEUTEL, M5_MAX, rec);
   } catch (e) {}
@@ -9345,6 +9351,105 @@ function stopTwijfel(appId, lat, lon) {
   for (let i = 0; i < lijst.length; i++) for (let j = i + 1; j < lijst.length; j++) br = Math.max(br, afstand(lijst[i].lat, lijst[i].lon, lijst[j].lat, lijst[j].lon));
   if (br > 100) v += 'g';
   return v || null;
+}
+
+// ── V11.37.23: TERUG BIJ HETZELFDE LICHT, EN TWEE MEETVELDEN ─────
+// © 2026 StoplichtIQ — Y. Lemaalem
+//
+// 1. eindeGemistTerug. Reed de app bij een rood licht weg naar een ander licht
+//    en kwam hij binnen NODE_SESSION_MAX_MS terug (het herstel via
+//    nodeSessionData), dan was de regel x:'eg' r:'wissel' van dat licht geen
+//    einde. Die regel krijgt nu h:1, net als een uitval die terugkwam
+//    (eindeGemistHersteld). De m5-regel was toen al gesloten als 'wissel'; die
+//    blijft zo.
+// 2. zh (alleen meten). Een rode fase kwam na een blinde periode terug (de
+//    continuïteit in verwerkFase), "begin gezien" stond bij dat herstel op nee
+//    (zagRoodOvergang wordt daar uit de lege fase berekend), terwijl vóór de
+//    blinde periode wél gezien was dat dit rood op groen of oranje volgde bij
+//    hetzelfde licht. De vlag zelf blijft zoals hij is; zh zegt alleen welke
+//    regels in sl_passagelog (passage en x:'eg') en sl_m5log daardoor in de
+//    verkeerde route terechtkwamen. Zo kan de beoordeling van de schaduw (m5)
+//    ze apart houden.
+// 3. d1 en dr (alleen meten). De afstand tot het licht op de GPS-tik waarop de
+//    app er voor het eerst een kleur (d1) en voor het eerst rood (dr) bij had,
+//    uit de open passage. dr komt bij de passage (d1 stond er al), d1 en dr bij
+//    een m5-regel en bij een regel x:'eg'. Officieel betekent: ~2 s na de eerste
+//    detectie (de bezinktijd), dus iets dichterbij dan het echte eerste zicht.
+// 4. Nominatim (privacy). De plaatsnaam vroeg Nominatim elke 2 minuten met je
+//    exacte GPS-positie, en na elke kaart nog tot 20 keer met de plek van een
+//    licht vlak bij je. Die tweede vraag staat uit (NOMINATIM_LICHT_AAN); lichten
+//    zonder straatnaam in de kaart heten dan 'Onbekende weg, <plaats>'. De eerste
+//    vraag krijgt de positie afgerond op 0,01 graad (~1,1 km noord-zuid, ~0,7 km
+//    oost-west); voor een plaatsnaam (zoom 10) is dat genoeg.
+// Niets in dit blok beslist iets: geen keuze, geen countdown, geen leerdata.
+// Een fout blijft binnen het blok; een vol quotum staakt alleen sl_passagelog.
+const NOMINATIM_LICHT_AAN = false;
+function stadAfgerond(x) { return (Math.round(Number(x) * 100) / 100).toFixed(2); }
+let zhVoorReset = null;   // { n, fase, zag } op het moment van de laatste blinde periode
+let zhFase = null;        // { n, fs } de herstelde rode fase waarbij zh hoort
+function zhNoteerReset(reden) {
+  try {
+    if (reden !== 'dropout' && reden !== 'stale') return;
+    zhVoorReset = { n: faseNodeId === null ? null : String(faseNodeId), fase, zag: !!zagRoodOvergang };
+  } catch (e) {}
+}
+function zhBijHerstel(nodeId) {
+  try {
+    const v = zhVoorReset, n = String(nodeId);
+    zhVoorReset = null;
+    if (!v || v.n !== n || v.fase !== 'rood' || !v.zag || zagRoodOvergang) return;
+    zhFase = { n, fs: faseStart };
+    const p = passageStaat.open.get(Number(n));
+    if (p) p.zh = 1;
+  } catch (e) {}
+}
+function zhActief(nodeId) {
+  return !!zhFase && faseStart !== null && zhFase.n === String(nodeId) && zhFase.fs === faseStart;
+}
+function m5Aanvul(rec, nodeId) {
+  if (zhActief(nodeId)) rec.zh = 1;
+  const p = passageStaat.open.get(Number(nodeId));
+  if (p && p.d1 !== undefined) rec.d1 = p.d1;
+  if (p && p.dr !== undefined) rec.dr = p.dr;
+}
+// Vult de zojuist geschreven regel x:'eg' aan (dezelfde ring, dezelfde regel).
+function egAanvul(nodeId) {
+  if (meetRingGestopt.has(PASSAGE_SLEUTEL)) return;
+  const n = Number(nodeId), zh = zhActief(nodeId), p = passageStaat.open.get(n);
+  const d1 = p ? p.d1 : undefined, dr = p ? p.dr : undefined;
+  if (!zh && d1 === undefined && dr === undefined) return;
+  try {
+    const arr = opslagLees(PASSAGE_SLEUTEL, []);
+    const x = Array.isArray(arr) && arr.length ? arr[arr.length - 1] : null;
+    if (!x || x.x !== 'eg' || x.n !== n) return;
+    if (zh) x.zh = 1;
+    if (d1 !== undefined) x.d1 = d1;
+    if (dr !== undefined) x.dr = dr;
+    if (!opslagSchrijf(PASSAGE_SLEUTEL, arr)) throw new Error('vol');
+  } catch (e) {
+    meetRingGestopt.add(PASSAGE_SLEUTEL);
+    try { localStorage.removeItem(PASSAGE_SLEUTEL); } catch (_) {}
+  }
+}
+function eindeGemistTerug(nodeId, ouderdomMs) {
+  if (meetRingGestopt.has(PASSAGE_SLEUTEL)) return;
+  try {
+    const arr = opslagLees(PASSAGE_SLEUTEL, []);
+    if (!Array.isArray(arr)) return;
+    const n = Number(nodeId), grens = Date.now() - (Number(ouderdomMs) || 0) - 5000;
+    for (let i = arr.length - 1; i >= 0; i--) {
+      const x = arr[i];
+      if (!x || x.t < grens) break;
+      if (x.x === 'eg' && x.n === n && x.r === 'wissel' && !x.h) {
+        x.h = 1;
+        if (!opslagSchrijf(PASSAGE_SLEUTEL, arr)) throw new Error('vol');
+        break;
+      }
+    }
+  } catch (e) {
+    meetRingGestopt.add(PASSAGE_SLEUTEL);
+    try { localStorage.removeItem(PASSAGE_SLEUTEL); } catch (_) {}
+  }
 }
 
 // ── V11.37.15: DE KOERS BIJ KRUIPEN (ALLEEN METEN) ────────────
@@ -9768,8 +9873,10 @@ async function laadONNXModel() {
     const t = ((performance.now()-modelLaadStart)/1000).toFixed(1);
     sModelLabel.textContent = `✓ YOLOv8 klaar (${t}s)`;
     sModelLabel.style.color = 'var(--groen)';
+    if (modelTerugvalFout) { sModelLabel.textContent = `⚠ Reservemodel geladen (${t}s): het gewone model laadde niet`; sModelLabel.style.color = 'var(--oranje)'; }   // V11.37.23: de stille terugval op model/model.onnx (het oude model) is nu te zien
     modelLijn.classList.add('weg');
     pAI.className='pill-dot g'; pAIT.textContent='YOLOv8';
+    if (modelTerugvalFout) { pAI.className = 'pill-dot o'; pAIT.textContent = 'Reserve'; }   // V11.37.23: idem, ook op de pil
     debugWaarden.ai = 'ai:klaar';
     yoloCanvas = document.createElement('canvas');
     yoloCanvas.width = YOLO_SIZE; yoloCanvas.height = YOLO_SIZE;
@@ -9830,6 +9937,7 @@ async function laadONNXModel() {
   } catch(e) {
     clearInterval(simInt);
     sModelLabel.textContent = '⚠ Model niet gevonden';
+    sModelLabel.textContent = '⚠ Model laadde niet: ' + String((e && e.message) ? e.message : e).slice(0, 80);   // V11.37.23: de echte reden in plaats van altijd "niet gevonden" (textContent, dus geen HTML)
     sModelLabel.style.color = 'var(--oranje)';
     modelLijn.classList.add('weg');
     pAI.className='pill-dot o'; debugWaarden.ai='ai:fout';
@@ -12679,6 +12787,7 @@ function resetNeutraal(reden) {
   zichtResetMis = aiMissRuns;
   zichtResetStaleMs = (staleFaseSinds !== null) ? Date.now() - staleFaseSinds : null;
   eindeGemistLog(reden);   // V11.37.22: idem, bij uitval, stale en het startscherm
+  zhNoteerReset(reden);   // V11.37.23: alleen onthouden hoe de fase vóór de blinde periode stond (zh), zie het blok V11.37.23
   fase = null; faseStart = null; faseBevestigd = null; // V11.5.4
   faseBalk.className=''; faseLamp.className='';
   faseWoord.textContent='—'; faseSub.textContent='Richt camera op stoplicht';
@@ -12991,6 +13100,7 @@ function verwerkFase(nieuw, horizontaal, conf=null) {
       const oudeFaseStart = faseStart;
       faseStart = laatsteFaseStart;
       if (nieuw === 'rood') eindeGemistHersteld(laatsteFaseNodeId);   // V11.37.22: de uitval was geen einde
+      if (nieuw === 'rood') zhBijHerstel(laatsteFaseNodeId);   // V11.37.23: alleen meten (zh), de vlag blijft zoals hij is
       if (nieuw === 'groen' && !groenStart) {
         groenStart = laatsteFaseStart;
       }
@@ -13778,6 +13888,7 @@ function bevestigNaWisselPad(categorie) {
     afwijkingMs: m.afwijkingMs, mv: 2, aiK: vr.aiK, aiT: vr.aiT, schaduw: vr.schaduw,
     nw: Math.round((nu - vr.t) / 100) / 10, naar
   });
+  { const l = data[data.length - 1]; if (l && l.bron) l.bron = latin1Veilig(l.bron); }   // V11.37.23: idem; vr.bron in het geheugen blijft gelijk
   if (data.length > 20) data = data.slice(-20);
   opslagSchrijf(sleutel, data);
   // cdBandBreedteS (het gewicht van KLOPTE) leest activeCdDoel en activeCdMax:
@@ -14038,6 +14149,7 @@ function bevestigCountdown(categorie) {
     aiT: (typeof aiTeller === 'number' && !isNaN(aiTeller)) ? aiTeller : null,
     schaduw: schaduwLog
   });
+  { const l = data[data.length - 1]; if (l && l.bron) l.bron = latin1Veilig(l.bron); }   // V11.37.23: idem; huidigCdBron blijft gelijk
   // -- V11.18.20: DEZE CAP BLIJFT OP 20, EN DAT IS GEMETEN ------
   // (c) 2026 StoplichtIQ - Y. Lemaalem
   //
@@ -14106,6 +14218,8 @@ function berekenGlosa() {
   const adviesKmh = (afstandM/resterend)*3.6;
   if (adviesKmh<10 || adviesKmh>80) return null;
   if (adviesKmh > snelheidKmh+15) return null;
+  if (adviesKmh > snelheidKmh) return null;   // V11.37.23: nooit een advies om te versnellen (GLOSA staat nog steeds uit, zie GLOSA_ACTIEF)
+  if (!(Number.isFinite(dichtstbijOSM.maxspeed) && dichtstbijOSM.maxspeed > 0) || adviesKmh > dichtstbijOSM.maxspeed) return null;   // V11.37.23: zonder bekende limiet geen advies, en nooit boven de limiet
   return Math.round(adviesKmh);
 }
 
@@ -16912,6 +17026,7 @@ async function downloadOSM(lat, lon) {
 }
 
 async function haalStraatnamenOp() {
+  if (!NOMINATIM_LICHT_AAN) return;   // V11.37.23: geen vraag meer met de plek van een licht (die verraadt waar je rijdt), zie NOMINATIM_LICHT_AAN
   const gesorteerd = [...osmCache]
     .filter(sl => !sl.straat && huidigePos)
     .sort((a,b) => afstand(huidigePos.lat,huidigePos.lon,a.lat,a.lon) - afstand(huidigePos.lat,huidigePos.lon,b.lat,b.lon))
@@ -19304,7 +19419,7 @@ function toonV9Richtingen() {
   filterHTML += '<div class="filter-btn" onclick="v9FilterKlik(\'auto\',this)">Alleen auto</div>';
   filterHTML += '<div class="filter-btn" onclick="v9FilterKlik(\'conflict\',this)">Conflicten ⚠</div>';
   for (const s of stadLijst.slice(0, 4)) {
-    filterHTML += `<div class="filter-btn" onclick="v9FilterKlik('${escapeHTML(s)}',this)">${escapeHTML(s)}</div>`;
+    filterHTML += `<div class="filter-btn" data-f="${escapeHTML(s)}" onclick="v9FilterKlik(this.dataset.f,this)">${escapeHTML(s)}</div>`;   // V11.37.23: de plaatsnaam via een data-veld, niet in een stukje JavaScript (een ' in de naam brak de knop, een vergiftigde naam kon code worden)
   }
   filterEl.innerHTML = filterHTML;
   v9ModalFilter = 'alle';
@@ -22294,7 +22409,7 @@ async function refreshStadIndienNodig(lat, lon) {
   if (stadLaatstRefreshed===0 || (nu-stadLaatstRefreshed)>120000 || (stadLaatsteLat!=null&&afstand(lat,lon,stadLaatsteLat,stadLaatsteLon)>1000)) {
     stadLaatstRefreshed=nu; stadLaatsteLat=lat; stadLaatsteLon=lon;
     try {
-      const r = await fetch(`https://nominatim.openstreetmap.org/reverse?lat=${lat}&lon=${lon}&zoom=10&format=json`, { headers:{'User-Agent':'StoplichtIQ/8.8'} });
+      const r = await fetch(`https://nominatim.openstreetmap.org/reverse?lat=${stadAfgerond(lat)}&lon=${stadAfgerond(lon)}&zoom=10&format=json`, { headers:{'User-Agent':'StoplichtIQ/8.8'} });   // V11.37.23: de positie afgerond op 0,01 graad (~1 km), zie stadAfgerond
       const d = await r.json();
       const stad = d.address?.city||d.address?.town||d.address?.municipality||null;
       if (stad && stad !== huidigeStad) {
@@ -22477,6 +22592,7 @@ function updateDichtbij(lat, lon) {
           });
         } else {
           delete nodeSessionData[terugkeerId];
+          eindeGemistTerug(terugkeerId, ouderdom);   // V11.37.23: de eerdere regel 'wissel' was geen einde (h:1), zie het blok V11.37.23
         }
       }
     }
@@ -24912,6 +25028,7 @@ function renderRadarSheetNodeLijst() {
     return;
   }
   const items = radarSheetNodes.slice(0, 6).map(n => {
+    n = Object.assign({}, n, { naam: n.naam ? escapeHTML(String(n.naam)) : n.naam });   // V11.37.23: de straatnaam komt uit de kaart en ging rauw de HTML in (een naam met < of " kon code worden)
     const afstStr = n.afst < 100 ? `${Math.round(n.afst)}m` : `${(n.afst/1000).toFixed(1)}km`;
     const naam = n.naam || '—';
     return `<div onclick="selecteerNodeVanRadar('${n.id}')" style="display:inline-flex;align-items:center;gap:6px;padding:6px 10px;margin:2px 4px 2px 0;border-radius:8px;background:rgba(255,255,255,0.05);border:1px solid rgba(255,255,255,0.08);cursor:pointer;font-family:'JetBrains Mono',monospace;font-size:10px;color:rgba(255,255,255,0.85)"><span style="width:6px;height:6px;border-radius:50%;background:${n.kleur}"></span><span>${naam}</span><span style="color:rgba(255,255,255,0.45)">${afstStr}</span></div>`;

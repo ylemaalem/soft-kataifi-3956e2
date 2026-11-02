@@ -594,23 +594,24 @@ async function testMeetwerk22() {
   const telAf = Object.entries(telVerwacht).filter(([n, m]) => merk(window[n]) !== m).map(([n]) => n + ' ' + merk(window[n]));
   eis('MV11a acht functies krijgen regels met merkteken V11.37.22: detLogSchrijf 4, exporteerMeetdata 3, startCd en verwerkFase 2, de andere 1',
       telAf.length === 0, 'precies zoveel', telAf.join(', ') || 'precies zoveel');
-  const zonder22 = (f) => String(f).split(NL).filter(l => !/V11\.37\.22(?!\d)/.test(l)).join(NL);
+  const zonder22 = (f) => String(f).split(NL).filter(l => !/V11\.37\.22(?!\d)|V11\.37\.23(?!\d)/.test(l)).join(NL);   // V11.37.23: ook de regels van V11.37.23 (test_meetwerk23)
   const anders = Object.entries(V113721).filter(([n, [h, l]]) => { const s = zonder22(window[n]); return fnv(s) !== h || s.length !== l; })
     .map(([n]) => n + ' ' + fnv(zonder22(window[n])) + '/' + zonder22(window[n]).length);
   eis('MV11b zonder die regels zijn ze byte-gelijk aan V11.37.21 (alles is toegevoegd, niets gewijzigd)', anders.length === 0, 'geen afwijking', anders.join(', ') || 'geen');
   const ONGEMOEID = { berekenSchaduwWaarden: ['dfd1c572', 1799], kiesCountdownBron: ['8e69db98', 12851], slaOp: ['411179eb', 3252], slaOpIntern: ['c284229a', 2342],
     slaOpV5: ['3b4df08', 1650], schrijfV5DirectBijGroen: ['78222c0c', 1872], gewGem: ['eb1936ea', 1025], bepaalCdModus: ['261892b5', 3388],
     vindDichtbij: ['d32386d8', 4753], updateDichtbij: ['cbf57ede', 12709], slaPassiefMeting: ['eac878bc', 1945], meetRingSchrijf: ['60245787', 420], stopLogAf: ['21c4b6e6', 928] };
-  const anders2 = Object.entries(ONGEMOEID).filter(([n, [h, l]]) => fnv(String(window[n])) !== h || String(window[n]).length !== l).map(x => x[0]);
-  eis('MV11c dertien functies voor het leren, de countdown en de lichtkeuze zijn helemaal niet aangeraakt', anders2.length === 0, 'geen afwijking', anders2.join(', ') || 'geen');
+  const zonder23 = (f) => String(f).split(NL).filter(l => !/V11\.37\.23(?!\d)/.test(l)).join(NL);   // V11.37.23: updateDichtbij kreeg één regel (test_meetwerk23)
+  const anders2 = Object.entries(ONGEMOEID).filter(([n, [h, l]]) => fnv(zonder23(window[n])) !== h || zonder23(window[n]).length !== l).map(x => x[0]);
+  eis('MV11c dertien functies voor het leren, de countdown en de lichtkeuze zijn niet aangeraakt (op de regel van V11.37.23 in updateDichtbij na, zie test_meetwerk23)', anders2.length === 0, 'geen afwijking', anders2.join(', ') || 'geen');
   let code = [];
   try {
     const html = await (await fetch(new URL('index.html', location.href).href + '?t=' + Date.now())).text();
     code = html.split(NL).filter(l => /V11\.37\.22(?!\d)/.test(l) && !/^\s*\/\//.test(l));
   } catch (e) { code = ['fout: ' + e]; }
-  eis('MV11d in de bron staat V11.37.22 buiten het commentaar alleen in de versie en in die vijftien regels in de acht functies (het blok zelf heeft een eigen kop)',
-      code.length === 16 && code.filter(l => /^const APP_VERSIE = 'V11\.37\.22(?!\d) — /.test(l)).length === 1,
-      '16 regels', code.length + ': ' + code.map(l => l.trim().slice(0, 30)).join(' | '));
+  eis('MV11d in de bron staat V11.37.22 buiten het commentaar alleen in die vijftien regels in de acht functies (het blok zelf heeft een eigen kop; de versieregel heet sinds V11.37.23 anders)',
+      code.length === 15 && code.filter(l => /^const APP_VERSIE/.test(l)).length === 0,
+      '15 regels', code.length + ': ' + code.map(l => l.trim().slice(0, 30)).join(' | '));
 
   herstel();
   try { opslagHersynchroniseer(Object.keys(snap)); } catch (e) {}
