@@ -374,8 +374,8 @@ async function testMeetwerk23() {
   // ═══ MA5 — Nominatim ═════════════════════════════════════════
   const n5 = await inFrame((w) => w.meetwerk23Binnen('nomi', { N: vers() }));
   eis('MA5a geen vraag meer met de plek van een licht', !n5.fout && n5.naLicht === 0, '0', kort(n5));
-  eis('MA5b de plaatsnaamvraag krijgt de positie op 0,01 graad (52.12 en 5.99), niet de exacte',
-      !n5.fout && (n5.urls || []).filter(u => /nominatim/.test(u)).length === 1 && /lat=52\.12&lon=5\.99&/.test(n5.urls.filter(u => /nominatim/.test(u))[0]) && !n5.urls.some(u => /52\.123|5\.987/.test(u)), 'lat=52.12&lon=5.99', kort((n5.urls || []).filter(u => /nominatim/.test(u))));
+  eis('MA5b sinds V11.37.25 ook geen plaatsnaamvraag meer met je positie (NOMINATIM_STAD_AAN); de afronding op 0,01 graad blijft staan voor als hij weer aan gaat',   // V11.37.25: was de vraag met de afgeronde positie, zie test_plaatsen
+      !n5.fout && (n5.urls || []).filter(u => /nominatim/.test(u)).length === 0 && stadAfgerond(52.123456) === '52.12' && stadAfgerond(5.987654) === '5.99', 'geen vraag; 52.12 en 5.99', kort((n5.urls || []).filter(u => /nominatim/.test(u))));
 
   // ═══ MA6 — GLOSA ═════════════════════════════════════════════
   const g6 = await inFrame((w) => w.meetwerk23Binnen('glosa', { N: vers() }));
@@ -453,7 +453,7 @@ async function testMeetwerk23() {
   const telAf = Object.entries(telVerwacht).filter(([n, m]) => merk(window[n]) !== m).map(([n]) => n + ' ' + merk(window[n]));
   eis('MA11a zeventien functies krijgen regels met merkteken V11.37.23: laadONNXModel 3, berekenGlosa 2, de andere 1',
       telAf.length === 0, 'precies zoveel', telAf.join(', ') || 'precies zoveel');
-  const zonder23 = (f) => String(f).split(NL).filter(l => !/V11\.37\.23(?!\d)/.test(l)).join(NL);
+  const zonder23 = (f) => String(f).split(NL).filter(l => !/V11\.37\.23(?!\d)|V11\.37\.25(?!\d)/.test(l)).join(NL);   // V11.37.25: ook de regels van V11.37.25 (test_plaatsen)
   const anders = Object.entries(Object.assign({}, V113722, VERVANGEN)).filter(([n, [h, l]]) => { const s = zonder23(window[n]); return fnv(s) !== h || s.length !== l; })
     .map(([n]) => n + ' ' + fnv(zonder23(window[n])) + '/' + zonder23(window[n]).length);
   eis('MA11b zonder die regels zijn ze byte-gelijk aan V11.37.22 (vijftien alleen toegevoegd; bij het stadsfilter en de plaatsnaamvraag is precies de oude regel vervangen)',
@@ -468,9 +468,9 @@ async function testMeetwerk23() {
     const html = await (await fetch(new URL('index.html', location.href).href + '?t=' + Date.now())).text();
     code = html.split(NL).filter(l => /V11\.37\.23(?!\d)/.test(l) && !/^\s*\/\//.test(l));
   } catch (e) { code = ['fout: ' + e]; }
-  eis('MA11d in de bron staat V11.37.23 buiten het commentaar alleen in de versie en in die twintig regels in de zeventien functies (het blok zelf heeft een eigen kop)',
-      code.length === 21 && code.filter(l => /^const APP_VERSIE = 'V11\.37\.23(?!\d) — /.test(l)).length === 1,
-      '21 regels', code.length + ': ' + code.map(l => l.trim().slice(0, 30)).join(' | '));
+  eis('MA11d in de bron staat V11.37.23 buiten het commentaar alleen in die twintig regels in de zeventien functies (het blok zelf heeft een eigen kop; de versieregel heet sinds V11.37.25 anders)',
+      code.length === 20 && code.filter(l => /^const APP_VERSIE/.test(l)).length === 0,   // V11.37.25: de versieregel heet anders
+      '20 regels', code.length + ': ' + code.map(l => l.trim().slice(0, 30)).join(' | '));
 
   herstel();
   try { opslagHersynchroniseer(Object.keys(snap)); } catch (e) {}

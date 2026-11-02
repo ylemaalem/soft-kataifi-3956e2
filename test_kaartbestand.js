@@ -47,7 +47,7 @@
 //      s.onload = () => testKaartbestand().then(r => console.table(r.regels));
 // ═══════════════════════════════════════════════════════════════
 // V11.37.21: de regels met dit merkteken weg, zodat de vergelijkingen hieronder de functies van vóór V11.37.21 blijven toetsen (zie test_meetwerk21)
-function zonderV113721(s) { return String(s).split('\n').filter(l => !/V11\.37\.21(?!\d)|V11\.37\.22(?!\d)|V11\.37\.23(?!\d)/.test(l)).join('\n'); }   // V11.37.22: ook de meetregels van V11.37.22 (test_meetwerk22); V11.37.23: idem (test_meetwerk23)
+function zonderV113721(s) { return String(s).split('\n').filter(l => !/V11\.37\.21(?!\d)|V11\.37\.22(?!\d)|V11\.37\.23(?!\d)|V11\.37\.25(?!\d)/.test(l)).join('\n'); }   // V11.37.22: ook de meetregels van V11.37.22 (test_meetwerk22); V11.37.23: idem (test_meetwerk23); V11.37.25: idem (test_plaatsen)
 
 const KF_IDB = 'StoplichtIQ_Kaartbestand';
 const KF_COPY = 'The data included in this document is from www.openstreetmap.org. The data is made available under ODbL.';
@@ -686,7 +686,7 @@ async function testKaartbestand() {
       "    if (!r.ok) kaartRem.fout = { status: r.status, ra: (r.headers && typeof r.headers.get === 'function') ? r.headers.get('Retry-After') : null };   // V11.37.12",
       '    if (!r.ok) throw new Error(`HTTP ${r.status}`);', '    const d = await kaartLeesInhoud(r, ctrl);   // V11.37.18: ook de inhoud heeft een grens (stond: await r.json()), zie kaartLeesInhoud'].join(NL);
     const ATTR_NIEUW = "      attribution: '© <a href=\"https://www.openstreetmap.org/copyright\" target=\"_blank\" rel=\"noopener\">OpenStreetMap-bijdragers</a> (<a href=\"https://opendatacommons.org/licenses/odbl/\" target=\"_blank\" rel=\"noopener\">ODbL</a>)'   // V11.37.20: de bron en de licentie, zoals de OSMF-richtlijnen vragen (osmfoundation.org/wiki/Licence/Attribution_Guidelines)";
-    const zonderV113720 = (s) => String(s).replace(DL20_NIEUW, DL_OUD).replace(ATTR_NIEUW, "      attribution: '© OpenStreetMap'").split(NL).filter(l => !/V11\.37\.20(?!\d)/.test(l)).join(NL);
+    const zonderV113720 = (s) => String(s).replace(DL20_NIEUW, DL_OUD).replace(ATTR_NIEUW, "      attribution: '© OpenStreetMap'").split(NL).filter(l => !/V11\.37\.20(?!\d)|V11\.37\.25(?!\d)/.test(l)).join(NL);   // V11.37.25: ook de regel van V11.37.25 in downloadOSM (test_plaatsen)
     const V113718 = { downloadOSM: ['59824e76', 5692], kaartWeergaveBij: ['ee5e6148', 1602], fietsHaalOp: ['855f1423', 2068], openKaartOverlay: ['4d296210', 3765] };
     const merk = (f) => String(f).split(NL).filter(l => /V11\.37\.20(?!\d)/.test(l)).length;
     const MERK = { downloadOSM: 1, kaartWeergaveBij: 3, fietsHaalOp: 3, openKaartOverlay: 1 };

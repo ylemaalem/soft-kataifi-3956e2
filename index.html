@@ -1053,7 +1053,7 @@ if (typeof ort !== 'undefined') {
 //
 // De stijl volgt de eerdere labels: nummer, kastlijntje, korte omschrijving in
 // kleine letters. De CSS zet hem zelf in kapitalen (text-transform:uppercase).
-const APP_VERSIE = 'V11.37.23 — veilige straatnamen, een eerlijke modelmelding, minder plaatsdata naar buiten, en twee meetvelden';
+const APP_VERSIE = 'V11.37.25 — de plaats van een licht uit de eigen kaart, en geen vraag meer aan Nominatim';
 
 // ── CONSTANTEN ────────────────────────────────────────────────
 const OSM_RADIUS       = 5000;
@@ -9353,6 +9353,149 @@ function stopTwijfel(appId, lat, lon) {
   return v || null;
 }
 
+// ── V11.37.25: DE PLAATS VAN EEN LICHT UIT DE EIGEN KAART ──────
+// © 2026 StoplichtIQ — Y. Lemaalem
+//
+// WAAROM. De plaatsnaam in de naam van een licht ("Straat, Plaats") was niet
+// de plaats van het licht, maar huidigeStad: waar jij was toen de kaart laadde,
+// bij de start zelfs de plaats van de vorige rit (sl_stad_cache). vindNaamVoorId
+// schreef die naam elke keer opnieuw in sl_naam_, dus de namen versprongen mee
+// met waar je reed. Gemeten op de backup van 30 oktober: 256 van de 2.029
+// beoordeelbare namen fout (12,6%): lichten met de plaats van een vorige rit
+// erachter.
+//
+// WAT. kaart/plaatsen.json (gemaakt met kaart/maak_plaatsen.py) geeft per licht
+// van kaart/lichten.json de woonplaats waarin het ligt (OSM admin_level 10,
+// anders de gemeente). plaatsZetOpCache zet daarmee plaats en naam van elk
+// licht in osmCache, na elke kaart (downloadOSM) en na de bewaarde kaart.
+// Getoetst tegen de woonplaatsen van de BAG, niet tegen de opgeslagen namen:
+// van de 43.168 lichten met een plaats in beide liggen er 43.164 in dezelfde
+// woonplaats (de 4 andere op één woonplaatsgrens); van de 256 foute namen
+// worden er 256 goed, van de 1.773 goede blijven er 1.770 goed.
+//
+// Is de plaats (nog) niet bekend - het bestand is er nog niet, of een licht
+// staat er niet in - dan staat er geen plaats in de naam, in plaats van een
+// gok. Zo'n naam zonder plaats overschrijft een opgeslagen naam in sl_naam_
+// niet (vindNaamVoorId). Komt het bestand binnen, dan krijgt de kaart die er
+// al staat alsnog de plaatsen.
+//
+// NOMINATIM. De laatste vraag (de plaatsnaam van waar je bent, elke 2 minuten,
+// refreshStadIndienNodig) staat uit (NOMINATIM_STAD_AAN), net als sinds
+// V11.37.23 de vraag per licht. huidigeStad wordt niet meer ververst en voor
+// geen enkele naam meer gebruikt. Wat refreshStadIndienNodig ook deed - een
+// nieuwe kaart vragen als er in een nieuwe plaats geen licht binnen 2 km was -
+// doet kaartNodig al bij elke GPS-tik (verder dan OSM_REFRESH van het midden).
+//
+// OPSLAG. Het bestand komt één keer per versie van het net en staat daarna in
+// een eigen IndexedDB (PLAATSEN_IDB), niet in localStorage. In het geheugen:
+// twee getallenrijen en de namen (~0,5 MB). De sha256 en de lengte staan
+// hieronder vast; een ander bestand wordt geweigerd. In een iframe (de toetsen)
+// en vóór Start staat het uit. Een fout blokkeert nooit: dan geen plaats, en
+// één logregel ('plaatsen' in het opslaglog, net als 'kaart_bestand': de
+// regel zelf noemt geen plek, wel zoals elke regel het getoonde licht).
+const PLAATSEN_AAN = true;
+const NOMINATIM_STAD_AAN = false;
+const PLAATSEN_SHA256 = 'c7b702d8c352828426079434a5f61ae57495eacd6bb0d63bc40de971314f5c5e';
+const PLAATSEN_BYTES = 323792;
+const PLAATSEN_IDB = 'StoplichtIQ_Plaatsen';
+let plaatsenData = null;      // { ids: Float64Array, p: Int16Array, namen: [] }
+let plaatsenBelofte = null;
+let plaatsenStand = null;     // null, 'idb', 'net', 'net zonder opslag' of 'fout <reden>'
+function plaatsenMag() {
+  try {
+    const sch = document.getElementById('startscherm');
+    return PLAATSEN_AAN && window.top === window && !!sch && sch.classList.contains('weg') && typeof indexedDB !== 'undefined' && !!indexedDB;
+  } catch (e) { return false; }
+}
+function plaatsenLees(tekst) {
+  const o = JSON.parse(tekst);
+  if (!o || o.v !== 1 || !Array.isArray(o.namen) || !Array.isArray(o.d) || !Array.isArray(o.p) || o.d.length !== o.p.length
+      || o.d.length !== o.lichten || !o.namen.every(n => typeof n === 'string')) throw new Error('vorm');
+  const ids = new Float64Array(o.d.length), p = new Int16Array(o.p.length);
+  let v = 0;
+  for (let i = 0; i < o.d.length; i++) {
+    const d = o.d[i], x = o.p[i];
+    if (!Number.isSafeInteger(d) || d <= 0 || !Number.isInteger(x) || x < -1 || x >= o.namen.length) throw new Error('vorm');
+    v += d; ids[i] = v; p[i] = x;
+  }
+  return { ids, p, namen: o.namen };
+}
+// Eén transactie op de eigen database; fn krijgt de store en een functie voor de uitkomst.
+function plaatsenIdb(fn) {
+  return new Promise((klaar, mis) => {
+    let r;
+    try { r = indexedDB.open(PLAATSEN_IDB, 1); } catch (e) { mis(e); return; }
+    r.onupgradeneeded = () => { try { r.result.createObjectStore('p'); } catch (e) {} };
+    r.onerror = () => mis(r.error);
+    r.onsuccess = () => {
+      const db = r.result;
+      let uit;
+      try {
+        const tx = db.transaction('p', 'readwrite');
+        tx.oncomplete = () => { db.close(); klaar(uit); };
+        tx.onerror = tx.onabort = () => { db.close(); mis(tx.error || new Error('idb')); };
+        fn(tx.objectStore('p'), (x) => { uit = x; });
+      } catch (e) { try { db.close(); } catch (_) {} mis(e); }
+    };
+  });
+}
+async function plaatsenLaad() {
+  const t0 = Date.now();
+  try {
+    let rec = null;
+    try { rec = await plaatsenIdb((st, zet) => { const g = st.get('actief'); g.onsuccess = () => zet(g.result || null); }); } catch (e) {}
+    if (rec && rec.sha === PLAATSEN_SHA256 && typeof rec.tekst === 'string') {
+      plaatsenData = plaatsenLees(rec.tekst); plaatsenStand = 'idb';
+    } else {
+      const r = await fetch(kaartBestandUrl('plaatsen.json', PLAATSEN_SHA256.slice(0, 16)));
+      if (!r.ok) throw new Error('http ' + r.status);
+      const buf = await r.arrayBuffer();
+      if (buf.byteLength !== PLAATSEN_BYTES) throw new Error('lengte');
+      const h = [...new Uint8Array(await crypto.subtle.digest('SHA-256', buf))].map(b => b.toString(16).padStart(2, '0')).join('');
+      if (h !== PLAATSEN_SHA256) throw new Error('sha');
+      const tekst = new TextDecoder('utf-8').decode(buf);
+      plaatsenData = plaatsenLees(tekst); plaatsenStand = 'net';
+      try { await plaatsenIdb((st) => { st.put({ sha: PLAATSEN_SHA256, tekst }, 'actief'); }); } catch (e) { plaatsenStand = 'net zonder opslag'; }
+    }
+    plaatsZetOpCache(osmCache);
+    if (dichtstbijOSM) {
+      const sl = osmCache.find(x => x.id === dichtstbijOSM.id);
+      if (sl) { dichtstbijOSM.naam = sl.naam; dichtstbijOSM.stad = sl.stad; kNaam.textContent = sl.naam; leerNaam.textContent = sl.naam; }
+    }
+  } catch (e) {
+    plaatsenData = null; plaatsenStand = 'fout ' + String((e && e.message) || e).slice(0, 40);
+  }
+  try { logOpslagMis('plaatsen', { element: plaatsenStand, dur: Date.now() - t0 }); } catch (e) {}
+}
+function plaatsenStart() {
+  if (!plaatsenBelofte && plaatsenMag()) plaatsenBelofte = plaatsenLaad();
+  return plaatsenBelofte;
+}
+function plaatsVoorLicht(id) {
+  const d = plaatsenData, n = Number(id);
+  if (!d || !Number.isFinite(n)) return null;
+  let lo = 0, hi = d.ids.length - 1;
+  while (lo <= hi) {
+    const m = (lo + hi) >> 1, x = d.ids[m];
+    if (x === n) return d.p[m] >= 0 ? d.namen[d.p[m]] : null;
+    if (x < n) lo = m + 1; else hi = m - 1;
+  }
+  return null;
+}
+// Zet plaats en naam van elk licht in de lijst: de plaats uit het bestand, of geen.
+function plaatsZetOpCache(lijst) {
+  try {
+    plaatsenStart();
+    if (!Array.isArray(lijst)) return;
+    for (const sl of lijst) {
+      if (!sl || !Number.isFinite(sl.lat) || !Number.isFinite(sl.lon)) continue;
+      const stad = plaatsVoorLicht(sl.id), straat = sl.straat || null;
+      sl.stad = stad;
+      sl.naam = straat ? (stad ? `${straat}, ${stad}` : straat) : (stad ? `Onbekende weg, ${stad}` : `${sl.lat.toFixed(4)}, ${sl.lon.toFixed(4)}`);
+    }
+  } catch (e) {}
+}
+
 // ── V11.37.23: TERUG BIJ HETZELFDE LICHT, EN TWEE MEETVELDEN ─────
 // © 2026 StoplichtIQ — Y. Lemaalem
 //
@@ -15468,6 +15611,7 @@ function escapeHTML(s) {
 
 function vindNaamVoorId(id) {
   const gevonden = osmCache.find(sl=>sl.id.toString()===id.toString());
+  if (gevonden && gevonden.naam && !gevonden.stad) return escapeHTML(gevonden.naam);   // V11.37.25: een naam zonder plaats niet in sl_naam_ schrijven, zie het blok V11.37.25
   if (gevonden?.naam) {
     try { localStorage.setItem('sl_naam_'+id, gevonden.naam); } catch(e) {}
     return escapeHTML(gevonden.naam);
@@ -15836,6 +15980,7 @@ function kaartBewaardTik(lat, lon) {
 // onGPS meteen hierna).
 function kaartBewaardZet(rec, lat, lon, af) {
   osmCache = rec.lichten;
+  plaatsZetOpCache(osmCache);   // V11.37.25: ook de bewaarde namen krijgen de plaats van het licht, zie het blok V11.37.25
   buurNodeMemo.clear();
   cacheCentrum = { lat: rec.lat, lon: rec.lon }; cacheGeladen = true;
   kaartIsBewaard = true; kaartBewaardStand = 'gebruikt';
@@ -17002,6 +17147,7 @@ async function downloadOSM(lat, lon) {
     });
     logOpslagMis('maxspeed_dekking', { msGedekt, msTotaal: nodes.length });
     for (const sl of osmCache) sl.eenrichting = tegenRijrichtingen(sl.id, nodeWegen.get(sl.id));   // V11.37.11: zie tegenSluitUit
+    plaatsZetOpCache(osmCache);   // V11.37.25: de plaats van elk licht uit kaart/plaatsen.json, niet waar je bent (huidigeStad), zie het blok V11.37.25
     cacheCentrum={lat,lon}; cacheGeladen=true;
     startLogMijl('k1', { kn: osmCache.length });   // V11.37.17: de eerste kaart van deze start
     kaartRem.n = 0; kaartRem.nietVoor = 0;   // V11.37.12: gelukt, de rem eraf
@@ -18554,6 +18700,14 @@ function berekenLocalStorageKB() {
 // deze meting sl_opruimstat breed maken.
 const SAFARI_QUOTUM_BYTES = 5 * 1024 * 1024;   // 5.242.880, zie hierboven
 const TEKEN_BOVEN_LATIN1 = /[^\u0000-\u00ff]/;
+// V11.37.25: LET OP BIJ HET TERUGLEZEN. latin1Veilig maakt van elk teken boven
+// U+00FF de gewone tekst \uXXXX (een backslash, een u en vier tekens). JSON leest
+// dat terug als die tekst, niet als het teken: de bron 'V5 ' + pijl staat sinds
+// V11.37.23 in sl_schaduwlog, sl_herzieninglog en sl_bevestig_ als 9 tekens.
+// Wie een opgeslagen veld wil vergelijken met het teken zelf (bijvoorbeeld met
+// 'V5 ' + pijl), vertaalt eerst terug: elke \uXXXX weer naar het teken. Geen
+// regel in de app doet dat nu: niets leest de opgeslagen bron terug om te
+// vergelijken (alleen tellen en exporteren). De analysescripts doen het wel.
 function latin1Veilig(s) {
   return String(s).replace(/[^\u0000-\u00ff]/g, c => '\\u' + c.charCodeAt(0).toString(16).padStart(4, '0'));
 }
@@ -22405,6 +22559,7 @@ function herstelOpslagGlobals() {
 }
 
 async function refreshStadIndienNodig(lat, lon) {
+  if (!NOMINATIM_STAD_AAN) return;   // V11.37.25: geen plaatsnaamvraag meer met je positie; de plaats komt uit de kaart, zie het blok V11.37.25
   const nu = Date.now();
   if (stadLaatstRefreshed===0 || (nu-stadLaatstRefreshed)>120000 || (stadLaatsteLat!=null&&afstand(lat,lon,stadLaatsteLat,stadLaatsteLon)>1000)) {
     stadLaatstRefreshed=nu; stadLaatsteLat=lat; stadLaatsteLon=lon;

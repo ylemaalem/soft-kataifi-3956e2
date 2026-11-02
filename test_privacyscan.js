@@ -32,7 +32,7 @@
 //  PV4  geen nieuwe straatnamen buiten kaart/
 //  PV5  geen nieuwe echte tijden buiten kaart/
 //  PV6  de bekende plekken (de restlijst), per soort en per bestand
-//  PV7  kaart/ bevat alleen de zeven bestanden met neutrale namen
+//  PV7  kaart/ bevat alleen de negen bestanden met neutrale namen (V11.37.25: plaatsen.json en maak_plaatsen.py)
 //
 //  DRAAIEN
 //    python testserver.py 8765     (in de repo-map; wachtrij 128, zie testserver.py)
@@ -162,8 +162,8 @@ async function testPrivacyscan() {
     // ═══ PV7 — kaart/ ════════════════════════════════════════════
     let inKaart = [];
     try { const html = await (await haal('kaart/')).text(); inKaart = [...html.matchAll(/href="([^"?/]+)"/g)].map(m => decodeURIComponent(m[1])).sort(); } catch (e) { inKaart = ['fout ' + e]; }
-    const verwacht = ['.gitattributes', 'LEESMIJ.md', 'LICENTIE.md', 'fiets.json', 'lichten.json', 'maak.py', 'versie.json'];
-    eis('PV7 kaart/ bevat precies de zeven bestanden met neutrale namen', JSON.stringify(inKaart) === JSON.stringify(verwacht), verwacht.join(', '), inKaart.join(', '));
+    const verwacht = ['.gitattributes', 'LEESMIJ.md', 'LICENTIE.md', 'fiets.json', 'lichten.json', 'maak.py', 'maak_plaatsen.py', 'plaatsen.json', 'versie.json'];   // V11.37.25: plaatsen.json en maak_plaatsen.py
+    eis('PV7 kaart/ bevat precies de negen bestanden met neutrale namen', JSON.stringify(inKaart) === JSON.stringify(verwacht), verwacht.join(', '), inKaart.join(', '));
   } catch (e) {
     eis('PV de toets zelf', false, 'geen fout', String((e && e.stack) || e).slice(0, 300));
   }
