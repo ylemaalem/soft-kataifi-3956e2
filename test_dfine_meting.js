@@ -175,7 +175,7 @@ function testDfineMeting() {
           && tekst.indexOf('B schaduw: gem 50ms') >= 0
           && tekst.indexOf('Zelfde uitkomst: 75%') >= 0
           && tekst.indexOf('Frames met D-FINE') < 0
-          && /── D-FINE-N ──\n— nog niet gemeten —/.test(tekst),
+          && /── D-FINE-N ──\n(B = [^\n]*\n)?— nog niet gemeten —/.test(tekst),   // V11.37.26: onder de kop staat nu welk bestand B is
         'A/B-blok, D-FINE nog niet gemeten', tekst.replace(/\n/g, ' | ').slice(0, 160));
     localStorage.setItem('sl_modelvgl', JSON.stringify({ schema: 2, perModus: {
       dfine: { nC: 10, somMsC: 3000, maxMsC: 410, detC: 12, nAC: 10, somMsAC: 4500, maxMsAC: 600 } } }));

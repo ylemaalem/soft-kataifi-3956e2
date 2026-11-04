@@ -218,7 +218,8 @@ async function testPlaatsen() {
     const zonder25 = (f) => String(f).split(NL).filter(l => !/V11\.37\.25(?!\d)/.test(l)).join(NL);
     const anders = Object.entries(V113723.geraakt).filter(([n, [hh, l]]) => fnv(zonder25(window[n])) !== hh || zonder25(window[n]).length !== l).map(([n]) => n + ' ' + fnv(zonder25(window[n])) + '/' + zonder25(window[n]).length);
     eis('PL8b zonder die regels zijn ze byte-gelijk aan V11.37.23 (alles is toegevoegd)', anders.length === 0, 'geen afwijking', anders.join(', ') || 'geen');
-    const anders2 = Object.entries(V113723.ongemoeid).filter(([n, [hh, l]]) => typeof window[n] !== 'function' || fnv(String(window[n])) !== hh || String(window[n]).length !== l).map(x => x[0]);
+    const zonder26 = (f) => String(f).split(NL).filter(l => !/V11\.37\.26(?!\d)/.test(l)).join(NL);   // V11.37.26: twee regels in exporteerMeetdata (test_schaduw_nano)
+    const anders2 = Object.entries(V113723.ongemoeid).filter(([n, [hh, l]]) => typeof window[n] !== 'function' || fnv(zonder26(window[n])) !== hh || zonder26(window[n]).length !== l).map(x => x[0]);
     eis('PL8c twintig functies rond de kaart, de namen, de lichtkeuze en het leren zijn niet aangeraakt', anders2.length === 0, 'geen afwijking', anders2.join(', ') || 'geen');
   } catch (e) {
     eis('PL de toets zelf', false, 'geen fout', String((e && e.stack) || e).slice(0, 300));

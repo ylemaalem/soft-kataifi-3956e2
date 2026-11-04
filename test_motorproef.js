@@ -101,9 +101,10 @@ async function testMotorproef() {
   const stuur = (w, data) => w.onmessage({ data });
   const leegYolo = () => ({ data: new Float32Array(8 * 8400), dims: [1, 8, 8400] });
   // Het blok onder een kop in het overzicht, tot de volgende lege regel.
+  // V11.37.26: de regel 'B = ...' (welk bestand B is) direct onder de kop telt niet mee.
   const blok = (tekst, kop) => {
     const i = tekst.indexOf(kop); if (i < 0) return null;
-    const na = tekst.slice(i).split('\n').slice(1).join('\n');
+    const na = tekst.slice(i).split('\n').slice(1).filter((r, j) => !(j === 0 && /^B = /.test(r))).join('\n');
     const j = na.indexOf('\n\n');
     return j < 0 ? na : na.slice(0, j);
   };
@@ -116,11 +117,12 @@ async function testMotorproef() {
 
   try {
     // ── M1: de modi ──────────────────────────────────────────
-    eis('M1a er zijn vier modi', Array.isArray(MODELVGL_MODI) && MODELVGL_MODI.length === 4,
-        4, MODELVGL_MODI && MODELVGL_MODI.length);
+    // V11.37.26: vijf modi, 'nano' achteraan (YOLOX-Nano als schaduw, zie test_schaduw_nano)
+    eis('M1a er zijn vijf modi', Array.isArray(MODELVGL_MODI) && MODELVGL_MODI.length === 5,
+        5, MODELVGL_MODI && MODELVGL_MODI.length);
     eis('M1b in de juiste volgorde',
-        JSON.stringify(MODELVGL_MODI) === JSON.stringify(['v8n', 'dfine', 'ort130', 'webgpu']),
-        "['v8n','dfine','ort130','webgpu']", JSON.stringify(MODELVGL_MODI));
+        JSON.stringify(MODELVGL_MODI) === JSON.stringify(['v8n', 'dfine', 'ort130', 'webgpu', 'nano']),
+        "['v8n','dfine','ort130','webgpu','nano']", JSON.stringify(MODELVGL_MODI));
     eis('M1c v8n staat vooraan, dus dat blijft de standaard',
         MODELVGL_MODI[0] === 'v8n', 'v8n', MODELVGL_MODI[0]);
     zet('sl_modelvgl_model', null);
@@ -146,7 +148,8 @@ async function testMotorproef() {
     eis('M2a v8n → dfine (zoals voorheen)', volgende('v8n') === 'dfine', 'dfine', volgende('v8n'));
     eis('M2b dfine → ort130', volgende('dfine') === 'ort130', 'ort130', volgende('dfine'));
     eis('M2c ort130 → webgpu', volgende('ort130') === 'webgpu', 'webgpu', volgende('ort130'));
-    eis('M2d webgpu → v8n (rond)', volgende('webgpu') === 'v8n', 'v8n', volgende('webgpu'));
+    eis('M2d webgpu → nano', volgende('webgpu') === 'nano', 'nano', volgende('webgpu'));   // V11.37.26
+    eis('M2d2 nano → v8n (rond)', volgende('nano') === 'v8n', 'v8n', volgende('nano'));   // V11.37.26
     const echt = mvWisselModel();
     if (typeof mvHerlaadTimer !== 'undefined' && mvHerlaadTimer) {
       clearTimeout(mvHerlaadTimer); mvHerlaadTimer = null;
@@ -155,7 +158,7 @@ async function testMotorproef() {
     eis('M2e de knop zelf schakelt vanuit de standaard naar dfine', echt === 'dfine', 'dfine', echt);
     eis('M2f elke modus heeft een leesbare naam',
         MODELVGL_MODI.every(m => typeof mvModusNaam(m) === 'string' && mvModusNaam(m).length > 2),
-        'vier namen', MODELVGL_MODI.map(mvModusNaam).join(' | '));
+        'vijf namen', MODELVGL_MODI.map(mvModusNaam).join(' | '));
 
     // ── M3: de motorworker ───────────────────────────────────
     eis('M3a beide motoren zijn gedefinieerd',

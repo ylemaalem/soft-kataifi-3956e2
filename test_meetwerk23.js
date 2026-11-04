@@ -345,8 +345,9 @@ async function testMeetwerk23() {
 
   // ═══ MA2 — de modelmelding ═══════════════════════════════════
   const m2 = await inFrame((w) => w.meetwerk23Binnen('model', {}));
-  eis('MA2a het gewone model: groen "klaar", de pil YOLOv8',
-      !m2.fout && /YOLOv8 klaar/.test(m2.gewoon.label) && m2.gewoon.pil === 'YOLOv8' && /groen/.test(m2.gewoon.kleur), 'klaar, YOLOv8', kort(m2.gewoon || m2));
+  // V11.37.26: de naam komt uit MODEL_PADEN: 'Model klaar: YOLOv8n', pil 'YOLOv8n'
+  eis('MA2a het gewone model: groen "klaar", de pil YOLOv8n',
+      !m2.fout && /Model klaar: YOLOv8n/.test(m2.gewoon.label) && m2.gewoon.pil === 'YOLOv8n' && /groen/.test(m2.gewoon.kleur), 'klaar, YOLOv8n', kort(m2.gewoon || m2));
   eis('MA2b de terugval op het reservemodel is te zien: oranje melding en de pil "Reserve"',
       !m2.fout && /Reservemodel geladen/.test(m2.reserve.label) && /oranje/.test(m2.reserve.kleur) && m2.reserve.pil === 'Reserve' && /pill-dot o/.test(m2.reserve.dot),
       'Reservemodel, oranje, Reserve', kort(m2.reserve || m2));
@@ -453,7 +454,14 @@ async function testMeetwerk23() {
   const telAf = Object.entries(telVerwacht).filter(([n, m]) => merk(window[n]) !== m).map(([n]) => n + ' ' + merk(window[n]));
   eis('MA11a zeventien functies krijgen regels met merkteken V11.37.23: laadONNXModel 3, berekenGlosa 2, de andere 1',
       telAf.length === 0, 'precies zoveel', telAf.join(', ') || 'precies zoveel');
-  const zonder23 = (f) => String(f).split(NL).filter(l => !/V11\.37\.23(?!\d)|V11\.37\.25(?!\d)/.test(l)).join(NL);   // V11.37.25: ook de regels van V11.37.25 (test_plaatsen)
+  // V11.37.26: drie regels van laadONNXModel zijn vervangen (de modelnaam uit MODEL_PADEN). Die gaan eerst terug
+  // naar de oude tekst; daarna vallen de regels met merkteken V11.37.26 weg, zoals die van .23 en .25.
+  const TERUG26 = [
+    [/^(\s*)sModelLabel\.textContent = '🤖 Model laden…';.*V11\.37\.26(?!\d).*$/, "$1sModelLabel.textContent = '🤖 YOLOv8 model laden…';"],
+    [/^(\s*)sModelLabel\.textContent = `✓ Model klaar: \$\{modelNaamVan\(modelPad\)\} \(\$\{t\}s\)`;.*V11\.37\.26(?!\d).*$/, '$1sModelLabel.textContent = `✓ YOLOv8 klaar (${t}s)`;'],
+    [/^(\s*)pAI\.className='pill-dot g'; pAIT\.textContent='YOLOv8n';.*V11\.37\.26(?!\d).*$/, "$1pAI.className='pill-dot g'; pAIT.textContent='YOLOv8';"]];
+  const terug26 = (l) => { for (const [re, oud] of TERUG26) if (re.test(l)) return l.replace(re, oud); return l; };
+  const zonder23 = (f) => String(f).split(NL).map(terug26).filter(l => !/V11\.37\.23(?!\d)|V11\.37\.25(?!\d)|V11\.37\.26(?!\d)/.test(l)).join(NL);   // V11.37.25: ook de regels van V11.37.25 (test_plaatsen); V11.37.26 idem
   const anders = Object.entries(Object.assign({}, V113722, VERVANGEN)).filter(([n, [h, l]]) => { const s = zonder23(window[n]); return fnv(s) !== h || s.length !== l; })
     .map(([n]) => n + ' ' + fnv(zonder23(window[n])) + '/' + zonder23(window[n]).length);
   eis('MA11b zonder die regels zijn ze byte-gelijk aan V11.37.22 (vijftien alleen toegevoegd; bij het stadsfilter en de plaatsnaamvraag is precies de oude regel vervangen)',
@@ -461,8 +469,10 @@ async function testMeetwerk23() {
   const ONGEMOEID = { startCd: ['4c0000d7', 7397], m5Start: ['be850b01', 1370], eindeGemistHersteld: ['e82722ce', 690], slaOp: ['411179eb', 3252], slaOpIntern: ['c284229a', 2342],
     slaPassiefMeting: ['eac878bc', 1945], kiesCountdownBron: ['8e69db98', 12851], gewGem: ['eb1936ea', 1025], vindDichtbij: ['d32386d8', 4753], meetRingSchrijf: ['60245787', 420],
     stopLogAf: ['21c4b6e6', 928], beeindigFase: ['8234b742', 1404], onGPS: ['454f7f25', 15761], berekenLeerPct: ['5d38efe9', 986], verwerkBevestigLeren: ['9163848', 8583], exporteerMeetdata: ['64c15a78', 10084] };
-  const anders2 = Object.entries(ONGEMOEID).filter(([n, [h, l]]) => fnv(String(window[n])) !== h || String(window[n]).length !== l).map(x => x[0]);
-  eis('MA11c zestien functies voor het leren, de countdown, de lichtkeuze en de export zijn helemaal niet aangeraakt', anders2.length === 0, 'geen afwijking', anders2.join(', ') || 'geen');
+  // V11.37.26: exporteerMeetdata kreeg twee regels (uit.nano); zonder de regels met dat merkteken is hij gelijk.
+  const zonder26 = (f) => String(f).split(NL).filter(l => !/V11\.37\.26(?!\d)/.test(l)).join(NL);
+  const anders2 = Object.entries(ONGEMOEID).filter(([n, [h, l]]) => fnv(zonder26(window[n])) !== h || zonder26(window[n]).length !== l).map(x => x[0]);
+  eis('MA11c zestien functies voor het leren, de countdown, de lichtkeuze en de export zijn niet aangeraakt (op twee regels V11.37.26 in de export na)', anders2.length === 0, 'geen afwijking', anders2.join(', ') || 'geen');
   let code = [];
   try {
     const html = await (await fetch(new URL('index.html', location.href).href + '?t=' + Date.now())).text();

@@ -801,7 +801,7 @@
   <div id="s-versie"></div>
   <div id="s-model-wrap">
     <div id="s-model-rij">
-      <div id="s-model-label">🤖 YOLOv8 model laden…</div>
+      <div id="s-model-label">🤖 Model laden…</div>
       <div id="s-model-pct">0%</div>
     </div>
     <div id="s-model-bg"><div id="s-model-balk"></div></div>
@@ -1053,7 +1053,7 @@ if (typeof ort !== 'undefined') {
 //
 // De stijl volgt de eerdere labels: nummer, kastlijntje, korte omschrijving in
 // kleine letters. De CSS zet hem zelf in kapitalen (text-transform:uppercase).
-const APP_VERSIE = 'V11.37.25 — de plaats van een licht uit de eigen kaart, en geen vraag meer aan Nominatim';
+const APP_VERSIE = 'V11.37.26 — YOLOX-Nano als schaduw naast het huidige model (staat uit), en elk modelpad met zijn eigen soort';
 
 // ── CONSTANTEN ────────────────────────────────────────────────
 const OSM_RADIUS       = 5000;
@@ -5568,6 +5568,7 @@ function exporteerMeetdata() {
       uit.start = {};    // V11.37.17: zie startLogNieuw
       uit.stop = {}; uit.inert = {};   // V11.37.21: zie stopLogTik en bevestigInertTel
       uit.passage = {}; uit.m5 = {};   // V11.37.22: zie passageTik en m5Start
+      uit.nano = {};   // V11.37.26: de Nano-schaduwproef (sl_nano_*) en de A/B-emmers (sl_modelvgl)
       for (const key of opslagSleutels('')) {                          // V11.23.0
         let doel = null;
         if (key.startsWith('sl_passief_'))       doel = uit.passief;
@@ -5595,6 +5596,7 @@ function exporteerMeetdata() {
         else if (key === INERT_SLEUTEL)          doel = uit.inert;      // V11.37.21: weggegooide KLOPTE/BIJNA-tikken
         else if (key === PASSAGE_SLEUTEL)        doel = uit.passage;   // V11.37.22: passages en einde gemist
         else if (key === M5_SLEUTEL)             doel = uit.m5;   // V11.37.22: schaduw wachttijd
+        else if (key.startsWith('sl_nano_') || key === 'sl_modelvgl') doel = uit.nano;   // V11.37.26
         // V11.17.33 W2: let op de volgorde — 'sl_richtinglog' begint NIET met
         // 'sl_richting_' (na 'sl_richting' volgt 'l', geen '_'), dus deze twee
         // takken kunnen elkaar niet vangen. Toch staat de exacte match eerst.
@@ -9960,6 +9962,44 @@ try {
 
 let modelTerugvalFout = null;   // de fout van de eerste laadpoging, als die er was
 
+// ── V11.37.26: ELK MODELPAD MET ZIJN EIGEN SOORT INVOER EN UITVOER ──
+// © 2026 StoplichtIQ — Y. Lemaalem
+//
+// WAAROM. YOLOv8 en YOLOX willen andere pixels en geven een andere tabel terug:
+//   yolov8  invoer 'images' RGB 0..1,   uitvoer 'output0' (1, 8, 8400), scores = kansen
+//   yolox   invoer 'images' BGR 0..255, uitvoer 'output'  (1, 8400, 9),  score = object x klasse
+//   dfine   invoer 'pixel_values' RGB 0..1, uitvoer 'logits' + 'pred_boxes'
+// Een YOLOv8-bestand met YOLOX-pixels (of andersom) geeft geen foutmelding, alleen
+// onzin. Daarom hoort bij elk pad dat de app laadt één regel in deze tabel, en
+// kiest de app de verwerking op de SOORT van het bestand, nooit op de stand of op
+// de plek in de code. Een pad dat hier niet in staat, laadt niet
+// (modelSoortVan gooit). test_schaduw_nano N4 leest alle .onnx-paden uit dit
+// bestand en faalt als er een ontbreekt.
+//
+// De NAAM is wat het scherm toont. 'reserve' is het oudere model (dataset2): het
+// hoofdpad valt daarop terug als ./model.onnx niet laadt (en meldt dat in beeld,
+// V11.37.23); de schaduwstanden v8n, ort130 en webgpu draaien het als tweede model.
+const MODEL_SOORTEN = {
+  yolov8: { invoer: 'rgb01',  invoerNaam: 'images',       uitvoer: ['output0'] },
+  yolox:  { invoer: 'bgr255', invoerNaam: 'images',       uitvoer: ['output'] },
+  dfine:  { invoer: 'rgb01',  invoerNaam: 'pixel_values', uitvoer: ['logits', 'pred_boxes'] }
+};
+const MODEL_PADEN = {
+  './model.onnx':            { soort: 'yolov8', naam: 'YOLOv8n',                rol: 'hoofd' },
+  './model/model.onnx':      { soort: 'yolov8', naam: 'YOLOv8n (reservemodel)', rol: 'reserve' },
+  './model/dfine-n.onnx':    { soort: 'dfine',  naam: 'D-FINE-N (COCO)',        rol: 'schaduw' },
+  './model/yolox_nano.onnx': { soort: 'yolox',  naam: 'YOLOX-Nano',             rol: 'schaduw' }
+};
+function modelSoortVan(pad, paden) {
+  const p = (paden || MODEL_PADEN)[pad];
+  if (!p || !MODEL_SOORTEN[p.soort]) throw new Error('onbekend modelpad ' + String(pad) + ': geen soort bekend');
+  return p.soort;
+}
+function modelNaamVan(pad) {
+  const p = MODEL_PADEN[pad];
+  return p ? p.naam : String(pad);
+}
+
 // Web Worker code
 const YOLO_WORKER_CODE=`
 importScripts('https://cdn.jsdelivr.net/npm/onnxruntime-web@1.17.1/dist/ort.min.js');
@@ -9999,7 +10039,7 @@ const simInt = setInterval(() => {
 
 async function laadONNXModel() {
   try {
-    sModelLabel.textContent = '🤖 YOLOv8 model laden…';
+    sModelLabel.textContent = '🤖 Model laden…';   // V11.37.26: zonder modelnaam; die komt pas als bekend is welk bestand laadde
     let modelPad = './model.onnx';
     try {
       onnxSession = await ort.InferenceSession.create(modelPad, { executionProviders:['wasm'], graphOptimizationLevel:'all' });
@@ -10008,17 +10048,18 @@ async function laadONNXModel() {
       modelPad = './model/model.onnx';
       onnxSession = await ort.InferenceSession.create(modelPad, { executionProviders:['wasm'], graphOptimizationLevel:'all' });
     }
+    if (modelSoortVan(modelPad) !== 'yolov8') throw new Error('hoofdpad ' + modelPad + ' is geen YOLOv8-bestand');   // V11.37.26: het hoofdpad leest alleen YOLOv8 (images RGB 0..1, output0)
     modelGeladen = true;
     startModelMs = Math.round(performance.now() - modelLaadStart); startLogMijl('m', { ml: startModelMs });   // V11.37.17: de startlog
     clearInterval(simInt);
     sModelBalk.style.width='100%'; sModelBalk.style.background='var(--groen)';
     sModelPct.textContent='100%';
     const t = ((performance.now()-modelLaadStart)/1000).toFixed(1);
-    sModelLabel.textContent = `✓ YOLOv8 klaar (${t}s)`;
+    sModelLabel.textContent = `✓ Model klaar: ${modelNaamVan(modelPad)} (${t}s)`;   // V11.37.26: de naam uit MODEL_PADEN, niet vast 'YOLOv8'
     sModelLabel.style.color = 'var(--groen)';
     if (modelTerugvalFout) { sModelLabel.textContent = `⚠ Reservemodel geladen (${t}s): het gewone model laadde niet`; sModelLabel.style.color = 'var(--oranje)'; }   // V11.37.23: de stille terugval op model/model.onnx (het oude model) is nu te zien
     modelLijn.classList.add('weg');
-    pAI.className='pill-dot g'; pAIT.textContent='YOLOv8';
+    pAI.className='pill-dot g'; pAIT.textContent='YOLOv8n';   // V11.37.26: was 'YOLOv8'
     if (modelTerugvalFout) { pAI.className = 'pill-dot o'; pAIT.textContent = 'Reserve'; }   // V11.37.23: idem, ook op de pil
     debugWaarden.ai = 'ai:klaar';
     yoloCanvas = document.createElement('canvas');
@@ -10056,6 +10097,8 @@ async function laadONNXModel() {
               // overleeft. Daarom in die modus alleen de tijd, geen paring.
               if (MODELVGL_MODEL === 'dfine') {
                 vglNoteerHoofdInDfine(inferentieTijd);
+              } else if (MODELVGL_MODEL === 'nano') {   // V11.37.26
+                nanoNaHoofd(msg.frameId, inferentieTijd, detecties);   // V11.37.26: zie het blok NANO-SCHADUW
               } else {
                 const _b = vglBeste(detecties);
                 vglOpenA.set(msg.frameId, { ms: inferentieTijd, kl: _b.kl, cf: _b.cf, n: _b.n });
@@ -10525,6 +10568,69 @@ function postprocessYOLO(outputData, dims) {
   } else {
     debugLaatsteAlle = null;
     detLogBest = null;   // V11.37.5
+  }
+  detections.sort((a,b) => b.score-a.score);
+  return nmsFilter(detections);
+}
+
+
+// ── V11.37.26: DE NABEWERKING VOOR DE NANO-SCHADUW ─────────────
+// © 2026 StoplichtIQ — Y. Lemaalem
+//
+// Een KOPIE van postprocessYOLO, zodat het hoofdpad geen letter verandert.
+// Dezelfde vijf filters, dezelfde tikzone en dezelfde NMS, met drie verschillen:
+//   - eigen drempels: opt.conf (sl_nano_conf, 0,07) en opt.tapConf
+//     (sl_nano_tapconf, 0,03) in plaats van CONF_DREMPEL en TAP_CONF_DREMPEL;
+//   - de tikplek, de straal en de snelheid komen uit de momentopname van HET
+//     frame (opt.tap, opt.straal, opt.kmh; zie nanoNoteerContext), niet uit de
+//     globals van nu: het B-resultaat kan binnenkomen als de voorbewerking van
+//     het volgende frame lbScale en de tikplek al veranderd heeft;
+//   - geen enkele schrijving: niet naar debugLaatste*, niet naar detLogBest.
+// test_schaduw_nano N2e bewijst op willekeurige uitvoer dat deze functie met de
+// drempels en de toestand van het hoofdpad precies hetzelfde teruggeeft als
+// postprocessYOLO. Verandert postprocessYOLO later, dan faalt die toets tot deze
+// kopie is bijgewerkt.
+function postprocessNano(outputData, dims, opt) {
+  const numAnchors = dims[2];
+  const detections = [];
+  const dynamischMaxY = (typeof opt.kmh==='number' && !isNaN(opt.kmh) && opt.kmh<15)
+    ? 0.85 : MAX_Y_RATIO;
+  const tapZwak = opt.tap || null;
+  const tapStraalZwak = tapZwak ? opt.straal : 0;
+  const tapStraal2 = tapStraalZwak * tapStraalZwak;
+  for (let i=0; i<numAnchors; i++) {
+    const cx=outputData[0*numAnchors+i], cy=outputData[1*numAnchors+i];
+    const w=outputData[2*numAnchors+i], h=outputData[3*numAnchors+i];
+    const alleScores = new Array(NC);
+    let maxScore=0, maxKlasse=-1;
+    for (let c=0; c<NC; c++) {
+      const score = outputData[(4+c)*numAnchors+i];
+      alleScores[c] = score;
+      if (score > maxScore) { maxScore=score; maxKlasse=c; }
+    }
+    if (maxKlasse===2) continue;  // klasse 2 = uit, altijd overslaan
+    let famScore = maxScore;
+    const fam = KLASSE_MAP[maxKlasse];
+    if (fam) famScore = famSom(alleScores, fam, maxScore);
+    const inTapZone = tapZwak !== null
+      && ((cx - tapZwak.cx) * (cx - tapZwak.cx)
+        + (cy - tapZwak.cy) * (cy - tapZwak.cy)) <= tapStraal2;
+    if (inTapZone) {
+      if (famScore < opt.tapConf) continue;
+      if (h < 2 || w <= 0) continue;
+    } else {
+      if (famScore < opt.conf) continue;
+      if (cy/YOLO_SIZE > dynamischMaxY) continue;
+      if (h < MIN_H_PX) continue;
+      if (w/YOLO_SIZE > MAX_BOX_W_RATIO) continue;
+      if (h > 0 && w/h > MAX_WH_RATIO) continue;
+    }
+    detections.push({
+      klasse:maxKlasse, score:maxScore,
+      alleScores,
+      x1:cx-w/2, y1:cy-h/2, x2:cx+w/2, y2:cy+h/2,
+      w, h, cx, cy
+    });
   }
   detections.sort((a,b) => b.score-a.score);
   return nmsFilter(detections);
@@ -11578,7 +11684,10 @@ const MODELVGL_AAN = (() => {
 // V11.25.0: vier modi in plaats van twee. De volgorde is die van de knop, en
 // 'v8n' staat vooraan zodat de standaard ongewijzigd blijft: zonder sleutel, of
 // met een onbekende waarde, meet de app zichzelf tegen zichzelf.
-const MODELVGL_MODI = ['v8n', 'dfine', 'ort130', 'webgpu'];
+// V11.37.26: vijfde stand 'nano' (YOLOX-Nano als schaduw, zie het blok
+// NANO-SCHADUW). Achteraan, zodat de standaard en de eerste stappen van de knop
+// gelijk blijven: v8n -> dfine -> ort130 -> webgpu -> nano -> v8n.
+const MODELVGL_MODI = ['v8n', 'dfine', 'ort130', 'webgpu', 'nano'];   // V11.37.26
 const MODELVGL_MODEL = (() => {
   try {
     const v = localStorage.getItem('sl_modelvgl_model');
@@ -11709,6 +11818,7 @@ function vglEmmer(modus) {
 // een schaduw die blijft hangen, of een hoofdframe dat faalt terwijl B al
 // antwoordde. Normaal staat er hoogstens één frame open.
 let vglNaarB = new Set();
+let nanoCtx = new Map();   // V11.37.26: frameId -> momentopname bij het versturen, zie nanoNoteerContext
 const VGL_OPEN_MAX = 16;
 // Wat de schaduw in DEZE stand haalde, vanaf nul bij het starten. Dat is het
 // getal van issue 27584 ("crash after around 500 inference"), en het is iets
@@ -11716,7 +11826,7 @@ const VGL_OPEN_MAX = 16;
 let vglFramesDezeStand = 0;
 
 function vglSnoei() {
-  for (const m of [vglOpenA, vglOpenB, vglNaarB]) {
+  for (const m of [vglOpenA, vglOpenB, vglNaarB, nanoCtx]) {   // V11.37.26: nanoCtx
     while (m.size > VGL_OPEN_MAX) m.delete(m.keys().next().value);
   }
 }
@@ -11724,6 +11834,7 @@ function vglSnoei() {
 // Een frame waarvoor de schaduw een fout gaf: er komt nooit een paar meer.
 function vglVergeetFrame(frameId) {
   vglNaarB.delete(frameId); vglOpenA.delete(frameId); vglOpenB.delete(frameId);
+  nanoCtx.delete(frameId);   // V11.37.26
 }
 
 // ── V11.18.14: DE UITKOMST VAN D-FINE NAAR HET GEDEELDE FORMAAT ──
@@ -11967,12 +12078,19 @@ function vglBeste(dets) {
 // die overschrijven, dan zou dat bestaande log stilletjes de cijfers van het
 // KLEINE model gaan bevatten — een meting die een andere meting vervuilt is
 // erger dan geen meting. Daarom hier bewaren en terugzetten.
+// V11.37.26: REPARATIE. Sinds V11.37.5 schrijft postprocessYOLO ook detLogBest
+// (de beste kandidaat, voor de detlog bij stilstand en het veld cxv). Die werd
+// hier niet teruggezet: met de vergelijking aan kon de detlog van het
+// hoofdmodel de beste box van het schaduwmodel bevatten. Nu gaat ook die terug.
+// (Of het in een export zit: zie het rapport bij V11.37.26.)
 function vglPostprocessVeilig(data, dims) {
   const bA = debugLaatsteAlle, bK = debugLaatsteTopKlasse, bS = debugLaatsteTopScore;
+  const bD = detLogBest;   // V11.37.26
   let dets;
   try { dets = postprocessYOLO(data, dims); }
   finally {
     debugLaatsteAlle = bA; debugLaatsteTopKlasse = bK; debugLaatsteTopScore = bS;
+    detLogBest = bD;   // V11.37.26
   }
   return dets;
 }
@@ -12005,12 +12123,14 @@ function vglKoppel(frameId) {
       klA: a.kl, cfA: a.cf, nA: a.n, msA: a.ms,
       klB: b.kl, cfB: b.cf, nB: b.n, msB: b.ms,
       kmh: (typeof snelheidKmh === 'number') ? Math.round(snelheidKmh) : null,
-      node: dichtstbijOSM ? String(dichtstbijOSM.id) : null
+      node: (dichtstbijOSM && b.modus !== 'nano') ? String(dichtstbijOSM.id) : null   // V11.37.26: geen lichtnummer in de Nano-proef
     });
     if (st.voorbeelden.length > MODELVGL_MAX_VOORBEELDEN) {
       st.voorbeelden = st.voorbeelden.slice(-MODELVGL_MAX_VOORBEELDEN);
     }
   }
+  // V11.37.26: de Nano-proef krijgt beide uitkomsten van hetzelfde frame.
+  if (b.modus === 'nano' && a.nano && b.nano) { try { nanoFrame(frameId, a, b); } catch (_) {} }   // V11.37.26
   // Niet elke frame naar localStorage — dat is de duurste stap in de lus.
   if (st.n % 10 === 0) vglStatBewaar();
 }
@@ -12110,17 +12230,29 @@ function mvIsAan() {
 // startscherm en in de debugbalk die tijdens het rijden zichtbaar is. Wordt
 // bij het laden meteen gezet, dus na een herlaad staat hij er direct — niet
 // pas na een volgende handeling.
+// V11.37.26: in de stand nano zegt het merkteken ook hoe de Nano-schaduw ervoor
+// staat ('TEST · Nano', 'TEST · Nano laadt', 'TEST · Nano uit'), zodat een
+// schaduw die niet draait in beeld staat en niet alleen in het overzicht.
+function mvTestLabel() {   // V11.37.26
+  if (MODELVGL_AAN && MODELVGL_MODEL === 'nano') return 'TEST · ' + nanoStaat.label;   // V11.37.26
+  return 'TEST';   // V11.37.26
+}   // V11.37.26
 function mvWerkIndicatorBij() {
   const aan = mvIsAan();
   const dbg = document.getElementById('d-test');
-  if (dbg) dbg.innerHTML = aan ? '<span class="mv-test-badge">TEST</span>' : '';
+  if (dbg) {   // V11.37.26
+    dbg.innerHTML = aan ? '<span class="mv-test-badge">TEST</span>' : '';   // V11.37.26
+    const b = dbg.querySelector('.mv-test-badge'); if (b) b.textContent = mvTestLabel();   // V11.37.26
+  }   // V11.37.26
   const ver = document.getElementById('s-versie');
   if (ver) {
     const oud = ver.querySelector('.mv-test-badge');
     if (aan && !oud) {
       const b = document.createElement('span');
-      b.className = 'mv-test-badge'; b.textContent = 'TEST';
+      b.className = 'mv-test-badge'; b.textContent = mvTestLabel();   // V11.37.26: was 'TEST'
       ver.appendChild(b);
+    } else if (aan && oud) {   // V11.37.26
+      oud.textContent = mvTestLabel();   // V11.37.26
     } else if (!aan && oud) {
       oud.remove();
     }
@@ -12156,6 +12288,10 @@ function mvSamenvattingTekst() {
     const e = st.perModus[m], ba = vglBA(e, m);
     uit.push('');
     uit.push('── ' + mvModusNaam(m) + (m === MODELVGL_MODEL ? ' · nu' : '') + ' ──');
+    // V11.37.26: welk BESTAND B is. Bij v8n, ort130 en webgpu is dat het
+    // reservemodel (dataset2), niet het hoofdmodel; dat staat er nu bij.
+    uit.push('B = ' + modelNaamVan(VGL_MODUS_PAD[m]));   // V11.37.26
+    if (m === 'nano') { try { for (const r of nanoOverzichtRegels()) uit.push(r); } catch (e) {} }   // V11.37.26
     // V11.25.0: bij een motorproef staat het belangrijkste bovenaan — draaide
     // hij, op welke provider, en zo nee waarom niet. Dat is de uitkomst, ook
     // (juist) als er nul frames zijn gehaald.
@@ -12217,6 +12353,7 @@ function mvSamenvattingTekst() {
 // zich vanuit de standaard precies zo gedraagt als voorheen.
 function mvModusNaam(modus) {
   if (modus === 'dfine') return 'D-FINE-N';
+  if (modus === 'nano') return 'YOLOX-Nano';   // V11.37.26
   if (VGL_MOTOREN[modus]) return VGL_MOTOREN[modus].naam;
   return 'YOLOv8n';
 }
@@ -12309,6 +12446,7 @@ function vglLegStil() {
   const w = vglWorker;
   vglWorker = null; vglWorkerKlaar = false; vglBezig = false;
   vglOpenA.clear(); vglOpenB.clear(); vglNaarB.clear();
+  nanoCtx.clear();   // V11.37.26
   if (w) { try { w.terminate(); } catch (_) {} }
 }
 
@@ -12318,17 +12456,26 @@ function vglStartSchaduw(modus) {
   // V11.18.14: welk tweede model deze rit draait. De rest van deze functie is
   // ongewijzigd; alleen het pad, de workercode en de verwerking van het
   // resultaat hangen van de modus af.
-  const dfine = (modus === 'dfine');
+  // V11.37.26: pad, soort en worker uit vglPlan. De verwerking hangt van de
+  // SOORT van het bestand af, niet van de stand: een YOLOv8-bestand krijgt nooit
+  // de Nano-invoer, en een fout in de tabel laat de schaduw niet starten.
+  let plan;   // V11.37.26
+  try { plan = vglPlan(modus); }   // V11.37.26
+  catch (e) { if (modus === 'nano') nanoStop('plan: ' + ((e && e.message) || e)); vglLegStil(); return; }   // V11.37.26
+  const dfine = (plan.soort === 'dfine');   // V11.37.26
+  const nano = (plan.soort === 'yolox');   // V11.37.26
   // V11.25.0: een motorvariant draait HETZELFDE model, maar op een andere
   // bibliotheek of provider. Model en verwerking zijn dus die van de v8n-tak;
   // alleen de workercode verschilt.
-  const motor = VGL_MOTOREN[modus] || null;
-  const modelPad = dfine ? './model/dfine-n.onnx' : './model/model.onnx';
+  const motor = plan.motor;   // V11.37.26
+  const modelPad = plan.pad;   // V11.37.26
   vglFramesDezeStand = 0; vglFouten = 0;
+  if (nano) nanoBegin();   // V11.37.26
   try {
-    fetch(modelPad).then(r => r.arrayBuffer()).then(buf => {
-      const bron = dfine ? DFINE_WORKER_CODE
-                 : motor ? vglProviderWorkerBron(motor.bundel, motor.paden, motor.providers)
+    fetch(modelPad).then(r => { if (nano && r && r.ok === false) throw new Error('bestand laadde niet (' + r.status + ')'); return r.arrayBuffer(); }).then(buf => {   // V11.37.26
+      const bron = plan.worker === 'dfine' ? DFINE_WORKER_CODE   // V11.37.26
+                 : plan.worker === 'nano' ? NANO_WORKER_CODE   // V11.37.26
+                 : plan.worker === 'motor' ? vglProviderWorkerBron(motor.bundel, motor.paden, motor.providers)   // V11.37.26
                  : YOLO_WORKER_CODE;
       const blob = new Blob([bron], { type: 'application/javascript' });
       const url = URL.createObjectURL(blob);
@@ -12340,6 +12487,7 @@ function vglStartSchaduw(modus) {
           // V11.25.0: vastleggen WAT er draait. Zonder dit zou een schaduw die
           // stilletjes op iets anders uitkwam als geslaagde meting tellen.
           if (motor) { try { vglNoteerMotor(modus, msg.provider, msg.threads); } catch (_) {} }
+          if (nano) { try { nanoKlaar(); } catch (_) {} }   // V11.37.26
           return;
         }
         if (msg.type === 'fout') {
@@ -12350,7 +12498,13 @@ function vglStartSchaduw(modus) {
           // juist die reden het antwoord: 'geen WebGPU op dit toestel' is een
           // uitkomst, geen storing.
           if (motor) { try { vglNoteerMotorFout(modus, msg.bericht); } catch (_) {} }
-          if (++vglFouten >= 5) vglLegStil();
+          // V11.37.26: Nano valt nooit terug op een ander bestand. Een init-fout
+          // (verkeerde soort, laadt niet) zet de schaduw meteen uit, in beeld.
+          if (nano) {   // V11.37.26
+            try { vglNoteerMotorFout(modus, msg.bericht); } catch (_) {}   // V11.37.26
+            if (String(msg.bericht || '').indexOf('init: ') === 0) { nanoStop(msg.bericht); vglLegStil(); return; }   // V11.37.26
+          }   // V11.37.26
+          if (++vglFouten >= 5) { if (nano) nanoStop('5 fouten: ' + msg.bericht); vglLegStil(); }   // V11.37.26
           return;
         }
         if (msg.type === 'resultaat') {
@@ -12358,7 +12512,9 @@ function vglStartSchaduw(modus) {
           vglBezig = false;
           vglFramesDezeStand++;
           try {
-            if (dfine) {
+            if (nano) {   // V11.37.26
+              nanoSchaduwResultaat(msg, ms);   // V11.37.26
+            } else if (dfine) {   // V11.37.26
               // Alleen tellen. De klassen van dit model zijn COCO-klassen en
               // zeggen niets over stoplichten; de tijd zegt alles.
               const d = postprocessDfine(msg.logits, msg.logitsDims, msg.boxes);
@@ -12375,12 +12531,517 @@ function vglStartSchaduw(modus) {
           } catch (_) {}
         }
       };
-      vglWorker.onerror = function () { vglLegStil(); };
+      vglWorker.onerror = function () { if (nano) nanoStop('worker gestopt'); vglLegStil(); };   // V11.37.26
       vglWorker.postMessage({ type: 'initialiseer', modelBuffer: buf }, [buf]);
       URL.revokeObjectURL(url);
-    }).catch(() => { vglLegStil(); });
-  } catch (e) { vglLegStil(); }
+    }).catch((e) => { if (nano) nanoStop('init: ' + ((e && e.message) || e)); vglLegStil(); });   // V11.37.26
+  } catch (e) { if (nano) nanoStop('init: ' + ((e && e.message) || e)); vglLegStil(); }   // V11.37.26
+}   // V11.37.26
+
+// ══ V11.37.26: NANO-SCHADUW — YOLOX-Nano naast het huidige model ══════
+// © 2026 StoplichtIQ — Y. Lemaalem
+//
+// WAT. De vijfde stand van de modelvergelijking (vijf tikken op het
+// versielabel, knop "Meet YOLOX-Nano"). Het huidige model (./model.onnx)
+// BLIJFT beslissen. YOLOX-Nano (./model/yolox_nano.onnx) krijgt een eigen
+// kopie van dezelfde pixels in een eigen worker, en zijn uitkomst gaat alleen
+// naar drie eigen sleutels: sl_nano_ep, sl_nano_vs en sl_nano_meta. Hij roept
+// _verwerkWorkerResultaat nooit aan, raakt laatsteAI, sticky, fase, countdown,
+// leerdata, m5 en de detlog niet (eigen nabewerking postprocessNano), en staat
+// standaard UIT: zonder sl_modelvgl_aan draait geen regel van dit blok en wordt
+// het bestand niet eens opgehaald (er is geen service worker).
+//
+// HET CRITERIUM (vastgelegd door Younes VOOR de bouw):
+//   K1 doorrijden  >15 km/u, niet gestopt, laatste 3 s voor de passage:
+//                  waarheid groen (oranje mag); fout = gemist of rood
+//   K2 stilstand   >=5 s binnen 25 m, zonder de laatste 3 s voor het
+//                  wegrijden: waarheid rood; fout = gemist of groen
+//   K3 wegrijden   hoeveel s voor het wegrijden elk model blijvend groen zag
+//   K4 (info) eerste zicht, K5 (info) flikker < 1,5 s, K6 (info) tegen de
+//   bevestigde fase (partijdig: die komt uit het huidige model), K7 (info)
+//   lampen buiten het gevolgde licht die maar één van de twee ziet.
+//   Oordeel (alleen in de analyse, nooit in de app): GOED als Nano op K1 en
+//   K2 niet meer dan +2 pp fouten heeft en op K3 niet meer dan +0,5 s later
+//   groen ziet; AF boven +4 pp of +1,0 s; daartussen TWIJFEL. Pas na 7
+//   rijdagen, >=100 episodes K1 en >=100 K2, waarvan >=15 donker; marge per
+//   episode (bootstrap). Drempels sl_nano_conf / sl_nano_tapconf blijven vast.
+//
+// DE GEVOLGDE LAMP. Per frame één referentieplek, voor beide modellen dezelfde:
+// de tik (tapZwakPositie) als die er is, anders de box die de app koos
+// (laatsteAI, uit het huidige model), anders de laatste plek waar een van de
+// twee de lamp zag (hoogstens 2 s oud, in camerapixels). Een model "ziet de
+// lamp" als het een box heeft binnen de tikstraal of met IoU >= 0,3. Frames
+// zonder referentie tellen niet mee (veld n0). Eerlijk gezegd: de eerste plek
+// komt meestal uit het huidige model; daarna houdt ook een Nano-zicht hem vast.
+//
+// GEEN PLAATSEN, GEEN TIJDEN. Geen lichtnummer, geen coördinaat, geen klok in
+// de regels: een rijdagnummer binnen de proef (d), een episodenummer (e) en
+// seconden binnen de episode. Alleen ASCII.
+//
+// VOLLE OPSLAG. De ringen houden de nieuwste NANO_EP_MAX / NANO_VS_MAX regels.
+// Lukt een schrijving niet, dan stopt de schaduw (in beeld: "Nano uit: opslag
+// vol"); er wordt niets weggehaald, ook niet uit de eigen ringen, en de
+// opslagteller en sl_opslaglog van de app merken er niets van.
+const VGL_MODUS_PAD = {
+  v8n: './model/model.onnx', dfine: './model/dfine-n.onnx',
+  ort130: './model/model.onnx', webgpu: './model/model.onnx',
+  nano: './model/yolox_nano.onnx'
+};
+// Wat elke worker het model voert. De Nano-worker zet de RGB 0..1 van de app om
+// naar BGR 0..255; de andere geven RGB 0..1 door.
+const VGL_WORKER_INVOER = { yolo: 'rgb01', motor: 'rgb01', dfine: 'rgb01', nano: 'bgr255' };
+
+// Pad, soort en worker voor een stand. Gooit bij elke tegenspraak: dan start de
+// schaduw niet, in plaats van onzin te meten.
+function vglPlan(modus, paden, modusPaden) {
+  const pad = (modusPaden || VGL_MODUS_PAD)[modus];
+  if (!pad) throw new Error('geen modelpad voor stand ' + modus);
+  const soort = modelSoortVan(pad, paden);
+  const motor = VGL_MOTOREN[modus] || null;
+  if (motor && soort !== 'yolov8') throw new Error('motorproef ' + modus + ' draait alleen YOLOv8; ' + pad + ' is ' + soort);
+  if (modus === 'nano' && soort !== 'yolox') throw new Error('stand nano vraagt een YOLOX-bestand; ' + pad + ' is ' + soort);
+  if (soort === 'yolox' && modus !== 'nano') throw new Error('een YOLOX-bestand draait alleen in de stand nano');
+  if (modus === 'dfine' && soort !== 'dfine') throw new Error('stand dfine vraagt een D-FINE-bestand; ' + pad + ' is ' + soort);
+  const worker = soort === 'yolox' ? 'nano' : soort === 'dfine' ? 'dfine' : (motor ? 'motor' : 'yolo');
+  if (VGL_WORKER_INVOER[worker] !== MODEL_SOORTEN[soort].invoer) throw new Error('worker ' + worker + ' past niet bij ' + soort);
+  return { modus, pad, soort, worker, motor };
 }
+
+// De drempels: losse instellingen, met deze standaard als er niets staat.
+// Aanpassen (vóór de proef): localStorage.setItem('sl_nano_conf','0.07').
+const NANO_CONF_STANDAARD = 0.07, NANO_TAPCONF_STANDAARD = 0.03;
+function nanoDrempelLees(sleutel, standaard) {
+  try { const v = parseFloat(localStorage.getItem(sleutel)); return (v > 0 && v < 1) ? v : standaard; }
+  catch (e) { return standaard; }
+}
+const NANO_CONF = nanoDrempelLees('sl_nano_conf', NANO_CONF_STANDAARD);
+const NANO_TAPCONF = nanoDrempelLees('sl_nano_tapconf', NANO_TAPCONF_STANDAARD);
+
+const NANO_EP_SLEUTEL = 'sl_nano_ep', NANO_VS_SLEUTEL = 'sl_nano_vs', NANO_META_SLEUTEL = 'sl_nano_meta';
+const NANO_EP_MAX = 600;          // ~0,2 KB per episode: ~120 KB vol
+const NANO_VS_MAX = 400;          // ~0,1 KB per regel: ~40 KB vol
+const NANO_VS_BUFFER = 10;        // zoveel verschilregels in het geheugen voor een schrijving
+const NANO_MIN_MAX = 120;         // minuten belasting in sl_nano_meta
+const NANO_EP_DICHT_MS = 20000;   // zo lang geen frame bij dit licht: de episode sluit
+const NANO_EP_MIN_FRAMES = 3;
+const NANO_EP_MAX_FRAMES = 900;
+const NANO_REF_HOUD_MS = 2000;
+const NANO_STIL_KMH = 3, NANO_WEG_KMH = 5, NANO_STIL_AF_M = 25, NANO_STIL_MIN_MS = 5000;
+const NANO_RAND_MS = 3000, NANO_DOOR_KMH = 15, NANO_PASSAGE_AF_M = 40, NANO_GESTOPT_AF_M = 60;
+const NANO_FLIKKER_MS = 1500;
+const NANO_DONKER_LUMA = 60;      // dezelfde grens als de trainset (maak_set_v4.py)
+const NANO_KLEUR = { rood: 'r', groen: 'g', oranje: 'o' };
+
+let nanoStaat = { actief: false, vol: false, gestopt: null, label: 'Nano', min: null, vsBuf: [] };
+let nanoEp = null;
+let nanoMetaCache = null;
+
+// De worker. Een EIGEN kopie, net als bij D-FINE: YOLO_WORKER_CODE draait in
+// het echte app-pad en verandert geen letter. Drie dingen anders:
+//  1. bij het laden: is dit een YOLOX-bestand (invoer images, uitvoer output en
+//     geen output0)? Zo niet: 'init: geen YOLOX-bestand' en de schaduw stopt.
+//     Een YOLOv8-bestand krijgt zo nooit BGR 0..255.
+//  2. invoer: de RGB 0..1 van de app naar BGR 0..255, hier en niet op de
+//     hoofdthread.
+//  3. uitvoer (1, N, 9) naar de (1, 8, N) die postprocessYOLO leest: cx, cy, w, h
+//     en per klasse object x klasse. En de gemiddelde helderheid (lu, 0..255,
+//     elke 16e pixel) voor de vlag donker.
+const NANO_WORKER_CODE=`
+importScripts('https://cdn.jsdelivr.net/npm/onnxruntime-web@1.17.1/dist/ort.min.js');
+let sessie=null,klaar=false,bgr=null,bezig=false;
+async function initialiseer(modelBuffer){
+  try{
+    ort.env.wasm.wasmPaths='https://cdn.jsdelivr.net/npm/onnxruntime-web@1.17.1/dist/';
+    const s=await ort.InferenceSession.create(modelBuffer,{executionProviders:['wasm'],graphOptimizationLevel:'all'});
+    const inn=s.inputNames||[],uit=s.outputNames||[];
+    if(inn.indexOf('images')<0||uit.indexOf('output')<0||uit.indexOf('output0')>=0){
+      self.postMessage({type:'fout',bericht:'init: geen YOLOX-bestand (invoer '+inn.join(',')+'; uitvoer '+uit.join(',')+')'});return;
+    }
+    sessie=s;klaar=true;self.postMessage({type:'klaar'});
+  }catch(e){self.postMessage({type:'fout',bericht:'init: '+((e&&e.message)||e)});}
+}
+async function voerUit(p,breedte,hoogte,frameId){
+  if(!klaar||!sessie){self.postMessage({type:'fout',bericht:'sessie niet klaar',frameId});return;}
+  try{
+    const n=breedte*hoogte;
+    let lu=0,ln=0;
+    for(let i=0;i<n;i+=16){lu+=0.299*p[i]+0.587*p[n+i]+0.114*p[2*n+i];ln++;}
+    const x=(!bezig&&bgr&&bgr.length===3*n)?bgr:new Float32Array(3*n);
+    if(!bezig)bgr=x;
+    for(let i=0;i<n;i++){x[i]=p[2*n+i]*255;x[n+i]=p[n+i]*255;x[2*n+i]=p[i]*255;}
+    bezig=true;
+    let out;
+    try{out=await sessie.run({images:new ort.Tensor('float32',x,[1,3,breedte,hoogte])});}finally{bezig=false;}
+    const t=out['output'],d=t&&t.dims;
+    if(!d||d.length!==3||d[2]!==9){self.postMessage({type:'fout',bericht:'vorm: verwacht (1,N,9), kreeg '+(d?Array.from(d).join('x'):'niets'),frameId});return;}
+    const N=d[1],y=t.data,o=new Float32Array(8*N);
+    for(let a=0;a<N;a++){
+      const q=a*9,ob=y[q+4];
+      o[a]=y[q];o[N+a]=y[q+1];o[2*N+a]=y[q+2];o[3*N+a]=y[q+3];
+      o[4*N+a]=ob*y[q+5];o[5*N+a]=ob*y[q+6];o[6*N+a]=ob*y[q+7];o[7*N+a]=ob*y[q+8];
+    }
+    self.postMessage({type:'resultaat',frameId,data:o,dims:[1,8,N],lu:Math.round(255*lu/Math.max(1,ln))},[o.buffer]);
+  }catch(e){self.postMessage({type:'fout',bericht:(e&&e.message)||String(e),frameId});}
+}
+self.onmessage=function(e){
+  const msg=e.data;
+  if(msg.type==='initialiseer')initialiseer(msg.modelBuffer);
+  else if(msg.type==='inferentie')voerUit(msg.pixelData,msg.breedte,msg.hoogte,msg.frameId);
+};`;
+
+// ── opslag van de proef (eigen schrijver, zie VOLLE OPSLAG) ──
+function nanoMeta() {
+  if (nanoMetaCache) return nanoMetaCache;
+  let m = null;
+  try { m = JSON.parse(localStorage.getItem(NANO_META_SLEUTEL)); } catch (e) { m = null; }
+  if (!m || typeof m !== 'object' || Array.isArray(m)) m = {};
+  const nul = { v: 1, conf: null, tap: null, wissel: 0, dag: 0, dagSleutel: null, ep: 0, vs: 0,
+                gestopt: null, vol: 0, starts: 0, zonderB: 0, min: [] };
+  for (const k in nul) if (m[k] === undefined) m[k] = nul[k];
+  if (!Array.isArray(m.min)) m.min = [];
+  nanoMetaCache = m;
+  return m;
+}
+// Schrijft ruw (de omwikkeling van Storage houdt cache en spiegel gelijk).
+// false = vol: de schaduw stopt, er gaat niets weg.
+function nanoSchrijf(sleutel, waarde) {
+  if (nanoStaat.vol) return false;
+  try { localStorage.setItem(sleutel, JSON.stringify(waarde)); return true; }
+  catch (e) {
+    nanoStaat.vol = true;
+    try { nanoStop('opslag vol'); } catch (_) {}
+    try { vglLegStil(); } catch (_) {}
+    return false;
+  }
+}
+function nanoMetaBewaar() { if (nanoMetaCache) nanoSchrijf(NANO_META_SLEUTEL, nanoMetaCache); }
+function nanoRingSchrijf(sleutel, max, recs) {
+  if (nanoStaat.vol || !recs.length) return false;
+  let arr = null;
+  try { arr = JSON.parse(localStorage.getItem(sleutel)); } catch (e) { arr = null; }
+  if (!Array.isArray(arr)) arr = [];
+  for (const r of recs) arr.push(r);
+  if (arr.length > max) arr = arr.slice(-max);
+  return nanoSchrijf(sleutel, arr);
+}
+// Rijdagnummer binnen de proef: telt op bij de eerste episode op een nieuwe dag.
+function nanoDag() {
+  const m = nanoMeta(), d = new Date();
+  const s = d.getFullYear() * 400 + d.getMonth() * 32 + d.getDate();   // alleen om dagen te onderscheiden
+  if (m.dagSleutel !== s) { m.dagSleutel = s; m.dag = (m.dag || 0) + 1; }
+  return m.dag;
+}
+
+// ── aan, klaar, uit ──
+function nanoBegin() {
+  nanoStaat.actief = true; nanoStaat.vol = false; nanoStaat.gestopt = null; nanoStaat.label = 'Nano laadt';
+  nanoStaat.min = { t0: Date.now(), sa: 0, na: 0, sb: 0, nb: 0, zb: 0 };
+  const m = nanoMeta();
+  m.starts = (m.starts || 0) + 1; m.gestopt = null;
+  // De drempels liggen vast bij de eerste start. Een latere wijziging wordt
+  // geteld en staat in het overzicht: dan zijn de cijfers niet meer één proef.
+  if (m.conf === null) { m.conf = NANO_CONF; m.tap = NANO_TAPCONF; }
+  else if (m.conf !== NANO_CONF || m.tap !== NANO_TAPCONF) { m.wissel = (m.wissel || 0) + 1; m.conf = NANO_CONF; m.tap = NANO_TAPCONF; }
+  nanoMetaBewaar();
+  try {
+    document.addEventListener('visibilitychange', () => {
+      if (document.visibilityState === 'hidden' && nanoStaat.actief) { try { nanoEpSluit(); nanoVsSchrijf(); nanoMetaBewaar(); } catch (_) {} }
+    });
+  } catch (e) {}
+  try { mvWerkIndicatorBij(); } catch (e) {}
+}
+function nanoKlaar() { nanoStaat.label = 'Nano'; try { mvWerkIndicatorBij(); } catch (e) {} }
+// Nooit een terugval op een ander bestand: uit, en dat in beeld.
+function nanoStop(reden) {
+  const r = latin1Veilig(String(reden || 'onbekend')).slice(0, 120);
+  const wasActief = nanoStaat.actief;
+  nanoStaat.actief = false; nanoStaat.gestopt = r; nanoStaat.label = 'Nano uit';
+  if (!nanoStaat.vol) { try { nanoEpSluit(); nanoVsSchrijf(); } catch (_) {} }
+  nanoEp = null;
+  const m = nanoMeta(); m.gestopt = r; if (nanoStaat.vol) m.vol = (m.vol || 0) + 1;
+  if (!nanoStaat.vol) nanoMetaBewaar();
+  try { mvWerkIndicatorBij(); } catch (e) {}
+  if (wasActief) { try { toonToast('Nano-schaduw uit: ' + r.slice(0, 60)); } catch (e) {} }
+}
+
+// ── per frame ──
+// Bij het versturen naar de schaduw (voerAIUit): alles wat het frame bepaalt,
+// van DIT frame. Het B-resultaat kan later binnenkomen dan de voorbewerking
+// van het volgende frame; dan kloppen lbScale en de tikplek van NU niet meer.
+function nanoNoteerContext(frameId) {
+  try {
+    if (!nanoStaat.actief) return;
+    const tap = tapZwakPositie();
+    const sl = dichtstbijOSM;
+    nanoCtx.set(frameId, {
+      t: Date.now(),
+      tap: tap ? { cx: tap.cx, cy: tap.cy } : null,
+      straal: tikStraalYolo(),
+      kmh: (typeof snelheidKmh === 'number' && !isNaN(snelheidKmh)) ? snelheidKmh : null,
+      sc: lbScale, px: lbPadX, py: lbPadY, kx: cropRegio ? cropRegio.x : 0, ky: cropRegio ? cropRegio.y : 0,
+      licht: sl ? String(sl.id) : null,
+      af: (sl && typeof sl.afstand === 'number') ? sl.afstand : null,
+      fase: (fase && sl && String(faseNodeId) === String(sl.id)) ? (NANO_KLEUR[fase] || null) : null,
+      dd: huidigDDActief()
+    });
+    vglSnoei();
+  } catch (e) {}
+}
+function nanoKort(dets) {
+  const uit = [];
+  for (const d of (dets || [])) uit.push({ cx: d.cx, cy: d.cy, w: d.w, h: d.h, k: d.klasse, s: d.score });
+  return uit;
+}
+// Het B-resultaat: Nano-detecties met de eigen drempels en de momentopname.
+function nanoSchaduwResultaat(msg, ms) {
+  const ctx = nanoCtx.get(msg.frameId);
+  if (!ctx || !nanoStaat.actief) { vglVergeetFrame(msg.frameId); return; }
+  const dets = postprocessNano(msg.data, msg.dims, { conf: NANO_CONF, tapConf: NANO_TAPCONF, tap: ctx.tap, straal: ctx.straal, kmh: ctx.kmh });
+  const best = vglBeste(dets);
+  if (nanoStaat.min) { nanoStaat.min.sb += ms; nanoStaat.min.nb++; }
+  vglOpenB.set(msg.frameId, { ms, kl: best.kl, cf: best.cf, n: best.n, modus: 'nano', nano: { dets: nanoKort(dets), lu: (typeof msg.lu === 'number') ? msg.lu : null } });
+  vglKoppel(msg.frameId);
+}
+// Het A-resultaat, NA _verwerkWorkerResultaat: de detecties van het huidige
+// model en de box die de app koos (laatsteAI, in camerapixels). Alleen lezen.
+function nanoNaHoofd(frameId, ms, detecties) {
+  if (!nanoStaat.actief) return;
+  const mn = nanoStaat.min;
+  if (mn) {
+    mn.sa += ms; mn.na++;
+    if (!vglNaarB.has(frameId) && vglWorkerKlaar) mn.zb++;   // alleen als Nano klaar stond: tijdens het laden telt het niet
+    if (Date.now() - mn.t0 >= 60000) nanoMinuutSluit();
+  }
+  const b = vglBeste(detecties);
+  let app = null;
+  if (laatsteAI && laatsteAI.box) {
+    const bx = laatsteAI.box;
+    app = { x: bx.x, y: bx.y, w: bx.w, h: bx.h };
+  }
+  vglOpenA.set(frameId, { ms, kl: b.kl, cf: b.cf, n: b.n, nano: { dets: nanoKort(detecties), app } });
+  vglKoppel(frameId);
+}
+function nanoMinuutSluit() {
+  const mn = nanoStaat.min; if (!mn) return;
+  const m = nanoMeta();
+  m.min.push({ a: mn.na ? Math.round(mn.sa / mn.na) : null, na: mn.na, b: mn.nb ? Math.round(mn.sb / mn.nb) : null, nb: mn.nb, zb: mn.zb });
+  if (m.min.length > NANO_MIN_MAX) m.min = m.min.slice(-NANO_MIN_MAX);
+  m.zonderB = (m.zonderB || 0) + mn.zb;
+  nanoStaat.min = { t0: Date.now(), sa: 0, na: 0, sb: 0, nb: 0, zb: 0 };
+  nanoMetaBewaar();
+}
+function nanoIoU(a, b) {
+  const ix = Math.min(a.cx + a.w / 2, b.cx + b.w / 2) - Math.max(a.cx - a.w / 2, b.cx - b.w / 2);
+  const iy = Math.min(a.cy + a.h / 2, b.cy + b.h / 2) - Math.max(a.cy - a.h / 2, b.cy - b.h / 2);
+  if (!(ix > 0 && iy > 0)) return 0;
+  const i = ix * iy, u = a.w * a.h + b.w * b.h - i;
+  return u > 0 ? i / u : 0;
+}
+function nanoRaakt(d, ref, straal) {
+  const dx = d.cx - ref.cx, dy = d.cy - ref.cy;
+  return (dx * dx + dy * dy) <= straal * straal || (ref.w > 0 && ref.h > 0 && nanoIoU(d, ref) >= 0.3);
+}
+// Beide uitkomsten van één frame: de kleur op de gevolgde lamp per model, en
+// de lampen daarbuiten die maar één van de twee ziet.
+function nanoFrame(frameId, a, b) {
+  const ctx = nanoCtx.get(frameId); nanoCtx.delete(frameId);
+  if (!ctx || !nanoStaat.actief) return;
+  let ep = nanoEp;
+  if (ep && (ep.licht !== ctx.licht || ctx.t - ep.tl > NANO_EP_DICHT_MS)) { nanoEpSluit(); ep = null; }
+  if (!ep && ctx.licht) ep = nanoEp = { licht: ctx.licht, t0: ctx.t, tl: ctx.t, fr: [], ref: null, lu: 0, nlu: 0, nacht: 0 };
+  const sc = ctx.sc > 0 ? ctx.sc : 0;
+  const naarYolo = (x, y) => ({ x: (x - ctx.kx) * sc + ctx.px, y: (y - ctx.ky) * sc + ctx.py });
+  let ref = null, bron = null;
+  if (ctx.tap) { ref = { cx: ctx.tap.cx, cy: ctx.tap.cy, w: 0, h: 0 }; bron = 't'; }
+  else if (a.nano.app && sc) {
+    const p = naarYolo(a.nano.app.x + a.nano.app.w / 2, a.nano.app.y + a.nano.app.h / 2);
+    ref = { cx: p.x, cy: p.y, w: a.nano.app.w * sc, h: a.nano.app.h * sc }; bron = 'a';
+  } else if (ep && ep.ref && sc && ctx.t - ep.ref.t <= NANO_REF_HOUD_MS) {
+    const p = naarYolo(ep.ref.x, ep.ref.y);
+    ref = { cx: p.x, cy: p.y, w: ep.ref.w * sc, h: ep.ref.h * sc }; bron = 'h';
+  }
+  const R = ctx.straal > 0 ? ctx.straal : STICKY_MATCH_PX;
+  const zoek = (dets) => {
+    let best = null;
+    for (const d of dets) if (KLASSE_MAP[d.k] && nanoRaakt(d, ref, R) && (!best || d.s > best.s)) best = d;
+    return best;
+  };
+  const ma = ref ? zoek(a.nano.dets) : null, mb = ref ? zoek(b.nano.dets) : null;
+  const kl = (d) => (d ? (NANO_KLEUR[KLASSE_MAP[d.k]] || '-') : '-');
+  const ca = kl(ma), cb = kl(mb);
+  const sa = ma ? Math.round(ma.s * 100) / 100 : 0, sb = mb ? Math.round(mb.s * 100) / 100 : 0;
+  if (ep && sc) {
+    const m = ma || mb;
+    if (m) ep.ref = { x: (m.cx - ctx.px) / sc + ctx.kx, y: (m.cy - ctx.py) / sc + ctx.ky, w: m.w / sc, h: m.h / sc, t: ctx.t };
+  }
+  const buiten = (dets, eigen) => dets.filter(d => KLASSE_MAP[d.k] && d !== eigen && !(ref && nanoRaakt(d, ref, R)));
+  const ba = buiten(a.nano.dets, ma), bb = buiten(b.nano.dets, mb);
+  const alleen = (xs, ys) => xs.filter(x => !ys.some(y => nanoIoU(x, y) >= 0.3)).length;
+  const oa = alleen(ba, bb), ob = alleen(bb, ba);
+  if (ep) {
+    ep.tl = ctx.t;
+    ep.fr.push({ t: ctx.t, af: ctx.af, v: ctx.kmh, f: ctx.fase, a: ca, b: cb, r: ref ? 1 : 0, oa, ob });
+    if (ep.fr.length > NANO_EP_MAX_FRAMES) ep.fr.shift();
+    if (typeof b.nano.lu === 'number') { ep.lu += b.nano.lu; ep.nlu++; }
+    if (ctx.dd === 'nacht') ep.nacht++;
+  }
+  // Een verschil: gemist (m), kleur (k), score (s), of een lamp buiten het
+  // gevolgde licht die maar één van de twee ziet (v).
+  let x = null;
+  if (ref && ((ca === '-') !== (cb === '-'))) x = 'm';
+  else if (ref && ca !== cb) x = 'k';
+  else if (ref && ca !== '-' && Math.abs(sa - sb) >= 0.25) x = 's';
+  else if (oa || ob) x = 'v';
+  if (x) {
+    const m = nanoMeta();
+    nanoStaat.vsBuf.push({ d: nanoDag(), e: (m.ep || 0) + 1, ts: ep ? Math.round((ctx.t - ep.t0) / 100) / 10 : null,
+      x, a: ca, b: cb, sa, sb, oa, ob, r: bron, v: ctx.kmh == null ? null : Math.round(ctx.kmh),
+      af: ctx.af == null ? null : Math.round(ctx.af / 5) * 5 });
+    m.vs = (m.vs || 0) + 1;
+    if (nanoStaat.vsBuf.length >= NANO_VS_BUFFER) nanoVsSchrijf();
+  }
+}
+function nanoVsSchrijf() {
+  const buf = nanoStaat.vsBuf; nanoStaat.vsBuf = [];
+  if (buf.length) nanoRingSchrijf(NANO_VS_SLEUTEL, NANO_VS_MAX, buf);
+}
+function nanoEpSluit() {
+  const ep = nanoEp; nanoEp = null;
+  if (!ep || ep.fr.length < NANO_EP_MIN_FRAMES) return;
+  const rec = nanoEpEvalueer(ep);
+  const m = nanoMeta();
+  rec.d = nanoDag(); rec.e = (m.ep || 0) + 1; m.ep = rec.e;
+  nanoVsSchrijf();
+  if (nanoRingSchrijf(NANO_EP_SLEUTEL, NANO_EP_MAX, [rec])) nanoMetaBewaar();
+}
+
+// Het oordeel per episode. Puur: alleen de frames erin, één regel eruit.
+function nanoEpEvalueer(ep) {
+  const fr = ep.fr, rec = { n: fr.length, n0: 0 };
+  for (const f of fr) if (!f.r) rec.n0++;
+  const r1 = (x) => Math.round(x * 10) / 10;
+  // de passage: het frame met de kleinste afstand
+  let iMin = -1;
+  for (let i = 0; i < fr.length; i++) if (fr[i].af != null && (iMin < 0 || fr[i].af < fr[iMin].af)) iMin = i;
+  if (iMin >= 0) rec.ma = Math.round(fr[iMin].af);
+  // stilstand: aaneengesloten frames onder NANO_STIL_KMH binnen NANO_STIL_AF_M
+  const stil = (f) => f.v != null && f.v < NANO_STIL_KMH && f.af != null && f.af <= NANO_STIL_AF_M;
+  const segs = [];
+  for (let i = 0; i < fr.length; i++) {
+    if (!stil(fr[i])) continue;
+    let j = i; while (j + 1 < fr.length && stil(fr[j + 1])) j++;
+    if (fr[j].t - fr[i].t >= NANO_STIL_MIN_MS) {
+      let w = null;
+      for (let k = j + 1; k < fr.length; k++) if (fr[k].v != null && fr[k].v >= NANO_WEG_KMH) { w = k; break; }
+      segs.push({ i0: i, i1: j, weg: w });
+    }
+    i = j;
+  }
+  if (segs.length) rec.s = Math.round(segs.reduce((s, g) => s + (fr[g.i1].t - fr[g.i0].t), 0) / 1000);
+  // K2: in de stilstand, zonder de laatste 3 s voor het wegrijden
+  const fout2 = (c) => c === '-' || c === 'g';
+  const fout1 = (c) => c === '-' || c === 'r';
+  if (segs.length) {
+    let n = 0, fa = 0, fb = 0;
+    for (const g of segs) {
+      const eind = (g.weg != null ? fr[g.weg].t : fr[g.i1].t) - NANO_RAND_MS;
+      for (let k = g.i0; k <= g.i1; k++) {
+        const f = fr[k];
+        if (!f.r || f.t >= eind) continue;
+        n++; if (fout2(f.a)) fa++; if (fout2(f.b)) fb++;
+      }
+    }
+    if (n) rec.k2 = [n, fa, fb];
+  }
+  // K1: doorgereden zonder stop, de laatste 3 s voor de passage boven 15 km/u
+  const gestopt = fr.some(f => f.v != null && f.v < NANO_STIL_KMH && f.af != null && f.af <= NANO_GESTOPT_AF_M);
+  if (!gestopt && iMin >= 0 && fr[iMin].af <= NANO_PASSAGE_AF_M) {
+    const tp = fr[iMin].t;
+    let n = 0, fa = 0, fb = 0;
+    for (const f of fr) {
+      if (!f.r || f.t < tp - NANO_RAND_MS || f.t > tp || !(f.v > NANO_DOOR_KMH)) continue;
+      n++; if (fout1(f.a)) fa++; if (fout1(f.b)) fb++;
+    }
+    if (n) rec.k1 = [n, fa, fb];
+  }
+  // K3: de laatste stilstand met wegrijden; blijvend groen = groen zonder rood erna
+  const laatste = segs.filter(g => g.weg != null).pop();
+  if (laatste) {
+    const tw = fr[laatste.weg].t;
+    const lead = (veld) => {
+      let tg = null;
+      for (let k = laatste.i0; k < laatste.weg; k++) {
+        const c = fr[k][veld];
+        if (c === 'g' && tg === null) tg = fr[k].t;
+        else if (c === 'r') tg = null;
+      }
+      return tg === null ? null : r1((tw - tg) / 1000);
+    };
+    rec.k3 = [lead('a'), lead('b')];
+  }
+  // K4: eerste zicht (afstand en tijdsverschil Nano min huidig)
+  const eerste = (veld) => { for (const f of fr) if (f[veld] !== '-' && f.r) return f; return null; };
+  const ea = eerste('a'), eb = eerste('b');
+  if (ea || eb) rec.k4 = [ea && ea.af != null ? Math.round(ea.af) : null, eb && eb.af != null ? Math.round(eb.af) : null,
+                          ea && eb ? r1((eb.t - ea.t) / 1000) : null];
+  // K5: flikker, een kleur die binnen 1,5 s terugspringt
+  const flikker = (veld) => {
+    const runs = [];
+    for (const f of fr) {
+      const c = f[veld]; if (c === '-' || !f.r) continue;
+      const l = runs[runs.length - 1];
+      if (l && l.c === c) l.t1 = f.t; else runs.push({ c, t0: f.t, t1: f.t });
+    }
+    let n = 0;
+    for (let i = 1; i + 1 < runs.length; i++) if (runs[i - 1].c === runs[i + 1].c && runs[i + 1].t0 - runs[i].t0 < NANO_FLIKKER_MS) n++;
+    return n;
+  };
+  rec.k5 = [flikker('a'), flikker('b')];
+  // K6: tegen de bevestigde fase (partijdig, alleen ter info)
+  let n6 = 0, a6 = 0, b6 = 0;
+  for (const f of fr) {
+    if ((f.f !== 'r' && f.f !== 'g') || !f.r) continue;
+    const ia = f.a === 'r' || f.a === 'g', ib = f.b === 'r' || f.b === 'g';
+    if (!ia && !ib) continue;
+    n6++; if (ia && f.a !== f.f) a6++; if (ib && f.b !== f.f) b6++;
+  }
+  if (n6) rec.k6 = [n6, a6, b6];
+  // K7: frames met een lamp buiten het gevolgde licht die alleen dit model ziet
+  let a7 = 0, b7 = 0;
+  for (const f of fr) { if (f.oa) a7++; if (f.ob) b7++; }
+  rec.k7 = [a7, b7];
+  // donker: de helderheid van het beeld (na de nachtversterking) of het dagdeel
+  if (ep.nlu) rec.lu = Math.round(ep.lu / ep.nlu);
+  rec.dk = ((ep.nlu && ep.lu / ep.nlu < NANO_DONKER_LUMA) || ep.nacht * 2 > fr.length) ? 1 : 0;
+  return rec;
+}
+
+// ── wat het overzicht (vijf tikken) over de proef toont: een tussenstand,
+//    nooit een oordeel ──
+function nanoOverzichtRegels() {
+  const uit = [];
+  const m = nanoMeta();
+  let eps = null;
+  try { eps = JSON.parse(localStorage.getItem(NANO_EP_SLEUTEL)); } catch (e) { eps = null; }
+  if (!Array.isArray(eps)) eps = [];
+  const pct = (a, n) => (n ? (Math.round(1000 * a / n) / 10).toFixed(1).replace('.', ',') + '%' : '—');
+  uit.push('Drempels Nano: ' + String(m.conf == null ? NANO_CONF : m.conf).replace('.', ',')
+           + ' / tik ' + String(m.tap == null ? NANO_TAPCONF : m.tap).replace('.', ','));
+  if (m.wissel) uit.push('LET OP: drempels ' + m.wissel + 'x gewijzigd tijdens de proef');
+  if (nanoStaat.gestopt || m.gestopt) uit.push('Nano-schaduw UIT: ' + (nanoStaat.gestopt || m.gestopt));
+  const dagen = new Set(eps.map(x => x.d)).size;
+  uit.push('Rijdagen ' + dagen + ', episodes ' + eps.length);
+  const som = (k) => { let n = 0, a = 0, b = 0, e = 0, dk = 0; for (const x of eps) if (x[k]) { e++; n += x[k][0]; a += x[k][1]; b += x[k][2]; if (x.dk) dk++; } return { e, n, a, b, dk }; };
+  const k1 = som('k1'), k2 = som('k2');
+  uit.push('K1 doorrijden: ' + k1.e + ' ep (' + k1.dk + ' donker), fout huidig ' + pct(k1.a, k1.n) + ', Nano ' + pct(k1.b, k1.n) + ' (n=' + k1.n + ' fr)');
+  uit.push('K2 stilstand: ' + k2.e + ' ep (' + k2.dk + ' donker), fout huidig ' + pct(k2.a, k2.n) + ', Nano ' + pct(k2.b, k2.n) + ' (n=' + k2.n + ' fr)');
+  const k3 = eps.filter(x => x.k3 && x.k3[0] != null && x.k3[1] != null).map(x => x.k3[0] - x.k3[1]).sort((p, q) => p - q);
+  uit.push('K3 Nano later groen: mediaan ' + (k3.length ? (Math.round(10 * k3[Math.floor(k3.length / 2)]) / 10).toString().replace('.', ',') + ' s' : '—') + ' (n=' + k3.length + ')');
+  uit.push('Tussenstand, GEEN oordeel. Oordeel pas na');
+  uit.push('7 rijdagen en 100 + 100 episodes (15 donker).');
+  return uit;
+}
+if (typeof window !== 'undefined') window.nanoOverzichtRegels = nanoOverzichtRegels;
 
 // ── V11.37.18: EEN VANGNET VOOR aiBezig (C7) ────────────────
 // © 2026 StoplichtIQ — Y. Lemaalem
@@ -12478,6 +13139,7 @@ async function voerAIUit() {
             breedte:YOLO_SIZE, hoogte:YOLO_SIZE, frameId:frameT
           }, [vglKopie.buffer]);
           vglNaarB.add(frameT);   // V11.26.0: alleen voor dit frame komt er een B
+          if (MODELVGL_MODEL === 'nano') nanoNoteerContext(frameT);   // V11.37.26: de tikplek en het beeldvlak van DIT frame
         } catch (_) { vglBezig = false; }
       }
       yoloWorker._startTijd = Date.now();
