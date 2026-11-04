@@ -12,7 +12,16 @@
 //      sl_nano_* en sl_modelvgl na, en de toestand: fase, countdown, gekozen
 //      box, sticky, m5, detLogBest. Vier varianten met Nano: B voor A, B na A,
 //      een fout in de Nano-code, en een vol quotum voor de Nano-sleutels.
-//  N2  de reparatie: vglPostprocessVeilig zet detLogBest terug; postprocessNano
+//      N1f (aanvulling): in de BRON staat elke aanroep van een nano*-functie
+//      vanuit het hoofdpad (laadONNXModel, voerAIUit, vglKoppel en
+//      vglStartSchaduw, dat synchroon binnen de try van laadONNXModel loopt)
+//      in een eigen try. N1g: de ECHTE onmessage van de hoofdworker met een
+//      nanoNaHoofd die gooit: niets ontsnapt, aiBezig gaat uit, de verwerking
+//      en de telling draaien. N1h: startVglWorker met een nanoBegin die gooit:
+//      niets ontsnapt naar laadONNXModel, het hoofdmodel blijft staan.
+//  N12 nanoBegin zet de visibilitychange-luisteraar één keer, ook bij een
+//      tweede start
+//  N2 de reparatie: vglPostprocessVeilig zet detLogBest terug; postprocessNano
 //      raakt debugLaatste* en detLogBest niet, en geeft met de drempels en de
 //      toestand van het hoofdpad precies wat postprocessYOLO geeft (300 keer)
 //  N3  de drempels: losse instellingen sl_nano_conf (0,07) en sl_nano_tapconf
@@ -76,6 +85,40 @@ async function schaduwNanoBinnen(soort, opt) {
     const b = vglOpenB.get(fid);
     uit.b = b ? { ms: b.ms, kl: b.kl, dets: b.nano.dets.map(d => ({ k: d.k, s: Math.round(d.s * 1000) / 1000, cx: Math.round(d.cx), cy: Math.round(d.cy), w: Math.round(d.w), h: Math.round(d.h) })), lu: b.nano.lu } : null;
     uit.detLogBestOnaangeroerd = (detLogBest === null);
+
+    // N1g: de ECHTE onmessage van de hoofdworker, met een nanoNaHoofd die gooit.
+    const ankerA = (kl, s, cx, cy, w, h) => { const d = new Float32Array(8 * 8400); const i = 4000; d[i] = cx; d[8400 + i] = cy; d[2 * 8400 + i] = w; d[3 * 8400 + i] = h; d[(4 + kl) * 8400 + i] = s; return d; };
+    const echtNa = window.nanoNaHoofd, echtVerw = window._verwerkWorkerResultaat, echtMin = window.minStatRun;
+    const hoofd = async (gooi) => {
+      const r = { gooi, nanoAangeroepen: 0, verwerkt: 0, geteld: 0, ontsnapt: null };
+      window.nanoNaHoofd = function () { r.nanoAangeroepen++; if (gooi) throw new Error('nep: fout in nanoNaHoofd'); return echtNa.apply(this, arguments); };
+      window._verwerkWorkerResultaat = function () { r.verwerkt++; return echtVerw.apply(this, arguments); };
+      window.minStatRun = function () { r.geteld++; return echtMin.apply(this, arguments); };
+      try {
+        aiBezig = true; yoloWorker._startTijd = Date.now();
+        const fid = aiVangnetGrens + 5000 + (gooi ? 1 : 2);
+        try { yoloWorker.onmessage({ data: { type: 'resultaat', data: ankerA(0, 0.85, 320, 200, 20, 48), dims: [1, 8, 8400], frameId: fid } }); }
+        catch (e) { r.ontsnapt = String((e && e.message) || e); }
+        r.aiBezig = aiBezig; r.workerKlaar = workerKlaar; r.yoloWorker = !!yoloWorker; r.openA = vglOpenA.has(fid);
+      } finally {
+        window.nanoNaHoofd = echtNa; window._verwerkWorkerResultaat = echtVerw; window.minStatRun = echtMin;
+      }
+      return r;
+    };
+    uit.hoofdGooit = await hoofd(true);
+    uit.hoofdGewoon = await hoofd(false);
+
+    // N1h: startVglWorker (zoals aan het eind van laadONNXModel) met een nanoBegin die gooit.
+    const echtBegin = window.nanoBegin;
+    const h = { ontsnapt: null };
+    window.nanoBegin = () => { throw new Error('nep: fout in nanoBegin'); };
+    try {
+      vglLegStil();
+      try { startVglWorker(); } catch (e) { h.ontsnapt = String((e && e.message) || e); }
+      h.label = nanoStaat.label; h.gestopt = nanoStaat.gestopt; h.schaduw = !!vglWorker;
+      h.yoloWorker = !!yoloWorker; h.workerKlaar = workerKlaar;
+    } finally { window.nanoBegin = echtBegin; }
+    uit.beginGooit = h;
     return uit;
   }
 
@@ -251,6 +294,36 @@ async function testSchaduwNano() {
         eis('N1e vol quotum: de schaduw stopt zichzelf en zegt het', Y.nano.staat.vol && !Y.nano.staat.actief && Y.nano.staat.label === 'Nano uit'
             && /opslag vol/.test(Y.nano.staat.gestopt || ''), 'gestopt: opslag vol', kort(Y.nano.staat));
       }
+    }
+
+    // N1f — de bron: elke aanroep van een nano*-functie vanuit het hoofdpad staat in een eigen try
+    {
+      const per = {}, zonder = [];
+      for (const [naam, fn, min] of [['laadONNXModel', laadONNXModel, 1], ['voerAIUit', voerAIUit, 1], ['vglKoppel', vglKoppel, 1], ['vglStartSchaduw', vglStartSchaduw, 7]]) {
+        let n = 0;
+        for (const regel of String(fn).split('\n')) {
+          const re = /\bnano[A-Z]\w*\(/g; let m;
+          while ((m = re.exec(regel))) {
+            n++;
+            if (!/try \{[^{}]*$/.test(regel.slice(0, m.index))) zonder.push(naam + ': ' + regel.trim().slice(0, 90));
+          }
+        }
+        per[naam] = n;
+        if (n < min) zonder.push(naam + ': maar ' + n + ' aanroepen gevonden (verwacht >= ' + min + ')');
+      }
+      eis('N1f elke aanroep van een nano*-functie vanuit het hoofdpad staat in de bron in een eigen try', zonder.length === 0, '0 zonder try', kort({ zonder, per }));
+    }
+
+    // ═══ N12 — één visibilitychange-luisteraar, ook bij een tweede start ═══
+    {
+      const echtAdd = document.addEventListener; let zicht = 0;
+      document.addEventListener = function (type) { if (type === 'visibilitychange') zicht++; return echtAdd.apply(this, arguments); };
+      const toast = window.toonToast; window.toonToast = () => {};
+      try {
+        nanoZichtGezet = false;
+        nanoBegin(); nanoStop('toets'); nanoBegin(); nanoStop('toets');
+      } finally { document.addEventListener = echtAdd; window.toonToast = toast; nanoZichtGezet = true; }
+      eis('N12 nanoBegin twee keer: de visibilitychange-luisteraar staat er één keer', zicht === 1, '1', zicht);
     }
 
     // ═══ N2 — de reparatie: detLogBest ═══
@@ -527,6 +600,15 @@ async function testSchaduwNano() {
     const rood = E.b && E.b.dets.find(d => d.k === 0 && Math.abs(d.cx - 320) < 15 && Math.abs(d.cy - 250) < 20);
     eis('N11b de getekende rode lamp (kast 40x100 op 320/250) komt terug als rood op de goede plek', !!rood, 'rood bij 320/250', kort(E.b));
     eis('N11c de schaduw liet detLogBest van het hoofdmodel onaangeroerd', E.detLogBestOnaangeroerd === true, 'null', kort(E.detLogBestOnaangeroerd));
+    const HG = E.hoofdGooit || {}, HW = E.hoofdGewoon || {}, BG = E.beginGooit || {};
+    eis('N1g de echte onmessage van de hoofdworker: een fout in nanoNaHoofd ontsnapt niet, aiBezig gaat uit, de verwerking en de telling draaien',
+        HG.nanoAangeroepen === 1 && HG.ontsnapt === null && HG.aiBezig === false && HG.verwerkt === 1 && HG.geteld === 1 && HG.yoloWorker && HG.workerKlaar,
+        'aangeroepen 1, ontsnapt null, aiBezig false, verwerkt 1, geteld 1', kort(HG));
+    eis('N1g2 en zonder fout precies hetzelfde hoofdpad (controle dat de toets de echte route neemt)',
+        HW.nanoAangeroepen === 1 && HW.ontsnapt === null && HW.aiBezig === false && HW.verwerkt === 1 && HW.geteld === 1, 'idem', kort(HW));
+    eis('N1h startVglWorker met een nanoBegin die gooit: niets ontsnapt naar laadONNXModel, het hoofdmodel blijft, de schaduw staat uit en zegt het',
+        BG.ontsnapt === null && BG.yoloWorker === true && BG.workerKlaar === true && BG.schaduw === false && BG.label === 'Nano uit' && /^begin: nep/.test(BG.gestopt || ''),
+        'ontsnapt null, hoofdmodel staat, Nano uit (begin: ...)', kort(BG));
   } catch (e) {
     eis('onverwachte fout in de toets', false, 'geen', String((e && e.stack) || e).slice(0, 300));
   } finally {

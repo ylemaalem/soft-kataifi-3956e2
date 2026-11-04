@@ -10098,7 +10098,7 @@ async function laadONNXModel() {
               if (MODELVGL_MODEL === 'dfine') {
                 vglNoteerHoofdInDfine(inferentieTijd);
               } else if (MODELVGL_MODEL === 'nano') {   // V11.37.26
-                nanoNaHoofd(msg.frameId, inferentieTijd, detecties);   // V11.37.26: zie het blok NANO-SCHADUW
+                try { nanoNaHoofd(msg.frameId, inferentieTijd, detecties); } catch (_) {}   // V11.37.26: eigen try (de buitenste blijft), zie het blok NANO-SCHADUW
               } else {
                 const _b = vglBeste(detecties);
                 vglOpenA.set(msg.frameId, { ms: inferentieTijd, kl: _b.kl, cf: _b.cf, n: _b.n });
@@ -12461,7 +12461,7 @@ function vglStartSchaduw(modus) {
   // de Nano-invoer, en een fout in de tabel laat de schaduw niet starten.
   let plan;   // V11.37.26
   try { plan = vglPlan(modus); }   // V11.37.26
-  catch (e) { if (modus === 'nano') nanoStop('plan: ' + ((e && e.message) || e)); vglLegStil(); return; }   // V11.37.26
+  catch (e) { if (modus === 'nano') { try { nanoStop('plan: ' + ((e && e.message) || e)); } catch (_) {} } vglLegStil(); return; }   // V11.37.26
   const dfine = (plan.soort === 'dfine');   // V11.37.26
   const nano = (plan.soort === 'yolox');   // V11.37.26
   // V11.25.0: een motorvariant draait HETZELFDE model, maar op een andere
@@ -12470,7 +12470,7 @@ function vglStartSchaduw(modus) {
   const motor = plan.motor;   // V11.37.26
   const modelPad = plan.pad;   // V11.37.26
   vglFramesDezeStand = 0; vglFouten = 0;
-  if (nano) nanoBegin();   // V11.37.26
+  if (nano) { try { nanoBegin(); } catch (e) { try { nanoStop('begin: ' + ((e && e.message) || e)); } catch (_) {} vglLegStil(); return; } }   // V11.37.26: dit deel loopt synchroon binnen de try van laadONNXModel; een fout hier mag het hoofdmodel niet uitzetten
   try {
     fetch(modelPad).then(r => { if (nano && r && r.ok === false) throw new Error('bestand laadde niet (' + r.status + ')'); return r.arrayBuffer(); }).then(buf => {   // V11.37.26
       const bron = plan.worker === 'dfine' ? DFINE_WORKER_CODE   // V11.37.26
@@ -12502,9 +12502,9 @@ function vglStartSchaduw(modus) {
           // (verkeerde soort, laadt niet) zet de schaduw meteen uit, in beeld.
           if (nano) {   // V11.37.26
             try { vglNoteerMotorFout(modus, msg.bericht); } catch (_) {}   // V11.37.26
-            if (String(msg.bericht || '').indexOf('init: ') === 0) { nanoStop(msg.bericht); vglLegStil(); return; }   // V11.37.26
+            if (String(msg.bericht || '').indexOf('init: ') === 0) { try { nanoStop(msg.bericht); } catch (_) {} vglLegStil(); return; }   // V11.37.26
           }   // V11.37.26
-          if (++vglFouten >= 5) { if (nano) nanoStop('5 fouten: ' + msg.bericht); vglLegStil(); }   // V11.37.26
+          if (++vglFouten >= 5) { if (nano) { try { nanoStop('5 fouten: ' + msg.bericht); } catch (_) {} } vglLegStil(); }   // V11.37.26
           return;
         }
         if (msg.type === 'resultaat') {
@@ -12513,7 +12513,7 @@ function vglStartSchaduw(modus) {
           vglFramesDezeStand++;
           try {
             if (nano) {   // V11.37.26
-              nanoSchaduwResultaat(msg, ms);   // V11.37.26
+              try { nanoSchaduwResultaat(msg, ms); } catch (_) {}   // V11.37.26: eigen try, zoals elke nano*-aanroep op dit pad (zie test N1f)
             } else if (dfine) {   // V11.37.26
               // Alleen tellen. De klassen van dit model zijn COCO-klassen en
               // zeggen niets over stoplichten; de tijd zegt alles.
@@ -12531,11 +12531,11 @@ function vglStartSchaduw(modus) {
           } catch (_) {}
         }
       };
-      vglWorker.onerror = function () { if (nano) nanoStop('worker gestopt'); vglLegStil(); };   // V11.37.26
+      vglWorker.onerror = function () { if (nano) { try { nanoStop('worker gestopt'); } catch (_) {} } vglLegStil(); };   // V11.37.26
       vglWorker.postMessage({ type: 'initialiseer', modelBuffer: buf }, [buf]);
       URL.revokeObjectURL(url);
-    }).catch((e) => { if (nano) nanoStop('init: ' + ((e && e.message) || e)); vglLegStil(); });   // V11.37.26
-  } catch (e) { if (nano) nanoStop('init: ' + ((e && e.message) || e)); vglLegStil(); }   // V11.37.26
+    }).catch((e) => { if (nano) { try { nanoStop('init: ' + ((e && e.message) || e)); } catch (_) {} } vglLegStil(); });   // V11.37.26
+  } catch (e) { if (nano) { try { nanoStop('init: ' + ((e && e.message) || e)); } catch (_) {} } vglLegStil(); }   // V11.37.26
 }   // V11.37.26
 
 // ══ V11.37.26: NANO-SCHADUW — YOLOX-Nano naast het huidige model ══════
@@ -12574,9 +12574,11 @@ function vglStartSchaduw(modus) {
 // zonder referentie tellen niet mee (veld n0). Eerlijk gezegd: de eerste plek
 // komt meestal uit het huidige model; daarna houdt ook een Nano-zicht hem vast.
 //
-// GEEN PLAATSEN, GEEN TIJDEN. Geen lichtnummer, geen coördinaat, geen klok in
-// de regels: een rijdagnummer binnen de proef (d), een episodenummer (e) en
-// seconden binnen de episode. Alleen ASCII.
+// GEEN PLAATSEN, GEEN TIJDEN IN DE REGELS. Geen lichtnummer, geen coördinaat,
+// geen klok in sl_nano_ep en sl_nano_vs: een rijdagnummer binnen de proef (d),
+// een episodenummer (e) en seconden binnen de episode. Alleen ASCII.
+// WEL EEN DATUM in sl_nano_meta: dagSleutel (nanoDag) is jaar*400 + maand*32 +
+// dag van de laatste rijdag, een getal waar die datum uit terug te rekenen is.
 //
 // VOLLE OPSLAG. De ringen houden de nieuwste NANO_EP_MAX / NANO_VS_MAX regels.
 // Lukt een schrijving niet, dan stopt de schaduw (in beeld: "Nano uit: opslag
@@ -12635,6 +12637,7 @@ const NANO_KLEUR = { rood: 'r', groen: 'g', oranje: 'o' };
 let nanoStaat = { actief: false, vol: false, gestopt: null, label: 'Nano', min: null, vsBuf: [] };
 let nanoEp = null;
 let nanoMetaCache = null;
+let nanoZichtGezet = false;   // de visibilitychange-luisteraar van nanoBegin staat er (één keer per pagina)
 
 // De worker. Een EIGEN kopie, net als bij D-FINE: YOLO_WORKER_CODE draait in
 // het echte app-pad en verandert geen letter. Drie dingen anders:
@@ -12743,11 +12746,15 @@ function nanoBegin() {
   if (m.conf === null) { m.conf = NANO_CONF; m.tap = NANO_TAPCONF; }
   else if (m.conf !== NANO_CONF || m.tap !== NANO_TAPCONF) { m.wissel = (m.wissel || 0) + 1; m.conf = NANO_CONF; m.tap = NANO_TAPCONF; }
   nanoMetaBewaar();
-  try {
-    document.addEventListener('visibilitychange', () => {
-      if (document.visibilityState === 'hidden' && nanoStaat.actief) { try { nanoEpSluit(); nanoVsSchrijf(); nanoMetaBewaar(); } catch (_) {} }
-    });
-  } catch (e) {}
+  // Eén luisteraar per pagina: nanoBegin draait bij elke (her)start van de schaduw.
+  if (!nanoZichtGezet) {
+    try {
+      document.addEventListener('visibilitychange', () => {
+        if (document.visibilityState === 'hidden' && nanoStaat.actief) { try { nanoEpSluit(); nanoVsSchrijf(); nanoMetaBewaar(); } catch (_) {} }
+      });
+      nanoZichtGezet = true;
+    } catch (e) {}
+  }
   try { mvWerkIndicatorBij(); } catch (e) {}
 }
 function nanoKlaar() { nanoStaat.label = 'Nano'; try { mvWerkIndicatorBij(); } catch (e) {} }
@@ -13139,7 +13146,7 @@ async function voerAIUit() {
             breedte:YOLO_SIZE, hoogte:YOLO_SIZE, frameId:frameT
           }, [vglKopie.buffer]);
           vglNaarB.add(frameT);   // V11.26.0: alleen voor dit frame komt er een B
-          if (MODELVGL_MODEL === 'nano') nanoNoteerContext(frameT);   // V11.37.26: de tikplek en het beeldvlak van DIT frame
+          if (MODELVGL_MODEL === 'nano') { try { nanoNoteerContext(frameT); } catch (_) {} }   // V11.37.26: de tikplek en het beeldvlak van DIT frame; eigen try, zodat de catch hieronder vglBezig niet vrijgeeft terwijl B al rekent
         } catch (_) { vglBezig = false; }
       }
       yoloWorker._startTijd = Date.now();
