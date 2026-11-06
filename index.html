@@ -11768,7 +11768,7 @@ function vglNoteerMotorFout(modus, bericht) {
 }
 
 function vglStatBewaar() {
-  try { localStorage.setItem('sl_modelvgl', JSON.stringify(vglStat)); } catch (e) {}
+  try { localStorage.setItem('sl_modelvgl', JSON.stringify(vglStat)); return true; } catch (e) { return false; }   // V11.37.27: true = geschreven
 }
 
 // De beste detectie uit een lijst van postprocessYOLO. -1 = niets gezien.
@@ -12281,7 +12281,7 @@ function nanoBewaarSamen(dwing) {   // V11.37.27
   // V11.37.27: alleen schrijven wat sinds de vorige keer veranderd is. Zo kost vaak
   // wisselen van app (verbergen zonder nieuwe frames) geen schrijfactie.
   if (nanoMetaCache) { const t = JSON.stringify(nanoMetaCache); if (t !== nanoMetaTekst && nanoSchrijf(NANO_META_SLEUTEL, nanoMetaCache)) nanoMetaTekst = t; }
-  if (vglStat && !nanoStaat.vol) { const t = JSON.stringify(vglStat); if (t !== nanoVglTekst) { vglStatBewaar(); nanoVglTekst = t; } }
+  if (vglStat && !nanoStaat.vol) { const t = JSON.stringify(vglStat); if (t !== nanoVglTekst && vglStatBewaar()) nanoVglTekst = t; }   // V11.37.27: pas na een geslaagde schrijfactie
 }
 // V11.37.27: bij verbergen (visibilitychange) en bij wegvallen van de pagina (pagehide):
 // de open reeks, de vs-buffer, de episode, sl_nano_meta en sl_modelvgl. Daarna de

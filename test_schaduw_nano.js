@@ -26,6 +26,7 @@
 //      N15 pagehide alleen (zonder verbergen) schrijft de open episode, de open reeks,
 //      sl_nano_meta en sl_modelvgl; verbergen zonder nieuwe frames schrijft niets; een rit
 //      met elke ~2 minuten verbergen blijft onder 2 schrijfacties per minuut per sleutel.
+//      N16 een mislukte schrijfactie van sl_modelvgl telt niet als geschreven: de volgende keer opnieuw.
 //  N12 nanoBegin zet de visibilitychange-luisteraar één keer, ook bij een
 //      tweede start
 //  N2 de reparatie: vglPostprocessVeilig zet detLogBest terug; postprocessNano
@@ -249,6 +250,25 @@ async function schaduwNanoBinnen(soort, opt) {
       uit.rit = { tel: { ...tel }, minuten: (T - t0) / 60000 };
     } catch (e) { uit.fout = String((e && e.stack) || e).slice(0, 300); }
     finally { Storage.prototype.setItem = echtSet; Date.now = echtNow; performance.now = echtPerf; try { delete document.visibilityState; } catch (_) {} }
+    return uit;
+  }
+
+  if (soort === 'vglfout') {   // V11.37.27: N16, sl_modelvgl telt pas als geschreven na een geslaagde schrijfactie
+    const uit = { fout: null };
+    const echtSet = Storage.prototype.setItem; let pogingen = 0, gooi = true;
+    try {
+      nanoBegin();
+      const e = vglEmmer('nano'); e.n += 7; e.eens += 7;
+      Storage.prototype.setItem = function (k, v) { if (String(k) === 'sl_modelvgl') { pogingen++; if (gooi) throw new DOMException('nep', 'QuotaExceededError'); } return echtSet.call(this, k, v); };
+      nanoBewaarSamen(true);
+      uit.na1 = { pogingen, opslag: localStorage.getItem('sl_modelvgl'), actief: nanoStaat.actief, vol: nanoStaat.vol };
+      gooi = false;
+      nanoBewaarSamen(true);   // niets veranderd sinds de mislukte poging
+      uit.na2 = { pogingen, gelijk: localStorage.getItem('sl_modelvgl') === JSON.stringify(vglStat) };
+      nanoBewaarSamen(true);   // en nu wel geschreven: geen nieuwe poging
+      uit.na3 = { pogingen };
+    } catch (x) { uit.fout = String((x && x.stack) || x).slice(0, 300); }
+    finally { Storage.prototype.setItem = echtSet; }
     return uit;
   }
 
@@ -777,6 +797,14 @@ async function testSchaduwNano() {
       eis('N15e rit van ~9 minuten met elke ~2 minuten verbergen: elke Nano-sleutel minder dan 2 schrijfacties per minuut',
           W.rit && Object.values(pm).every(x => x !== null && x < 2), '< 2 per minuut', kort({ pm, tel: W.rit && W.rit.tel, min: W.rit && W.rit.minuten }));
     }
+
+    // ═══ N16 — V11.37.27: een mislukte schrijfactie van sl_modelvgl telt niet als geschreven ═══
+    const V = await inFrame((w) => w.schaduwNanoBinnen('vglfout', {}));
+    eis('N16a de opslag gooit: één poging, niets in sl_modelvgl, de schaduw loopt door',
+        !V.fout && V.na1 && V.na1.pogingen === 1 && V.na1.opslag === null && V.na1.actief === true && V.na1.vol === false, '1 poging, null, actief', kort(V));
+    eis('N16b KERN: de volgende keer (zonder nieuwe paren) schrijft hij opnieuw, en de opslag is gelijk aan het geheugen',
+        V.na2 && V.na2.pogingen === 2 && V.na2.gelijk === true, '2 pogingen, gelijk', kort(V.na2));
+    eis('N16c daarna, zonder verandering: geen nieuwe poging', V.na3 && V.na3.pogingen === 2, '2', kort(V.na3));
   } catch (e) {
     eis('onverwachte fout in de toets', false, 'geen', String((e && e.stack) || e).slice(0, 300));
   } finally {
