@@ -23,6 +23,9 @@
 //      N10c zijn daarop aangepast. Nieuw: N13 een oude stand (ort130) start niets en
 //      zegt het; N14 een nagespeelde rit van 10 minuten: elke Nano-sleutel en
 //      sl_modelvgl minder dan 2 schrijfacties per minuut, s en v als teller per episode.
+//      N15 pagehide alleen (zonder verbergen) schrijft de open episode, de open reeks,
+//      sl_nano_meta en sl_modelvgl; verbergen zonder nieuwe frames schrijft niets; een rit
+//      met elke ~2 minuten verbergen blijft onder 2 schrijfacties per minuut per sleutel.
 //  N12 nanoBegin zet de visibilitychange-luisteraar één keer, ook bij een
 //      tweede start
 //  N2 de reparatie: vglPostprocessVeilig zet detLogBest terug; postprocessNano
@@ -178,6 +181,75 @@ async function schaduwNanoBinnen(soort, opt) {
     finally { Storage.prototype.setItem = echtSet; Date.now = echtNow; performance.now = echtPerf; }
     const lees = (k) => { try { return JSON.parse(localStorage.getItem(k)); } catch (e) { return null; } };
     return { fout, minuten: (plan.length * 0.4 + 30) / 60, tel, ep: lees(NANO_EP_SLEUTEL), vs: lees(NANO_VS_SLEUTEL), meta: lees(NANO_META_SLEUTEL), vgl: lees('sl_modelvgl') };
+  }
+
+  if (soort === 'bergop') {   // V11.37.27: N15, wegschrijven bij pagehide en visibilitychange
+    const echtNow = Date.now, echtPerf = performance.now.bind(performance);
+    let T = 1000000000000 + 10 * 3600e3, P = 500000;
+    lusGeneratie++;
+    Date.now = () => T; performance.now = () => P;
+    const LAT = 52.0, LON = 5.0;
+    const anker = (kl, s, cx, cy, w, h) => { const d = new Float32Array(8 * 8400); const i = 4000; d[i] = cx; d[8400 + i] = cy; d[2 * 8400 + i] = w; d[3 * 8400 + i] = h; d[(4 + kl) * 8400 + i] = s; return d; };
+    let f = 0;
+    const frame = (licht, l, kleur, kmh, af) => {
+      T += 400; P += 400; f++; snelheidKmh = kmh;
+      if (licht == null) { if (dichtstbijOSM) { dichtstbijOSM = null; passageTik(LAT + 0.01 * l + 0.002, LON); } passageTik(LAT + 0.01 * l + 0.003 + f * 1e-6, LON); tickCd(); return; }
+      const lat = LAT + 0.01 * l;
+      dichtstbijOSM = { id: licht, lat, lon: LON, afstand: Math.max(1, af), naam: 'TEST' };
+      passageTik(lat - Math.max(1, af) / 111320, LON);
+      detLogAfst = Math.max(1, af); detLogSkip = false; detLogRatio = null;
+      const kl = kleur === 'r' ? 0 : 1, fid = 400000 + f;
+      try { vglNaarB.add(fid); nanoNoteerContext(fid); } catch (_) {}
+      const bKl = (f % 7 === 3) ? 1 - kl : kl;
+      const B = (f % 9 === 4) ? new Float32Array(8 * 8400) : anker(bKl, 0.6, 321, 201, 19, 47);
+      const dets = postprocessYOLO(anker(kl, 0.85, 320, 200, 20, 48), [1, 8, 8400]);
+      _verwerkWorkerResultaat(dets);
+      try { nanoNaHoofd(fid, 300, dets); } catch (_) {}
+      try { nanoSchaduwResultaat({ frameId: fid, data: B, dims: [1, 8, 8400], lu: 40 }, 120); } catch (_) {}
+      verwerkDetecties(); tickCd();
+    };
+    const licht = (N, l) => {   // één licht: 20 groen, 60 rood, 30 groen, 40 zonder licht (56 s)
+      for (let i = 0; i < 20; i++) frame(N + l, l, 'g', 30, 150 - i * 4);
+      for (let i = 0; i < 60; i++) frame(N + l, l, 'r', i < 5 ? 10 : 0, i < 5 ? 70 - i * 10 : 20);
+      for (let i = 0; i < 30; i++) frame(N + l, l, 'g', i < 4 ? 0 : 15 + i, Math.max(1, 20 - i));
+      for (let i = 0; i < 40; i++) frame(null, l, null, 40, null);
+    };
+    const zicht = (verborgen) => {
+      Object.defineProperty(document, 'visibilityState', { configurable: true, get: () => verborgen ? 'hidden' : 'visible' });
+      document.dispatchEvent(new Event('visibilitychange'));
+    };
+    const tel = {}; const echtSet = Storage.prototype.setItem;
+    const nul = () => { for (const k in tel) delete tel[k]; };
+    Storage.prototype.setItem = function (k, v) { const x = String(k); if (x.startsWith('sl_nano_') || x === 'sl_modelvgl') tel[x] = (tel[x] || 0) + 1; return echtSet.call(this, k, v); };
+    const lees = (k) => { try { return JSON.parse(localStorage.getItem(k)); } catch (e) { return null; } };
+    const foto = () => ({ ep: lees(NANO_EP_SLEUTEL), vs: lees(NANO_VS_SLEUTEL), meta: localStorage.getItem(NANO_META_SLEUTEL), vgl: lees('sl_modelvgl') });
+    const uit = { fout: null };
+    try {
+      nanoBegin();
+      // A: midden in een episode (licht 0, groen en 30 frames rood), dan alleen pagehide
+      for (let i = 0; i < 20; i++) frame(opt.N, 0, 'g', 30, 150 - i * 4);
+      for (let i = 0; i < 30; i++) frame(opt.N, 0, 'r', i < 5 ? 10 : 0, i < 5 ? 70 - i * 10 : 20);
+      const v = foto();
+      uit.voor = { ep: (v.ep || []).length, vs: (v.vs || []).length, vglN: v.vgl && v.vgl.perModus && v.vgl.perModus.nano ? v.vgl.perModus.nano.n : 0,
+                   geheugenN: vglStat.perModus.nano.n, epOpen: nanoEp ? nanoEp.fr.length : 0, run: !!nanoStaat.vsRun, buf: nanoStaat.vsBuf.length };
+      nul();
+      window.dispatchEvent(new Event('pagehide'));
+      const n = foto();
+      uit.na = { tel: { ...tel }, ep: (n.ep || []).length, epN: n.ep && n.ep.length ? n.ep[n.ep.length - 1].n : null,
+                 vsSomN: (n.vs || []).reduce((a, r) => a + (r.n || 0), 0), vs: (n.vs || []).length,
+                 vglN: n.vgl && n.vgl.perModus && n.vgl.perModus.nano ? n.vgl.perModus.nano.n : 0, geheugenN: vglStat.perModus.nano.n,
+                 metaGelijk: n.meta === JSON.stringify(nanoMetaCache), epOpen: !!nanoEp, run: !!nanoStaat.vsRun, buf: nanoStaat.vsBuf.length };
+      // B: 10 keer verbergen en terug zonder nieuwe frames (binnen een minuut)
+      nul();
+      for (let i = 0; i < 10; i++) { zicht(true); zicht(false); T += 5000; P += 5000; }
+      uit.leeg = { ...tel };
+      // C: een rit van 10 lichten (~9,3 min) met elke 2 lichten (~2 min) een keer verbergen en terug
+      nul(); const t0 = T;
+      for (let l = 1; l <= 10; l++) { licht(opt.N, l); if (l % 2 === 0) { zicht(true); zicht(false); } }
+      uit.rit = { tel: { ...tel }, minuten: (T - t0) / 60000 };
+    } catch (e) { uit.fout = String((e && e.stack) || e).slice(0, 300); }
+    finally { Storage.prototype.setItem = echtSet; Date.now = echtNow; performance.now = echtPerf; try { delete document.visibilityState; } catch (_) {} }
+    return uit;
   }
 
   if (soort === 'id') {
@@ -687,6 +759,24 @@ async function testSchaduwNano() {
         R.ep && R.ep.every(e => typeof e.ns === 'number' && typeof e.nv === 'number') && R.ep.some(e => e.ns > 0)
         && R.vs && R.vs.length > 0 && R.vs.every(v => (v.x === 'm' || v.x === 'k') && v.n >= 1),
         'ns/nv per episode; alleen m/k met n', kort({ ep0: R.ep && R.ep[0], vs0: R.vs && R.vs.slice(0, 2) }));
+
+    // ═══ N15 — V11.37.27: wegschrijven bij pagehide en visibilitychange ═══
+    const W = await inFrame((w) => w.schaduwNanoBinnen('bergop', { N: vers() }));
+    eis('N15a vóór pagehide: een open episode, vs-regels alleen in het geheugen en paren die nog niet in sl_modelvgl staan',
+        !W.fout && W.voor && W.voor.epOpen === 50 && (W.voor.run || W.voor.buf > 0) && W.voor.ep === 0 && W.voor.vs === 0 && W.voor.vglN < W.voor.geheugenN,
+        'episode 50 frames open, vs alleen in geheugen, opslag achter', kort({ fout: W.fout, voor: W.voor }));
+    eis('N15b alleen pagehide (zonder verbergen): de episode, de reeks, sl_nano_meta en sl_modelvgl staan in de opslag',
+        W.na && W.na.ep === 1 && W.na.epN === 50 && W.na.vs > 0 && W.na.run === false && W.na.buf === 0 && W.na.epOpen === false
+        && W.na.vglN === W.na.geheugenN && W.na.metaGelijk === true,
+        'ep 1 (50 frames), reeks weg, buffer leeg, vgl = geheugen, meta = geheugen', kort(W.na));
+    eis('N15c pagehide schrijft elke sleutel hoogstens één keer', W.na && Object.values(W.na.tel).every(x => x <= 1)
+        && W.na.tel[NANO_EP_SLEUTEL] === 1 && W.na.tel['sl_modelvgl'] === 1, '<= 1 per sleutel', kort(W.na && W.na.tel));
+    eis('N15d 10 keer verbergen en terug zonder nieuwe frames: 0 schrijfacties', W.leeg && Object.keys(W.leeg).length === 0, '{}', kort(W.leeg));
+    {
+      const pm = {}; for (const k of [NANO_EP_SLEUTEL, NANO_VS_SLEUTEL, NANO_META_SLEUTEL, 'sl_modelvgl']) pm[k] = W.rit ? Math.round(10 * (W.rit.tel[k] || 0) / W.rit.minuten) / 10 : null;
+      eis('N15e rit van ~9 minuten met elke ~2 minuten verbergen: elke Nano-sleutel minder dan 2 schrijfacties per minuut',
+          W.rit && Object.values(pm).every(x => x !== null && x < 2), '< 2 per minuut', kort({ pm, tel: W.rit && W.rit.tel, min: W.rit && W.rit.minuten }));
+    }
   } catch (e) {
     eis('onverwachte fout in de toets', false, 'geen', String((e && e.stack) || e).slice(0, 300));
   } finally {

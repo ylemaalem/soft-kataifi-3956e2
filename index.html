@@ -12255,12 +12255,25 @@ function nanoMetaBewaar() { if (nanoMetaCache) nanoSchrijf(NANO_META_SLEUTEL, na
 // episode, bij stoppen of verbergen; anders (de minuutteller) alleen als de vorige
 // schrijving NANO_BEWAAR_MIN_MS geleden is (in een lange episode, bijvoorbeeld lang wachten).
 let nanoLaatsteBewaar = -Infinity;   // V11.37.27
+let nanoMetaTekst = null, nanoVglTekst = null;   // V11.37.27: wat er het laatst is weggeschreven
 function nanoBewaarSamen(dwing) {   // V11.37.27
   const nu = Date.now();
   if (!dwing && nu - nanoLaatsteBewaar < NANO_BEWAAR_MIN_MS) return;
   nanoLaatsteBewaar = nu;
-  nanoMetaBewaar();
-  if (vglStat && !nanoStaat.vol) vglStatBewaar();
+  // V11.37.27: alleen schrijven wat sinds de vorige keer veranderd is. Zo kost vaak
+  // wisselen van app (verbergen zonder nieuwe frames) geen schrijfactie.
+  if (nanoMetaCache) { const t = JSON.stringify(nanoMetaCache); if (t !== nanoMetaTekst && nanoSchrijf(NANO_META_SLEUTEL, nanoMetaCache)) nanoMetaTekst = t; }
+  if (vglStat && !nanoStaat.vol) { const t = JSON.stringify(vglStat); if (t !== nanoVglTekst) { vglStatBewaar(); nanoVglTekst = t; } }
+}
+// V11.37.27: bij verbergen (visibilitychange) en bij wegvallen van de pagina (pagehide):
+// de open reeks, de vs-buffer, de episode, sl_nano_meta en sl_modelvgl. Daarna de
+// IDB-spiegel, want zijn eigen luisteraar liep al vóór deze schrijfacties.
+function nanoBergOp() {   // V11.37.27
+  if (!nanoStaat.actief || nanoStaat.vol) return;
+  try { nanoEpSluit(); } catch (_) {}
+  try { nanoVsRunSluit(); nanoVsSchrijf(); } catch (_) {}
+  try { nanoBewaarSamen(true); } catch (_) {}
+  try { idbFlush(); } catch (_) {}
 }
 // V11.37.27: welk bestand de schaduw draait: naam, grootte, de eerste 16 tekens van
 // de sha256 en het rijdagnummer van de proef (geen kalenderdatum). Een ander bestand
@@ -12311,8 +12324,9 @@ function nanoBegin() {
   if (!nanoZichtGezet) {
     try {
       document.addEventListener('visibilitychange', () => {
-        if (document.visibilityState === 'hidden' && nanoStaat.actief) { try { nanoEpSluit(); nanoVsSchrijf(); nanoBewaarSamen(true); } catch (_) {} }   // V11.37.27: ook sl_modelvgl
+        if (document.visibilityState === 'hidden') nanoBergOp();   // V11.37.27: ook sl_modelvgl en de open reeks
       });
+      window.addEventListener('pagehide', () => nanoBergOp());   // V11.37.27: ook als de pagina wegvalt zonder eerst verborgen te zijn
       nanoZichtGezet = true;
     } catch (e) {}
   }
