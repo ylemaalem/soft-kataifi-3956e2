@@ -19,6 +19,10 @@
 //      nanoNaHoofd die gooit: niets ontsnapt, aiBezig gaat uit, de verwerking
 //      en de telling draaien. N1h: startVglWorker met een nanoBegin die gooit:
 //      niets ontsnapt naar laadONNXModel, het hoofdmodel blijft staan.
+//  V11.37.27: alleen nog de stand nano. N2a/N2b (vglPostprocessVeilig), N4c, N6h en
+//      N10c zijn daarop aangepast. Nieuw: N13 een oude stand (ort130) start niets en
+//      zegt het; N14 een nagespeelde rit van 10 minuten: elke Nano-sleutel en
+//      sl_modelvgl minder dan 2 schrijfacties per minuut, s en v als teller per episode.
 //  N12 nanoBegin zet de visibilitychange-luisteraar één keer, ook bij een
 //      tweede start
 //  N2 de reparatie: vglPostprocessVeilig zet detLogBest terug; postprocessNano
@@ -120,6 +124,60 @@ async function schaduwNanoBinnen(soort, opt) {
     } finally { window.nanoBegin = echtBegin; }
     uit.beginGooit = h;
     return uit;
+  }
+
+  if (soort === 'oud') {   // V11.37.27: N13
+    await new Promise(r => setTimeout(r, 1500));
+    return { model: MODELVGL_MODEL, oud: MODELVGL_OUDE_STAND, aan: MODELVGL_AAN, worker: !!vglWorker, actief: nanoStaat.actief,
+             geladen: performance.getEntriesByType('resource').map(e => e.name).filter(n => /model\/(yolox_nano|model|dfine-n)\.onnx/.test(n)),
+             badge: (document.querySelector('#d-test .mv-test-badge') || {}).textContent || null,
+             versieBadge: (document.querySelector('#s-versie .mv-test-badge') || {}).textContent || null,
+             tekst: mvSamenvattingTekst(), console: modelVergelijking(), meta: localStorage.getItem('sl_nano_meta') };
+  }
+
+  if (soort === 'rit10') {   // V11.37.27: N14, 1500 frames van 0,4 s langs 10 bedachte lichten
+    const echtNow = Date.now, echtPerf = performance.now.bind(performance);
+    let T = 1000000000000 + 10 * 3600e3, P = 500000;
+    lusGeneratie++;
+    Date.now = () => T; performance.now = () => P;
+    const LAT = 52.0, LON = 5.0;
+    const anker = (kl, s, cx, cy, w, h) => { const d = new Float32Array(8 * 8400); const i = 4000; d[i] = cx; d[8400 + i] = cy; d[2 * 8400 + i] = w; d[3 * 8400 + i] = h; d[(4 + kl) * 8400 + i] = s; return d; };
+    const plan = [];
+    for (let l = 0; l < 10; l++) {
+      for (let i = 0; i < 20; i++) plan.push([opt.N + l, l, 'g', 30, 150 - i * 4]);
+      for (let i = 0; i < 60; i++) plan.push([opt.N + l, l, 'r', i < 5 ? 10 : 0, i < 5 ? 70 - i * 10 : 20]);
+      for (let i = 0; i < 30; i++) plan.push([opt.N + l, l, 'g', i < 4 ? 0 : 15 + i, Math.max(1, 20 - i)]);
+      for (let i = 0; i < 40; i++) plan.push([null, l, null, 40, null]);
+    }
+    const tel = {}; const echtSet = Storage.prototype.setItem;
+    Storage.prototype.setItem = function (k, v) { const x = String(k); if (x.startsWith('sl_nano_') || x === 'sl_modelvgl') tel[x] = (tel[x] || 0) + 1; return echtSet.call(this, k, v); };
+    let fout = null;
+    try {
+      nanoBegin();
+      plan.forEach(([licht, l, kleur, kmh, af], f) => {
+        T += 400; P += 400; snelheidKmh = kmh;
+        if (licht == null) { if (dichtstbijOSM) { dichtstbijOSM = null; passageTik(LAT + 0.01 * l + 0.002, LON); } passageTik(LAT + 0.01 * l + 0.003 + f * 1e-6, LON); tickCd(); return; }
+        const lat = LAT + 0.01 * l;
+        dichtstbijOSM = { id: licht, lat, lon: LON, afstand: Math.max(1, af), naam: 'TEST' };
+        passageTik(lat - Math.max(1, af) / 111320, LON);
+        detLogAfst = Math.max(1, af); detLogSkip = false; detLogRatio = null;
+        const kl = kleur === 'r' ? 0 : 1, fid = 300000 + f;
+        try { vglNaarB.add(fid); nanoNoteerContext(fid); } catch (_) {}
+        const bKl = (f % 7 === 3) ? 1 - kl : kl;
+        const B = (f % 9 === 4) ? new Float32Array(8 * 8400) : anker(bKl, 0.6, 321, 201, 19, 47);
+        if (f % 11 === 5) { B[5000] = 100; B[8400 + 5000] = 100; B[2 * 8400 + 5000] = 12; B[3 * 8400 + 5000] = 30; B[4 * 8400 + 5000] = 0.5; }
+        const dets = postprocessYOLO(anker(kl, 0.85, 320, 200, 20, 48), [1, 8, 8400]);
+        _verwerkWorkerResultaat(dets);
+        try { nanoNaHoofd(fid, 300, dets); } catch (_) {}
+        try { nanoSchaduwResultaat({ frameId: fid, data: B, dims: [1, 8, 8400], lu: 40 }, 120); } catch (_) {}
+        verwerkDetecties(); tickCd();
+      });
+      T += 30000; P += 30000; dichtstbijOSM = null;
+      try { nanoEpSluit(); nanoVsSchrijf(); nanoBewaarSamen(true); } catch (_) {}
+    } catch (e) { fout = String((e && e.stack) || e).slice(0, 300); }
+    finally { Storage.prototype.setItem = echtSet; Date.now = echtNow; performance.now = echtPerf; }
+    const lees = (k) => { try { return JSON.parse(localStorage.getItem(k)); } catch (e) { return null; } };
+    return { fout, minuten: (plan.length * 0.4 + 30) / 60, tel, ep: lees(NANO_EP_SLEUTEL), vs: lees(NANO_VS_SLEUTEL), meta: lees(NANO_META_SLEUTEL), vgl: lees('sl_modelvgl') };
   }
 
   if (soort === 'id') {
@@ -330,10 +388,10 @@ async function testSchaduwNano() {
     const anker = (kl, s, cx, cy, w, h, i = 4000) => { const d = new Float32Array(8 * 8400); d[i] = cx; d[8400 + i] = cy; d[2 * 8400 + i] = w; d[3 * 8400 + i] = h; d[(4 + kl) * 8400 + i] = s; return d; };
     const merk = { s: 0.123, k: 0, cx: 1, cy: 2, w: 3, h: 4, maxY: 0.75, tap: false };
     detLogBest = merk; debugLaatsteAlle = ['m']; debugLaatsteTopKlasse = 9; debugLaatsteTopScore = 0.5;
-    const d2 = vglPostprocessVeilig(anker(1, 0.9, 300, 200, 20, 40), [1, 8, 8400]);
-    eis('N2a vglPostprocessVeilig zet detLogBest terug (was het lek van V11.37.5)', detLogBest === merk && d2.length === 1, 'zelfde object', kort(detLogBest));
-    eis('N2b ... en de drie debug-globals, zoals al', debugLaatsteTopKlasse === 9 && debugLaatsteTopScore === 0.5 && debugLaatsteAlle[0] === 'm', '9 / 0,5', kort([debugLaatsteTopKlasse, debugLaatsteTopScore]));
+    // V11.37.27: vglPostprocessVeilig is weg (de B van de schaduw gaat alleen nog door postprocessNano)
+    eis('N2a vglPostprocessVeilig is weg: geen YOLOv8-schaduw meer die detLogBest kan overschrijven (V11.37.27)', typeof window.vglPostprocessVeilig === 'undefined', 'weg', typeof window.vglPostprocessVeilig);
     const d3 = postprocessNano(anker(0, 0.9, 300, 200, 20, 40), [1, 8, 8400], { conf: 0.07, tapConf: 0.03, tap: null, straal: 80, kmh: 30 });
+    eis('N2b postprocessNano laat de drie debug-globals staan', debugLaatsteTopKlasse === 9 && debugLaatsteTopScore === 0.5 && debugLaatsteAlle[0] === 'm', '9 / 0,5', kort([debugLaatsteTopKlasse, debugLaatsteTopScore]));
     eis('N2c postprocessNano schrijft niets naar detLogBest of debugLaatste*', detLogBest === merk && debugLaatsteTopKlasse === 9 && d3.length === 1 && d3[0].klasse === 0,
         'onaangeroerd, 1 rode box', kort({ d3: d3.length, k: debugLaatsteTopKlasse }));
     postprocessYOLO(anker(0, 0.9, 300, 200, 20, 40), [1, 8, 8400]);
@@ -387,15 +445,15 @@ async function testSchaduwNano() {
     const paden = [...new Set([...html.matchAll(/['"`](\.\/[A-Za-z0-9_\/.-]+\.onnx)['"`]/g)].map(m => m[1]))];
     const onbekend = paden.filter(p => !MODEL_PADEN[p]);
     eis('N4a elk .onnx-pad in index.html staat in MODEL_PADEN (een nieuw pad zonder soort laat deze toets falen)',
-        paden.length >= 4 && onbekend.length === 0, '0 onbekend', kort({ paden, onbekend }));
+        paden.length >= 3 && onbekend.length === 0, '0 onbekend', kort({ paden, onbekend }));
     eis('N4b het hoofdpad en zijn terugval zijn allebei YOLOv8; laadONNXModel controleert dat',
         modelSoortVan('./model.onnx') === 'yolov8' && modelSoortVan('./model/model.onnx') === 'yolov8'
         && /modelSoortVan\(modelPad\) !== 'yolov8'/.test(String(laadONNXModel)), 'yolov8 + controle', '');
     const plannen = {};
     for (const m of MODELVGL_MODI) { try { const p = vglPlan(m); plannen[m] = p.soort + '/' + p.worker; } catch (e) { plannen[m] = 'FOUT ' + e.message; } }
-    eis('N4c per stand de juiste worker: v8n yolo, dfine dfine, ort130/webgpu motor (YOLOv8), nano de Nano-worker',
-        plannen.v8n === 'yolov8/yolo' && plannen.dfine === 'dfine/dfine' && plannen.ort130 === 'yolov8/motor' && plannen.webgpu === 'yolov8/motor' && plannen.nano === 'yolox/nano',
-        'zie verwacht', kort(plannen));
+    eis('N4c alleen nog de stand nano, met de Nano-worker (V11.37.27)',
+        MODELVGL_MODI.length === 1 && plannen.nano === 'yolox/nano' && !MODEL_PADEN['./model/dfine-n.onnx'] && !MODEL_SOORTEN.dfine,
+        'nano: yolox/nano', kort(plannen));
     const gooit = (f) => { try { f(); return null; } catch (e) { return e.message; } };
     const vergif = (wijz) => Object.assign({}, VGL_MODUS_PAD, wijz);
     const g1 = gooit(() => vglPlan('nano', null, vergif({ nano: './model/model.onnx' })));
@@ -504,10 +562,8 @@ async function testSchaduwNano() {
     eis('N6g een tabelfout (nano wijst naar een YOLOv8-bestand): niets opgehaald, geen worker, uit met de reden', fetches.length === voorF && nepWorkers.length === voorW && /plan: stand nano vraagt een YOLOX/.test(nanoStaat.gestopt || ''),
         'niets gestart', kort(nanoStaat.gestopt));
     VGL_MODUS_PAD.nano = bewaard.pad.nano;
-    VGL_MODUS_PAD.ort130 = './model/yolox_nano.onnx';
     vglStartSchaduw('ort130'); await rust(); await rust();
-    eis('N6h de motorproef met een YOLOX-bestand start niet', fetches.length === voorF && nepWorkers.length === voorW, 'niets gestart', kort(fetches.slice(voorF)));
-    VGL_MODUS_PAD.ort130 = bewaard.pad.ort130;
+    eis('N6h een oude stand (ort130) heeft geen pad meer: niets opgehaald, geen worker (V11.37.27)', fetches.length === voorF && nepWorkers.length === voorW, 'niets gestart', kort(fetches.slice(voorF)));
     window.Worker = echtWorker; window.fetch = echtFetch; URL.createObjectURL = echtURL;
 
     // ═══ N7 — het oordeel per episode ═══
@@ -537,14 +593,14 @@ async function testSchaduwNano() {
 
     // ═══ N8 — de ringen ═══
     const ascii = (s) => ![...String(s)].some(c => c.charCodeAt(0) > 127);
-    const epRec = Object.assign({}, e2, { d: 12, e: 345 });
-    const vsRec = { d: 12, e: 345, ts: 123.4, x: 'k', a: 'r', b: 'g', sa: 0.85, sb: 0.61, oa: 0, ob: 1, r: 'a', v: 35, af: 120 };
+    const epRec = Object.assign({}, e2, { d: 12, e: 345, ns: 14, nv: 3 });   // V11.37.27: ns, nv
+    const vsRec = { d: 12, e: 345, ts: 123.4, x: 'k', a: 'r', b: 'g', sa: 0.85, sb: 0.61, oa: 0, ob: 1, r: 'a', v: 35, af: 120, n: 3 };   // V11.37.27: n
     const kb = (x) => JSON.stringify(x).length;
     eis('N8a een episode is ~0,2 KB en een verschilregel ~0,1 KB; ring vol: <= 160 KB samen', kb(epRec) <= 260 && kb(vsRec) <= 130 && (kb(epRec) * NANO_EP_MAX + kb(vsRec) * NANO_VS_MAX) <= 160 * 1024,
         '<=260 B, <=130 B', kb(epRec) + ' B, ' + kb(vsRec) + ' B, vol ' + Math.round((kb(epRec) * NANO_EP_MAX + kb(vsRec) * NANO_VS_MAX) / 1024) + ' KB');
     eis('N8b alles ASCII, geen lichtnummer, geen coördinaat, geen klok', ascii(JSON.stringify(epRec)) && ascii(JSON.stringify(vsRec))
-        && Object.keys(epRec).every(k => ['n', 'n0', 'ma', 's', 'k1', 'k2', 'k3', 'k4', 'k5', 'k6', 'k7', 'lu', 'dk', 'd', 'e'].includes(k))
-        && Object.keys(vsRec).every(k => ['d', 'e', 'ts', 'x', 'a', 'b', 'sa', 'sb', 'oa', 'ob', 'r', 'v', 'af'].includes(k)), 'ASCII, alleen toegestane velden', kort(Object.keys(epRec)));
+        && Object.keys(epRec).every(k => ['n', 'n0', 'ma', 's', 'k1', 'k2', 'k3', 'k4', 'k5', 'k6', 'k7', 'lu', 'dk', 'd', 'e', 'ns', 'nv'].includes(k))
+        && Object.keys(vsRec).every(k => ['d', 'e', 'ts', 'x', 'a', 'b', 'sa', 'sb', 'oa', 'ob', 'r', 'v', 'af', 'n'].includes(k)), 'ASCII, alleen toegestane velden', kort(Object.keys(epRec)));
     nanoStaat.vol = false; nanoStaat.actief = true;
     const oudEp = localStorage.getItem(NANO_EP_SLEUTEL);
     localStorage.setItem(NANO_EP_SLEUTEL, '[]');
@@ -588,9 +644,9 @@ async function testSchaduwNano() {
     eis('N10a het startscherm zegt "Model laden", niet meer "YOLOv8 model laden"', /id="s-model-label">🤖 Model laden…</.test(html) && html.indexOf('YOLOv8 model laden') < 0 && html.indexOf('✓ YOLOv8 klaar') < 0, 'Model laden', '');
     eis('N10b de naam na het laden komt uit de tabel', modelNaamVan('./model.onnx') === 'YOLOv8n' && /Model klaar: \$\{modelNaamVan\(modelPad\)\}/.test(String(laadONNXModel)), 'YOLOv8n', modelNaamVan('./model.onnx'));
     const sam = mvSamenvattingTekst();
-    eis('N10c het overzicht noemt per stand het B-bestand; bij v8n eerlijk het reservemodel', /── YOLOv8n[^\n]*──\nB = YOLOv8n \(reservemodel\)/.test(sam) && /── YOLOX-Nano[^\n]*──\nB = YOLOX-Nano/.test(sam) && /B = D-FINE-N \(COCO\)/.test(sam), 'B = ...', kort(sam.split('\n').filter(r => /^B = /.test(r))));
+    eis('N10c het overzicht noemt A en B; geen andere stand meer (V11.37.27)', /A = hoofdpad \(YOLOv8n\)/.test(sam) && /\nB = YOLOX-Nano/.test(sam) && !/D-FINE|ORT 1\.30|WebGPU|reservemodel/.test(sam), 'A = hoofdpad, B = YOLOX-Nano', kort(sam.split('\n').filter(r => /^[AB] = /.test(r))));
     eis('N10d de Nano-tussenstand geeft geen oordeel', /Tussenstand, GEEN oordeel/.test(sam) && !/GOED|TWIJFEL|\bAF\b/.test(sam), 'geen oordeel', '');
-    eis('N10e versie V11.37.26 en de copyright blijft staan', /^V11\.37\.26(?!\d)/.test(APP_VERSIE) && (document.getElementById('s-copyright') || {}).textContent === '© 2026 StoplichtIQ — Y. Lemaalem', 'V11.37.26 + ©', APP_VERSIE.slice(0, 40));
+    eis('N10e versie V11.37.27 en de copyright blijft staan', /^V11\.37\.27(?!\d)/.test(APP_VERSIE) && (document.getElementById('s-copyright') || {}).textContent === '© 2026 StoplichtIQ — Y. Lemaalem', 'V11.37.27 + ©', APP_VERSIE.slice(0, 40));
     eis('N10f de meetdata-export neemt sl_nano_* en sl_modelvgl mee', /key\.startsWith\('sl_nano_'\) \|\| key === 'sl_modelvgl'\) doel = uit\.nano/.test(html), 'uit.nano', '');
 
     // ═══ N11 — ECHT: de schakelaar aan, de echte worker, het echte bestand ═══
@@ -609,6 +665,28 @@ async function testSchaduwNano() {
     eis('N1h startVglWorker met een nanoBegin die gooit: niets ontsnapt naar laadONNXModel, het hoofdmodel blijft, de schaduw staat uit en zegt het',
         BG.ontsnapt === null && BG.yoloWorker === true && BG.workerKlaar === true && BG.schaduw === false && BG.label === 'Nano uit' && /^begin: nep/.test(BG.gestopt || ''),
         'ontsnapt null, hoofdmodel staat, Nano uit (begin: ...)', kort(BG));
+
+    // ═══ N13 — V11.37.27: een oude stand doet niets ═══
+    const O = await inFrame((w) => w.schaduwNanoBinnen('oud', {}), () => { localStorage.setItem('sl_modelvgl_aan', '1'); localStorage.setItem('sl_modelvgl_model', 'ort130'); });
+    eis('N13a schakelaar aan met de oude stand ort130: geen schaduw, geen terugval op v8n of Nano, niets opgehaald',
+        !O.fout && O.aan === true && O.model === null && O.oud === 'ort130' && O.worker === false && O.actief === false && O.geladen.length === 0,
+        'model null, geen worker, 0 bestanden', kort(O));
+    eis('N13b het merkteken en het overzicht zeggen het, met de uitweg', O.badge === 'TEST · oude stand' && O.versieBadge === 'TEST · oude stand'
+        && /Oude stand "ort130" gevonden/.test(O.tekst || '') && /Zet uit/.test(O.tekst || '') && /oude stand ort130/.test(O.console || ''),
+        'TEST · oude stand + uitleg', kort({ b: O.badge, t: (O.tekst || '').split('\n').slice(0, 4) }));
+    eis('N13c en de oude stand schrijft niets: geen sl_nano_meta', O.meta === null, 'null', kort(O.meta));
+
+    // ═══ N14 — V11.37.27: een nagespeelde rit van 10 minuten, schrijffrequentie ═══
+    const R = await inFrame((w) => w.schaduwNanoBinnen('rit10', { N: vers() }));
+    const perMin = {}; for (const k of [NANO_EP_SLEUTEL, NANO_VS_SLEUTEL, NANO_META_SLEUTEL, 'sl_modelvgl']) perMin[k] = R.tel ? Math.round(10 * (R.tel[k] || 0) / R.minuten) / 10 : null;
+    eis('N14a de rit draait: 10 episodes, paren in de emmer nano', !R.fout && R.ep && R.ep.length === 10 && R.vgl && R.vgl.perModus && R.vgl.perModus.nano.n > 1000,
+        '10 episodes, >1000 paren', kort({ fout: R.fout, ep: R.ep && R.ep.length, n: R.vgl && R.vgl.perModus && R.vgl.perModus.nano.n }));
+    eis('N14b KERN: sl_nano_ep, sl_nano_vs, sl_nano_meta en sl_modelvgl elk minder dan 2 schrijfacties per minuut',
+        Object.values(perMin).every(x => x !== null && x < 2), '< 2 per minuut', kort({ perMin, tel: R.tel, minuten: R.minuten }));
+    eis('N14c s en v zijn een teller per episode (ns, nv); de regels in sl_nano_vs zijn alleen m en k, met een aantal frames n',
+        R.ep && R.ep.every(e => typeof e.ns === 'number' && typeof e.nv === 'number') && R.ep.some(e => e.ns > 0)
+        && R.vs && R.vs.length > 0 && R.vs.every(v => (v.x === 'm' || v.x === 'k') && v.n >= 1),
+        'ns/nv per episode; alleen m/k met n', kort({ ep0: R.ep && R.ep[0], vs0: R.vs && R.vs.slice(0, 2) }));
   } catch (e) {
     eis('onverwachte fout in de toets', false, 'geen', String((e && e.stack) || e).slice(0, 300));
   } finally {

@@ -687,8 +687,6 @@
     <div id="mv-inhoud"></div>
     <div id="mv-knoppen">
       <button onclick="mvSluit()">Laat aan staan</button>
-      <!-- V11.18.14: wisselt het TWEEDE model. Label wordt bij het openen gezet. -->
-      <button id="mv-model-knop" onclick="mvWisselModel()">Meet D-FINE-N</button>
       <button class="uit" onclick="mvZetUit()">Zet uit</button>
     </div>
   </div>
@@ -1053,7 +1051,7 @@ if (typeof ort !== 'undefined') {
 //
 // De stijl volgt de eerdere labels: nummer, kastlijntje, korte omschrijving in
 // kleine letters. De CSS zet hem zelf in kapitalen (text-transform:uppercase).
-const APP_VERSIE = 'V11.37.26 — YOLOX-Nano als schaduw naast het huidige model (staat uit), en elk modelpad met zijn eigen soort';
+const APP_VERSIE = 'V11.37.27 — de testmodi v8n, D-FINE, ORT 1.30 en WebGPU eruit, en de Nano-schaduw schrijft minder vaak';
 
 // ── CONSTANTEN ────────────────────────────────────────────────
 const OSM_RADIUS       = 5000;
@@ -9968,7 +9966,6 @@ let modelTerugvalFout = null;   // de fout van de eerste laadpoging, als die er 
 // WAAROM. YOLOv8 en YOLOX willen andere pixels en geven een andere tabel terug:
 //   yolov8  invoer 'images' RGB 0..1,   uitvoer 'output0' (1, 8, 8400), scores = kansen
 //   yolox   invoer 'images' BGR 0..255, uitvoer 'output'  (1, 8400, 9),  score = object x klasse
-//   dfine   invoer 'pixel_values' RGB 0..1, uitvoer 'logits' + 'pred_boxes'
 // Een YOLOv8-bestand met YOLOX-pixels (of andersom) geeft geen foutmelding, alleen
 // onzin. Daarom hoort bij elk pad dat de app laadt één regel in deze tabel, en
 // kiest de app de verwerking op de SOORT van het bestand, nooit op de stand of op
@@ -9978,16 +9975,14 @@ let modelTerugvalFout = null;   // de fout van de eerste laadpoging, als die er 
 //
 // De NAAM is wat het scherm toont. 'reserve' is het oudere model (dataset2): het
 // hoofdpad valt daarop terug als ./model.onnx niet laadt (en meldt dat in beeld,
-// V11.37.23); de schaduwstanden v8n, ort130 en webgpu draaien het als tweede model.
+// V11.37.23). V11.37.27: de soort dfine en het D-FINE-bestand zijn weg.
 const MODEL_SOORTEN = {
   yolov8: { invoer: 'rgb01',  invoerNaam: 'images',       uitvoer: ['output0'] },
-  yolox:  { invoer: 'bgr255', invoerNaam: 'images',       uitvoer: ['output'] },
-  dfine:  { invoer: 'rgb01',  invoerNaam: 'pixel_values', uitvoer: ['logits', 'pred_boxes'] }
+  yolox:  { invoer: 'bgr255', invoerNaam: 'images',       uitvoer: ['output'] }
 };
 const MODEL_PADEN = {
   './model.onnx':            { soort: 'yolov8', naam: 'YOLOv8n',                rol: 'hoofd' },
   './model/model.onnx':      { soort: 'yolov8', naam: 'YOLOv8n (reservemodel)', rol: 'reserve' },
-  './model/dfine-n.onnx':    { soort: 'dfine',  naam: 'D-FINE-N (COCO)',        rol: 'schaduw' },
   './model/yolox_nano.onnx': { soort: 'yolox',  naam: 'YOLOX-Nano',             rol: 'schaduw' }
 };
 function modelSoortVan(pad, paden) {
@@ -10091,19 +10086,9 @@ async function laadONNXModel() {
           // zodat de meting het app-pad onmogelijk kan breken.
           if (MODELVGL_AAN) {
             try {
-              // V11.18.14: in de D-FINE-modus komt er nooit een B-resultaat om
-              // aan te koppelen. vglOpenA zou dan elke frame een regel erbij
-              // krijgen en nooit een terug - een lek dat een uur rijden niet
-              // overleeft. Daarom in die modus alleen de tijd, geen paring.
-              if (MODELVGL_MODEL === 'dfine') {
-                vglNoteerHoofdInDfine(inferentieTijd);
-              } else if (MODELVGL_MODEL === 'nano') {   // V11.37.26
+              if (MODELVGL_MODEL === 'nano') {   // V11.37.27: alleen nog de stand nano (v8n, dfine, ort130 en webgpu zijn weg)
                 try { nanoNaHoofd(msg.frameId, inferentieTijd, detecties); } catch (_) {}   // V11.37.26: eigen try (de buitenste blijft), zie het blok NANO-SCHADUW
-              } else {
-                const _b = vglBeste(detecties);
-                vglOpenA.set(msg.frameId, { ms: inferentieTijd, kl: _b.kl, cf: _b.cf, n: _b.n });
-                vglKoppel(msg.frameId);
-              }
+              }   // V11.37.27
             } catch (_) {}
           }
         } else if (msg.type === 'fout') {
@@ -11605,49 +11590,19 @@ function slaKanslozeRunOver() {
   minStatGegate();
 }
 
-// ══ V11.18.8-TEST: TWEE MODELLEN OP HETZELFDE FRAME ═════
+// ══ MODELVERGELIJKING: DE NANO-SCHADUW NAAST HET HOOFDMODEL ═════
 // © 2026 StoplichtIQ — Y. Lemaalem
 //
-// TIJDELIJKE MEETINFRASTRUCTUUR. Staat standaard UIT en verandert dan geen
-// byte aan het gedrag. Aanzetten:
+// V11.37.27: wat hier nog staat, is alleen voor de Nano-schaduwproef (zie het blok
+// NANO-SCHADUW). De standen v8n, dfine, ort130 en webgpu zijn weg, met hun code
+// en het D-FINE-bestand. De snelheid van losse modellen op de iPhone meet de losse
+// pagina in de kladmap (bank.html); de oude code staat in git (da8a8c5).
+//
+// Staat standaard UIT en verandert dan geen byte aan het gedrag. Aanzetten:
+// vijf tikken op het versielabel van het startscherm, of
 //     localStorage.setItem('sl_modelvgl_aan','1')   en herladen
-// Uitzetten:
+// Uitzetten: de knop "Zet uit", of
 //     localStorage.removeItem('sl_modelvgl_aan')    en herladen
-// Uitlezen na een rit:
-//     JSON.parse(localStorage.getItem('sl_modelvgl'))
-//
-// WAT ER VERGELEKEN WORDT
-//   A = model.onnx        YOLOv8s, 11,2M parameters, dataset_fase8, 2026-08-07
-//   B = model/model.onnx  YOLOv8n,  3,0M parameters, dataset2,      2026-03-26
-// Allebei fp32, allebei 640x640, allebei dezelfde vier klassen
-// (rood/groen/uit/oranje) en dezelfde outputvorm (1,8,8400). De nabewerking
-// is daardoor letterlijk dezelfde functie — zie hieronder.
-//
-// V11.26.0: DE REGEL OVER A KLOPT SINDS 19 SEPTEMBER NIET MEER. Commit 2aa04b9
-// verving model.onnx door een YOLOv8n op fase8_volledig (Ultralytics 8.4.155).
-// Gecontroleerd op de bestanden zelf:
-//   A = model.onnx        12.268.151 bytes, fase8_volledig, 2026-09-19
-//   B = model/model.onnx  12.240.396 bytes, dataset2,       2026-03-26
-// Twee nano's van hetzelfde formaat, met een andere training. Er staat geen
-// model van 42 MB meer in de repo. In de stand v8n is dit dus geen
-// snelheidsvergelijking maar een CONTROLE: gelijke grootte, gelijke motor,
-// een andere worker en een andere training. Wat daar voor B/A uitkomt is de
-// maatstaf voor de motorstanden, die precies ditzelfde B-bestand laden.
-//
-// WAT DEZE METING WEL EN NIET KAN BEANTWOORDEN
-//   SNELHEID   schoon. De inferentietijd hangt af van de architectuur, niet
-//              van de dataset waarop getraind is. Het gemeten verschil is dus
-//              een geldige schatting voor wat een op fase8 hertrainde nano
-//              zou opleveren.
-//   NAUWKEUR.  VERSTRENGELD. B is vijf maanden ouder en op een andere dataset
-//              getraind. Ziet B iets minder, dan kan dat de kleinere
-//              architectuur zijn of de oudere training — dat is uit deze
-//              meting niet te scheiden. Lees het verschil dus als een
-//              ONDERGRENS voor wat een hertrainde nano zou halen.
-//
-// KOSTEN TIJDENS DE TEST. De telefoon draait per frame BEIDE modellen. Dat
-// kost extra tijd en accu, en de detectiefrequentie kan zakken. Dat is
-// verwacht en tijdelijk; het is niet de eindsituatie.
 //
 // WAAROM DIT HET ECHTE APP-GEDRAG NIET RAAKT
 //   - de schaduw krijgt een EIGEN kopie van dezelfde pixels en een eigen worker
@@ -11657,43 +11612,19 @@ function slaKanslozeRunOver() {
 const MODELVGL_AAN = (() => {
   try { return localStorage.getItem('sl_modelvgl_aan') === '1'; } catch (e) { return false; }
 })();
-// ── V11.18.14: HET DERDE MODEL, EN WAAROM HET WISSELT ────────
-// © 2026 StoplichtIQ — Y. Lemaalem
-//
-// De vraag die deze uitbreiding beantwoordt is er precies EEN: hoeveel
-// milliseconden kost een D-FINE-N-frame op DEZE telefoon? D-FINE is Apache-2.0
-// en zou het AGPL-vraagstuk oplossen, maar alleen als de snelheid haalbaar is.
-// Lokaal gemeten op een Windows-CPU (onnxruntime 1.24, 640x640, mediaan van 6):
-//   YOLOv8s 42,7MB  429 ms
-//   YOLOv8n 11,7MB  136 ms
-//   D-FINE-N 15,3MB 227 ms
-// D-FINE-N zit daar dus tussenin. Of die verhouding op WASM/ARM standhoudt is
-// precies wat niet uit een tabel te halen is - vandaar deze meting.
-//
-// WISSELEN, NIET STAPELEN. Een derde worker naast de twee bestaande zou drie
-// modellen per frame draaien op een toestel dat er nu al twee doet. Dan meet je
-// niet de snelheid van D-FINE maar de verzadiging van de telefoon. De schaduw
-// draait daarom OF YOLOv8n OF D-FINE-N; de sleutel sl_modelvgl_model onthoudt
-// welke. De cijfers stapelen wel op in DEZELFDE opslag, dus na twee ritten
-// staan alle drie de modellen onder elkaar in de samenvatting.
-//
-// WAT DEZE MODUS NIET MEET: NAUWKEURIGHEID. Dit D-FINE-model is getraind op
-// COCO (80 algemene klassen) en kent rood/groen/uit/oranje niet. Een
-// 'zelfde uitkomst'-percentage zou hier een getal zijn dat niets betekent, en
-// daarom wordt het in deze modus niet berekend en niet getoond.
-// V11.25.0: vier modi in plaats van twee. De volgorde is die van de knop, en
-// 'v8n' staat vooraan zodat de standaard ongewijzigd blijft: zonder sleutel, of
-// met een onbekende waarde, meet de app zichzelf tegen zichzelf.
-// V11.37.26: vijfde stand 'nano' (YOLOX-Nano als schaduw, zie het blok
-// NANO-SCHADUW). Achteraan, zodat de standaard en de eerste stappen van de knop
-// gelijk blijven: v8n -> dfine -> ort130 -> webgpu -> nano -> v8n.
-const MODELVGL_MODI = ['v8n', 'dfine', 'ort130', 'webgpu', 'nano'];   // V11.37.26
-const MODELVGL_MODEL = (() => {
+// ── V11.37.27: ALLEEN NOG DE STAND NANO ──────────────────────
+// sl_modelvgl_model wordt niet meer geschreven. Geen sleutel, of 'nano': de stand
+// nano. Staat er nog een oude stand in (v8n, dfine, ort130, webgpu of iets anders),
+// dan draait er NIETS: geen terugval op v8n en ook niet stil op Nano. Het overzicht
+// zegt het, en alleen de knop "Zet uit" haalt die oude stand weg.
+const MODELVGL_MODI = ['nano'];   // V11.37.27
+const MODELVGL_OUDE_STAND = (() => {   // V11.37.27
   try {
     const v = localStorage.getItem('sl_modelvgl_model');
-    return MODELVGL_MODI.indexOf(v) > 0 ? v : 'v8n';
-  } catch (e) { return 'v8n'; }
+    return (v === null || v === 'nano') ? null : String(v).slice(0, 20);
+  } catch (e) { return null; }
 })();
+const MODELVGL_MODEL = MODELVGL_OUDE_STAND === null ? 'nano' : null;   // V11.37.27
 const MODELVGL_MAX_VOORBEELDEN = 40;
 let vglWorker = null, vglWorkerKlaar = false, vglBezig = false, vglStartTijd = 0;
 let vglFouten = 0;
@@ -11701,38 +11632,12 @@ let vglOpenA = new Map();   // frameId -> { ms, kl, cf, n }
 let vglOpenB = new Map();   // frameId -> { ms, kl, cf, n, modus }
 let vglStat = null;
 
-// ── V11.26.0: EEN EMMER PER STAND ────────────────────────────
-// © 2026 StoplichtIQ — Y. Lemaalem
-//
-// WAT ER MIS WAS. v8n, ort130 en webgpu liepen alle drie door vglKoppel en
-// schreven in DEZELFDE velden: n, somMsA, somMsB, eens, oneens, matrix. Niets
-// ging verloren; alles werd bij elkaar opgeteld. somMsB was een mengsel van
-// ORT 1.17.1-wasm, ORT 1.30-wasm en ORT 1.30-WebGPU, gedeeld door een n die
-// over alle drie doorliep en nooit werd teruggezet. En motorFoutBijFrame las
-// die n af, dus "na 10.780 frames" betekende "na alle v8n-ritten van eerder" —
-// terwijl de fout bij init viel, vóór het eerste frame van die stand.
-//
-// WAT HET NU IS. sl_modelvgl = { schema: 2, perModus: { v8n, dfine, ort130,
-// webgpu } }. Elke emmer heeft zijn eigen n, somMsA, somMsB, eens, oneens,
-// matrix en voorbeelden, en zijn eigen motor, motorFout en motorFoutBijFrame.
-// Wisselen van stand wist niets: de andere emmers blijven staan.
-//
-// ELKE EMMER HOUDT ZIJN EIGEN A BIJ, uit dezelfde rit als zijn B. Dat is geen
-// dubbeling maar de reden dat de emmers te vergelijken zijn. De ort130-rit
-// valt op een andere dag dan de v8n-rit, met ander weer en een andere
-// accustand. Vergelijken tussen standen mag daarom ALLEEN op B/A — ruwe
-// milliseconden van maandag tegen ruwe milliseconden van vrijdag zetten is de
-// koud-tegen-warm-fout uit STAP 0 in een nieuw jasje.
-//
-// DE OUDE PLATTE VELDEN worden één keer omgezet (vglMigreerPlat). Ze gaan
-// allemaal als archief naar perModus.v8n.voorV1126, met een label, en tellen
-// nooit meer mee. Het is niet te repareren: welk paar bij welke motor hoorde
-// is nergens bewaard. Ook de D-FINE-velden gaan mee het archief in, al hadden
-// die eigen namen: hun A is het hoofdpad, en dat wisselde op 19 september van
-// model (2aa04b9, YOLOv8s naar YOLOv8n). Van geen enkele D-FINE-rit is bewaard
-// of hij daarvoor of daarna viel, dus ook die B/A is een mengsel.
+// ── DE EMMER VAN DE NANO-SCHADUW (sl_modelvgl) ───────────────
+// sl_modelvgl = { schema: 2, perModus: { nano, ... } }. De emmers van de oude
+// standen (v8n, dfine, ort130, webgpu, en het archief van vóór V11.26) blijven
+// ONAANGEROERD in de opslag en in de export staan; ze worden alleen niet meer
+// bijgewerkt of getoond (V11.37.27).
 const VGL_ARCHIEF_LABEL = 'gemengd, vóór V11.26';
-const VGL_DFINE_VELDEN = ['nC', 'somMsC', 'maxMsC', 'detC', 'nAC', 'somMsAC', 'maxMsAC'];
 
 // Vult ontbrekende velden aan; bestaande waarden blijven staan. Zo valt een
 // emmer die half is opgeslagen, of uit een latere versie komt, niet om.
@@ -11750,35 +11655,29 @@ function vglVulEmmer(e, modus) {
   if (!x.matrix || typeof x.matrix !== 'object') x.matrix = {};
   // alleen de laatste N gevallen waarin ze het oneens waren
   if (!Array.isArray(x.voorbeelden)) x.voorbeelden = [];
-  // V11.18.14: D-FINE telt ongepaard. nAC/somMsAC is het HOOFDmodel in
-  // diezelfde rit — de A van deze emmer.
-  if (modus === 'dfine') {
-    for (const k of VGL_DFINE_VELDEN) if (typeof x[k] !== 'number') x[k] = 0;
-  }
   return x;
 }
 
-// De platte vorm van V11.18.8 t/m V11.25.0 naar emmers. Puur: schrijft niets.
+// De platte vorm van V11.18.8 t/m V11.25.0. Puur: schrijft niets. Het oude gaat
+// ongewijzigd naar een archief (V11.37.27: op het hoogste niveau, want de emmer
+// v8n bestaat niet meer).
 function vglMigreerPlat(oud) {
-  const st = { schema: 2, perModus: {} };
-  for (const m of MODELVGL_MODI) st.perModus[m] = vglVulEmmer(null, m);
-  // Alles gaat ongewijzigd het archief in — ook motorFout en
-  // motorFoutBijFrame, want ook van die twee is niet meer te zeggen bij welke
-  // stand ze hoorden. Een lege oude opslag levert geen leeg archief op.
+  const st = { schema: 2, perModus: { nano: vglVulEmmer(null, 'nano') } };
   if (oud.n || oud.nC || oud.nAC || oud.motor || oud.motorFout) {
     const archief = { label: VGL_ARCHIEF_LABEL };
     for (const k of Object.keys(oud)) archief[k] = oud[k];
-    st.perModus.v8n.voorV1126 = archief;
+    st.archief = archief;
   }
   return st;
 }
 
 // Elke vorm naar de huidige. Ook puur, zodat het overzicht hem kan gebruiken
-// zonder dat het openen van een scherm iets naar de opslag schrijft.
+// zonder dat het openen van een scherm iets naar de opslag schrijft. Andere
+// emmers dan nano blijven zoals ze zijn.
 function vglNormaliseer(ruw) {
   if (!ruw || typeof ruw !== 'object') return vglMigreerPlat({});
   if (!ruw.perModus || typeof ruw.perModus !== 'object') return vglMigreerPlat(ruw);
-  for (const m of MODELVGL_MODI) ruw.perModus[m] = vglVulEmmer(ruw.perModus[m], m);
+  ruw.perModus.nano = vglVulEmmer(ruw.perModus.nano, 'nano');
   ruw.schema = 2;
   return ruw;
 }
@@ -11789,18 +11688,14 @@ function vglStatLaad() {
   try { ruw = JSON.parse(localStorage.getItem('sl_modelvgl')); } catch (e) { ruw = null; }
   const plat = !!(ruw && typeof ruw === 'object' && !ruw.perModus);
   vglStat = vglNormaliseer(ruw);
-  // De omzetting meteen vastleggen. Anders gebeurt hij bij elke laadbeurt
-  // opnieuw, tot er toevallig een tiende paar valt.
+  // De omzetting meteen vastleggen. Anders gebeurt hij bij elke laadbeurt opnieuw.
   if (plat) vglStatBewaar();
   return vglStat;
 }
 
-// De emmer van een stand. Een onbekende naam valt terug op de stand van deze
-// sessie, net als MODELVGL_MODEL zelf — nooit op een nieuwe, losse emmer.
+// De emmer van de schaduw: er is er nog één (V11.37.27).
 function vglEmmer(modus) {
-  const st = vglStatLaad();
-  const m = MODELVGL_MODI.indexOf(modus) >= 0 ? modus : MODELVGL_MODEL;
-  const e = st.perModus[m];
+  const e = vglStatLaad().perModus.nano;
   if (!e.start) e.start = Date.now();
   return e;
 }
@@ -11837,196 +11732,6 @@ function vglVergeetFrame(frameId) {
   nanoCtx.delete(frameId);   // V11.37.26
 }
 
-// ── V11.18.14: DE UITKOMST VAN D-FINE NAAR HET GEDEELDE FORMAAT ──
-// © 2026 StoplichtIQ — Y. Lemaalem
-//
-// D-FINE geeft twee tensors in plaats van de ene van YOLO, en ze zijn anders
-// van vorm (gecontroleerd op het daadwerkelijke bestand, opset 16):
-//   logits      [1, 300, 80]  RAUWE logits, nog geen kans - sigmoid per klasse,
-//                             meerdere klassen tegelijk mogelijk, GEEN
-//                             achtergrondslot (anders dan bij RF-DETR)
-//   pred_boxes  [1, 300, 4]   cx,cy,w,h GENORMALISEERD op 0..1
-// YOLO levert daarentegen een enkele [1,8,8400] met scores die al kansen zijn
-// en coordinaten in pixels.
-//
-// DRIE VERSCHILLEN DIE ERTOE DOEN
-//  1. sigmoid, geen softmax. Een som over klassen is hier dus zinloos - de
-//     familie-som van postprocessYOLO hoort hier niet thuis.
-//  2. geen NMS. D-FINE is end-to-end: 300 queries die elk hoogstens een object
-//     claimen. nmsFilter draaien zou goed werk weggooien.
-//  3. de coordinaten worden hier vermenigvuldigd met YOLO_SIZE, zodat x1/y1/
-//     x2/y2 in DEZELFDE eenheid staan als bij postprocessYOLO. Alles wat de
-//     vergelijkingslogica daarna doet, werkt daardoor ongewijzigd.
-//
-// `klasse` is een COCO-index (0-79), GEEN stoplichtklasse. bron:'dfine' staat
-// erbij zodat een toekomstige lezer dat niet per ongeluk door elkaar haalt.
-// Deze detecties gaan nooit naar _verwerkWorkerResultaat; ze worden alleen
-// geteld, als bewijs dat het model daadwerkelijk iets doet.
-function postprocessDfine(logits, logitsDims, boxes, drempel = CONF_DREMPEL) {
-  const dets = [];
-  if (!logits || !boxes || !logitsDims || logitsDims.length < 3) return dets;
-  const Q = logitsDims[1], C = logitsDims[2];
-  for (let q = 0; q < Q; q++) {
-    let besteLogit = -Infinity, besteKlasse = -1;
-    for (let c = 0; c < C; c++) {
-      const v = logits[q * C + c];
-      if (v > besteLogit) { besteLogit = v; besteKlasse = c; }
-    }
-    const score = 1 / (1 + Math.exp(-besteLogit));
-    if (!(score >= drempel) || besteKlasse < 0) continue;
-    const cx = boxes[q * 4 + 0] * YOLO_SIZE, cy = boxes[q * 4 + 1] * YOLO_SIZE;
-    const w  = boxes[q * 4 + 2] * YOLO_SIZE, h  = boxes[q * 4 + 3] * YOLO_SIZE;
-    dets.push({
-      klasse: besteKlasse, score, bron: 'dfine',
-      x1: cx - w / 2, y1: cy - h / 2, x2: cx + w / 2, y2: cy + h / 2,
-      w, h, cx, cy
-    });
-  }
-  dets.sort((a, b) => b.score - a.score);
-  return dets;
-}
-
-// De worker voor het derde model. Bewust een EIGEN kopie en niet een uitbreiding
-// van YOLO_WORKER_CODE: die draait in het echte app-pad, en daar hoort geen
-// letter aan te veranderen voor een tijdelijke meting. Verschillen met de YOLO-
-// worker: de invoer heet 'pixel_values' (uit inputNames gelezen, niet geraden)
-// en er komen twee tensors terug in plaats van een.
-const DFINE_WORKER_CODE=`
-importScripts('https://cdn.jsdelivr.net/npm/onnxruntime-web@1.17.1/dist/ort.min.js');
-let sessie=null,klaar=false,invoerNaam='pixel_values';
-async function initialiseer(modelBuffer){
-  try{
-    ort.env.wasm.wasmPaths='https://cdn.jsdelivr.net/npm/onnxruntime-web@1.17.1/dist/';
-    sessie=await ort.InferenceSession.create(modelBuffer,{executionProviders:['wasm'],graphOptimizationLevel:'all'});
-    if(sessie.inputNames&&sessie.inputNames.length)invoerNaam=sessie.inputNames[0];
-    klaar=true;self.postMessage({type:'klaar'});
-  }catch(e){self.postMessage({type:'fout',bericht:e.message});}
-}
-async function voerUit(pixelData,breedte,hoogte,frameId){
-  if(!klaar||!sessie){self.postMessage({type:'fout',bericht:'sessie niet klaar',frameId});return;}
-  try{
-    const feeds={};feeds[invoerNaam]=new ort.Tensor('float32',pixelData,[1,3,breedte,hoogte]);
-    const output=await sessie.run(feeds);
-    const lg=output['logits']||output[sessie.outputNames[0]];
-    const bx=output['pred_boxes']||output[sessie.outputNames[1]];
-    self.postMessage({type:'resultaat',frameId,logits:lg.data,logitsDims:lg.dims,boxes:bx.data},
-                     [lg.data.buffer,bx.data.buffer]);
-  }catch(e){self.postMessage({type:'fout',bericht:e.message,frameId});}
-}
-self.onmessage=function(e){
-  const msg=e.data;
-  if(msg.type==='initialiseer')initialiseer(msg.modelBuffer);
-  else if(msg.type==='inferentie')voerUit(msg.pixelData,msg.breedte,msg.hoogte,msg.frameId);
-};`;
-
-// ── V11.25.0: DE SCHADUW OP EEN ANDERE MOTOR ────────────
-// © 2026 StoplichtIQ — Y. Lemaalem
-//
-// DE VRAAG. De app draait op ONNX Runtime 1.17.1 met de WASM-provider, op één
-// thread — gemeten op de live app: numThreads 1, crossOriginIsolated false.
-// Zes kernen in de telefoon, waarvan er één werkt, en de GPU staat stil.
-// Twee dingen zouden daar iets aan kunnen doen, en van geen van beide is op
-// voorhand te zeggen of ze op DIT toestel helpen:
-//
-//   ort130  dezelfde provider, maar bibliotheek 1.30.0 in plaats van 1.17.1
-//   webgpu  dezelfde bibliotheek-generatie, maar de GPU in plaats van de CPU
-//
-// WAAROM DIT EEN METING IS EN GEEN OVERSTAP. Op een laptop met twee kernen mat
-// ik WebGPU 1,75x sneller dan WASM (566 tegen 993 ms) met een numeriek gelijke
-// uitvoer — verschil 1 x 10^-8 relatief. Maar diezelfde laptop liet 1.30.0
-// juist 8% TRAGER zien dan 1.17.1 (810 tegen 752 ms, afwisselend gemeten),
-// terwijl een eerdere, slordiger meting daar nog 18% winst suggereerde. Dat
-// verschil tussen twee metingen op dezelfde machine is precies de reden dat
-// hier niets wordt omgezet op grond van een tabel of een laptop.
-//
-// EN ER IS EEN ZWAARDERE REDEN OM EERST TE METEN. Voor onnxruntime-web op
-// WebGPU in Safari staan crashmeldingen open die exact dit gebruik beschrijven:
-// issue 27584 meldt YOLO op iOS 26.3 dat "constantly crash after around 500
-// inference" bij doorlopende camerabeelden, terwijl hetzelfde model op Chrome
-// gewoon loopt. Bij twee inferenties per seconde is dat vier minuten rijden.
-// Die grens hoort op het toestel zelf opgezocht te worden, in de schaduw, waar
-// een crash niets kost.
-//
-// WAT DE SCHADUW NIET DOET. Terugvallen. Er wordt precies één provider
-// gevraagd; lukt dat niet, dan start de schaduw niet en meldt hij waarom. Een
-// meting die stilletjes op WASM terugvalt meet namelijk niets — je zou dan
-// WASM tegen WASM afzetten en concluderen dat WebGPU "even snel" is.
-//
-// EIGEN WORKERKOPIE, net als bij D-FINE. YOLO_WORKER_CODE draait in het echte
-// app-pad en daar hoort geen letter aan te veranderen voor een tijdelijke
-// meting.
-function vglProviderWorkerBron(bundel, paden, providers) {
-  return `
-importScripts('${bundel}');
-let sessie=null,klaar=false;
-async function initialiseer(modelBuffer){
-  try{
-    ort.env.wasm.wasmPaths='${paden}';
-    sessie=await ort.InferenceSession.create(modelBuffer,
-      {executionProviders:${JSON.stringify(providers)},graphOptimizationLevel:'all'});
-    klaar=true;
-    self.postMessage({type:'klaar',provider:${JSON.stringify(providers[0])},
-                      threads:(ort.env.wasm&&ort.env.wasm.numThreads)||null});
-  }catch(e){self.postMessage({type:'fout',bericht:'init: '+(e&&e.message||e)});}
-}
-async function voerUit(pixelData,breedte,hoogte,frameId){
-  if(!klaar||!sessie){self.postMessage({type:'fout',bericht:'sessie niet klaar',frameId});return;}
-  try{
-    const tensor=new ort.Tensor('float32',pixelData,[1,3,breedte,hoogte]);
-    const output=await sessie.run({images:tensor});
-    const t=output['output0'];
-    self.postMessage({type:'resultaat',frameId,data:t.data,dims:t.dims},[t.data.buffer]);
-  }catch(e){self.postMessage({type:'fout',bericht:e&&e.message||String(e),frameId});}
-}
-self.onmessage=function(e){
-  const msg=e.data;
-  if(msg.type==='initialiseer')initialiseer(msg.modelBuffer);
-  else if(msg.type==='inferentie')voerUit(msg.pixelData,msg.breedte,msg.hoogte,msg.frameId);
-};`;
-}
-
-// De twee motorvarianten. Allebei HETZELFDE model als het hoofdpad, zodat de
-// bestaande A/B-koppeling (vglKoppel) zinvol blijft: verschilt de gekozen
-// klasse, dan ligt dat aan de motor en niet aan een ander model.
-//
-// V11.26.0: CORRECTIE. Niet hetzelfde model als het hoofdpad: startVglWorker
-// laadt voor elke stand behalve dfine ./model/model.onnx, en het hoofdpad
-// ./model.onnx. Dat zijn sinds 19 september twee nano's van gelijke grootte,
-// maar met een andere training. Voor de SNELHEID maakt dat weinig uit, en
-// het vergelijkingspunt klopt wel: ort130 en webgpu draaien precies het
-// B-bestand van de stand v8n. Hun B/A tegen die van v8n afzetten isoleert dus
-// de motor. Voor 'zelfde uitkomst' geldt dat niet — daar zitten motor en
-// training door elkaar.
-//
-// Let op de bundelkeuze bij webgpu: sinds 1.19 zit WebGPU in de algemene
-// bundel, en die trekt een ander wasm-bestand aan — 5,2 MB over de lijn in
-// plaats van 2,9 MB. Voor een meetmodus achter vijf tikken is dat acceptabel;
-// voor het hoofdpad zou het dat niet zijn.
-const VGL_ORT130 = 'https://cdn.jsdelivr.net/npm/onnxruntime-web@1.30.0/dist/';
-const VGL_MOTOREN = {
-  ort130: { bundel: VGL_ORT130 + 'ort.wasm.min.js', paden: VGL_ORT130, providers: ['wasm'],
-            naam: 'ORT 1.30 (WASM)' },
-  webgpu: { bundel: VGL_ORT130 + 'ort.min.js',      paden: VGL_ORT130, providers: ['webgpu'],
-            naam: 'ORT 1.30 (WebGPU)' }
-};
-
-// Een D-FINE-frame is klaar. Geen koppeling aan A zoals bij B: er valt niets te
-// vergelijken, alleen te tellen.
-// V11.25.0: wat de motorproef over zichzelf meldt. Drie dingen, en ze staan
-// los van de snelheidscijfers omdat ze ook iets zeggen als er NUL frames zijn
-// gehaald — dan is "de sessie ging niet open, en dit was de reden" de uitkomst.
-function vglNoteerMotor(modus, provider, threads) {
-  // De modus komt van de AANROEPER, niet van MODELVGL_MODEL. Die constante
-  // staat vast bij het laden, en wie hem hier zou lezen legt de modus van de
-  // SESSIE vast in plaats van de motor die daadwerkelijk draaide.
-  // V11.26.0: en de modus kiest nu ook de emmer.
-  const e = vglEmmer(modus);
-  e.motor = modus;
-  if (provider) e.motorProvider = provider;
-  if (threads != null) e.motorThreads = threads;
-  vglStatBewaar();
-}
-
 // Alleen de EERSTE fout bewaren, plus een teller. De eerste zegt waarom het
 // misging; de rest is ruis van hetzelfde.
 // V11.26.0: motorFoutBijFrame is het aantal frames dat de schaduw in DEZE
@@ -12044,23 +11749,6 @@ function vglNoteerMotorFout(modus, bericht) {
   vglStatBewaar();
 }
 
-function vglNoteerC(ms, aantalDetecties) {
-  const e = vglEmmer('dfine');
-  e.nC++;
-  e.somMsC += ms;
-  if (ms > e.maxMsC) e.maxMsC = ms;
-  e.detC += aantalDetecties;
-  if (e.nC % 10 === 0) vglStatBewaar();
-}
-
-// Het hoofdmodel, gemeten in dezelfde D-FINE-rit.
-function vglNoteerHoofdInDfine(ms) {
-  const e = vglEmmer('dfine');
-  e.nAC++;
-  e.somMsAC += ms;
-  if (ms > e.maxMsAC) e.maxMsAC = ms;
-}
-
 function vglStatBewaar() {
   try { localStorage.setItem('sl_modelvgl', JSON.stringify(vglStat)); } catch (e) {}
 }
@@ -12071,28 +11759,6 @@ function vglBeste(dets) {
   let b = dets[0];
   for (const d of dets) if (d.score > b.score) b = d;
   return { kl: b.klasse, cf: Math.round(b.score * 1000) / 1000, n: dets.length };
-}
-
-// postprocessYOLO SCHRIJFT naar drie debug-globals (r6717-6721) die
-// logKlasseVerdelingIndienBeschikbaar uitleest voor sl_conflog. Zou de schaduw
-// die overschrijven, dan zou dat bestaande log stilletjes de cijfers van het
-// KLEINE model gaan bevatten — een meting die een andere meting vervuilt is
-// erger dan geen meting. Daarom hier bewaren en terugzetten.
-// V11.37.26: REPARATIE. Sinds V11.37.5 schrijft postprocessYOLO ook detLogBest
-// (de beste kandidaat, voor de detlog bij stilstand en het veld cxv). Die werd
-// hier niet teruggezet: met de vergelijking aan kon de detlog van het
-// hoofdmodel de beste box van het schaduwmodel bevatten. Nu gaat ook die terug.
-// (Of het in een export zit: zie het rapport bij V11.37.26.)
-function vglPostprocessVeilig(data, dims) {
-  const bA = debugLaatsteAlle, bK = debugLaatsteTopKlasse, bS = debugLaatsteTopScore;
-  const bD = detLogBest;   // V11.37.26
-  let dets;
-  try { dets = postprocessYOLO(data, dims); }
-  finally {
-    debugLaatsteAlle = bA; debugLaatsteTopKlasse = bK; debugLaatsteTopScore = bS;
-    detLogBest = bD;   // V11.37.26
-  }
-  return dets;
 }
 
 function vglKoppel(frameId) {
@@ -12131,65 +11797,44 @@ function vglKoppel(frameId) {
   }
   // V11.37.26: de Nano-proef krijgt beide uitkomsten van hetzelfde frame.
   if (b.modus === 'nano' && a.nano && b.nano) { try { nanoFrame(frameId, a, b); } catch (_) {} }   // V11.37.26
-  // Niet elke frame naar localStorage — dat is de duurste stap in de lus.
-  if (st.n % 10 === 0) vglStatBewaar();
+  // V11.37.27: niet meer elke tiende paar naar de opslag. sl_modelvgl gaat mee met
+  // nanoBewaarSamen: hoogstens eens per minuut, en bij het sluiten van een episode.
 }
 
-// B/A van een emmer, of null als er niets te delen valt. Eén plek, zodat de
+// B/A van de emmer, of null als er niets te delen valt. Eén plek, zodat de
 // console en het scherm nooit een andere verhouding kunnen tonen.
-function vglBA(e, modus) {
-  if (modus === 'dfine') {
-    if (!e.nC || !e.nAC) return null;
-    return (e.somMsC / e.nC) / Math.max(1, e.somMsAC / e.nAC);
-  }
-  if (!e.n) return null;
+function vglBA(e) {
+  if (!e || !e.n) return null;
   return (e.somMsB / e.n) / Math.max(1, e.somMsA / e.n);
 }
 
-// Is er in welke vorm dan ook iets vastgelegd — ook een motor die alleen een
-// fout meldde, of alleen het archief?
+// Is er iets vastgelegd: paren, of alleen een fout bij het starten?
 function vglIetsGemeten(st) {
-  return MODELVGL_MODI.some(m => {
-    const e = st.perModus[m];
-    return e.n || e.nC || e.nAC || e.motorProvider || e.motorFout;
-  }) || !!st.perModus.v8n.voorV1126;
+  const e = st.perModus.nano;
+  return !!(e && (e.n || e.motorFout));
 }
 
-// Leesbare samenvatting voor in de console na een rit.
-// V11.26.0: per stand, met B/A. Het oude "A (v8s, 42,7MB)" beschreef een
-// model dat sinds 19 september niet meer in de repo staat.
+// Leesbare samenvatting voor in de console na een rit (V11.37.27: alleen Nano).
 function modelVergelijking() {
   const st = vglStatLaad();
+  if (MODELVGL_OUDE_STAND !== null) return 'oude stand ' + MODELVGL_OUDE_STAND + ': die bestaat niet meer, er draait niets (knop Zet uit)';
   if (!vglIetsGemeten(st)) return 'nog geen vergelijkingen — staat de testmodus aan?';
   const r = (x) => Math.round(x * 10) / 10;
   const r2 = (x) => Math.round(x * 100) / 100;
+  const e = st.perModus.nano, ba = vglBA(e);
   const regels = [];
-  for (const m of MODELVGL_MODI) {
-    const e = st.perModus[m], ba = vglBA(e, m);
-    const kop = (m + '        ').slice(0, 8) + ': ';
-    if (m === 'dfine') {
-      regels.push(kop + (e.nC
-        ? e.nC + ' frames  A ' + (e.nAC ? r(e.somMsAC / e.nAC) : '—') + ' ms  B ' + r(e.somMsC / e.nC)
-          + ' ms  B/A ' + (ba == null ? '—' : r2(ba))
-        : 'nog niet gemeten'));
-      continue;
-    }
-    regels.push(kop + (e.n
-      ? e.n + ' paren  A ' + r(e.somMsA / e.n) + ' ms  B ' + r(e.somMsB / e.n) + ' ms  B/A '
-        + r2(ba) + '  zelfde klasse ' + Math.round(100 * e.eens / e.n) + '%'
-      : 'nog niet gemeten'));
-    if (e.motorFout) {
-      regels.push('          ' + (String(e.motorFout).indexOf('init: ') === 0 ? 'niet gestart: '
-        : 'eerste fout na ' + e.motorFoutBijFrame + ' frames: ') + e.motorFout);
-    }
+  regels.push('nano    : ' + (e.n
+    ? e.n + ' paren  A ' + r(e.somMsA / e.n) + ' ms  B ' + r(e.somMsB / e.n) + ' ms  B/A '
+      + r2(ba) + '  zelfde klasse ' + Math.round(100 * e.eens / e.n) + '%'
+    : 'nog niet gemeten'));
+  if (e.motorFout) {
+    regels.push('          ' + (String(e.motorFout).indexOf('init: ') === 0 ? 'niet gestart: '
+      : 'eerste fout na ' + e.motorFoutBijFrame + ' frames: ') + e.motorFout);
   }
-  const arch = st.perModus.v8n.voorV1126;
-  if (arch) regels.push('archief : ' + (arch.n || 0) + ' paren' + (arch.nC ? ' + ' + arch.nC + ' D-FINE' : '')
-                        + ', ' + arch.label + ' — telt niet mee');
-  regels.push('regel   : vergelijk standen alleen op B/A, nooit op ruwe ms');
   return regels.join('\n');
 }
 if (typeof window !== 'undefined') window.modelVergelijking = modelVergelijking;
+
 
 // ══ V11.18.9: DE VERBORGEN 5-TIKKEN-ZONE ════════════════
 // © 2026 StoplichtIQ — Y. Lemaalem
@@ -12235,6 +11880,7 @@ function mvIsAan() {
 // schaduw die niet draait in beeld staat en niet alleen in het overzicht.
 function mvTestLabel() {   // V11.37.26
   if (MODELVGL_AAN && MODELVGL_MODEL === 'nano') return 'TEST · ' + nanoStaat.label;   // V11.37.26
+  if (MODELVGL_AAN && MODELVGL_OUDE_STAND !== null) return 'TEST · oude stand';   // V11.37.27: er draait niets
   return 'TEST';   // V11.37.26
 }   // V11.37.26
 function mvWerkIndicatorBij() {
@@ -12259,113 +11905,47 @@ function mvWerkIndicatorBij() {
   }
 }
 
-// De samenvatting zoals ze op het scherm komt. Leest dezelfde opslag als
-// modelVergelijking(), maar in een vorm die op een telefoon te lezen is.
-// V11.18.14: drie modellen, twee soorten meting. De A/B-blokken tellen alleen
-// als er paren zijn; het C-blok alleen als D-FINE ooit gedraaid heeft. Zo staat
-// er na een enkele rit precies wat gemeten is en niets meer.
-// V11.26.0: alle vier de standen onder elkaar, elk uit zijn eigen emmer, en
-// "— nog niet gemeten —" waar niets staat. Bovenaan de vaste regel dat
-// standen alleen op B/A te vergelijken zijn. Het oude "Model A (groot, 42MB)"
-// is weg: dat model staat sinds 19 september niet meer in de repo. En de
-// regel "Sneller: X×" is weg, omdat hij in de stand v8n twee modellen van
-// gelijke grootte op dezelfde motor tegen elkaar zette en dat een
-// versnelling noemde. Eén verhouding, overal dezelfde richting: B/A.
+// De samenvatting zoals ze op het scherm komt (V11.37.27: alleen de Nano-schaduw).
+// Leest dezelfde opslag als modelVergelijking() en schrijft niets.
 function mvSamenvattingTekst() {
   let ruw = null;
   try { ruw = JSON.parse(localStorage.getItem('sl_modelvgl')); } catch (e) { ruw = null; }
   const st = vglNormaliseer(ruw);
   const r2 = (x) => (Math.round(x * 100) / 100).toFixed(2).replace('.', ',');
   const uit = [];
-  uit.push('Nu aan het meten: ' + mvModusNaam(MODELVGL_MODEL));
-  if (!vglIetsGemeten(st)) uit.push('Nog geen data — rijd eerst een rit');
-  uit.push('');
-  uit.push('VASTE REGEL: vergelijk standen alleen');
-  uit.push('op B/A, nooit op ruwe ms. Elke stand');
-  uit.push('is op een andere rit gemeten.');
-  uit.push('A = hoofdpad (model.onnx, 12 MB)');
-  for (const m of MODELVGL_MODI) {
-    const e = st.perModus[m], ba = vglBA(e, m);
-    uit.push('');
-    uit.push('── ' + mvModusNaam(m) + (m === MODELVGL_MODEL ? ' · nu' : '') + ' ──');
-    // V11.37.26: welk BESTAND B is. Bij v8n, ort130 en webgpu is dat het
-    // reservemodel (dataset2), niet het hoofdmodel; dat staat er nu bij.
-    uit.push('B = ' + modelNaamVan(VGL_MODUS_PAD[m]));   // V11.37.26
-    if (m === 'nano') { try { for (const r of nanoOverzichtRegels()) uit.push(r); } catch (e) {} }   // V11.37.26
-    // V11.25.0: bij een motorproef staat het belangrijkste bovenaan — draaide
-    // hij, op welke provider, en zo nee waarom niet. Dat is de uitkomst, ook
-    // (juist) als er nul frames zijn gehaald.
-    if (VGL_MOTOREN[m] && (e.motorProvider || e.motorFout)) {
-      uit.push('motor: ' + (e.motorProvider || '—')
-               + (e.motorThreads ? ' (' + e.motorThreads + ' thread)' : ''));
-      if (e.motorFout) {
-        // V11.26.0: "NIET GESTART" alleen als hij ook echt niet startte. Een
-        // fout na honderd frames is een andere uitkomst, en precies de vraag
-        // van issue 27584.
-        if (String(e.motorFout).indexOf('init: ') === 0) uit.push('NIET GESTART: ' + e.motorFout);
-        else uit.push('eerste fout na ' + e.motorFoutBijFrame + ' frames: ' + e.motorFout);
-      }
-      if (e.motorFouten) uit.push('fouten: ' + e.motorFouten);
-    }
-    if (m === 'dfine') {
-      if (!e.nC) { uit.push('— nog niet gemeten —'); continue; }
-      uit.push('Frames met D-FINE: ' + e.nC);
-      if (e.nAC) uit.push('A hoofdpad: gem ' + Math.round(e.somMsAC / e.nAC) + 'ms');
-      uit.push('B D-FINE-N (15 MB): gem ' + Math.round(e.somMsC / e.nC) + 'ms, piek ' + e.maxMsC + 'ms');
-      if (ba != null) uit.push('B/A: ' + r2(ba));
-      uit.push('Alleen SNELHEID — dit model is op COCO getraind');
-      uit.push('en kent rood/groen/uit/oranje niet. Een');
-      uit.push('uitkomst-percentage zou hier niets betekenen.');
-      continue;
-    }
-    if (!e.n) { uit.push('— nog niet gemeten —'); continue; }
+  if (MODELVGL_OUDE_STAND !== null) {
+    uit.push('Oude stand "' + MODELVGL_OUDE_STAND + '" gevonden.');
+    uit.push('Die bestaat niet meer: er draait NIETS.');
+    uit.push('Druk "Zet uit" en tik daarna opnieuw');
+    uit.push('vijf keer: dan meet hij YOLOX-Nano.');
+  } else {
+    uit.push('Nu aan het meten: YOLOX-Nano');
+  }
+  uit.push('A = hoofdpad (' + modelNaamVan('./model.onnx') + ')');
+  uit.push('B = ' + modelNaamVan(VGL_MODUS_PAD.nano));
+  try { for (const r of nanoOverzichtRegels()) uit.push(r); } catch (e) {}
+  const e = st.perModus.nano, ba = vglBA(e);
+  if (e.motorFout) {
+    if (String(e.motorFout).indexOf('init: ') === 0) uit.push('NIET GESTART: ' + e.motorFout);
+    else uit.push('eerste fout na ' + e.motorFoutBijFrame + ' frames: ' + e.motorFout);
+    if (e.motorFouten) uit.push('fouten: ' + e.motorFouten);
+  }
+  if (e.n) {
     uit.push('Frames vergeleken: ' + e.n);
     uit.push('A hoofdpad: gem ' + Math.round(e.somMsA / e.n) + 'ms');
-    uit.push('B schaduw: gem ' + Math.round(e.somMsB / e.n) + 'ms');
+    uit.push('B Nano: gem ' + Math.round(e.somMsB / e.n) + 'ms');
     uit.push('B/A: ' + r2(ba));
     uit.push('Zelfde uitkomst: ' + Math.round(100 * e.eens / e.n) + '%');
-    uit.push('Verschillend: ' + Math.round(100 * e.oneens / e.n) + '%');
-    if (m === 'v8n') {
-      uit.push('Controle: twee modellen van gelijke');
-      uit.push('grootte op dezelfde motor. B/A hoort');
-      uit.push('rond 1 te liggen en is de maatstaf');
-      uit.push('voor ORT 1.30 en WebGPU.');
-    }
+  } else {
+    uit.push('— nog geen paren —');
   }
-  const arch = st.perModus.v8n.voorV1126;
-  if (arch) {
+  const oud = Object.keys(st.perModus).filter(m => m !== 'nano');
+  if (oud.length || st.archief) {
     uit.push('');
-    uit.push('Archief (' + arch.label + '):');
-    uit.push((arch.n || 0) + ' paren'
-             + (arch.nC ? ' en ' + arch.nC + ' D-FINE-frames' : ''));
-    uit.push('telt niet mee. A was tot 19 sept');
-    uit.push('YOLOv8s; v8n, ORT 1.30 en WebGPU');
-    uit.push('staan erin door elkaar.');
+    uit.push('Oude metingen (' + (oud.length ? oud.join(', ') : 'archief') + ')');
+    uit.push('staan nog in de opslag en de export.');
   }
   return uit.join('\n');
-}
-
-// V11.18.14: wisselen tussen het tweede en het derde model. Zelfde patroon als
-// mvZetUit: sleutel zetten, melden, herladen — want de worker en het model
-// worden bij het laden gekozen.
-// V11.25.0: de knop loopt nu door VIER standen in plaats van te wippen tussen
-// twee. De volgorde begint bewust met v8n -> dfine, zodat de bestaande knop
-// zich vanuit de standaard precies zo gedraagt als voorheen.
-function mvModusNaam(modus) {
-  if (modus === 'dfine') return 'D-FINE-N';
-  if (modus === 'nano') return 'YOLOX-Nano';   // V11.37.26
-  if (VGL_MOTOREN[modus]) return VGL_MOTOREN[modus].naam;
-  return 'YOLOv8n';
-}
-
-function mvWisselModel() {
-  const i = MODELVGL_MODI.indexOf(MODELVGL_MODEL);
-  const nieuw = MODELVGL_MODI[((i < 0 ? 0 : i) + 1) % MODELVGL_MODI.length];
-  try { localStorage.setItem('sl_modelvgl_model', nieuw); } catch (e) {}
-  mvSluit();
-  toonToast('Tweede model: ' + mvModusNaam(nieuw));
-  mvPlanHerlaad();
-  return nieuw;
 }
 
 function mvToonOverlay() {
@@ -12373,29 +11953,26 @@ function mvToonOverlay() {
   const inh = document.getElementById('mv-inhoud');
   if (!ov || !inh) return;
   inh.textContent = mvSamenvattingTekst();
-  // V11.18.14: de knop noemt wat je KRIJGT als je hem indrukt, niet wat er nu
-  // staat — anders leest hij als een toestandsmelding en drukt niemand erop.
-  // V11.25.0: met vier standen noemt de knop de VOLGENDE in de reeks.
-  const mk = document.getElementById('mv-model-knop');
-  if (mk) {
-    const i = MODELVGL_MODI.indexOf(MODELVGL_MODEL);
-    mk.textContent = 'Meet ' + mvModusNaam(MODELVGL_MODI[((i < 0 ? 0 : i) + 1) % MODELVGL_MODI.length]);
-  }
   ov.classList.add('zichtbaar');
 }
+
 
 function mvSluit() {
   const ov = document.getElementById('mv-overlay');
   if (ov) ov.classList.remove('zichtbaar');
 }
 
+// V11.37.27: haalt ook een oude stand (sl_modelvgl_model) weg. Dat is een
+// instelling, geen meetdata, en het gebeurt alleen op deze knop.
 function mvZetUit() {
   try { localStorage.removeItem('sl_modelvgl_aan'); } catch (e) {}
+  try { localStorage.removeItem('sl_modelvgl_model'); } catch (e) {}   // V11.37.27
   mvSluit();
   mvWerkIndicatorBij();
   toonToast('Modelvergelijking: UIT');
   mvPlanHerlaad();
 }
+
 
 // Het hele gedrag van de zone, in één functie zodat de test hem los kan
 // aanroepen zonder tikken na te bootsen.
@@ -12424,15 +12001,16 @@ if (typeof window !== 'undefined') {
   window.mvSluit = mvSluit;
   window.mvZetUit = mvZetUit;
   window.mvTrigger = mvTrigger;
-  window.mvWisselModel = mvWisselModel;   // V11.18.14
   window.mvTik = mvTik;
   window.mvPlanHerlaad = mvPlanHerlaad;
 }
 
+// V11.37.27: alleen de stand nano; met een oude stand draait er niets.
 function startVglWorker() {
-  if (!MODELVGL_AAN) return;
+  if (!MODELVGL_AAN || MODELVGL_MODEL !== 'nano') return;
   vglStartSchaduw(MODELVGL_MODEL);
 }
+
 
 // ── V11.26.0: DE SCHADUW STILLEGGEN, EN NIET WEES LATEN ─────
 // Drie paden zetten vglWorker op null ZONDER terminate(): onerror, de
@@ -12450,99 +12028,61 @@ function vglLegStil() {
   if (w) { try { w.terminate(); } catch (_) {} }
 }
 
-// De stand komt binnen als argument, zodat de emmer die B vult vastligt bij
-// het starten en een test een stand kan starten zonder te herladen.
+// De stand komt binnen als argument, zodat een test een stand kan starten zonder
+// te herladen. V11.37.27: alleen nog nano. Pad, soort en worker uit vglPlan; een
+// fout in de tabel laat de schaduw niet starten.
 function vglStartSchaduw(modus) {
-  // V11.18.14: welk tweede model deze rit draait. De rest van deze functie is
-  // ongewijzigd; alleen het pad, de workercode en de verwerking van het
-  // resultaat hangen van de modus af.
-  // V11.37.26: pad, soort en worker uit vglPlan. De verwerking hangt van de
-  // SOORT van het bestand af, niet van de stand: een YOLOv8-bestand krijgt nooit
-  // de Nano-invoer, en een fout in de tabel laat de schaduw niet starten.
-  let plan;   // V11.37.26
-  try { plan = vglPlan(modus); }   // V11.37.26
-  catch (e) { if (modus === 'nano') { try { nanoStop('plan: ' + ((e && e.message) || e)); } catch (_) {} } vglLegStil(); return; }   // V11.37.26
-  const dfine = (plan.soort === 'dfine');   // V11.37.26
-  const nano = (plan.soort === 'yolox');   // V11.37.26
-  // V11.25.0: een motorvariant draait HETZELFDE model, maar op een andere
-  // bibliotheek of provider. Model en verwerking zijn dus die van de v8n-tak;
-  // alleen de workercode verschilt.
-  const motor = plan.motor;   // V11.37.26
-  const modelPad = plan.pad;   // V11.37.26
+  let plan;
+  try { plan = vglPlan(modus); }
+  catch (e) { try { nanoStop('plan: ' + ((e && e.message) || e)); } catch (_) {} vglLegStil(); return; }
+  const modelPad = plan.pad;
   vglFramesDezeStand = 0; vglFouten = 0;
-  if (nano) { try { nanoBegin(); } catch (e) { try { nanoStop('begin: ' + ((e && e.message) || e)); } catch (_) {} vglLegStil(); return; } }   // V11.37.26: dit deel loopt synchroon binnen de try van laadONNXModel; een fout hier mag het hoofdmodel niet uitzetten
+  try { nanoBegin(); } catch (e) { try { nanoStop('begin: ' + ((e && e.message) || e)); } catch (_) {} vglLegStil(); return; }   // V11.37.26: dit deel loopt synchroon binnen de try van laadONNXModel; een fout hier mag het hoofdmodel niet uitzetten
   try {
-    fetch(modelPad).then(r => { if (nano && r && r.ok === false) throw new Error('bestand laadde niet (' + r.status + ')'); return r.arrayBuffer(); }).then(buf => {   // V11.37.26
-      const bron = plan.worker === 'dfine' ? DFINE_WORKER_CODE   // V11.37.26
-                 : plan.worker === 'nano' ? NANO_WORKER_CODE   // V11.37.26
-                 : plan.worker === 'motor' ? vglProviderWorkerBron(motor.bundel, motor.paden, motor.providers)   // V11.37.26
-                 : YOLO_WORKER_CODE;
-      const blob = new Blob([bron], { type: 'application/javascript' });
+    fetch(modelPad).then(r => { if (r && r.ok === false) throw new Error('bestand laadde niet (' + r.status + ')'); return r.arrayBuffer(); })
+    .then(buf => { try { return nanoNoteerBestand(modelPad, buf).then(() => buf, () => buf); } catch (_) { return buf; } })   // V11.37.27: welk bestand (naam + sha256-begin), vóór de overdracht
+    .then(buf => {
+      const blob = new Blob([NANO_WORKER_CODE], { type: 'application/javascript' });
       const url = URL.createObjectURL(blob);
       vglWorker = new Worker(url);
       vglWorker.onmessage = function (e) {
         const msg = e.data;
         if (msg.type === 'klaar') {
           vglWorkerKlaar = true;
-          // V11.25.0: vastleggen WAT er draait. Zonder dit zou een schaduw die
-          // stilletjes op iets anders uitkwam als geslaagde meting tellen.
-          if (motor) { try { vglNoteerMotor(modus, msg.provider, msg.threads); } catch (_) {} }
-          if (nano) { try { nanoKlaar(); } catch (_) {} }   // V11.37.26
+          try { nanoKlaar(); } catch (_) {}
           return;
         }
         if (msg.type === 'fout') {
           vglBezig = false;
-          // V11.26.0: voor dit frame komt er geen B meer; zijn A mag weg.
+          // Voor dit frame komt er geen B meer; zijn A mag weg.
           if (msg.frameId != null) vglVergeetFrame(msg.frameId);
-          // V11.25.0: de reden van de EERSTE fout bewaren. Bij een motorproef is
-          // juist die reden het antwoord: 'geen WebGPU op dit toestel' is een
-          // uitkomst, geen storing.
-          if (motor) { try { vglNoteerMotorFout(modus, msg.bericht); } catch (_) {} }
-          // V11.37.26: Nano valt nooit terug op een ander bestand. Een init-fout
-          // (verkeerde soort, laadt niet) zet de schaduw meteen uit, in beeld.
-          if (nano) {   // V11.37.26
-            try { vglNoteerMotorFout(modus, msg.bericht); } catch (_) {}   // V11.37.26
-            if (String(msg.bericht || '').indexOf('init: ') === 0) { try { nanoStop(msg.bericht); } catch (_) {} vglLegStil(); return; }   // V11.37.26
-          }   // V11.37.26
-          if (++vglFouten >= 5) { if (nano) { try { nanoStop('5 fouten: ' + msg.bericht); } catch (_) {} } vglLegStil(); }   // V11.37.26
+          // Nano valt nooit terug op een ander bestand. Een init-fout (verkeerde
+          // soort, laadt niet) zet de schaduw meteen uit, in beeld.
+          try { vglNoteerMotorFout(modus, msg.bericht); } catch (_) {}
+          if (String(msg.bericht || '').indexOf('init: ') === 0) { try { nanoStop(msg.bericht); } catch (_) {} vglLegStil(); return; }
+          if (++vglFouten >= 5) { try { nanoStop('5 fouten: ' + msg.bericht); } catch (_) {} vglLegStil(); }
           return;
         }
         if (msg.type === 'resultaat') {
           const ms = Date.now() - vglStartTijd;
           vglBezig = false;
           vglFramesDezeStand++;
-          try {
-            if (nano) {   // V11.37.26
-              try { nanoSchaduwResultaat(msg, ms); } catch (_) {}   // V11.37.26: eigen try, zoals elke nano*-aanroep op dit pad (zie test N1f)
-            } else if (dfine) {   // V11.37.26
-              // Alleen tellen. De klassen van dit model zijn COCO-klassen en
-              // zeggen niets over stoplichten; de tijd zegt alles.
-              const d = postprocessDfine(msg.logits, msg.logitsDims, msg.boxes);
-              vglNoteerC(ms, d.length);
-              // V11.26.0: D-FINE paart niet, dus vglKoppel ruimt dit frame
-              // nooit op. Zonder deze regel zou vglNaarB hier zelf gaan lekken.
-              vglNaarB.delete(msg.frameId);
-            } else {
-              const best = vglBeste(vglPostprocessVeilig(msg.data, msg.dims));
-              // V11.26.0: B draagt zijn stand mee; vglKoppel kiest daarop de emmer.
-              vglOpenB.set(msg.frameId, { ms, kl: best.kl, cf: best.cf, n: best.n, modus });
-              vglKoppel(msg.frameId);
-            }
-          } catch (_) {}
+          try { nanoSchaduwResultaat(msg, ms); } catch (_) {}   // V11.37.26: eigen try, zoals elke nano*-aanroep op dit pad (zie test N1f)
         }
       };
-      vglWorker.onerror = function () { if (nano) { try { nanoStop('worker gestopt'); } catch (_) {} } vglLegStil(); };   // V11.37.26
+      vglWorker.onerror = function () { try { nanoStop('worker gestopt'); } catch (_) {} vglLegStil(); };
       vglWorker.postMessage({ type: 'initialiseer', modelBuffer: buf }, [buf]);
       URL.revokeObjectURL(url);
-    }).catch((e) => { if (nano) { try { nanoStop('init: ' + ((e && e.message) || e)); } catch (_) {} } vglLegStil(); });   // V11.37.26
-  } catch (e) { if (nano) { try { nanoStop('init: ' + ((e && e.message) || e)); } catch (_) {} } vglLegStil(); }   // V11.37.26
-}   // V11.37.26
+    }).catch((e) => { try { nanoStop('init: ' + ((e && e.message) || e)); } catch (_) {} vglLegStil(); });
+  } catch (e) { try { nanoStop('init: ' + ((e && e.message) || e)); } catch (_) {} vglLegStil(); }
+}
+
 
 // ══ V11.37.26: NANO-SCHADUW — YOLOX-Nano naast het huidige model ══════
 // © 2026 StoplichtIQ — Y. Lemaalem
 //
-// WAT. De vijfde stand van de modelvergelijking (vijf tikken op het
-// versielabel, knop "Meet YOLOX-Nano"). Het huidige model (./model.onnx)
+// WAT. De schaduw van de modelvergelijking (vijf tikken op het versielabel;
+// V11.37.27: de enige stand die er nog is). Het huidige model (./model.onnx)
 // BLIJFT beslissen. YOLOX-Nano (./model/yolox_nano.onnx) krijgt een eigen
 // kopie van dezelfde pixels in een eigen worker, en zijn uitkomst gaat alleen
 // naar drie eigen sleutels: sl_nano_ep, sl_nano_vs en sl_nano_meta. Hij roept
@@ -12584,14 +12124,9 @@ function vglStartSchaduw(modus) {
 // Lukt een schrijving niet, dan stopt de schaduw (in beeld: "Nano uit: opslag
 // vol"); er wordt niets weggehaald, ook niet uit de eigen ringen, en de
 // opslagteller en sl_opslaglog van de app merken er niets van.
-const VGL_MODUS_PAD = {
-  v8n: './model/model.onnx', dfine: './model/dfine-n.onnx',
-  ort130: './model/model.onnx', webgpu: './model/model.onnx',
-  nano: './model/yolox_nano.onnx'
-};
-// Wat elke worker het model voert. De Nano-worker zet de RGB 0..1 van de app om
-// naar BGR 0..255; de andere geven RGB 0..1 door.
-const VGL_WORKER_INVOER = { yolo: 'rgb01', motor: 'rgb01', dfine: 'rgb01', nano: 'bgr255' };
+const VGL_MODUS_PAD = { nano: './model/yolox_nano.onnx' };   // V11.37.27: alleen nog nano
+// Wat de Nano-worker het model voert: hij zet de RGB 0..1 van de app om naar BGR 0..255.
+const VGL_WORKER_INVOER = { nano: 'bgr255' };   // V11.37.27
 
 // Pad, soort en worker voor een stand. Gooit bij elke tegenspraak: dan start de
 // schaduw niet, in plaats van onzin te meten.
@@ -12599,14 +12134,11 @@ function vglPlan(modus, paden, modusPaden) {
   const pad = (modusPaden || VGL_MODUS_PAD)[modus];
   if (!pad) throw new Error('geen modelpad voor stand ' + modus);
   const soort = modelSoortVan(pad, paden);
-  const motor = VGL_MOTOREN[modus] || null;
-  if (motor && soort !== 'yolov8') throw new Error('motorproef ' + modus + ' draait alleen YOLOv8; ' + pad + ' is ' + soort);
   if (modus === 'nano' && soort !== 'yolox') throw new Error('stand nano vraagt een YOLOX-bestand; ' + pad + ' is ' + soort);
   if (soort === 'yolox' && modus !== 'nano') throw new Error('een YOLOX-bestand draait alleen in de stand nano');
-  if (modus === 'dfine' && soort !== 'dfine') throw new Error('stand dfine vraagt een D-FINE-bestand; ' + pad + ' is ' + soort);
-  const worker = soort === 'yolox' ? 'nano' : soort === 'dfine' ? 'dfine' : (motor ? 'motor' : 'yolo');
+  const worker = 'nano';
   if (VGL_WORKER_INVOER[worker] !== MODEL_SOORTEN[soort].invoer) throw new Error('worker ' + worker + ' past niet bij ' + soort);
-  return { modus, pad, soort, worker, motor };
+  return { modus, pad, soort, worker, motor: null };
 }
 
 // De drempels: losse instellingen, met deze standaard als er niets staat.
@@ -12622,7 +12154,8 @@ const NANO_TAPCONF = nanoDrempelLees('sl_nano_tapconf', NANO_TAPCONF_STANDAARD);
 const NANO_EP_SLEUTEL = 'sl_nano_ep', NANO_VS_SLEUTEL = 'sl_nano_vs', NANO_META_SLEUTEL = 'sl_nano_meta';
 const NANO_EP_MAX = 600;          // ~0,2 KB per episode: ~120 KB vol
 const NANO_VS_MAX = 400;          // ~0,1 KB per regel: ~40 KB vol
-const NANO_VS_BUFFER = 10;        // zoveel verschilregels in het geheugen voor een schrijving
+const NANO_VS_BUFFER = 50;        // V11.37.27: was 10; de regels gaan nu vooral bij het sluiten van een episode weg
+const NANO_BEWAAR_MIN_MS = 300000; // V11.37.27: de minuutteller schrijft sl_nano_meta en sl_modelvgl hoogstens eens per 5 min; een episode-einde altijd
 const NANO_MIN_MAX = 120;         // minuten belasting in sl_nano_meta
 const NANO_EP_DICHT_MS = 20000;   // zo lang geen frame bij dit licht: de episode sluit
 const NANO_EP_MIN_FRAMES = 3;
@@ -12634,7 +12167,7 @@ const NANO_FLIKKER_MS = 1500;
 const NANO_DONKER_LUMA = 60;      // dezelfde grens als de trainset (maak_set_v4.py)
 const NANO_KLEUR = { rood: 'r', groen: 'g', oranje: 'o' };
 
-let nanoStaat = { actief: false, vol: false, gestopt: null, label: 'Nano', min: null, vsBuf: [] };
+let nanoStaat = { actief: false, vol: false, gestopt: null, label: 'Nano', min: null, vsBuf: [], vsRun: null };   // V11.37.27: vsRun
 let nanoEp = null;
 let nanoMetaCache = null;
 let nanoZichtGezet = false;   // de visibilitychange-luisteraar van nanoBegin staat er (één keer per pagina)
@@ -12718,6 +12251,34 @@ function nanoSchrijf(sleutel, waarde) {
   }
 }
 function nanoMetaBewaar() { if (nanoMetaCache) nanoSchrijf(NANO_META_SLEUTEL, nanoMetaCache); }
+// V11.37.27: sl_nano_meta en sl_modelvgl samen. dwing = bij het sluiten van een
+// episode, bij stoppen of verbergen; anders (de minuutteller) alleen als de vorige
+// schrijving NANO_BEWAAR_MIN_MS geleden is (in een lange episode, bijvoorbeeld lang wachten).
+let nanoLaatsteBewaar = -Infinity;   // V11.37.27
+function nanoBewaarSamen(dwing) {   // V11.37.27
+  const nu = Date.now();
+  if (!dwing && nu - nanoLaatsteBewaar < NANO_BEWAAR_MIN_MS) return;
+  nanoLaatsteBewaar = nu;
+  nanoMetaBewaar();
+  if (vglStat && !nanoStaat.vol) vglStatBewaar();
+}
+// V11.37.27: welk bestand de schaduw draait: naam, grootte, de eerste 16 tekens van
+// de sha256 en het rijdagnummer van de proef (geen kalenderdatum). Een ander bestand
+// dan bij de vorige start telt als wissel: dan is het geen proef met één bestand meer.
+function nanoNoteerBestand(pad, buf) {   // V11.37.27
+  const m = nanoMeta();
+  const zet = (sha) => {
+    const b = { p: String(pad).replace(/^\.\//, ''), kb: Math.round(((buf && buf.byteLength) || 0) / 1024), sha, d: m.dag || 0 };
+    if (m.bestand && m.bestand.sha !== sha) { m.bestandWissel = (m.bestandWissel || 0) + 1; m.bestandVorig = m.bestand; }
+    if (!m.bestand || m.bestand.sha !== sha) m.bestand = b;
+    nanoMetaBewaar();
+  };
+  try {
+    if (!(typeof crypto !== 'undefined' && crypto.subtle && buf)) { zet('onbekend'); return Promise.resolve(); }
+    return crypto.subtle.digest('SHA-256', buf)
+      .then(h => zet([...new Uint8Array(h)].slice(0, 8).map(x => x.toString(16).padStart(2, '0')).join('')), () => zet('onbekend'));
+  } catch (e) { try { zet('onbekend'); } catch (_) {} return Promise.resolve(); }
+}
 function nanoRingSchrijf(sleutel, max, recs) {
   if (nanoStaat.vol || !recs.length) return false;
   let arr = null;
@@ -12750,7 +12311,7 @@ function nanoBegin() {
   if (!nanoZichtGezet) {
     try {
       document.addEventListener('visibilitychange', () => {
-        if (document.visibilityState === 'hidden' && nanoStaat.actief) { try { nanoEpSluit(); nanoVsSchrijf(); nanoMetaBewaar(); } catch (_) {} }
+        if (document.visibilityState === 'hidden' && nanoStaat.actief) { try { nanoEpSluit(); nanoVsSchrijf(); nanoBewaarSamen(true); } catch (_) {} }   // V11.37.27: ook sl_modelvgl
       });
       nanoZichtGezet = true;
     } catch (e) {}
@@ -12766,7 +12327,7 @@ function nanoStop(reden) {
   if (!nanoStaat.vol) { try { nanoEpSluit(); nanoVsSchrijf(); } catch (_) {} }
   nanoEp = null;
   const m = nanoMeta(); m.gestopt = r; if (nanoStaat.vol) m.vol = (m.vol || 0) + 1;
-  if (!nanoStaat.vol) nanoMetaBewaar();
+  if (!nanoStaat.vol) nanoBewaarSamen(true);   // V11.37.27: ook sl_modelvgl
   try { mvWerkIndicatorBij(); } catch (e) {}
   if (wasActief) { try { toonToast('Nano-schaduw uit: ' + r.slice(0, 60)); } catch (e) {} }
 }
@@ -12835,7 +12396,7 @@ function nanoMinuutSluit() {
   if (m.min.length > NANO_MIN_MAX) m.min = m.min.slice(-NANO_MIN_MAX);
   m.zonderB = (m.zonderB || 0) + mn.zb;
   nanoStaat.min = { t0: Date.now(), sa: 0, na: 0, sb: 0, nb: 0, zb: 0 };
-  nanoMetaBewaar();
+  nanoBewaarSamen(false);   // V11.37.27: was nanoMetaBewaar() elke minuut, los van het episode-einde
 }
 function nanoIoU(a, b) {
   const ix = Math.min(a.cx + a.w / 2, b.cx + b.w / 2) - Math.max(a.cx - a.w / 2, b.cx - b.w / 2);
@@ -12899,27 +12460,44 @@ function nanoFrame(frameId, a, b) {
   else if (ref && ca !== cb) x = 'k';
   else if (ref && ca !== '-' && Math.abs(sa - sb) >= 0.25) x = 's';
   else if (oa || ob) x = 'v';
-  if (x) {
+  // V11.37.27: s en v worden geen regel meer maar een teller per episode (ns, nv in
+  // sl_nano_ep). m en k worden één regel per reeks gelijke frames (zelfde soort, zelfde
+  // kleuren), met het aantal frames n; de regel beschrijft het eerste frame van de reeks.
+  if (ep && x === 's') ep.ns = (ep.ns || 0) + 1;   // V11.37.27
+  if (ep && x === 'v') ep.nv = (ep.nv || 0) + 1;   // V11.37.27
+  const sleutel = (x === 'm' || x === 'k') ? x + ca + cb : null;   // V11.37.27
+  const run = nanoStaat.vsRun;   // V11.37.27
+  if (run && sleutel && run.sleutel === sleutel) { run.rec.n++; return; }   // V11.37.27
+  nanoVsRunSluit();   // V11.37.27
+  if (sleutel) {
     const m = nanoMeta();
-    nanoStaat.vsBuf.push({ d: nanoDag(), e: (m.ep || 0) + 1, ts: ep ? Math.round((ctx.t - ep.t0) / 100) / 10 : null,
+    nanoStaat.vsRun = { sleutel, rec: { d: nanoDag(), e: (m.ep || 0) + 1, ts: ep ? Math.round((ctx.t - ep.t0) / 100) / 10 : null,
       x, a: ca, b: cb, sa, sb, oa, ob, r: bron, v: ctx.kmh == null ? null : Math.round(ctx.kmh),
-      af: ctx.af == null ? null : Math.round(ctx.af / 5) * 5 });
-    m.vs = (m.vs || 0) + 1;
-    if (nanoStaat.vsBuf.length >= NANO_VS_BUFFER) nanoVsSchrijf();
+      af: ctx.af == null ? null : Math.round(ctx.af / 5) * 5, n: 1 } };   // V11.37.27
   }
+}
+// V11.37.27: de open reeks wordt een regel in de buffer.
+function nanoVsRunSluit() {   // V11.37.27
+  const run = nanoStaat.vsRun; nanoStaat.vsRun = null;
+  if (!run) return;
+  nanoStaat.vsBuf.push(run.rec);
+  const m = nanoMeta(); m.vs = (m.vs || 0) + 1;
+  if (nanoStaat.vsBuf.length >= NANO_VS_BUFFER) nanoVsSchrijf();
 }
 function nanoVsSchrijf() {
   const buf = nanoStaat.vsBuf; nanoStaat.vsBuf = [];
   if (buf.length) nanoRingSchrijf(NANO_VS_SLEUTEL, NANO_VS_MAX, buf);
 }
 function nanoEpSluit() {
+  try { nanoVsRunSluit(); } catch (_) {}   // V11.37.27: een open reeks hoort bij deze episode
   const ep = nanoEp; nanoEp = null;
   if (!ep || ep.fr.length < NANO_EP_MIN_FRAMES) return;
   const rec = nanoEpEvalueer(ep);
+  rec.ns = ep.ns || 0; rec.nv = ep.nv || 0;   // V11.37.27: de tellers s en v, naast (niet in) de beoordeling
   const m = nanoMeta();
   rec.d = nanoDag(); rec.e = (m.ep || 0) + 1; m.ep = rec.e;
   nanoVsSchrijf();
-  if (nanoRingSchrijf(NANO_EP_SLEUTEL, NANO_EP_MAX, [rec])) nanoMetaBewaar();
+  if (nanoRingSchrijf(NANO_EP_SLEUTEL, NANO_EP_MAX, [rec])) nanoBewaarSamen(true);   // V11.37.27: meta en sl_modelvgl samen
 }
 
 // Het oordeel per episode. Puur: alleen de frames erin, één regel eruit.
@@ -13035,6 +12613,8 @@ function nanoOverzichtRegels() {
   uit.push('Drempels Nano: ' + String(m.conf == null ? NANO_CONF : m.conf).replace('.', ',')
            + ' / tik ' + String(m.tap == null ? NANO_TAPCONF : m.tap).replace('.', ','));
   if (m.wissel) uit.push('LET OP: drempels ' + m.wissel + 'x gewijzigd tijdens de proef');
+  if (m.bestand) uit.push('Bestand: ' + m.bestand.p + ' ' + String(m.bestand.sha).slice(0, 8));   // V11.37.27
+  if (m.bestandWissel) uit.push('LET OP: ander modelbestand tijdens de proef (' + m.bestandWissel + 'x)');   // V11.37.27
   if (nanoStaat.gestopt || m.gestopt) uit.push('Nano-schaduw UIT: ' + (nanoStaat.gestopt || m.gestopt));
   const dagen = new Set(eps.map(x => x.d)).size;
   uit.push('Rijdagen ' + dagen + ', episodes ' + eps.length);

@@ -45,6 +45,11 @@
 // ═══════════════════════════════════════════════════════════════
 
 // ── Draait IN een iframe: één scenario met de echte app-functies ──
+// V11.37.27: in laadONNXModel is de haak van de modelvergelijking ingekort tot de stand nano (de standen v8n, dfine,
+// ort130 en webgpu zijn weg). Hier gaat precies de oude tekst terug, zodat de vergelijking hieronder de oude functie blijft toetsen.
+var HAAK_NIEUW_V113727 = "              if (MODELVGL_MODEL === 'nano') {   // V11.37.27: alleen nog de stand nano (v8n, dfine, ort130 en webgpu zijn weg)\n                try { nanoNaHoofd(msg.frameId, inferentieTijd, detecties); } catch (_) {}   // V11.37.26: eigen try (de buitenste blijft), zie het blok NANO-SCHADUW\n              }   // V11.37.27";
+var HAAK_OUD_V113727 = "              // V11.18.14: in de D-FINE-modus komt er nooit een B-resultaat om\n              // aan te koppelen. vglOpenA zou dan elke frame een regel erbij\n              // krijgen en nooit een terug - een lek dat een uur rijden niet\n              // overleeft. Daarom in die modus alleen de tijd, geen paring.\n              if (MODELVGL_MODEL === 'dfine') {\n                vglNoteerHoofdInDfine(inferentieTijd);\n              } else if (MODELVGL_MODEL === 'nano') {   // V11.37.26\n                try { nanoNaHoofd(msg.frameId, inferentieTijd, detecties); } catch (_) {}   // V11.37.26: eigen try (de buitenste blijft), zie het blok NANO-SCHADUW\n              } else {\n                const _b = vglBeste(detecties);\n                vglOpenA.set(msg.frameId, { ms: inferentieTijd, kl: _b.kl, cf: _b.cf, n: _b.n });\n                vglKoppel(msg.frameId);\n              }";
+function terugV113727(s) { return String(s).split(HAAK_NIEUW_V113727).join(HAAK_OUD_V113727); }
 async function meetwerk23Binnen(soort, opt) {
   opt = opt || {};
   const lees = (k) => { try { return JSON.parse(localStorage.getItem(k)) || []; } catch (e) { return []; } };
@@ -461,7 +466,7 @@ async function testMeetwerk23() {
     [/^(\s*)sModelLabel\.textContent = `✓ Model klaar: \$\{modelNaamVan\(modelPad\)\} \(\$\{t\}s\)`;.*V11\.37\.26(?!\d).*$/, '$1sModelLabel.textContent = `✓ YOLOv8 klaar (${t}s)`;'],
     [/^(\s*)pAI\.className='pill-dot g'; pAIT\.textContent='YOLOv8n';.*V11\.37\.26(?!\d).*$/, "$1pAI.className='pill-dot g'; pAIT.textContent='YOLOv8';"]];
   const terug26 = (l) => { for (const [re, oud] of TERUG26) if (re.test(l)) return l.replace(re, oud); return l; };
-  const zonder23 = (f) => String(f).split(NL).map(terug26).filter(l => !/V11\.37\.23(?!\d)|V11\.37\.25(?!\d)|V11\.37\.26(?!\d)/.test(l)).join(NL);   // V11.37.25: ook de regels van V11.37.25 (test_plaatsen); V11.37.26 idem
+  const zonder23 = (f) => String(terugV113727(f)).split(NL).map(terug26).filter(l => !/V11\.37\.23(?!\d)|V11\.37\.25(?!\d)|V11\.37\.26(?!\d)/.test(l)).join(NL);   // V11.37.25: ook de regels van V11.37.25 (test_plaatsen); V11.37.26 idem   // V11.37.27: eerst terugV113727
   const anders = Object.entries(Object.assign({}, V113722, VERVANGEN)).filter(([n, [h, l]]) => { const s = zonder23(window[n]); return fnv(s) !== h || s.length !== l; })
     .map(([n]) => n + ' ' + fnv(zonder23(window[n])) + '/' + zonder23(window[n]).length);
   eis('MA11b zonder die regels zijn ze byte-gelijk aan V11.37.22 (vijftien alleen toegevoegd; bij het stadsfilter en de plaatsnaamvraag is precies de oude regel vervangen)',

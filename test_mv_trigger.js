@@ -109,28 +109,36 @@ function testMvTrigger() {
     // zonder data: de juiste melding
     localStorage.removeItem('sl_modelvgl');
     mvToonOverlay();
-    eis('T2c zonder data staat er "Nog geen data"',
-        document.getElementById('mv-inhoud').textContent.includes('Nog geen data'),
-        'Nog geen data — rijd eerst een rit',
-        document.getElementById('mv-inhoud').textContent.slice(0, 40));
+    // V11.37.27: alleen nog de stand nano; zonder paren staat er "— nog geen paren —"
+    eis('T2c zonder data staat er "nog geen paren"',
+        document.getElementById('mv-inhoud').textContent.includes('— nog geen paren —'),
+        '— nog geen paren —',
+        document.getElementById('mv-inhoud').textContent.replace(/\n/g, ' | ').slice(0, 120));
 
-    // met data: de zes regels uit de opdracht
+    // met data: de vijf regels van de Nano-emmer
     // V11.26.0: per emmer, en met B/A in plaats van "Sneller" — het oude
     // "Model A (groot, 42MB)" beschreef een model dat er niet meer is.
-    localStorage.setItem('sl_modelvgl', JSON.stringify({ schema: 2, perModus: { v8n: {
+    // V11.37.27: de emmer nano; een oude emmer (v8n) blijft staan en wordt alleen genoemd.
+    localStorage.setItem('sl_modelvgl', JSON.stringify({ schema: 2, perModus: { nano: {
       start: Date.now(), n: 412, somMsA: 412 * 1066, somMsB: 412 * 331,
       maxMsA: 1420, maxMsB: 480, eens: 391, oneens: 21, matrix: {}, voorbeelden: []
-    } } }));
+    }, v8n: { n: 7, somMsA: 7, somMsB: 7, eens: 7, oneens: 0, matrix: {}, voorbeelden: [] } } }));
     mvToonOverlay();
     const tekst = document.getElementById('mv-inhoud').textContent;
-    eis('T2d met data staan alle zes de regels er',
+    eis('T2d met data staan alle vijf de regels er (V11.37.27: emmer nano)',
         tekst.includes('Frames vergeleken: 412')
         && tekst.includes('A hoofdpad: gem 1066ms')
-        && tekst.includes('B schaduw: gem 331ms')
+        && tekst.includes('B Nano: gem 331ms')
         && tekst.includes('B/A: 0,31')
-        && tekst.includes('Zelfde uitkomst: 95%')
-        && tekst.includes('Verschillend: 5%'),
-        'zes regels met de juiste cijfers', tekst.replace(/\n/g, ' | '));
+        && tekst.includes('Zelfde uitkomst: 95%'),
+        'vijf regels met de juiste cijfers', tekst.replace(/\n/g, ' | '));
+    eis('T2d2 de oude emmer v8n wordt alleen genoemd, niet getoond (V11.37.27)',
+        tekst.includes('Oude metingen (v8n)') && !/Frames vergeleken: 7\b/.test(tekst),
+        'genoemd', tekst.replace(/\n/g, ' | ').slice(-90));
+    eis('T2d3 geen knop meer om een andere stand te kiezen (V11.37.27)',
+        !document.getElementById('mv-model-knop') && typeof window.mvWisselModel === 'undefined'
+        && document.querySelectorAll('#mv-knoppen button').length === 2,
+        'twee knoppen: Laat aan staan, Zet uit', document.querySelectorAll('#mv-knoppen button').length);
 
     // 'Laat aan staan' sluit alleen
     mvSluit();
@@ -141,7 +149,12 @@ function testMvTrigger() {
     // 'Zet uit' zet pas dán uit
     mvToonOverlay();
     const voorUit = herlaadTeller;
+    const bewaardModel = localStorage.getItem('sl_modelvgl_model');   // V11.37.27
+    localStorage.setItem('sl_modelvgl_model', 'ort130');   // V11.37.27: een oude stand gaat alleen op "Zet uit" weg
     mvZetUit();
+    eis('T2f2 "Zet uit" haalt ook een oude stand weg (V11.37.27)',
+        localStorage.getItem('sl_modelvgl_model') === null, 'weg', String(localStorage.getItem('sl_modelvgl_model')));
+    if (bewaardModel !== null) localStorage.setItem('sl_modelvgl_model', bewaardModel);   // V11.37.27
     eis('T2f "Zet uit" schakelt de modus uit en sluit de overlay',
         mvIsAan() === false && !overlayOpen(),
         'uit en dicht', 'aan=' + mvIsAan() + ', open=' + overlayOpen());
