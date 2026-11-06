@@ -17,9 +17,8 @@ Licentie:   GNU Affero General Public License, versie 3 (AGPL-3.0),
 model.onnx en model/model.onnx zijn YOLOv8n-netwerken, met het pakket
 Ultralytics getraind op beelden van verkeerslichten (vier klassen) en
 daarna omgezet naar ONNX. Voor model.onnx was dat Ultralytics 8.4.155
-(volgens het commentaar in index.html). Voor model/model.onnx is de gebruikte
-versie niet vastgelegd.
-De broncode van de app staat in deze repository.
+(volgens het commentaar in index.html, niet geverifieerd). Voor
+model/model.onnx is de gebruikte versie niet vastgelegd.
 
 
 2. YOLOX (het model model/yolox_nano.onnx)
@@ -38,6 +37,8 @@ Gewijzigd:  het netwerk YOLOX-Nano is, vanaf de vooraf getrainde gewichten
             gebruikt om te trainen en te exporteren.
 
 YOLOX heeft geen NOTICE-bestand.
+De licentie van de vooraf getrainde gewichten (yolox_nano.pth) is niet apart
+gecontroleerd; hierboven staat de licentie van de YOLOX-repository.
 
 
 3. D-FINE (stond in eerdere versies als model/dfine-n.onnx)
@@ -47,9 +48,9 @@ Bron:       https://github.com/Peterande/D-FINE
 Licentie:   Apache License, Version 2.0 (volledige tekst onderaan dit bestand)
 
 model/dfine-n.onnx (D-FINE-N, getraind op COCO, ongewijzigd) zat van
-V11.18.x tot en met V11.37.26 in deze repository, alleen om de snelheid op
-het toestel te meten. Het staat er niet meer in, maar is nog te vinden in de
-git-geschiedenis.
+V11.18.14 (commit eaad72e) tot en met V11.37.26 (commit da8a8c5) in deze
+repository, alleen om de snelheid op het toestel te meten. Het staat er
+niet meer in, maar is nog te vinden in de git-geschiedenis.
 
 
 4. OpenStreetMap (de kaartdata in kaart/ en de kaartweergave)
