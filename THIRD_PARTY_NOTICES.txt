@@ -1,11 +1,28 @@
 StoplichtIQ - bronvermeldingen van onderdelen van derden
 =========================================================
 
-Dit bestand noemt de onderdelen van derden die in deze repository staan en
-met de app worden meegeleverd, met hun bron en licentie.
+Dit bestand noemt de onderdelen van derden die in deze repository staan of
+die de app bij het starten ophaalt, met hun bron en licentie. Het is een
+opsomming, geen juridisch advies.
 
 
-1. YOLOX (het model model/yolox_nano.onnx)
+1. YOLOv8 / Ultralytics (het hoofdmodel model.onnx en het reservemodel
+   model/model.onnx)
+-----------------------------------------------------------------------
+
+Bron:       https://github.com/ultralytics/ultralytics
+Licentie:   GNU Affero General Public License, versie 3 (AGPL-3.0),
+            https://www.gnu.org/licenses/agpl-3.0.html
+
+model.onnx en model/model.onnx zijn YOLOv8n-netwerken, met het pakket
+Ultralytics getraind op beelden van verkeerslichten (vier klassen) en
+daarna omgezet naar ONNX. Voor model.onnx was dat Ultralytics 8.4.155
+(volgens het commentaar in index.html). Voor model/model.onnx is de gebruikte
+versie niet vastgelegd.
+De broncode van de app staat in deze repository.
+
+
+2. YOLOX (het model model/yolox_nano.onnx)
 ------------------------------------------
 
 Bron:       https://github.com/Megvii-BaseDetection/YOLOX
@@ -15,15 +32,27 @@ Copyright:  Copyright (c) 2021-2022 Megvii Inc. All rights reserved.
 Licentie:   Apache License, Version 2.0 (volledige tekst onderaan dit bestand)
 
 Gewijzigd:  het netwerk YOLOX-Nano is, vanaf de vooraf getrainde gewichten
-            van Megvii, verder getraind op eigen beelden van verkeerslichten
-            (vier klassen) en daarna omgezet naar ONNX. model/yolox_nano.onnx
-            is dat resultaat. De YOLOX-code zelf zit niet in de app; die is
-            alleen gebruikt om te trainen en te exporteren.
+            van Megvii, verder getraind op beelden van verkeerslichten (vier
+            klassen) en daarna omgezet naar ONNX. model/yolox_nano.onnx is dat
+            resultaat. De YOLOX-code zelf zit niet in de app; die is alleen
+            gebruikt om te trainen en te exporteren.
 
 YOLOX heeft geen NOTICE-bestand.
 
 
-2. OpenStreetMap (de kaartdata in kaart/ en de kaartweergave)
+3. D-FINE (stond in eerdere versies als model/dfine-n.onnx)
+-----------------------------------------------------------
+
+Bron:       https://github.com/Peterande/D-FINE
+Licentie:   Apache License, Version 2.0 (volledige tekst onderaan dit bestand)
+
+model/dfine-n.onnx (D-FINE-N, getraind op COCO, ongewijzigd) zat van
+V11.18.x tot en met V11.37.26 in deze repository, alleen om de snelheid op
+het toestel te meten. Het staat er niet meer in, maar is nog te vinden in de
+git-geschiedenis.
+
+
+4. OpenStreetMap (de kaartdata in kaart/ en de kaartweergave)
 -------------------------------------------------------------
 
 Bron:       (c) OpenStreetMap-bijdragers, https://www.openstreetmap.org/copyright
@@ -38,6 +67,23 @@ gemaakt zijn.
 
 De kaartweergave in de app toont de kaarttegels van tile.openstreetmap.org,
 met de vermelding "(c) OpenStreetMap-bijdragers (ODbL)".
+
+
+5. ONNX Runtime Web (opgehaald van cdn.jsdelivr.net, niet in deze repository)
+-----------------------------------------------------------------------------
+
+Bron:       https://github.com/microsoft/onnxruntime (pakket onnxruntime-web 1.17.1)
+Copyright:  Copyright (c) Microsoft Corporation
+Licentie:   MIT License, https://opensource.org/licenses/MIT
+
+
+6. Leaflet (opgehaald van unpkg.com, niet in deze repository)
+-------------------------------------------------------------
+
+Bron:       https://leafletjs.com/ (versie 1.9.4)
+Copyright:  Copyright (c) 2010-2023, Volodymyr Agafonkin
+            Copyright (c) 2010-2011, CloudMade
+Licentie:   BSD 2-Clause License, https://opensource.org/licenses/BSD-2-Clause
 
 
 =========================================================================
