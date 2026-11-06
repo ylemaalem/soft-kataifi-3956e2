@@ -9829,7 +9829,7 @@ const STARTLOG_SLEUTEL = 'sl_startlog';
 const STARTLOG_MAX     = 40;
 const STARTLOG_GAT_MS  = 30000;
 const STARTLOG_TIK_MS  = 5000;
-const STARTLOG_ALTIJD  = new Set(['k', 't', 'v', 'r', 'd', 'c', 'p', 'w', 'm', 'g', 'k1', 'l', 'bl', 'bk', 'bv']);   // V11.37.18: bl, bk, bv (de bewaarde kaart)
+const STARTLOG_ALTIJD  = new Set(['k', 't', 'v', 'r', 'd', 'c', 'p', 'w', 'm', 'g', 'k1', 'l', 'bl', 'bk', 'bv', 'wk', 'd1']);   // V11.37.18: bl, bk, bv (de bewaarde kaart); V11.37.27: wk, d1
 let startMeet = null, startGat = null, startGatU = 0, startLaatsteRun = 0, startLaatsteGps = 0;
 let startVerborgenT = 0, startModelMs = null, kaartVraagT = 0, startTimer = null;
 
@@ -9875,6 +9875,22 @@ function startLogMijl(veld, extra) {
     startMeet[veld] = Date.now() - startMeet.t;
     if (extra) Object.assign(startMeet, extra);
     startLogSchrijf(startMeet);
+  } catch (e) {}
+}
+
+// V11.37.27: ALLEEN METEN, voor het dubbel laden van het model. wk = ms na de starttik tot de
+// worker 'klaar' meldt (0 = was al klaar bij de start), wl = ms van het begin van het modelladen
+// tot dat moment. d1 = ms tot het eerste resultaat van het model in deze start, dr = de route:
+// 'w' de worker, 'h' de hoofdthread (de synchrone terugval). Verandert niets aan de detecties.
+let startWorkerKlaarMs = null;   // V11.37.27
+function startLogWorkerKlaar() {   // V11.37.27
+  try { startWorkerKlaarMs = Math.round(performance.now() - modelLaadStart); startLogMijl('wk', { wl: startWorkerKlaarMs }); } catch (e) {}
+}
+function startLogDetectie(route) {   // V11.37.27
+  try {
+    if (!startMeet || startMeet.d1 != null) return;
+    if (startMeet.wk == null && startWorkerKlaarMs != null) { startMeet.wk = 0; startMeet.wl = startWorkerKlaarMs; }
+    startLogMijl('d1', { dr: route });
   } catch (e) {}
 }
 
@@ -10073,6 +10089,7 @@ async function laadONNXModel() {
         if (aiVangnetBericht(msg)) return;   // V11.37.18: C7, een laat antwoord na het vangnet, zie daar
         if (msg.type === 'klaar') {
           workerKlaar = true; workerFoutTeller = 0;
+          try { startLogWorkerKlaar(); } catch (_) {}   // V11.37.27: alleen meten
         } else if (msg.type === 'resultaat') {
           const inferentieTijd = Date.now() - (yoloWorker._startTijd || Date.now());
           gemiddeldeInferentieTijd = (gemiddeldeInferentieTijd*0.9) + (inferentieTijd*0.1);
@@ -10081,6 +10098,7 @@ async function laadONNXModel() {
           const detecties = postprocessYOLO(msg.data, msg.dims);
           _verwerkWorkerResultaat(detecties);
           minStatRun(inferentieTijd, detecties);   // V11.34.2: alleen tellen
+          try { startLogDetectie('w'); } catch (_) {}   // V11.37.27: alleen meten
           aiBezig = false;
           // V11.18.8-TEST: pas NA de echte verwerking, en in een eigen try,
           // zodat de meting het app-pad onmogelijk kan breken.
@@ -12762,6 +12780,7 @@ async function voerAIUit() {
     const detecties = postprocessYOLO(outputTensor.data, outputTensor.dims);
     _verwerkWorkerResultaat(detecties);
     minStatRun(inferentieTijd, detecties);   // V11.34.2: alleen tellen
+    try { startLogDetectie('h'); } catch (_) {}   // V11.37.27: alleen meten
   } catch(e) {
     debugWaarden.ai = 'ai:err';
     aiBezig = false;   // V11.37.18: C7, er is geen bericht onderweg (zie aiVangnet)

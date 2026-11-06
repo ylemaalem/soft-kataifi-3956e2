@@ -42,7 +42,7 @@
 // ort130 en webgpu zijn weg). Hier gaat precies de oude tekst terug, zodat de vergelijking hieronder de oude functie blijft toetsen.
 var HAAK_NIEUW_V113727 = "              if (MODELVGL_MODEL === 'nano') {   // V11.37.27: alleen nog de stand nano (v8n, dfine, ort130 en webgpu zijn weg)\n                try { nanoNaHoofd(msg.frameId, inferentieTijd, detecties); } catch (_) {}   // V11.37.26: eigen try (de buitenste blijft), zie het blok NANO-SCHADUW\n              }   // V11.37.27";
 var HAAK_OUD_V113727 = "              // V11.18.14: in de D-FINE-modus komt er nooit een B-resultaat om\n              // aan te koppelen. vglOpenA zou dan elke frame een regel erbij\n              // krijgen en nooit een terug - een lek dat een uur rijden niet\n              // overleeft. Daarom in die modus alleen de tijd, geen paring.\n              if (MODELVGL_MODEL === 'dfine') {\n                vglNoteerHoofdInDfine(inferentieTijd);\n              } else if (MODELVGL_MODEL === 'nano') {   // V11.37.26\n                try { nanoNaHoofd(msg.frameId, inferentieTijd, detecties); } catch (_) {}   // V11.37.26: eigen try (de buitenste blijft), zie het blok NANO-SCHADUW\n              } else {\n                const _b = vglBeste(detecties);\n                vglOpenA.set(msg.frameId, { ms: inferentieTijd, kl: _b.kl, cf: _b.cf, n: _b.n });\n                vglKoppel(msg.frameId);\n              }";
-function terugV113727(s) { return String(s).split(HAAK_NIEUW_V113727).join(HAAK_OUD_V113727); }
+function terugV113727(s) { return String(s).split(HAAK_NIEUW_V113727).join(HAAK_OUD_V113727).split('\n').filter(l => !/\/\/ V11\.37\.27(?!\d): alleen meten/.test(l)).join('\n'); }   // V11.37.27: en de regels die alleen meten (startlog wk/d1, test_startlog SL15) weg
 function zonderV113721(s) { return String(terugV113727(s)).split('\n').map(terugV113726).filter(l => !/V11\.37\.21(?!\d)|V11\.37\.22(?!\d)|V11\.37\.23(?!\d)|V11\.37\.25(?!\d)|V11\.37\.26(?!\d)/.test(l)).join('\n'); }   // V11.37.22: ook de meetregels van V11.37.22 (test_meetwerk22); V11.37.23: idem (test_meetwerk23); V11.37.25: idem (test_plaatsen)   // V11.37.26: idem (test_schaduw_nano), met terugV113726   // V11.37.27: eerst terugV113727
 // V11.37.26: drie regels van laadONNXModel zijn vervangen (de modelnaam komt uit MODEL_PADEN, test_schaduw_nano).
 // Die gaan hier terug naar de oude tekst; daarna vallen de regels met merkteken V11.37.26 weg zoals de andere.
@@ -58,7 +58,38 @@ const STARTLOG_WATCH_OUD = "    navigator.geolocation.watchPosition(onGPS, ()=>{
 
 // ── Draait IN een iframe: een start met de echte startApp ─────
 // opt: { zonderMeting, playMs }
+// V11.37.27: SL15, in een iframe. De echte onmessage van de hoofdworker en de echte voerAIUit
+// (met de worker even weg: de synchrone terugval), met en zonder de meting wk/d1.
+async function startlogModelBinnen(opt) {   // V11.37.27
+  const slaap = (ms) => new Promise(r => setTimeout(r, ms));
+  for (let i = 0; i < 200 && !(modelGeladen && yoloWorker && workerKlaar); i++) await slaap(100);
+  if (!(modelGeladen && yoloWorker && workerKlaar)) return { fout: 'model of worker niet klaar' };
+  const uit = { fout: null };
+  const anker = (kl, sc, cx, cy, w, h) => { const d = new Float32Array(8 * 8400); const i = 4000; d[i] = cx; d[8400 + i] = cy; d[2 * 8400 + i] = w; d[3 * 8400 + i] = h; d[(4 + kl) * 8400 + i] = sc; return d; };
+  try {
+    localStorage.setItem('sl_startlog', '[]');
+    if (opt.gooit) { window.startLogDetectie = () => { throw new Error('nep'); }; window.startLogWorkerKlaar = () => { throw new Error('nep'); }; }
+    if (opt.zonderStart) startMeet = null; else startLogNieuw();
+    if (opt.klaarNaStart) yoloWorker.onmessage({ data: { type: 'klaar' } });
+    const viaWorker = () => { aiBezig = true; yoloWorker._startTijd = Date.now(); yoloWorker.onmessage({ data: { type: 'resultaat', data: anker(0, 0.85, 320, 200, 20, 48), dims: [1, 8, 8400], frameId: 1 } }); return JSON.stringify(laatsteDetecties); };
+    const viaHoofd = async () => {
+      const bw = yoloWorker, bk = workerKlaar, bs = onnxSession, bkans = window.runIsKansloos, bpre = window.preprocessVoorYOLO;
+      Object.defineProperty(video, 'readyState', { configurable: true, get: () => 4 });
+      window.runIsKansloos = () => false; window.preprocessVoorYOLO = () => ({});
+      yoloWorker = null; workerKlaar = false; aiBezig = false;
+      onnxSession = { run: async () => ({ output0: { data: anker(1, 0.8, 300, 210, 22, 50), dims: [1, 8, 8400] } }) };
+      try { await voerAIUit(); return JSON.stringify(laatsteDetecties); }
+      finally { yoloWorker = bw; workerKlaar = bk; onnxSession = bs; window.runIsKansloos = bkans; window.preprocessVoorYOLO = bpre; delete video.readyState; }
+    };
+    if (opt.hoofdEerst) { uit.h = await viaHoofd(); uit.w = viaWorker(); } else { uit.w = viaWorker(); uit.h = await viaHoofd(); }
+    uit.start = startMeet ? { wk: startMeet.wk, wl: startMeet.wl, d1: startMeet.d1, dr: startMeet.dr, m: startMeet.m } : null;
+    const r = JSON.parse(localStorage.getItem('sl_startlog') || '[]'); uit.regel = r[r.length - 1] || null;
+  } catch (e) { uit.fout = String((e && e.stack) || e).slice(0, 300); }
+  return uit;
+}
+
 async function startRitBinnen(opt) {
+  if (opt.model) return await startlogModelBinnen(opt);   // V11.37.27: SL15
   const slaap = (ms) => new Promise(r => setTimeout(r, ms));
   const uit = { watch: 0, vragen: 0, fout: null };
   if (opt.zonderMeting) {
@@ -313,6 +344,30 @@ async function testStartlog() {
     eis('SL9c runIsKansloos wijst niets toe', !/(?<![=!<>])=(?!=)|\+\+|--/.test(zc(runIsKansloos).replace(/const afst = /, '')), 'alleen lezen', 'ok');
   } finally {
     herstel();
+  }
+
+  // ═══ SL15 — V11.37.27: wk en d1, alleen meten ══════════════════
+  {
+    const A = await rit({ model: 1 });
+    const B = await rit({ model: 1, hoofdEerst: 1 });
+    const C = await rit({ model: 1, zonderStart: 1 });
+    const D = await rit({ model: 1, gooit: 1 });
+    const E = await rit({ model: 1, klaarNaStart: 1 });
+    eis('SL15a de vijf proeven liepen, en elke route gaf een detectie', [A, B, C, D, E].every(x => !x.fout && x.w && x.w !== '[]' && x.h && x.h !== '[]'),
+        'geen fout, detecties', [A, B, C, D, E].map(x => x.fout || 'ok').join(' | '));
+    eis('SL15b worker al klaar bij de start: wk = 0 met wl, d1 met route w', A.start && A.start.wk === 0 && A.start.wl > 0 && A.start.d1 >= 0 && A.start.dr === 'w'
+        && A.regel && A.regel.wk === 0 && A.regel.dr === 'w', 'wk 0, dr w (ook in sl_startlog)', JSON.stringify(A.start));
+    eis('SL15c eerst de hoofdthread: route h; het tweede resultaat overschrijft d1 niet', B.start && B.start.dr === 'h' && B.regel && B.regel.dr === 'h', 'dr h', JSON.stringify(B.start));
+    eis('SL15d worker klaar na de start: wk is de tijd sinds de start (niet 0 als vervanger)', E.start && typeof E.start.wk === 'number' && E.start.wl > 0 && E.start.dr === 'w', 'wk >= 0, wl, dr w', JSON.stringify(E.start));
+    eis('SL15e KERN: de detecties zijn byte-gelijk met meting, zonder start (startMeet leeg) en met een meting die gooit (beide routes)',
+        A.w === C.w && A.w === D.w && A.w === E.w && A.h === C.h && A.h === D.h && A.h === E.h && B.w === A.w && B.h === A.h,
+        'gelijk', JSON.stringify({ w: [A.w, C.w, D.w].map(x => (x || '').length), h: [A.h, C.h, D.h].map(x => (x || '').length) }));
+    eis('SL15f zonder start en met een meting die gooit: geen startregel met wk/d1', !C.start && D.start && D.start.d1 == null && D.start.wk == null, 'leeg', JSON.stringify([C.start, D.start]));
+    const bronWorker = String(laadONNXModel), bronHoofd = String(voerAIUit);
+    eis('SL15g in de bron: beide aanroepen na _verwerkWorkerResultaat en minStatRun, elk in een eigen try',
+        bronWorker.indexOf("try { startLogDetectie('w'); } catch (_) {}") > bronWorker.indexOf('minStatRun(inferentieTijd, detecties)')
+        && bronHoofd.indexOf("try { startLogDetectie('h'); } catch (_) {}") > bronHoofd.indexOf('minStatRun(inferentieTijd, detecties)')
+        && bronWorker.indexOf('try { startLogWorkerKlaar(); } catch (_) {}') > bronWorker.indexOf('workerKlaar = true;'), 'ja', 'zie bron');
   }
 
   // ═══ SL10 — regressie ═══════════════════════════════════════
