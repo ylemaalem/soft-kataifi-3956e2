@@ -738,7 +738,8 @@ async function testSchaduwNano() {
     const sam = mvSamenvattingTekst();
     eis('N10c het overzicht noemt A en B; geen andere stand meer (V11.37.27)', /A = hoofdpad \(YOLOv8n\)/.test(sam) && /\nB = YOLOX-Nano/.test(sam) && !/D-FINE|ORT 1\.30|WebGPU|reservemodel/.test(sam), 'A = hoofdpad, B = YOLOX-Nano', kort(sam.split('\n').filter(r => /^[AB] = /.test(r))));
     eis('N10d de Nano-tussenstand geeft geen oordeel', /Tussenstand, GEEN oordeel/.test(sam) && !/GOED|TWIJFEL|\bAF\b/.test(sam), 'geen oordeel', '');
-    eis('N10e versie V11.37.27 en de copyright blijft staan', /^V11\.37\.27(?!\d)/.test(APP_VERSIE) && (document.getElementById('s-copyright') || {}).textContent === '© 2026 StoplichtIQ — Y. Lemaalem', 'V11.37.27 + ©', APP_VERSIE.slice(0, 40));
+    const n10eVm = /^V11\.37\.(\d+)(?!\d)/.exec(APP_VERSIE);   // V11.37.27: een latere versie (bijvoorbeeld de Nano-wissel) mag, een eerdere niet
+    eis('N10e versie V11.37.27 of later en de copyright blijft staan', !!n10eVm && Number(n10eVm[1]) >= Number('V11.37.27'.split('.')[2]) && (document.getElementById('s-copyright') || {}).textContent === '© 2026 StoplichtIQ — Y. Lemaalem', 'V11.37.27 of later + ©', APP_VERSIE.slice(0, 40));
     eis('N10f de meetdata-export neemt sl_nano_* en sl_modelvgl mee', /key\.startsWith\('sl_nano_'\) \|\| key === 'sl_modelvgl'\) doel = uit\.nano/.test(html), 'uit.nano', '');
 
     // ═══ N11 — ECHT: de schakelaar aan, de echte worker, het echte bestand ═══
