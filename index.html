@@ -1051,7 +1051,7 @@ if (typeof ort !== 'undefined') {
 //
 // De stijl volgt de eerdere labels: nummer, kastlijntje, korte omschrijving in
 // kleine letters. De CSS zet hem zelf in kapitalen (text-transform:uppercase).
-const APP_VERSIE = 'V11.37.28 — de Nano-schaduw draait eigen-2 last (zonder YouTube-beelden)';
+const APP_VERSIE = 'V11.37.30 — de doorrijlog: elke passage van een licht, ook als het niet gezien is';
 
 // ── CONSTANTEN ────────────────────────────────────────────────
 const OSM_RADIUS       = 5000;
@@ -5567,6 +5567,7 @@ function exporteerMeetdata() {
       uit.stop = {}; uit.inert = {};   // V11.37.21: zie stopLogTik en bevestigInertTel
       uit.passage = {}; uit.m5 = {};   // V11.37.22: zie passageTik en m5Start
       uit.nano = {};   // V11.37.26: de Nano-schaduwproef (sl_nano_*) en de A/B-emmers (sl_modelvgl)
+      uit.door = {};   // V11.37.30: de doorrijlog (doorTik)
       for (const key of opslagSleutels('')) {                          // V11.23.0
         let doel = null;
         if (key.startsWith('sl_passief_'))       doel = uit.passief;
@@ -5594,6 +5595,7 @@ function exporteerMeetdata() {
         else if (key === INERT_SLEUTEL)          doel = uit.inert;      // V11.37.21: weggegooide KLOPTE/BIJNA-tikken
         else if (key === PASSAGE_SLEUTEL)        doel = uit.passage;   // V11.37.22: passages en einde gemist
         else if (key === M5_SLEUTEL)             doel = uit.m5;   // V11.37.22: schaduw wachttijd
+        else if (key === DOOR_SLEUTEL)           doel = uit.door;   // V11.37.30: elke passage, ook niet gezien
         else if (key.startsWith('sl_nano_') || key === 'sl_modelvgl') doel = uit.nano;   // V11.37.26
         // V11.17.33 W2: let op de volgorde — 'sl_richtinglog' begint NIET met
         // 'sl_richting_' (na 'sl_richting' volgt 'l', geen '_'), dus deze twee
@@ -9133,6 +9135,127 @@ function bevestigInertTel(soort) {
     opslagSchrijf(INERT_SLEUTEL, o);
   } catch (e) {}
 }
+
+// ── V11.37.30: ALLEEN METEN — DE DOORRIJLOG (ELK LICHT, OOK NIET GEZIEN) ──
+// © 2026 StoplichtIQ — Y. Lemaalem
+//
+// WAAROM. sl_passagelog (V11.37.22) kent alleen het licht dat de app TOONDE.
+// Een licht dat de app niet koos of niet zag, een doorrit zonder detectie en de
+// andere lichten van een route bestaan daar niet. Voor "wat doet licht B als je
+// bij licht A op groen wegreed" (STAP 0 van 7 nov) is elke passage nodig, met
+// de kleur als die gezien is en anders "niet gezien".
+//
+// WAT. Eén regel per passage van een OSM-autolicht (fietslichten niet), in een
+// ring van DOOR_MAX regels (sl_doorlog):
+//   t  tijd van de kleinste afstand (ms)      n  licht-id
+//   c  kleur bij aankomst: r/g/o, of '-' als de app dit licht niet in beeld had
+//   ma kleinste afstand (m)                   dd dagdeel
+//   s  seconden stilgestaan binnen DOOR_STIL_M (alleen als > 0)
+//   wg alleen na stilstaan: 1 = weggereden binnen DOOR_WG_MS na het eerste groen
+//      van DIT licht, 0 = anders (groen niet gezien, of later weggereden)
+//   v, va, vt  het vorige licht van een ANDER kruispunt (>= DOOR_KRUIS_M verder):
+//      id, afstand in rechte lijn (m) en de tijd tussen beide kleinste afstanden (s)
+// DE AFSTANDSREGEL. Een passage telt als het licht (1) binnen DOOR_NADER_M kwam
+// en (2) vóór de auto lag toen het voor het eerst binnen DOOR_OPEN_M kwam
+// (peiling hoogstens DOOR_HOEK graden van de koers; zonder koers telt het mee).
+// 40 m is dezelfde grens als sl_passagelog (PASSAGE_NADER_M), zodat beide logs
+// dezelfde passages zien waar ze elkaar overlappen; de GPS-fout (5-10 m) en de
+// afstand tussen de OSM-node en de stopstreep passen er ruim in. De
+// vooruit-regel houdt de lichten van de dwarsweg en van de tegenrichting
+// achter je zoveel mogelijk buiten de log.
+// Een passage sluit als de afstand DOOR_WEG_M groter is dan de kleinste, als het
+// licht verder dan DOOR_OPEN_M + DOOR_WEG_M is, of na DOOR_DICHT_MS zonder GPS.
+//
+// SCHRIJVEN. De regels gaan eerst in een buffer. Die gaat naar de opslag bij
+// verbergen (visibilitychange), bij pagehide, en verder hoogstens eens per
+// DOOR_SCHRIJF_MS: minder dan 2 schrijfacties per minuut. Bij een volle opslag
+// stopt alleen deze log (meetRingGestopt) en wordt hij gewist, zoals de andere
+// meetringen. Niets hier beslist iets: geen keuze, geen countdown, geen leerdata.
+const DOOR_SLEUTEL = 'sl_doorlog';
+const DOOR_MAX = 500;
+const DOOR_OPEN_M = 80, DOOR_NADER_M = 40, DOOR_WEG_M = 20, DOOR_HOEK = 60;
+const DOOR_STIL_M = 60, DOOR_WG_MS = 10000, DOOR_KRUIS_M = 60;
+const DOOR_DICHT_MS = 60000, DOOR_SCHRIJF_MS = 60000;
+let doorStaat = { open: new Map(), buf: [], vorige: null, laatsteSchrijf: 0, tVorig: 0, n: 0, geschreven: 0 };
+
+function doorTik(lat, lon) {
+  try {
+    if (typeof lat !== 'number' || typeof lon !== 'number' || !Array.isArray(osmCache)) return;
+    const st = doorStaat, nu = Date.now();
+    const dt = st.tVorig ? Math.min(5, Math.max(0, (nu - st.tVorig) / 1000)) : 0;
+    st.tVorig = nu;
+    const kmh = (typeof snelheidKmh === 'number' && !isNaN(snelheidKmh)) ? snelheidKmh : 0;
+    const koers = getSmoothedHeading();
+    for (const sl of osmCache) {
+      if (!sl || typeof sl.lat !== 'number' || typeof sl.lon !== 'number') continue;
+      const id = Number(sl.id);
+      if (st.open.has(id) || isFietsLicht(sl.id)) continue;
+      if (Math.abs(sl.lat - lat) > 0.0015 || Math.abs(sl.lon - lon) > 0.0025) continue;   // snelle voorselectie, ruim boven 80 m
+      if (afstand(lat, lon, sl.lat, sl.lon) > DOOR_OPEN_M) continue;
+      let voor = null;
+      if (koers != null && Number.isFinite(koers) && kmh >= 5) {
+        const p = peilingNaar({ lat, lon }, sl);
+        if (p != null) { const h = Math.abs(((p - koers) % 360 + 540) % 360 - 180); voor = h <= DOOR_HOEK; }
+      }
+      st.open.set(id, { n: id, lat: sl.lat, lon: sl.lon, ma: Infinity, tMa: nu, laatst: nu, voor, s: 0 });
+    }
+    for (const [id, p] of st.open) {
+      const d = afstand(lat, lon, p.lat, p.lon);
+      p.laatst = nu;
+      if (d < p.ma) { p.ma = d; p.tMa = nu; }
+      const c = passageKleur(id);
+      if (c && p.c === undefined && d <= DOOR_OPEN_M) p.c = c;
+      if (d <= DOOR_STIL_M && kmh < NODE_CHK_STANDSTILL_KMH) { p.s += dt; p.stil = true; }
+      if (p.stil && c === 'g' && p.groenT === undefined) p.groenT = nu;
+      if (p.stil && kmh >= 5 && p.wegT === undefined) p.wegT = nu;
+      if (d > p.ma + DOOR_WEG_M || d > DOOR_OPEN_M + DOOR_WEG_M) { st.open.delete(id); doorSluit(p); }
+    }
+    for (const [id, p] of st.open) if (nu - p.laatst > DOOR_DICHT_MS) { st.open.delete(id); doorSluit(p); }
+    if (st.buf.length && nu - st.laatsteSchrijf >= DOOR_SCHRIJF_MS) doorSchrijf();
+  } catch (e) {}
+}
+function doorSluit(p) {
+  if (!(p.ma <= DOOR_NADER_M) || p.voor === false) return;
+  const rec = { t: p.tMa, n: p.n, c: p.c || '-', ma: Math.round(p.ma), dd: huidigDDActief(p.tMa) };
+  const s = Math.round(p.s); if (s > 0) rec.s = s;
+  if (p.stil) rec.wg = (p.groenT !== undefined && p.wegT !== undefined && p.wegT >= p.groenT && p.wegT - p.groenT <= DOOR_WG_MS) ? 1 : 0;
+  // Het vorige KRUISPUNT: lichten binnen DOOR_KRUIS_M van elkaar horen bij hetzelfde kruispunt. Per kruispunt
+  // één vertegenwoordiger: het eerste licht waarvan de kleur gezien is, anders het eerste licht.
+  const k = doorStaat.vorige, hier = { n: p.n, lat: p.lat, lon: p.lon, t: p.tMa, c: rec.c };
+  const zelfde = !!k && afstand(k.rep.lat, k.rep.lon, p.lat, p.lon) < DOOR_KRUIS_M;
+  const ervoor = zelfde ? k.ervoor : (k ? k.rep : null);
+  if (ervoor) { rec.v = ervoor.n; rec.va = Math.round(afstand(ervoor.lat, ervoor.lon, p.lat, p.lon)); rec.vt = Math.round((p.tMa - ervoor.t) / 1000); }
+  if (!zelfde) doorStaat.vorige = { rep: hier, ervoor };
+  else if (k.rep.c === '-' && hier.c !== '-') k.rep = hier;
+  doorStaat.buf.push(rec); doorStaat.n++;
+}
+function doorSchrijf() {
+  const st = doorStaat;
+  st.laatsteSchrijf = Date.now();
+  if (!st.buf.length) return;
+  const nieuw = st.buf; st.buf = [];
+  if (meetRingGestopt.has(DOOR_SLEUTEL)) return;
+  try {
+    let arr = opslagLees(DOOR_SLEUTEL, []);
+    if (!Array.isArray(arr)) arr = [];
+    arr = arr.concat(nieuw);
+    if (arr.length > DOOR_MAX) arr = arr.slice(-DOOR_MAX);
+    if (!opslagSchrijf(DOOR_SLEUTEL, arr)) throw new Error('vol');
+    st.geschreven++;
+  } catch (e) {
+    meetRingGestopt.add(DOOR_SLEUTEL);
+    try { localStorage.removeItem(DOOR_SLEUTEL); } catch (_) {}
+  }
+}
+function doorBergOp() {
+  try {
+    if (doorStaat.buf.length) { doorSchrijf(); try { idbFlush(); } catch (_) {} }   // de spiegel na de schrijving: zijn eigen pagehide liep al
+  } catch (e) {}
+}
+try {
+  document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'hidden') doorBergOp(); });
+  window.addEventListener('pagehide', () => doorBergOp());
+} catch (e) { /* geen document: niets aan de hand */ }
 
 // ── V11.37.22: ALLEEN METEN — PASSAGES, EINDE GEMIST, SCHADUW WACHTTIJD ──
 // © 2026 StoplichtIQ — Y. Lemaalem
@@ -24583,6 +24706,7 @@ async function onGPS(pos) {
   regelTik(lat, lon);   // V11.37.1: meetregel, beslist niets
   stopLogTik(lat, lon);   // V11.37.21: meetregel, beslist niets
   passageTik(lat, lon);   // V11.37.22: meetregel, beslist niets
+  doorTik(lat, lon);   // V11.37.30: meetregel, beslist niets (de doorrijlog)
   refreshStadIndienNodig(lat, lon);
 
   // V9.0: Nadering detectie + delayed write

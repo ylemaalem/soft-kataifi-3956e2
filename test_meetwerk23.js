@@ -466,7 +466,7 @@ async function testMeetwerk23() {
     [/^(\s*)sModelLabel\.textContent = `✓ Model klaar: \$\{modelNaamVan\(modelPad\)\} \(\$\{t\}s\)`;.*V11\.37\.26(?!\d).*$/, '$1sModelLabel.textContent = `✓ YOLOv8 klaar (${t}s)`;'],
     [/^(\s*)pAI\.className='pill-dot g'; pAIT\.textContent='YOLOv8n';.*V11\.37\.26(?!\d).*$/, "$1pAI.className='pill-dot g'; pAIT.textContent='YOLOv8';"]];
   const terug26 = (l) => { for (const [re, oud] of TERUG26) if (re.test(l)) return l.replace(re, oud); return l; };
-  const zonder23 = (f) => String(terugV113727(f)).split(NL).map(terug26).filter(l => !/V11\.37\.23(?!\d)|V11\.37\.25(?!\d)|V11\.37\.26(?!\d)/.test(l)).join(NL);   // V11.37.25: ook de regels van V11.37.25 (test_plaatsen); V11.37.26 idem   // V11.37.27: eerst terugV113727
+  const zonder23 = (f) => String(terugV113727(f)).split(NL).map(terug26).filter(l => !/V11\.37\.23(?!\d)|V11\.37\.25(?!\d)|V11\.37\.26(?!\d)|V11\.37\.30(?!\d)/.test(l)).join(NL);   // V11.37.25: ook de regels van V11.37.25 (test_plaatsen); V11.37.26 idem   // V11.37.27: eerst terugV113727
   const anders = Object.entries(Object.assign({}, V113722, VERVANGEN)).filter(([n, [h, l]]) => { const s = zonder23(window[n]); return fnv(s) !== h || s.length !== l; })
     .map(([n]) => n + ' ' + fnv(zonder23(window[n])) + '/' + zonder23(window[n]).length);
   eis('MA11b zonder die regels zijn ze byte-gelijk aan V11.37.22 (vijftien alleen toegevoegd; bij het stadsfilter en de plaatsnaamvraag is precies de oude regel vervangen)',
@@ -475,7 +475,7 @@ async function testMeetwerk23() {
     slaPassiefMeting: ['eac878bc', 1945], kiesCountdownBron: ['8e69db98', 12851], gewGem: ['eb1936ea', 1025], vindDichtbij: ['d32386d8', 4753], meetRingSchrijf: ['60245787', 420],
     stopLogAf: ['21c4b6e6', 928], beeindigFase: ['8234b742', 1404], onGPS: ['454f7f25', 15761], berekenLeerPct: ['5d38efe9', 986], verwerkBevestigLeren: ['9163848', 8583], exporteerMeetdata: ['64c15a78', 10084] };
   // V11.37.26: exporteerMeetdata kreeg twee regels (uit.nano); zonder de regels met dat merkteken is hij gelijk.
-  const zonder26 = (f) => String(f).split(NL).filter(l => !/V11\.37\.26(?!\d)/.test(l)).join(NL);
+  const zonder26 = (f) => String(f).split(NL).filter(l => !/V11\.37\.26(?!\d)|V11\.37\.30(?!\d)/.test(l)).join(NL);
   const anders2 = Object.entries(ONGEMOEID).filter(([n, [h, l]]) => fnv(zonder26(window[n])) !== h || zonder26(window[n]).length !== l).map(x => x[0]);
   eis('MA11c zestien functies voor het leren, de countdown, de lichtkeuze en de export zijn niet aangeraakt (op twee regels V11.37.26 in de export na)', anders2.length === 0, 'geen afwijking', anders2.join(', ') || 'geen');
   let code = [];
