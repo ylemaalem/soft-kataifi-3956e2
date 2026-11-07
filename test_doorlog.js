@@ -108,11 +108,18 @@ async function testDoorlog() {
         await new Promise((ok, nee) => { f.onload = ok; f.onerror = nee; f.src = pagina + '?opnieuw=' + Math.random(); });
       }
       const w = f.contentWindow;
-      for (let poging = 1; ; poging++) {
+      for (let poging = 1; ; poging++) {   // V11.37.14: een laadfout is de testopstelling, niet de app; zie test_merktekens
         try {
-          await new Promise((ok, nee) => { const sc = w.document.createElement('script'); sc.src = bron + '?t=' + Date.now() + '-' + poging; sc.onload = ok; sc.onerror = () => { sc.remove(); nee(new Error('laden')); }; w.document.head.appendChild(sc); });
+          await new Promise((ok, nee) => {
+            const sc = w.document.createElement('script');
+            sc.src = bron + '?t=' + Date.now() + '-' + poging; sc.onload = ok; sc.onerror = () => { sc.remove(); nee(new Error('laden')); };
+            w.document.head.appendChild(sc);
+          });
           break;
-        } catch (e) { if (poging >= 3) throw new Error('testopstelling: het testscript laadde niet in de iframe (3 pogingen)'); await new Promise((r) => setTimeout(r, 250 * poging)); }
+        } catch (e) {
+          if (poging >= 3) throw new Error('testopstelling: het testscript laadde niet in de iframe (3 pogingen)');
+          await new Promise((r) => setTimeout(r, 250 * poging));
+        }
       }
       return await w.doorRitBinnen(opt);
     } catch (e) {
