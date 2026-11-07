@@ -1051,7 +1051,7 @@ if (typeof ort !== 'undefined') {
 //
 // De stijl volgt de eerdere labels: nummer, kastlijntje, korte omschrijving in
 // kleine letters. De CSS zet hem zelf in kapitalen (text-transform:uppercase).
-const APP_VERSIE = 'V11.37.30 — de doorrijlog: elke passage van een licht, ook als het niet gezien is';
+const APP_VERSIE = 'V11.37.31 — YOLOX-Nano (eigen-2 last) is het hoofdmodel; YOLOv8n blijft als reserve';
 
 // ── CONSTANTEN ────────────────────────────────────────────────
 const OSM_RADIUS       = 5000;
@@ -10120,9 +10120,9 @@ const MODEL_SOORTEN = {
   yolox:  { invoer: 'bgr255', invoerNaam: 'images',       uitvoer: ['output'] }
 };
 const MODEL_PADEN = {
-  './model.onnx':            { soort: 'yolov8', naam: 'YOLOv8n',                rol: 'hoofd' },
-  './model/model.onnx':      { soort: 'yolov8', naam: 'YOLOv8n (reservemodel)', rol: 'reserve' },
-  './model/yolox_nano.onnx': { soort: 'yolox',  naam: 'YOLOX-Nano',             rol: 'schaduw' }
+  './model.onnx':            { soort: 'yolov8', naam: 'YOLOv8n',                rol: 'reserve' },   // V11.37.31: was hoofd (zie HOOFD_PADEN_NANO)
+  './model/model.onnx':      { soort: 'yolov8', naam: 'YOLOv8n (reservemodel)', rol: 'reserve2' },   // V11.37.31: was reserve (alleen nog na sl_hoofdmodel=yolov8)
+  './model/yolox_nano.onnx': { soort: 'yolox',  naam: 'YOLOX-Nano',             rol: 'hoofd' }   // V11.37.31: was schaduw
 };
 function modelSoortVan(pad, paden) {
   const p = (paden || MODEL_PADEN)[pad];
@@ -10132,6 +10132,106 @@ function modelSoortVan(pad, paden) {
 function modelNaamVan(pad) {
   const p = MODEL_PADEN[pad];
   return p ? p.naam : String(pad);
+}
+
+// ── V11.37.31: YOLOX-NANO IS HET HOOFDMODEL ─────────────────────
+// © 2026 StoplichtIQ — Y. Lemaalem
+//
+// WAT. Het hoofdpad laadt eerst ./model/yolox_nano.onnx (eigen-2 last). Laadt
+// dat niet, dan ./model.onnx (YOLOv8n) zoals vroeger de reserve, met de melding
+// "Reservemodel" in beeld (V11.37.23). Terugzetten zonder nieuwe versie kan met
+// de stille instelling localStorage 'sl_hoofdmodel' = 'yolov8': dan is de oude
+// volgorde terug (./model.onnx, dan ./model/model.onnx). Die instelling staat
+// nergens in beeld.
+//
+// ÉÉN DOWNLOAD. hoofdBuffer haalt elk bestand één keer op en bewaart het. De
+// worker krijgt een kopie (overdracht maakt de buffer leeg). Tot V11.37.30
+// haalde de app het bestand twee keer: InferenceSession.create(pad) op de
+// hoofdthread en fetch(pad) voor de worker.
+// GEEN TWEEDE SESSIE. onnxSession is nu een uitgestelde sessie (hoofdSessie):
+// de echte sessie op de hoofdthread komt pas bij de eerste run zonder worker
+// (geen Worker, of de worker gestopt na WORKER_MAX_FOUTEN of het vangnet), uit
+// de bewaarde buffer. Wat daardoor wel anders is: (1) een kapot bestand merkt
+// de app pas in de worker; hoofdInitFout laadt dan het volgende pad (zelfde
+// uitkomst als vroeger, iets later); (2) de eerste run zonder worker duurt een
+// keer langer (de sessie wordt dan gemaakt); (3) tot de worker 'klaar' meldt
+// draait de hoofdthread het model niet meer mee: geen detecties in die eerste
+// seconde(n), waar vroeger de hoofdthread-sessie al rekende.
+//
+// NABEWERKING. De Nano-worker is NANO_WORKER_CODE (V11.37.26): BGR 0..255 erin,
+// (1, 8400, 9) eruit, omgezet naar de (1, 8, N) van postprocessYOLO (cx, cy, w,
+// h en per klasse object x klasse). postprocessYOLO zelf blijft, met dezelfde
+// vijf filters, tikzone en NMS; alleen de twee drempels volgen het geladen
+// model (hoofdConf/hoofdTapConf: Nano 0,07 en 0,03 zoals in de schaduwproef,
+// YOLOv8 0,10 en 0,04 zoals altijd).
+// LET OP (niet in deze versie veranderd): verderop staan vaste scoregrenzen die
+// op YOLOv8 zijn afgesteld (S2 0,35 en 0,50, trainframes 0,55, de leergeheugen-
+// poort). Nano-scores (object x klasse) liggen anders verdeeld.
+//
+// DE NANO-SCHADUW (K1-K7) start niet als het hoofdmodel al Nano is: hij zou
+// Nano met Nano vergelijken (vglPlan gooit dan).
+const HOOFD_PADEN_NANO = ['./model/yolox_nano.onnx', './model.onnx'];
+const HOOFD_PADEN_V8 = ['./model.onnx', './model/model.onnx'];
+let hoofdPoging = 0;              // na een laadfout in de worker: het volgende pad
+let hoofdSoort = null;            // 'yolox' of 'yolov8': het model van het hoofdpad
+const hoofdBuffers = new Map();   // pad -> ArrayBuffer, één download per pad
+function hoofdPaden() {
+  let v8 = false;
+  try { v8 = localStorage.getItem('sl_hoofdmodel') === 'yolov8'; } catch (e) {}
+  return (v8 ? HOOFD_PADEN_V8 : HOOFD_PADEN_NANO).slice(hoofdPoging);
+}
+async function hoofdBuffer(pad) {
+  if (!hoofdBuffers.has(pad)) {
+    const r = await fetch(pad);
+    if (!r.ok) throw new Error('HTTP ' + r.status + ' voor ' + pad);
+    const b = await r.arrayBuffer();
+    if (!(b.byteLength > 1000)) throw new Error('bestand te klein: ' + pad);
+    hoofdBuffers.set(pad, b);
+  }
+  return hoofdBuffers.get(pad).slice(0);
+}
+function hoofdConf() { return hoofdSoort === 'yolox' ? NANO_CONF : CONF_DREMPEL; }
+function hoofdTapConf() { return hoofdSoort === 'yolox' ? NANO_TAPCONF : TAP_CONF_DREMPEL; }
+function hoofdWorkerCode(pad) { return modelSoortVan(pad) === 'yolox' ? NANO_WORKER_CODE : YOLO_WORKER_CODE; }
+function hoofdLabel(pad) { return modelSoortVan(pad) === 'yolox' ? 'Nano' : 'YOLOv8n'; }
+// (1, N, 9) van YOLOX naar de (1, 8, N) die postprocessYOLO leest; dezelfde som als in NANO_WORKER_CODE.
+function yoloxNaarV8(t) {
+  const N = t.dims[1], y = t.data, o = new Float32Array(8 * N);
+  for (let a = 0; a < N; a++) {
+    const q = a * 9, ob = y[q + 4];
+    o[a] = y[q]; o[N + a] = y[q + 1]; o[2 * N + a] = y[q + 2]; o[3 * N + a] = y[q + 3];
+    o[4 * N + a] = ob * y[q + 5]; o[5 * N + a] = ob * y[q + 6]; o[6 * N + a] = ob * y[q + 7]; o[7 * N + a] = ob * y[q + 8];
+  }
+  return { data: o, dims: [1, 8, N] };
+}
+// De uitgestelde sessie. Gooit (zoals vroeger InferenceSession.create) als het bestand niet te halen is.
+async function hoofdSessie(pad) {
+  const soort = modelSoortVan(pad);
+  await hoofdBuffer(pad);
+  hoofdSoort = soort;
+  let echt = null;
+  return {
+    pad, soort, uitgesteld: true,
+    async run(feeds) {
+      if (!echt) echt = await ort.InferenceSession.create(hoofdBuffers.get(pad).slice(0), { executionProviders: ['wasm'], graphOptimizationLevel: 'all' });
+      if (soort !== 'yolox') return echt.run(feeds);
+      const t = feeds.images, p = t.data, n = t.dims[2] * t.dims[3], x = new Float32Array(3 * n);
+      for (let i = 0; i < n; i++) { x[i] = p[2 * n + i] * 255; x[n + i] = p[n + i] * 255; x[2 * n + i] = p[i] * 255; }
+      const out = await echt.run({ images: new ort.Tensor('float32', x, t.dims) });
+      return { output0: yoloxNaarV8(out['output']) };
+    }
+  };
+}
+// De worker meldt bij het laden een fout (alleen de Nano-worker zegt 'init: ...'): dan het volgende pad.
+function hoofdInitFout(msg) {
+  if (!msg || msg.type !== 'fout' || workerKlaar || !/^init/.test(String(msg.bericht || ''))) return false;
+  if (hoofdPaden().length < 2) return false;
+  try { if (yoloWorker) yoloWorker.terminate(); } catch (e) {}
+  yoloWorker = null; workerKlaar = false; modelGeladen = false; onnxSession = null;
+  modelTerugvalFout = String(msg.bericht);
+  hoofdPoging++;
+  laadONNXModel();
+  return true;
 }
 
 // Web Worker code
@@ -10174,15 +10274,15 @@ const simInt = setInterval(() => {
 async function laadONNXModel() {
   try {
     sModelLabel.textContent = '🤖 Model laden…';   // V11.37.26: zonder modelnaam; die komt pas als bekend is welk bestand laadde
-    let modelPad = './model.onnx';
+    let modelPad = hoofdPaden()[0];   // V11.37.31: Nano eerst (HOOFD_PADEN_NANO), zie het blok V11.37.31
     try {
-      onnxSession = await ort.InferenceSession.create(modelPad, { executionProviders:['wasm'], graphOptimizationLevel:'all' });
+      onnxSession = await hoofdSessie(modelPad);   // V11.37.31: één download, de sessie op de hoofdthread pas als er geen worker is
     } catch(e1) {
       modelTerugvalFout = (e1 && e1.message) ? e1.message : String(e1);   // V11.34.2: alleen onthouden
-      modelPad = './model/model.onnx';
-      onnxSession = await ort.InferenceSession.create(modelPad, { executionProviders:['wasm'], graphOptimizationLevel:'all' });
+      modelPad = hoofdPaden()[1];   // V11.37.31: de reserve uit de lijst
+      onnxSession = await hoofdSessie(modelPad);   // V11.37.31: één download, de sessie op de hoofdthread pas als er geen worker is
     }
-    if (modelSoortVan(modelPad) !== 'yolov8') throw new Error('hoofdpad ' + modelPad + ' is geen YOLOv8-bestand');   // V11.37.26: het hoofdpad leest alleen YOLOv8 (images RGB 0..1, output0)
+    if (!(modelSoortVan(modelPad) in MODEL_SOORTEN)) throw new Error('hoofdpad ' + modelPad + ': onbekende soort');   // V11.37.31: YOLOv8 of YOLOX; de worker en de nabewerking volgen de soort
     modelGeladen = true;
     startModelMs = Math.round(performance.now() - modelLaadStart); startLogMijl('m', { ml: startModelMs });   // V11.37.17: de startlog
     clearInterval(simInt);
@@ -10193,7 +10293,7 @@ async function laadONNXModel() {
     sModelLabel.style.color = 'var(--groen)';
     if (modelTerugvalFout) { sModelLabel.textContent = `⚠ Reservemodel geladen (${t}s): het gewone model laadde niet`; sModelLabel.style.color = 'var(--oranje)'; }   // V11.37.23: de stille terugval op model/model.onnx (het oude model) is nu te zien
     modelLijn.classList.add('weg');
-    pAI.className='pill-dot g'; pAIT.textContent='YOLOv8n';   // V11.37.26: was 'YOLOv8'
+    pAI.className='pill-dot g'; pAIT.textContent=hoofdLabel(modelPad);   // V11.37.31: 'Nano' of 'YOLOv8n'
     if (modelTerugvalFout) { pAI.className = 'pill-dot o'; pAIT.textContent = 'Reserve'; }   // V11.37.23: idem, ook op de pil
     debugWaarden.ai = 'ai:klaar';
     yoloCanvas = document.createElement('canvas');
@@ -10201,15 +10301,16 @@ async function laadONNXModel() {
     yoloCtx = yoloCanvas.getContext('2d');
     // Worker starten
     try {
-      const modelArrayBuffer = await fetch(modelPad).then(r=>r.arrayBuffer());
+      const modelArrayBuffer = await hoofdBuffer(modelPad);   // V11.37.31: dezelfde download als hoofdSessie, geen tweede
       // V11.34.2: vóór de overdracht hieronder, die de buffer leegmaakt.
       try { modelLogNoteer(modelPad, modelArrayBuffer, modelTerugvalFout); } catch (_) {}   // V11.34.2
-      const blob = new Blob([YOLO_WORKER_CODE], { type:'application/javascript' });
+      const blob = new Blob([hoofdWorkerCode(modelPad)], { type:'application/javascript' });   // V11.37.31: de Nano-worker voor een YOLOX-bestand
       const workerUrl = URL.createObjectURL(blob);
       yoloWorker = new Worker(workerUrl);
       yoloWorker.onmessage = function(e) {
         const msg = e.data;
         if (aiVangnetBericht(msg)) return;   // V11.37.18: C7, een laat antwoord na het vangnet, zie daar
+        if (hoofdInitFout(msg)) return;   // V11.37.31: het bestand laadt niet in de worker: het volgende pad
         if (msg.type === 'klaar') {
           workerKlaar = true; workerFoutTeller = 0;
           try { startLogWorkerKlaar(); } catch (_) {}   // V11.37.27: alleen meten
@@ -10664,10 +10765,10 @@ function postprocessYOLO(outputData, dims) {
       && ((cx - tapZwak.cx) * (cx - tapZwak.cx)
         + (cy - tapZwak.cy) * (cy - tapZwak.cy)) <= tapStraal2;
     if (inTapZone) {
-      if (famScore < TAP_CONF_DREMPEL) continue;
+      if (famScore < hoofdTapConf()) continue;   // V11.37.31: de drempel van het geladen model (Nano 0,03)
       if (h < 2 || w <= 0) continue;
     } else {
-      if (famScore < CONF_DREMPEL) continue;
+      if (famScore < hoofdConf()) continue;   // V11.37.31: idem (Nano 0,07)
       if (cy/YOLO_SIZE > dynamischMaxY) continue;
       if (h < MIN_H_PX) continue;
       if (w/YOLO_SIZE > MAX_BOX_W_RATIO) continue;
@@ -12276,6 +12377,7 @@ function vglPlan(modus, paden, modusPaden) {
   if (!pad) throw new Error('geen modelpad voor stand ' + modus);
   const soort = modelSoortVan(pad, paden);
   if (modus === 'nano' && soort !== 'yolox') throw new Error('stand nano vraagt een YOLOX-bestand; ' + pad + ' is ' + soort);
+  if (modus === 'nano' && hoofdSoort === 'yolox') throw new Error('het hoofdmodel is al Nano: de schaduw zou Nano met Nano vergelijken');   // V11.37.31
   if (soort === 'yolox' && modus !== 'nano') throw new Error('een YOLOX-bestand draait alleen in de stand nano');
   const worker = 'nano';
   if (VGL_WORKER_INVOER[worker] !== MODEL_SOORTEN[soort].invoer) throw new Error('worker ' + worker + ' past niet bij ' + soort);
@@ -12893,6 +12995,7 @@ async function voerAIUit() {
       return; // aiBezig gereset in worker.onmessage
     }
     // Synchrone fallback
+    if (yoloWorker && !workerKlaar && onnxSession && onnxSession.uitgesteld) return;   // V11.37.31: de worker laadt nog; geen tweede sessie op de hoofdthread
     const t0 = Date.now();
     const output = await onnxSession.run({ images:inputTensor });
     const outputTensor = output['output0'];

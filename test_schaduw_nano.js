@@ -365,6 +365,9 @@ async function testSchaduwNano() {
       for (const k in snap) if (localStorage.getItem(k) !== snap[k]) localStorage.setItem(k, snap[k]);
     } catch (e) {}
   };
+  // V11.37.31: Nano is het hoofdmodel, en dan start de schaduw niet (test_nano_hoofd NH6). De schaduwproef hoort bij YOLOv8
+  // als hoofd (de terugzetkeuze sl_hoofdmodel=yolov8); deze toets draait daarom met hoofdSoort 'yolov8' en zet hem daarna terug.
+  const hoofdSoortBew = hoofdSoort; hoofdSoort = 'yolov8';   // V11.37.31
   const basis = 930000000 + Math.floor(Math.random() * 1e6) * 100;
   let volg = 0;
   const vers = () => basis + 100 * (volg++);
@@ -539,9 +542,10 @@ async function testSchaduwNano() {
     const onbekend = paden.filter(p => !MODEL_PADEN[p]);
     eis('N4a elk .onnx-pad in index.html staat in MODEL_PADEN (een nieuw pad zonder soort laat deze toets falen)',
         paden.length >= 3 && onbekend.length === 0, '0 onbekend', kort({ paden, onbekend }));
-    eis('N4b het hoofdpad en zijn terugval zijn allebei YOLOv8; laadONNXModel controleert dat',
-        modelSoortVan('./model.onnx') === 'yolov8' && modelSoortVan('./model/model.onnx') === 'yolov8'
-        && /modelSoortVan\(modelPad\) !== 'yolov8'/.test(String(laadONNXModel)), 'yolov8 + controle', '');
+    // V11.37.31: het hoofdpad is Nano (yolox) met YOLOv8n als reserve; laadONNXModel aanvaardt elke bekende soort en kiest worker en drempels op de soort
+    eis('N4b het hoofdpad is Nano (yolox), de reserves zijn YOLOv8; laadONNXModel controleert de soort (V11.37.31)',
+        modelSoortVan('./model/yolox_nano.onnx') === 'yolox' && modelSoortVan('./model.onnx') === 'yolov8' && modelSoortVan('./model/model.onnx') === 'yolov8'
+        && MODEL_PADEN['./model/yolox_nano.onnx'].rol === 'hoofd' && /in MODEL_SOORTEN/.test(String(laadONNXModel)) && /hoofdWorkerCode\(modelPad\)/.test(String(laadONNXModel)), 'yolox hoofd + controle', '');
     const plannen = {};
     for (const m of MODELVGL_MODI) { try { const p = vglPlan(m); plannen[m] = p.soort + '/' + p.worker; } catch (e) { plannen[m] = 'FOUT ' + e.message; } }
     eis('N4c alleen nog de stand nano, met de Nano-worker (V11.37.27)',
@@ -744,7 +748,8 @@ async function testSchaduwNano() {
     eis('N10f de meetdata-export neemt sl_nano_* en sl_modelvgl mee', /key\.startsWith\('sl_nano_'\) \|\| key === 'sl_modelvgl'\) doel = uit\.nano/.test(html), 'uit.nano', '');
 
     // ═══ N11 — ECHT: de schakelaar aan, de echte worker, het echte bestand ═══
-    const E = await inFrame((w) => w.schaduwNanoBinnen('echt', {}), () => { localStorage.setItem('sl_modelvgl_aan', '1'); localStorage.setItem('sl_modelvgl_model', 'nano'); });
+    // V11.37.31: in de iframe met YOLOv8 als hoofd (sl_hoofdmodel=yolov8, de terugzetkeuze): alleen dan draait de schaduw
+    const E = await inFrame((w) => w.schaduwNanoBinnen('echt', {}), () => { localStorage.setItem('sl_modelvgl_aan', '1'); localStorage.setItem('sl_modelvgl_model', 'nano'); localStorage.setItem('sl_hoofdmodel', 'yolov8'); });   // V11.37.31: sl_hoofdmodel
     eis('N11a met de schakelaar aan en de stand nano start de echte Nano-worker en zegt dat in beeld', E.aan === true && E.model === 'nano' && E.klaar && E.label === 'Nano' && E.badge === 'TEST · Nano' && E.versieBadge === 'TEST · Nano',
         'klaar, TEST · Nano', kort(E));
     // V11.37.28: eigen-2 last ziet de getekende lamp niet (0 detecties); de oude Nano wel. Alleen nog: draait hij, en is de uitvoer geldig.
@@ -764,7 +769,7 @@ async function testSchaduwNano() {
         'ontsnapt null, hoofdmodel staat, Nano uit (begin: ...)', kort(BG));
 
     // ═══ N13 — V11.37.27: een oude stand doet niets ═══
-    const O = await inFrame((w) => w.schaduwNanoBinnen('oud', {}), () => { localStorage.setItem('sl_modelvgl_aan', '1'); localStorage.setItem('sl_modelvgl_model', 'ort130'); });
+    const O = await inFrame((w) => w.schaduwNanoBinnen('oud', {}), () => { localStorage.setItem('sl_modelvgl_aan', '1'); localStorage.setItem('sl_modelvgl_model', 'ort130'); localStorage.setItem('sl_hoofdmodel', 'yolov8'); });   // V11.37.31: met Nano als hoofd haalt het HOOFDpad model/yolox_nano.onnx; hier telt alleen wat de schaduw ophaalt
     eis('N13a schakelaar aan met de oude stand ort130: geen schaduw, geen terugval op v8n of Nano, niets opgehaald',
         !O.fout && O.aan === true && O.model === null && O.oud === 'ort130' && O.worker === false && O.actief === false && O.geladen.length === 0,
         'model null, geen worker, 0 bestanden', kort(O));
@@ -814,6 +819,7 @@ async function testSchaduwNano() {
     eis('onverwachte fout in de toets', false, 'geen', String((e && e.stack) || e).slice(0, 300));
   } finally {
     window.Worker = echtWorker; window.fetch = echtFetch; URL.createObjectURL = echtURL;
+    hoofdSoort = hoofdSoortBew;   // V11.37.31
     Object.assign(VGL_MODUS_PAD, bewaard.pad);
     nanoStaat = bewaard.nanoStaat; nanoEp = bewaard.nanoEp; nanoMetaCache = bewaard.nanoMetaCache;
     vglWorker = bewaard.vglWorker; vglWorkerKlaar = bewaard.vglWorkerKlaar; vglBezig = bewaard.vglBezig; vglFouten = bewaard.vglFouten;

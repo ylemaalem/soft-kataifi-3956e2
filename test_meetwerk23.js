@@ -49,6 +49,10 @@
 // ort130 en webgpu zijn weg). Hier gaat precies de oude tekst terug, zodat de vergelijking hieronder de oude functie blijft toetsen.
 var HAAK_NIEUW_V113727 = "              if (MODELVGL_MODEL === 'nano') {   // V11.37.27: alleen nog de stand nano (v8n, dfine, ort130 en webgpu zijn weg)\n                try { nanoNaHoofd(msg.frameId, inferentieTijd, detecties); } catch (_) {}   // V11.37.26: eigen try (de buitenste blijft), zie het blok NANO-SCHADUW\n              }   // V11.37.27";
 var HAAK_OUD_V113727 = "              // V11.18.14: in de D-FINE-modus komt er nooit een B-resultaat om\n              // aan te koppelen. vglOpenA zou dan elke frame een regel erbij\n              // krijgen en nooit een terug - een lek dat een uur rijden niet\n              // overleeft. Daarom in die modus alleen de tijd, geen paring.\n              if (MODELVGL_MODEL === 'dfine') {\n                vglNoteerHoofdInDfine(inferentieTijd);\n              } else if (MODELVGL_MODEL === 'nano') {   // V11.37.26\n                try { nanoNaHoofd(msg.frameId, inferentieTijd, detecties); } catch (_) {}   // V11.37.26: eigen try (de buitenste blijft), zie het blok NANO-SCHADUW\n              } else {\n                const _b = vglBeste(detecties);\n                vglOpenA.set(msg.frameId, { ms: inferentieTijd, kl: _b.kl, cf: _b.cf, n: _b.n });\n                vglKoppel(msg.frameId);\n              }";
+// V11.37.31: Nano is het hoofdmodel; deze regels zijn VERVANGEN (niet toegevoegd). Hier gaat precies de oude regel terug,
+// zodat de vergelijkingen hieronder de oude functies blijven toetsen. Toegevoegde regels vallen weg via het merkteken V11.37.31.
+var TERUG_V113731 = {"    let modelPad = hoofdPaden()[0];   // V11.37.31: Nano eerst (HOOFD_PADEN_NANO), zie het blok V11.37.31": "    let modelPad = './model.onnx';", "      onnxSession = await hoofdSessie(modelPad);   // V11.37.31: één download, de sessie op de hoofdthread pas als er geen worker is": "      onnxSession = await ort.InferenceSession.create(modelPad, { executionProviders:['wasm'], graphOptimizationLevel:'all' });", "      modelPad = hoofdPaden()[1];   // V11.37.31: de reserve uit de lijst": "      modelPad = './model/model.onnx';", "    if (!(modelSoortVan(modelPad) in MODEL_SOORTEN)) throw new Error('hoofdpad ' + modelPad + ': onbekende soort');   // V11.37.31: YOLOv8 of YOLOX; de worker en de nabewerking volgen de soort": "    if (modelSoortVan(modelPad) !== 'yolov8') throw new Error('hoofdpad ' + modelPad + ' is geen YOLOv8-bestand');   // V11.37.26: het hoofdpad leest alleen YOLOv8 (images RGB 0..1, output0)", "    pAI.className='pill-dot g'; pAIT.textContent=hoofdLabel(modelPad);   // V11.37.31: 'Nano' of 'YOLOv8n'": "    pAI.className='pill-dot g'; pAIT.textContent='YOLOv8n';   // V11.37.26: was 'YOLOv8'", "      const modelArrayBuffer = await hoofdBuffer(modelPad);   // V11.37.31: dezelfde download als hoofdSessie, geen tweede": "      const modelArrayBuffer = await fetch(modelPad).then(r=>r.arrayBuffer());", "      const blob = new Blob([hoofdWorkerCode(modelPad)], { type:'application/javascript' });   // V11.37.31: de Nano-worker voor een YOLOX-bestand": "      const blob = new Blob([YOLO_WORKER_CODE], { type:'application/javascript' });", "      if (famScore < hoofdTapConf()) continue;   // V11.37.31: de drempel van het geladen model (Nano 0,03)": "      if (famScore < TAP_CONF_DREMPEL) continue;", "      if (famScore < hoofdConf()) continue;   // V11.37.31: idem (Nano 0,07)": "      if (famScore < CONF_DREMPEL) continue;", "  './model.onnx':            { soort: 'yolov8', naam: 'YOLOv8n',                rol: 'reserve' },   // V11.37.31: was hoofd (zie HOOFD_PADEN_NANO)": "  './model.onnx':            { soort: 'yolov8', naam: 'YOLOv8n',                rol: 'hoofd' },", "  './model/model.onnx':      { soort: 'yolov8', naam: 'YOLOv8n (reservemodel)', rol: 'reserve2' },   // V11.37.31: was reserve (alleen nog na sl_hoofdmodel=yolov8)": "  './model/model.onnx':      { soort: 'yolov8', naam: 'YOLOv8n (reservemodel)', rol: 'reserve' },", "  './model/yolox_nano.onnx': { soort: 'yolox',  naam: 'YOLOX-Nano',             rol: 'hoofd' }   // V11.37.31: was schaduw": "  './model/yolox_nano.onnx': { soort: 'yolox',  naam: 'YOLOX-Nano',             rol: 'schaduw' }"};
+function terugV113731(l) { return Object.prototype.hasOwnProperty.call(TERUG_V113731, l) ? TERUG_V113731[l] : l; }
 function terugV113727(s) { return String(s).split(HAAK_NIEUW_V113727).join(HAAK_OUD_V113727).split('\n').filter(l => !/\/\/ V11\.37\.27(?!\d): alleen meten/.test(l)).join('\n'); }   // V11.37.27: en de regels die alleen meten (startlog wk/d1, test_startlog SL15) weg
 async function meetwerk23Binnen(soort, opt) {
   opt = opt || {};
@@ -94,8 +98,11 @@ async function meetwerk23Binnen(soort, opt) {
     for (let i = 0; i < 150 && !modelGeladen && !/niet|Model laadde/.test(sModelLabel.textContent); i++) await new Promise(r => setTimeout(r, 100));
     window.fetch = async () => { throw new Error('geen netwerk in de toets'); };
     const uit = {};
+    window.Worker = function () { return { postMessage() {}, terminate() {} }; };   // V11.37.31: geen echte worker (die zou het nepbestand afkeuren en het volgende pad laden)
     for (const stand of ['gewoon', 'reserve', 'kapot']) {
       modelTerugvalFout = null;
+      hoofdBuffers.clear(); hoofdPoging = 0;   // V11.37.31: het hoofdpad haalt het bestand zelf (één download), dus de proef zit in fetch
+      window.fetch = async (pad) => { if (stand === 'kapot') throw new Error('proef: geheugen op'); if (stand === 'reserve' && /yolox_nano/.test(String(pad))) throw new Error('proef: niet gevonden'); return { ok: true, status: 200, arrayBuffer: async () => new ArrayBuffer(2000) }; };   // V11.37.31
       ort.InferenceSession.create = async (pad) => {
         if (stand === 'kapot') throw new Error('proef: geheugen op');
         if (stand === 'reserve' && pad === './model.onnx') throw new Error('proef: niet gevonden');
@@ -351,8 +358,9 @@ async function testMeetwerk23() {
   // ═══ MA2 — de modelmelding ═══════════════════════════════════
   const m2 = await inFrame((w) => w.meetwerk23Binnen('model', {}));
   // V11.37.26: de naam komt uit MODEL_PADEN: 'Model klaar: YOLOv8n', pil 'YOLOv8n'
-  eis('MA2a het gewone model: groen "klaar", de pil YOLOv8n',
-      !m2.fout && /Model klaar: YOLOv8n/.test(m2.gewoon.label) && m2.gewoon.pil === 'YOLOv8n' && /groen/.test(m2.gewoon.kleur), 'klaar, YOLOv8n', kort(m2.gewoon || m2));
+  // V11.37.31: het hoofdmodel is Nano: 'Model klaar: YOLOX-Nano', pil 'Nano'; de reserve is YOLOv8n (./model.onnx)
+  eis('MA2a het gewone model: groen "klaar", de pil Nano (V11.37.31; was YOLOv8n)',
+      !m2.fout && /Model klaar: YOLOX-Nano/.test(m2.gewoon.label) && m2.gewoon.pil === 'Nano' && /groen/.test(m2.gewoon.kleur), 'klaar, Nano', kort(m2.gewoon || m2));
   eis('MA2b de terugval op het reservemodel is te zien: oranje melding en de pil "Reserve"',
       !m2.fout && /Reservemodel geladen/.test(m2.reserve.label) && /oranje/.test(m2.reserve.kleur) && m2.reserve.pil === 'Reserve' && /pill-dot o/.test(m2.reserve.dot),
       'Reservemodel, oranje, Reserve', kort(m2.reserve || m2));
@@ -466,7 +474,7 @@ async function testMeetwerk23() {
     [/^(\s*)sModelLabel\.textContent = `✓ Model klaar: \$\{modelNaamVan\(modelPad\)\} \(\$\{t\}s\)`;.*V11\.37\.26(?!\d).*$/, '$1sModelLabel.textContent = `✓ YOLOv8 klaar (${t}s)`;'],
     [/^(\s*)pAI\.className='pill-dot g'; pAIT\.textContent='YOLOv8n';.*V11\.37\.26(?!\d).*$/, "$1pAI.className='pill-dot g'; pAIT.textContent='YOLOv8';"]];
   const terug26 = (l) => { for (const [re, oud] of TERUG26) if (re.test(l)) return l.replace(re, oud); return l; };
-  const zonder23 = (f) => String(terugV113727(f)).split(NL).map(terug26).filter(l => !/V11\.37\.23(?!\d)|V11\.37\.25(?!\d)|V11\.37\.26(?!\d)|V11\.37\.30(?!\d)/.test(l)).join(NL);   // V11.37.25: ook de regels van V11.37.25 (test_plaatsen); V11.37.26 idem   // V11.37.27: eerst terugV113727
+  const zonder23 = (f) => String(terugV113727(f)).split(NL).map(terugV113731).map(terug26).filter(l => !/V11\.37\.23(?!\d)|V11\.37\.25(?!\d)|V11\.37\.26(?!\d)|V11\.37\.30(?!\d)|V11\.37\.31(?!\d)/.test(l)).join(NL);   // V11.37.25: ook de regels van V11.37.25 (test_plaatsen); V11.37.26 idem   // V11.37.27: eerst terugV113727
   const anders = Object.entries(Object.assign({}, V113722, VERVANGEN)).filter(([n, [h, l]]) => { const s = zonder23(window[n]); return fnv(s) !== h || s.length !== l; })
     .map(([n]) => n + ' ' + fnv(zonder23(window[n])) + '/' + zonder23(window[n]).length);
   eis('MA11b zonder die regels zijn ze byte-gelijk aan V11.37.22 (vijftien alleen toegevoegd; bij het stadsfilter en de plaatsnaamvraag is precies de oude regel vervangen)',
@@ -475,7 +483,7 @@ async function testMeetwerk23() {
     slaPassiefMeting: ['eac878bc', 1945], kiesCountdownBron: ['8e69db98', 12851], gewGem: ['eb1936ea', 1025], vindDichtbij: ['d32386d8', 4753], meetRingSchrijf: ['60245787', 420],
     stopLogAf: ['21c4b6e6', 928], beeindigFase: ['8234b742', 1404], onGPS: ['454f7f25', 15761], berekenLeerPct: ['5d38efe9', 986], verwerkBevestigLeren: ['9163848', 8583], exporteerMeetdata: ['64c15a78', 10084] };
   // V11.37.26: exporteerMeetdata kreeg twee regels (uit.nano); zonder de regels met dat merkteken is hij gelijk.
-  const zonder26 = (f) => String(f).split(NL).filter(l => !/V11\.37\.26(?!\d)|V11\.37\.30(?!\d)/.test(l)).join(NL);
+  const zonder26 = (f) => String(f).split(NL).filter(l => !/V11\.37\.26(?!\d)|V11\.37\.30(?!\d)|V11\.37\.31(?!\d)/.test(l)).join(NL);
   const anders2 = Object.entries(ONGEMOEID).filter(([n, [h, l]]) => fnv(zonder26(window[n])) !== h || zonder26(window[n]).length !== l).map(x => x[0]);
   eis('MA11c zestien functies voor het leren, de countdown, de lichtkeuze en de export zijn niet aangeraakt (op twee regels V11.37.26 in de export na)', anders2.length === 0, 'geen afwijking', anders2.join(', ') || 'geen');
   let code = [];
