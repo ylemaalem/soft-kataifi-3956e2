@@ -24,7 +24,7 @@ async function testNanoGrenzen() {
   try {
     // ═══ NG1 ═══
     const v8 = { leer: 0.20, s2Fam: 0.35, sterk: 0.35, fscore: 0.35, groenStabiel: 0.40, s2Aanwezig: 0.50, tfTwijfelS2: 0.55, s1Twijfel: 0.60, camNode: 0.60 };
-    const nano = { leer: 0.07, s2Fam: 0.15, sterk: 0.15, fscore: 0.15, groenStabiel: 0.10, s2Aanwezig: 0.70, tfTwijfelS2: 0.75, s1Twijfel: 0.75, camNode: 0.75 };
+    const nano = { leer: 0.07, s2Fam: 0.15, sterk: 0.15, fscore: 0.35, groenStabiel: 0.10, s2Aanwezig: 0.70, tfTwijfelS2: 0.75, s1Twijfel: 0.75, camNode: 0.75 };
     const namen = Object.keys(v8);
     eis('NG1a YOLOv8 houdt de oude grenzen', namen.every(k => met('yolov8', () => hoofdGrens(k)) === v8[k]), kort(v8), kort(namen.map(k => met('yolov8', () => hoofdGrens(k)))));
     eis('NG1b Nano krijgt de gemeten grenzen', namen.every(k => met('yolox', () => hoofdGrens(k)) === nano[k]), kort(nano), kort(namen.map(k => met('yolox', () => hoofdGrens(k)))));
