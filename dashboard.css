@@ -1,0 +1,88 @@
+/* © 2026 StoplichtIQ — Y. Lemaalem */
+:root {
+  --bg: #070D18; --vlak: #0F1A2B; --vlak2: #16243A; --lijn: #24344D;
+  --tekst: #E6EDF7; --tekst2: #A9B7CC; --stil: #7A8AA3;
+  --accent: #22D3EE; --s1: #0891B2; --s2: #D97706; --fout: #F87171; --ok: #4ADE80;
+  --ruimte: 16px;
+}
+* { box-sizing: border-box; }
+html, body { margin: 0; height: 100%; background: var(--bg); color: var(--tekst); font: 15px/1.45 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Arial, sans-serif; }
+#app { min-height: 100%; display: flex; flex-direction: column; }
+h1 { font-size: 17px; margin: 0; letter-spacing: .02em; }
+h2 { font-size: 13px; margin: 0 0 8px; color: var(--tekst2); font-weight: 600; letter-spacing: .04em; text-transform: uppercase; }
+.stil { color: var(--stil); }
+.klein { font-size: 12.5px; }
+button, input { font: inherit; color: inherit; }
+button { background: var(--vlak2); border: 1px solid var(--lijn); border-radius: 8px; padding: 8px 12px; min-height: 40px; cursor: pointer; }
+button:hover { border-color: var(--accent); }
+button:disabled { opacity: .5; cursor: default; }
+button.aan { border-color: var(--accent); color: var(--accent); }
+button.gevaar { border-color: #7F1D1D; color: var(--fout); }
+input { background: var(--bg); border: 1px solid var(--lijn); border-radius: 8px; padding: 9px 11px; width: 100%; min-height: 40px; }
+:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+
+.kop { display: flex; align-items: center; gap: 12px; padding: 10px var(--ruimte); border-bottom: 1px solid var(--lijn); background: var(--vlak); flex-wrap: wrap; }
+.kop .ruimte { flex: 1; }
+.tabs { display: flex; gap: 6px; }
+.melding { padding: 8px var(--ruimte); background: #3B2A07; color: #FCD34D; font-size: 13.5px; }
+.status { font-size: 12.5px; color: var(--stil); }
+.status.fout { color: var(--fout); }
+.status.ok { color: var(--ok); }
+
+.inlog { margin: 12vh auto 0; width: min(380px, calc(100% - 32px)); background: var(--vlak); border: 1px solid var(--lijn); border-radius: 14px; padding: 22px; display: grid; gap: 12px; }
+.inlog label { display: grid; gap: 4px; font-size: 13px; color: var(--tekst2); }
+
+.beheer { display: grid; grid-template-columns: minmax(0, 1fr) 380px; flex: 1; min-height: 0; }
+.kaartvak { position: relative; min-height: 420px; }
+#kaart { position: absolute; inset: 0; background: var(--bg); }
+.leaflet-tile-pane { filter: invert(1) hue-rotate(190deg) brightness(.85) saturate(.35) contrast(.92); }
+.leaflet-container { background: var(--bg); font: inherit; }
+.leaflet-control-attribution { background: rgba(7,13,24,.7) !important; color: var(--stil) !important; }
+.leaflet-control-attribution a { color: var(--tekst2) !important; }
+.leaflet-tooltip { background: var(--vlak2); color: var(--tekst); border: 1px solid var(--lijn); box-shadow: none; }
+.leaflet-tooltip-top::before { border-top-color: var(--lijn); }
+.kaartbalk { position: absolute; z-index: 500; top: 10px; left: 56px; display: flex; gap: 6px; align-items: center; flex-wrap: wrap; }
+.kaartbalk button { background: rgba(15,26,43,.92); }
+.legenda { position: absolute; z-index: 500; left: 10px; bottom: 22px; background: rgba(15,26,43,.92); border: 1px solid var(--lijn); border-radius: 10px; padding: 8px 10px; font-size: 12px; display: grid; gap: 3px; }
+.legenda div { display: flex; gap: 8px; align-items: center; }
+.punt { display: inline-block; border-radius: 50%; }
+.leeg { position: absolute; z-index: 500; left: 50%; top: 50%; transform: translate(-50%, -50%); background: rgba(15,26,43,.92); border: 1px solid var(--lijn); border-radius: 10px; padding: 12px 16px; text-align: center; max-width: 80%; }
+.puls { position: relative; }
+.puls::after { content: ''; position: absolute; inset: 0; border-radius: 50%; border: 2px solid var(--accent); animation: puls 2.2s ease-out infinite; }
+@keyframes puls { from { transform: scale(.4); opacity: .95; } to { transform: scale(2.6); opacity: 0; } }
+@media (prefers-reduced-motion: reduce) { .puls::after { animation: none; opacity: .7; } }
+
+.zij { background: var(--vlak); border-left: 1px solid var(--lijn); overflow-y: auto; padding: var(--ruimte); display: grid; gap: 22px; align-content: start; }
+.tegels { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
+.tegel { background: var(--vlak2); border-radius: 10px; padding: 8px 10px; }
+.tegel b { display: block; font-size: 20px; font-variant-numeric: tabular-nums; }
+.tegel span { font-size: 11.5px; color: var(--tekst2); }
+.grafiek { position: relative; }
+.grafiek svg { display: block; width: 100%; height: auto; }
+.grafiek .hit { fill: transparent; }
+.grafiek .hit:hover { fill: rgba(255,255,255,.06); }
+.tip { position: absolute; pointer-events: none; background: var(--bg); border: 1px solid var(--lijn); border-radius: 8px; padding: 6px 8px; font-size: 12px; white-space: nowrap; z-index: 2; }
+.legenda-rij { display: flex; gap: 14px; font-size: 12px; color: var(--tekst2); margin-bottom: 4px; }
+.legenda-rij span { display: flex; align-items: center; gap: 6px; }
+.blokje { width: 10px; height: 10px; border-radius: 3px; display: inline-block; }
+.blokje.s1 { background: var(--s1); } .blokje.s2 { background: var(--s2); }
+details summary { cursor: pointer; font-size: 12.5px; color: var(--tekst2); margin-top: 6px; }
+
+.tabel { width: 100%; border-collapse: collapse; font-size: 13.5px; }
+.tabel th { text-align: left; color: var(--tekst2); font-weight: 600; font-size: 12px; padding: 6px 8px; border-bottom: 1px solid var(--lijn); white-space: nowrap; }
+.tabel td { padding: 7px 8px; border-bottom: 1px solid #18263B; vertical-align: middle; }
+.tabel td.getal, .tabel th.getal { text-align: right; font-variant-numeric: tabular-nums; }
+.schuif { overflow-x: auto; }
+
+.pagina { padding: var(--ruimte); max-width: 1000px; width: 100%; margin: 0 auto; display: grid; gap: 22px; }
+.blok { background: var(--vlak); border: 1px solid var(--lijn); border-radius: 12px; padding: var(--ruimte); }
+.rij { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
+.schakel { display: flex; gap: 10px; align-items: center; }
+.schakel input { width: 20px; height: 20px; min-height: 0; }
+.voet { padding: 10px var(--ruimte); color: var(--stil); font-size: 12px; text-align: center; }
+
+@media (max-width: 860px) {
+  .beheer { grid-template-columns: 1fr; }
+  .kaartvak { height: 58vh; }
+  .zij { border-left: 0; border-top: 1px solid var(--lijn); }
+}
