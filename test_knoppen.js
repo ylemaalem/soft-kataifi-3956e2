@@ -154,6 +154,7 @@ async function testKnoppen() {
           return t.firstChild.closest('[onclick*="tikRichting"],[onclick*="kiesLaagRichting"]') === null; })() : false, 'Rond licht niet', 'ok');
 
     // ═══ KM3 — de detlog bij stilstand vlak bij het licht ═════════
+    const hoofdSoortKM3 = hoofdSoort; hoofdSoort = 'yolov8';   // V11.37.33: deze toets gaat over de grenzen van YOLOv8 (0,10); Nano staat in test_nano_grenzen
     const det = () => { try { return JSON.parse(localStorage.getItem('sl_detlog')) || []; } catch (e) { return []; } };
     localStorage.setItem('sl_detlog', '[]'); detLogArr = null; detLogStilLaatst = 0;
     dichtstbijOSM = { ...A, afstand: 5 };
@@ -193,6 +194,7 @@ async function testKnoppen() {
     eis('KM3c het filter van de detlog zegt hetzelfde als postprocessYOLO: conf, laag, klein, breed en plat afgewezen, door doorgelaten',
         uit.every(x => x.f === x.verwacht && (x.verwacht === 'door' ? x.door === 1 : x.door === 0)), 'zes keer gelijk', JSON.stringify(uit));
     postprocessYOLO(new Float32Array(4 + NC), [1, 4 + NC, 1]);
+    hoofdSoort = hoofdSoortKM3;   // V11.37.33
     eis('KM3d zonder enig anker boven nul is er geen beste kandidaat: bf geen', detLogBest === null && detLogBestVelden().bf === 'geen', 'geen', JSON.stringify(detLogBestVelden()));
     eis('KM3e de constanten: onder 3 km/u, hooguit één regel per 2 s', DETLOG_STIL_KMH === 3 && DETLOG_STIL_MS === 2000 && DETLOG_MIN_M === 20,
         '3/2000/20', [DETLOG_STIL_KMH, DETLOG_STIL_MS, DETLOG_MIN_M].join('/'));

@@ -180,11 +180,13 @@ async function testMeetregels() {
     const det = (score) => { const alle = new Array(NC).fill(0.001); alle[0] = score;
                              return { klasse: 0, score, alleScores: alle, cx: 300, cy: 200, w: 12, h: 30 }; };
     frameT = 1000; snelheidKmh = 30;
+    const hoofdSoortML4 = hoofdSoort; hoofdSoort = 'yolov8';   // V11.37.33: 'sterk' is voor YOLOv8 0,35; Nano staat in test_nano_grenzen
     zet(50);  minStatRun(300, [det(0.6)]);                       // band 0, sterk
     klok += 10000; frameT += 280; zet(200); minStatRun(320, []); minStatPre(40);   // band 1
     klok += 5000;  frameT += 140; zet(300); minStatGegate(); minStatGegate(); minStatGegate();   // band 2
     klok += 5000;  frameT += 140; zet(null); minStatRun(310, [det(0.34)]);          // geen node, niet sterk
     klok += 5000;  frameT += 140; zet(500); minStatRun(330, [det(0.35)]);           // band 3, precies sterk
+    hoofdSoort = hoofdSoortML4;   // V11.37.33
     for (const [dt, df] of [[9000, 252], [10000, 280], [10000, 280]]) {             // meetmomenten zonder run
       klok += dt; frameT += df; minStatPre(40);
     }

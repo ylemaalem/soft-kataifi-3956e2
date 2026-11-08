@@ -483,7 +483,8 @@ async function testMeetwerk23() {
     slaPassiefMeting: ['eac878bc', 1945], kiesCountdownBron: ['8e69db98', 12851], gewGem: ['eb1936ea', 1025], vindDichtbij: ['d32386d8', 4753], meetRingSchrijf: ['60245787', 420],
     stopLogAf: ['21c4b6e6', 928], beeindigFase: ['8234b742', 1404], onGPS: ['454f7f25', 15761], berekenLeerPct: ['5d38efe9', 986], verwerkBevestigLeren: ['9163848', 8583], exporteerMeetdata: ['64c15a78', 10084] };
   // V11.37.26: exporteerMeetdata kreeg twee regels (uit.nano); zonder de regels met dat merkteken is hij gelijk.
-  const zonder26 = (f) => String(f).split(NL).filter(l => !/V11\.37\.26(?!\d)|V11\.37\.30(?!\d)|V11\.37\.31(?!\d)/.test(l)).join(NL);
+  const terug33 = (l) => l.replace(/conf < hoofdGrens\('leer'\)\) \{   \/\/ V11.37.33(?!d): de grens van het geladen model$/, 'conf < 0.20) {');   // V11.37.33: de vervangen regel in slaOp terug
+  const zonder26 = (f) => String(f).split(NL).map(terug33).filter(l => !/V11\.37\.26(?!\d)|V11\.37\.30(?!\d)|V11\.37\.31(?!\d)/.test(l)).join(NL);
   const anders2 = Object.entries(ONGEMOEID).filter(([n, [h, l]]) => fnv(zonder26(window[n])) !== h || zonder26(window[n]).length !== l).map(x => x[0]);
   eis('MA11c zestien functies voor het leren, de countdown, de lichtkeuze en de export zijn niet aangeraakt (op twee regels V11.37.26 in de export na)', anders2.length === 0, 'geen afwijking', anders2.join(', ') || 'geen');
   let code = [];

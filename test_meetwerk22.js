@@ -601,7 +601,8 @@ async function testMeetwerk22() {
   const ONGEMOEID = { berekenSchaduwWaarden: ['dfd1c572', 1799], kiesCountdownBron: ['8e69db98', 12851], slaOp: ['411179eb', 3252], slaOpIntern: ['c284229a', 2342],
     slaOpV5: ['3b4df08', 1650], schrijfV5DirectBijGroen: ['78222c0c', 1872], gewGem: ['eb1936ea', 1025], bepaalCdModus: ['261892b5', 3388],
     vindDichtbij: ['d32386d8', 4753], updateDichtbij: ['cbf57ede', 12709], slaPassiefMeting: ['eac878bc', 1945], meetRingSchrijf: ['60245787', 420], stopLogAf: ['21c4b6e6', 928] };
-  const zonder23 = (f) => String(f).split(NL).filter(l => !/V11\.37\.23(?!\d)/.test(l)).join(NL);   // V11.37.23: updateDichtbij kreeg één regel (test_meetwerk23)
+  const terug33 = (l) => l.replace(/conf < hoofdGrens\('leer'\)\) \{   \/\/ V11.37.33(?!d): de grens van het geladen model$/, 'conf < 0.20) {');   // V11.37.33: de vervangen regel in slaOp terug
+  const zonder23 = (f) => String(f).split(NL).map(terug33).filter(l => !/V11\.37\.23(?!\d)/.test(l)).join(NL);   // V11.37.23: updateDichtbij kreeg één regel (test_meetwerk23)
   const anders2 = Object.entries(ONGEMOEID).filter(([n, [h, l]]) => fnv(zonder23(window[n])) !== h || zonder23(window[n]).length !== l).map(x => x[0]);
   eis('MV11c dertien functies voor het leren, de countdown en de lichtkeuze zijn niet aangeraakt (op de regel van V11.37.23 in updateDichtbij na, zie test_meetwerk23)', anders2.length === 0, 'geen afwijking', anders2.join(', ') || 'geen');
   let code = [];
