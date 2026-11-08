@@ -1051,7 +1051,7 @@ if (typeof ort !== 'undefined') {
 //
 // De stijl volgt de eerdere labels: nummer, kastlijntje, korte omschrijving in
 // kleine letters. De CSS zet hem zelf in kapitalen (text-transform:uppercase).
-const APP_VERSIE = 'V11.37.33 — de scoregrenzen volgen het hoofdmodel (Nano gekalibreerd)';
+const APP_VERSIE = 'V11.37.34 — wachter op de Nano-worker en de derde reservestap';
 
 // ── CONSTANTEN ────────────────────────────────────────────────
 const OSM_RADIUS       = 5000;
@@ -10121,7 +10121,7 @@ const MODEL_SOORTEN = {
 };
 const MODEL_PADEN = {
   './model.onnx':            { soort: 'yolov8', naam: 'YOLOv8n',                rol: 'reserve' },   // V11.37.31: was hoofd (zie HOOFD_PADEN_NANO)
-  './model/model.onnx':      { soort: 'yolov8', naam: 'YOLOv8n (reservemodel)', rol: 'reserve2' },   // V11.37.31: was reserve (alleen nog na sl_hoofdmodel=yolov8)
+  './model/model.onnx':      { soort: 'yolov8', naam: 'YOLOv8n (reservemodel)', rol: 'reserve2' },   // V11.37.31: was reserve; V11.37.34: de derde stap na Nano en ./model.onnx
   './model/yolox_nano.onnx': { soort: 'yolox',  naam: 'YOLOX-Nano',             rol: 'hoofd' }   // V11.37.31: was schaduw
 };
 function modelSoortVan(pad, paden) {
@@ -10168,7 +10168,7 @@ function modelNaamVan(pad) {
 //
 // DE NANO-SCHADUW (K1-K7) start niet als het hoofdmodel al Nano is: hij zou
 // Nano met Nano vergelijken (vglPlan gooit dan).
-const HOOFD_PADEN_NANO = ['./model/yolox_nano.onnx', './model.onnx'];
+const HOOFD_PADEN_NANO = ['./model/yolox_nano.onnx', './model.onnx', './model/model.onnx'];   // V11.37.34: de derde stap terug
 const HOOFD_PADEN_V8 = ['./model.onnx', './model/model.onnx'];
 let hoofdPoging = 0;              // na een laadfout in de worker: het volgende pad
 let hoofdSoort = null;            // 'yolox' of 'yolov8': het model van het hoofdpad
@@ -10227,6 +10227,7 @@ function yoloxNaarV8(t) {
 }
 // De uitgestelde sessie. Gooit (zoals vroeger InferenceSession.create) als het bestand niet te halen is.
 async function hoofdSessie(pad) {
+  if (!pad) throw new Error('geen reservemodel meer');   // V11.37.34
   const soort = modelSoortVan(pad);
   await hoofdBuffer(pad);
   hoofdSoort = soort;
@@ -10253,6 +10254,36 @@ function hoofdInitFout(msg) {
   hoofdPoging++;
   laadONNXModel();
   return true;
+}
+
+// ── V11.37.34: DE WACHTER OP DE HOOFD-WORKER ───────────────────
+// © 2026 StoplichtIQ — Y. Lemaalem
+//
+// Sinds V11.37.31 rekent de hoofdthread niet mee zolang de worker laadt. Meldt
+// de worker nooit "klaar" en geen fout, dan zou er stil niets gedetecteerd
+// worden. Daarom: 20 s na de start wordt zo'n worker gestopt en neemt de
+// hoofdthread-route het over (de uitgestelde sessie, uit de bewaarde buffer),
+// met een regel in sl_modellog en een melding in beeld.
+// Een laadfout ('init: ...') blijft het volgende pad laden (hoofdInitFout); een
+// worker die crasht valt zoals altijd weg (onerror). Een laat bericht van een
+// worker die al is opgegeven, verandert niets meer (hoofdLaatBericht).
+const HOOFD_WORKER_WACHT_MS = 20000;
+let hoofdWorkerTimer = null;
+function hoofdWachterStop() { if (hoofdWorkerTimer !== null) { clearTimeout(hoofdWorkerTimer); hoofdWorkerTimer = null; } }
+function hoofdWachterStart(w, pad) { hoofdWachterStop(); hoofdWorkerTimer = setTimeout(() => hoofdWorkerOpgeven(w, pad), HOOFD_WORKER_WACHT_MS); }
+function hoofdLaatBericht(msg, w) { return w !== yoloWorker && !!msg && (msg.type === 'klaar' || msg.type === 'fout'); }
+function hoofdWorkerOpgeven(w, pad) {
+  hoofdWorkerTimer = null;
+  if (w !== yoloWorker || workerKlaar) return;
+  try { w.terminate(); } catch (e) {}
+  yoloWorker = null; workerKlaar = false; aiBezig = false;
+  try { modelLogNoteer(pad, null, 'worker gaf in 20 s geen klaar: hoofdthread'); } catch (e) {}
+  try {
+    sModelLabel.textContent = '\u26a0 Model draait zonder worker (trager): de worker startte niet in 20 s';
+    sModelLabel.style.color = 'var(--oranje)';
+    pAI.className = 'pill-dot o'; pAIT.textContent = hoofdLabel(pad) + ' \u26a0';
+  } catch (e) {}
+  try { toonToast('\u26a0\ufe0f Model draait trager: de worker startte niet'); } catch (e) {}
 }
 
 // Web Worker code
@@ -10301,7 +10332,7 @@ async function laadONNXModel() {
     } catch(e1) {
       modelTerugvalFout = (e1 && e1.message) ? e1.message : String(e1);   // V11.34.2: alleen onthouden
       modelPad = hoofdPaden()[1];   // V11.37.31: de reserve uit de lijst
-      onnxSession = await hoofdSessie(modelPad);   // V11.37.31: één download, de sessie op de hoofdthread pas als er geen worker is
+      try { onnxSession = await hoofdSessie(modelPad); } catch (e2) { modelPad = hoofdPaden()[2]; if (!modelPad) throw e2; onnxSession = await hoofdSessie(modelPad); }   // V11.37.34: de reserveketen tot en met de derde stap
     }
     if (!(modelSoortVan(modelPad) in MODEL_SOORTEN)) throw new Error('hoofdpad ' + modelPad + ': onbekende soort');   // V11.37.31: YOLOv8 of YOLOX; de worker en de nabewerking volgen de soort
     modelGeladen = true;
@@ -10328,11 +10359,14 @@ async function laadONNXModel() {
       const blob = new Blob([hoofdWorkerCode(modelPad)], { type:'application/javascript' });   // V11.37.31: de Nano-worker voor een YOLOX-bestand
       const workerUrl = URL.createObjectURL(blob);
       yoloWorker = new Worker(workerUrl);
+      const dezeWorker = yoloWorker; hoofdWachterStart(dezeWorker, modelPad);   // V11.37.34: de wachter, zie het blok V11.37.34
       yoloWorker.onmessage = function(e) {
         const msg = e.data;
         if (aiVangnetBericht(msg)) return;   // V11.37.18: C7, een laat antwoord na het vangnet, zie daar
+        if (hoofdLaatBericht(msg, dezeWorker)) return;   // V11.37.34: de wachter, zie het blok V11.37.34
         if (hoofdInitFout(msg)) return;   // V11.37.31: het bestand laadt niet in de worker: het volgende pad
         if (msg.type === 'klaar') {
+          hoofdWachterStop();   // V11.37.34: de wachter, zie het blok V11.37.34
           workerKlaar = true; workerFoutTeller = 0;
           try { startLogWorkerKlaar(); } catch (_) {}   // V11.37.27: alleen meten
         } else if (msg.type === 'resultaat') {
