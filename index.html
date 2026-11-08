@@ -1051,7 +1051,7 @@ if (typeof ort !== 'undefined') {
 //
 // De stijl volgt de eerdere labels: nummer, kastlijntje, korte omschrijving in
 // kleine letters. De CSS zet hem zelf in kapitalen (text-transform:uppercase).
-const APP_VERSIE = 'V11.37.31 — YOLOX-Nano (eigen-2 last) is het hoofdmodel; YOLOv8n blijft als reserve';
+const APP_VERSIE = 'V11.37.33 — de scoregrenzen volgen het hoofdmodel (Nano gekalibreerd)';
 
 // ── CONSTANTEN ────────────────────────────────────────────────
 const OSM_RADIUS       = 5000;
@@ -3212,7 +3212,7 @@ function slaOp(osmId, richting, duur, conf=null, bypassAfstand=false, gewichtOve
   }
   const obsNu = faseStart ? Math.round((performance.now() - faseStart) / 1000) : null;
   const totaalMCheck = Object.keys(DD).reduce((s, d) => s + laadM(osmId, d).length, 0);
-  if (totaalMCheck === 0 && (obsNu == null || obsNu < OBS_MINIMUM) && conf != null && conf < 0.20) {
+  if (totaalMCheck === 0 && (obsNu == null || obsNu < OBS_MINIMUM) && conf != null && conf < hoofdGrens('leer')) {   // V11.37.33: de grens van het geladen model
     logOpslagMis('nieuw_lage_conf', { node: osmId, dur: duur });
     return false;
   }
@@ -9882,7 +9882,7 @@ function minStatRun(ms, detecties) {
     minStat.n++; minStat.r[b]++;
     if (typeof ms === 'number' && ms >= 0) { minStat.inf += ms; minStat.infN++; }
     if (typeof snelheidKmh === 'number' && !isNaN(snelheidKmh)) { minStat.kmh += snelheidKmh; minStat.kmhN++; }
-    if (Array.isArray(detecties) && detecties.some(d => familieScore(d) >= MINUUT_STERK)) minStat.s[b]++;
+    if (Array.isArray(detecties) && detecties.some(d => familieScore(d) >= hoofdGrens('sterk'))) minStat.s[b]++;   // V11.37.33: de grens van het geladen model
   } catch (e) {}
 }
 function minStatPre(ms) {
@@ -10164,9 +10164,7 @@ function modelNaamVan(pad) {
 // vijf filters, tikzone en NMS; alleen de twee drempels volgen het geladen
 // model (hoofdConf/hoofdTapConf: Nano 0,07 en 0,03 zoals in de schaduwproef,
 // YOLOv8 0,10 en 0,04 zoals altijd).
-// LET OP (niet in deze versie veranderd): verderop staan vaste scoregrenzen die
-// op YOLOv8 zijn afgesteld (S2 0,35 en 0,50, trainframes 0,55, de leergeheugen-
-// poort). Nano-scores (object x klasse) liggen anders verdeeld.
+// De vaste scoregrenzen verderop volgen sinds V11.37.33 ook het model (hoofdGrens).
 //
 // DE NANO-SCHADUW (K1-K7) start niet als het hoofdmodel al Nano is: hij zou
 // Nano met Nano vergelijken (vglPlan gooit dan).
@@ -10192,6 +10190,29 @@ async function hoofdBuffer(pad) {
 }
 function hoofdConf() { return hoofdSoort === 'yolox' ? NANO_CONF : CONF_DREMPEL; }
 function hoofdTapConf() { return hoofdSoort === 'yolox' ? NANO_TAPCONF : TAP_CONF_DREMPEL; }
+
+// ── V11.37.33: DE VASTE SCOREGRENZEN VOLGEN HET GELADEN HOOFDMODEL ──
+// © 2026 StoplichtIQ — Y. Lemaalem
+//
+// Nano-scores (object x klasse) liggen hoger dan die van YOLOv8. Elke grens
+// heeft daarom twee waarden: [YOLOv8 (ongewijzigd), Nano]. De Nano-waarde is
+// de laagste (stap 0,05, niet onder de basisdrempel 0,07) waarbij het aandeel
+// detecties zonder label niet hoger is dan bij YOLOv8 op de oude grens, op
+// BEIDE labelsets (B4v2+B5v2 en de oude B4+B5), oplopend gemaakt. 'groenStabiel'
+// is alleen op de klasse groen bepaald. Zolang er geen model geladen is
+// (hoofdSoort null) gelden de YOLOv8-waarden.
+const SCORE_GRENS = {
+  leer:         [0.20, 0.07],                     // slaOp: eerste meting van een nieuw licht
+  s2Fam:        [0.35, 0.15],                     // S2: minimum om te verwerken
+  sterk:        [MINUUT_STERK, 0.15],             // minuutstatistiek (alleen meten)
+  fscore:       [FSCORE_OVERRIDE_DREMPEL, 0.15],  // snelle bevestiging bij een onverwachte omslag
+  groenStabiel: [GREEN_STABIEL_DREMPEL, 0.10],    // groen-instort (oranje-beelden verzamelen)
+  s2Aanwezig:   [0.50, 0.70],                     // S2: aanwezigheid opslaan
+  tfTwijfelS2:  [0.55, 0.75],                     // trainframe S2 krijgt het merk 'twijfel'
+  s1Twijfel:    [0.60, 0.75],                     // twijfelframe bij de eerste detectie
+  camNode:      [0.60, 0.75],                     // camera-node-statistiek
+};
+function hoofdGrens(naam) { const g = SCORE_GRENS[naam]; return hoofdSoort === 'yolox' ? g[1] : g[0]; }
 function hoofdWorkerCode(pad) { return modelSoortVan(pad) === 'yolox' ? NANO_WORKER_CODE : YOLO_WORKER_CODE; }
 function hoofdLabel(pad) { return modelSoortVan(pad) === 'yolox' ? 'Nano' : 'YOLOv8n'; }
 // (1, N, 9) van YOLOX naar de (1, 8, N) die postprocessYOLO leest; dezelfde som als in NANO_WORKER_CODE.
@@ -11716,7 +11737,7 @@ function _verwerkWorkerResultaatKern(detecties) {
   };
   nieuwAIResultaat = true;
   // V8.9.12: Camera-node detectiestatistiek — registreer als conf≥0.60, geen OSM binnen 40m, rijdend
-  if (gesmoothedScore >= 0.60 && snelheidKmh > 5 && huidigePos) {
+  if (gesmoothedScore >= hoofdGrens('camNode') && snelheidKmh > 5 && huidigePos) {   // V11.37.33: de grens van het geladen model
     const heeftOSMDichtbij = osmCache.some(sl => afstand(huidigePos.lat, huidigePos.lon, sl.lat, sl.lon) < 40);
     if (!heeftOSMDichtbij) {
       try {
@@ -13032,7 +13053,7 @@ function verwerkS2(overigeBboxen) {
     // V11.16.7: familie-som i.p.v. topklasse-score (zelfde reden als postprocess r2851).
     // Leergeheugen-gate r3418 en trainframe-twijfel r3420 blijven op bbox.score (topklasse)
     // want die beoordelen klasse-specifieke zekerheid, niet aanwezigheid-van-stoplicht.
-    if (familieScore(bbox) < 0.35) continue;
+    if (familieScore(bbox) < hoofdGrens('s2Fam')) continue;   // V11.37.33: de grens van het geladen model
     zichtbareS2Nodes.add(match.nodeId);
     s2BboxTeller.set(match.nodeId, (s2BboxTeller.get(match.nodeId)||0)+1);
     s2ActieveBboxen++;
@@ -13042,9 +13063,9 @@ function verwerkS2(overigeBboxen) {
     // sl_s2_{nodeId} — niet naar sl_v4_, zodat échte cyclusmetingen niet
     // verdrongen worden via de MAX_METINGEN-eviction. In-memory s2BboxTeller
     // (r3983) blijft de confidence-bron voor node-selectie.
-    if (kleur && bbox.score >= 0.50) slaS2Aanwezigheid(match.nodeId, kleur);
+    if (kleur && bbox.score >= hoofdGrens('s2Aanwezig')) slaS2Aanwezigheid(match.nodeId, kleur);   // V11.37.33: de grens van het geladen model
     // Trainframes: ook bij lagere confidence (0.35+) — model moet juist van twijfelgevallen leren
-    if (trainframesAan) slaTrainframeOp('s2', bbox.klasse, bbox.cx/YOLO_SIZE, bbox.cy/YOLO_SIZE, bbox.w/YOLO_SIZE, bbox.h/YOLO_SIZE, bbox.score < 0.55);
+    if (trainframesAan) slaTrainframeOp('s2', bbox.klasse, bbox.cx/YOLO_SIZE, bbox.cy/YOLO_SIZE, bbox.w/YOLO_SIZE, bbox.h/YOLO_SIZE, bbox.score < hoofdGrens('tfTwijfelS2'));   // V11.37.33: de grens van het geladen model
     s2SessieTeller++;
   }
   for (const [nodeId] of s2BboxTeller.entries()) {
@@ -13231,7 +13252,7 @@ function verwerkDetecties() {
     laatsteDetectieTijd = Date.now();   // V11.18.17: klok naast de misser-teller
     // V11.17.11 Laag 3a: fScore-teller loopt PARALLEL aan aiTeller.
     // Reset op elke lage-fScore-frame (streak-eis) én op kleurwissel.
-    const _hoogFScore = (aiR.fScore || 0) >= FSCORE_OVERRIDE_DREMPEL;
+    const _hoogFScore = (aiR.fScore || 0) >= hoofdGrens('fscore');   // V11.37.33: de grens van het geladen model
     if (aiR.kleur === aiKleur) {
       aiTeller++;
       hogeFScoreRuns = _hoogFScore ? hogeFScoreRuns + 1 : 0;
@@ -13267,7 +13288,7 @@ function verwerkDetecties() {
     }
 
     // Twijfelframe bij eerste detectie voor trainingsdata
-    if (aiTeller === 1 && trainframesAan && aiR.box && aiR.score < 0.60) {
+    if (aiTeller === 1 && trainframesAan && aiR.box && aiR.score < hoofdGrens('s1Twijfel')) {   // V11.37.33: de grens van het geladen model
       const kNr = aiR.kleur==='rood'?0:aiR.kleur==='groen'?1:3;
       const bx=aiR.box.x-(cropRegio?cropRegio.x:0), by=aiR.box.y-(cropRegio?cropRegio.y:0);
       const yx=bx*lbScale+lbPadX, yy=by*lbScale+lbPadY;
@@ -19849,8 +19870,8 @@ try { document.addEventListener('pointerdown', richtingTikWacht, true); } catch 
 //   door       door de filters heen; dan wees een latere stap hem af
 function detLogAfwijsFilter(b, fam) {
   if (!b) return 'geen';
-  if (b.tap) return !(fam >= TAP_CONF_DREMPEL) ? 'conf_tik' : (b.h < 2 || b.w <= 0) ? 'klein' : 'door';
-  if (!(fam >= CONF_DREMPEL)) return 'conf';
+  if (b.tap) return !(fam >= hoofdTapConf()) ? 'conf_tik' : (b.h < 2 || b.w <= 0) ? 'klein' : 'door';   // V11.37.33: de grens van het geladen model
+  if (!(fam >= hoofdConf())) return 'conf';   // V11.37.33: de grens van het geladen model
   if (b.cy / YOLO_SIZE > b.maxY) return 'laag';
   if (b.h < MIN_H_PX) return 'klein';
   if (b.w / YOLO_SIZE > MAX_BOX_W_RATIO) return 'breed';
@@ -22471,7 +22492,7 @@ function verwerkGreenCollapse(detecties, gesmoothedScore) {
     // Geen groene detectie — check collapse conditie
     const gemGreen = greenConfHistory.length > 0
       ? greenConfHistory.reduce((s,v) => s+v, 0) / greenConfHistory.length : 0;
-    const wasStabiel = greenConfHistory.length >= 2 && gemGreen > GREEN_STABIEL_DREMPEL;
+    const wasStabiel = greenConfHistory.length >= 2 && gemGreen > hoofdGrens('groenStabiel');   // V11.37.33: de grens van het geladen model
 
     if (wasStabiel && !oranjeCollapseTrigger) {
       oranjeCollapseTrigger = true;
