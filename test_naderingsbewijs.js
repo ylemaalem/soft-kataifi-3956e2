@@ -581,9 +581,11 @@ async function testNaderingsbewijs() {
           && L16.refs.every(r => r.zelfde && r.voor),
         'tikTel en alles wat erbij komt', JSON.stringify(L16.refs || []));
     const u16d = await rit({ ...optF, lampBijI: iLaatst, oudeTik: true });
-    eis('NB16d de twee oude routes laten de lamp nog wel los (ze zijn gepind, NB14); na A1 komen ze hier niet meer aan de beurt',
-        wissel(u16d, 8102) >= 4.5 && !!u16d.lamp && u16d.lamp.object === false,
-        'oude route, lamp los', 'wissel ' + wissel(u16d, 8102) + ', object ' + (u16d.lamp && u16d.lamp.object));
+    // V11.37.35: de oude route wisselt de node nog steeds, maar binnen hetzelfde kruispunt blijft de camera-selectie
+    // staan (geselecteerd = blijven, test_slot_blijft). Tot V11.37.34 liet die route de lamp los.
+    eis('NB16d de twee oude routes wisselen nog (gepind, NB14); sinds V11.37.35 blijft de lamp daarbij (zelfde kruispunt)',
+        wissel(u16d, 8102) >= 4.5 && !!u16d.lamp && u16d.lamp.object === true,
+        'oude route, lamp blijft', 'wissel ' + wissel(u16d, 8102) + ', object ' + (u16d.lamp && u16d.lamp.object));
 
     // ═══ NB14 — REGRESSIE ════════════════════════════════════
     // De twee bestaande routes, byte voor byte gelijk aan V11.26.0.
@@ -599,7 +601,7 @@ async function testNaderingsbewijs() {
       const zonderV113712 = (s) => zonderV113713(s).split('\n').filter(l => !/V11\.37\.12(?!\d)/.test(l)).join('\n');   // V11.37.12: de rem op de kaartvraag en de dekking van de fietslijst (test_overpass); hier terug
       const zonderV113711 = (s) => zonderV113712(s).split('\n').filter(l => !/V11\.37\.11(?!\d)/.test(l)).join('\n');   // V11.37.11: de tegenrichting-regel (test_tegenrichting); hier terug
       const terugV11378 = (s) => zonderV113711(s).replace("      if (wisselStaat.min === null || af < wisselStaat.min) { wisselStaat.min = af; wisselStaat.minT = Date.now(); }   // V11.37.8: en wanneer (tMin)", "      if (wisselStaat.min === null || af < wisselStaat.min) wisselStaat.min = af;").replace("  if (!dichtstbijOSM) { logOpslagMis('bevestig_geen_licht', { element: categorie }); return; }   // V11.37.8: niet meer stil", "  if (!dichtstbijOSM) return;").split('\n').filter(l => !/V11\.37\.8(?!\d)/.test(l)).join('\n');   // V11.37.8: het fietsfilter en de bevroren knoppen (test_fietslicht); hier terug
-      const src = terugV11378(window[naam]).split('\n').filter(l => !/V11\.37\.4(?!\d)/.test(l)).join('\n');
+      const src = terugV11378(window[naam]).split('\n').filter(l => !/V11\.37\.4(?!\d)|V11\.37\.35(?!\d)/.test(l)).join('\n');   // V11.37.35: ook de toegevoegde regels van V11.37.35 (test_slot_blijft)
       eis('NB14 ' + naam + ' is byte-gelijk aan V11.26.0', fnv(src) === h && src.length === len,
           h + ' / ' + len, fnv(src) + ' / ' + src.length);
     }

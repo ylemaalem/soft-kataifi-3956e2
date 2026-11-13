@@ -43,7 +43,7 @@
 //      s.onload = () => testTikWint().then(r => console.table(r.regels));
 // ═══════════════════════════════════════════════════════════════
 // V11.37.21: de regels met dit merkteken weg, zodat de vergelijkingen hieronder de functies van vóór V11.37.21 blijven toetsen (zie test_meetwerk21)
-function zonderV113721(s) { return String(s).split('\n').map(terugV113731).map(terugV113726).filter(l => !/V11\.37\.21(?!\d)|V11\.37\.22(?!\d)|V11\.37\.23(?!\d)|V11\.37\.25(?!\d)|V11\.37\.26(?!\d)|V11\.37\.30(?!\d)|V11\.37\.31(?!\d)|V11\.37\.34(?!\d)/.test(l)).join('\n'); }   // V11.37.22: ook de meetregels van V11.37.22 (test_meetwerk22); V11.37.23: idem (test_meetwerk23); V11.37.25: idem (test_plaatsen)   // V11.37.26: idem (test_schaduw_nano), met terugV113726
+function zonderV113721(s) { return String(s).split('\n').map(terugV113731).map(terugV113726).filter(l => !/V11\.37\.21(?!\d)|V11\.37\.22(?!\d)|V11\.37\.23(?!\d)|V11\.37\.25(?!\d)|V11\.37\.26(?!\d)|V11\.37\.30(?!\d)|V11\.37\.31(?!\d)|V11\.37\.34(?!\d)|V11\.37\.35(?!\d)/.test(l)).join('\n'); }   // V11.37.22: ook de meetregels van V11.37.22 (test_meetwerk22); V11.37.23: idem (test_meetwerk23); V11.37.25: idem (test_plaatsen)   // V11.37.26: idem (test_schaduw_nano), met terugV113726
 // V11.37.26: drie regels van laadONNXModel zijn vervangen (de modelnaam komt uit MODEL_PADEN, test_schaduw_nano).
 // Die gaan hier terug naar de oude tekst; daarna vallen de regels met merkteken V11.37.26 weg zoals de andere.
 // V11.37.31: Nano is het hoofdmodel; deze regels zijn VERVANGEN (niet toegevoegd). Hier gaat precies de oude regel terug,
@@ -299,7 +299,8 @@ async function testTikWint() {
     schoon(); zetVol();
     stickyDetectie = { cx: 1, cy: 1, familie: 'rood', hoogte: 40, klasse: 0, tijd: Date.now(), bron: 'auto' };
     resetNeutraal('dropout');
-    eis('TW4e zonder tik wist een uitval het auto-slot zoals voorheen', stickyDetectie === null, 'null', JSON.stringify(stickyDetectie));
+    eis('TW4e V11.37.35: zonder tik overleeft het auto-slot een uitval (was: gewist); geselecteerd = blijven, zie test_slot_blijft',
+        !!stickyDetectie && stickyDetectie.bron === 'auto', 'auto-slot blijft', JSON.stringify(stickyDetectie));
     const groen = zc(verwerkFase);
     eis('TW4f groen wist de sticky alleen zonder tik',
         /if \(bboxOverride === null\) \{ stickyDetectie = null; stickyMissTeller = 0; \}/.test(groen)
@@ -383,7 +384,7 @@ async function testTikWint() {
     r = selecteerBesteDetectie([det({ cx: 320, cy: 200 }, 0, 0.8), det({ cx: 560, cy: 210 }, 0, 0.8)]);
     eis('TW9a zonder tik kiest de scorelus zoals altijd: de middelste lamp, slot vrij',
         !!r.s1 && r.s1.cx === 320 && bboxSlot === 'vrij', '320 + vrij', (r.s1 ? r.s1.cx : 'geen') + ' + ' + bboxSlot);
-    const ss = String(stickySlotMatch)
+    const ss = String(stickySlotMatch).split('\n').filter(l => !/V11\.37\.35(?!\d)/.test(l)).join('\n')   // V11.37.35: zonder de regel met het burengeheugen
       .replace('function stickySlotMatch(bruikbaar, straal = STICKY_MATCH_PX) {   // V11.33.0: de tik-tak geeft tikStraalYolo()', 'function stickySlotMatch(bruikbaar) {')
       .replace('if (afst < straal) {', 'if (afst < STICKY_MATCH_PX) {');
     eis('TW9b stickySlotMatch zonder straal-argument is byte-gelijk aan V11.32.0 — het auto-slot verandert niet',

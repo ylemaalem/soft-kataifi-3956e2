@@ -594,7 +594,7 @@ async function testMeetwerk22() {
   const telAf = Object.entries(telVerwacht).filter(([n, m]) => merk(window[n]) !== m).map(([n]) => n + ' ' + merk(window[n]));
   eis('MV11a acht functies krijgen regels met merkteken V11.37.22: detLogSchrijf 4, exporteerMeetdata 3, startCd en verwerkFase 2, de andere 1',
       telAf.length === 0, 'precies zoveel', telAf.join(', ') || 'precies zoveel');
-  const zonder22 = (f) => String(f).split(NL).filter(l => !/V11\.37\.22(?!\d)|V11\.37\.23(?!\d)|V11\.37\.26(?!\d)|V11\.37\.30(?!\d)|V11\.37\.31(?!\d)|V11\.37\.34(?!\d)/.test(l)).join(NL);   // V11.37.23: ook de regels van V11.37.23 (test_meetwerk23); V11.37.26: idem (test_schaduw_nano)
+  const zonder22 = (f) => String(f).split(NL).filter(l => !/V11\.37\.22(?!\d)|V11\.37\.23(?!\d)|V11\.37\.26(?!\d)|V11\.37\.30(?!\d)|V11\.37\.31(?!\d)|V11\.37\.34(?!\d)|V11\.37\.35(?!\d)/.test(l)).join(NL);   // V11.37.23: ook de regels van V11.37.23 (test_meetwerk23); V11.37.26: idem (test_schaduw_nano)
   const anders = Object.entries(V113721).filter(([n, [h, l]]) => { const s = zonder22(window[n]); return fnv(s) !== h || s.length !== l; })
     .map(([n]) => n + ' ' + fnv(zonder22(window[n])) + '/' + zonder22(window[n]).length);
   eis('MV11b zonder die regels zijn ze byte-gelijk aan V11.37.21 (alles is toegevoegd, niets gewijzigd)', anders.length === 0, 'geen afwijking', anders.join(', ') || 'geen');
@@ -602,7 +602,7 @@ async function testMeetwerk22() {
     slaOpV5: ['3b4df08', 1650], schrijfV5DirectBijGroen: ['78222c0c', 1872], gewGem: ['eb1936ea', 1025], bepaalCdModus: ['261892b5', 3388],
     vindDichtbij: ['d32386d8', 4753], updateDichtbij: ['cbf57ede', 12709], slaPassiefMeting: ['eac878bc', 1945], meetRingSchrijf: ['60245787', 420], stopLogAf: ['21c4b6e6', 928] };
   const terug33 = (l) => l.replace(/conf < hoofdGrens\('leer'\)\) \{   \/\/ V11.37.33(?!d): de grens van het geladen model$/, 'conf < 0.20) {');   // V11.37.33: de vervangen regel in slaOp terug
-  const zonder23 = (f) => String(f).split(NL).map(terug33).filter(l => !/V11\.37\.23(?!\d)/.test(l)).join(NL);   // V11.37.23: updateDichtbij kreeg één regel (test_meetwerk23)
+  const zonder23 = (f) => String(f).split(NL).map(terug33).filter(l => !/V11\.37\.23(?!\d)|V11\.37\.35(?!\d)/.test(l)).join(NL);   // V11.37.35: ook de toegevoegde regels van V11.37.35 (test_slot_blijft)   // V11.37.23: updateDichtbij kreeg één regel (test_meetwerk23)
   const anders2 = Object.entries(ONGEMOEID).filter(([n, [h, l]]) => fnv(zonder23(window[n])) !== h || zonder23(window[n]).length !== l).map(x => x[0]);
   eis('MV11c dertien functies voor het leren, de countdown en de lichtkeuze zijn niet aangeraakt (op de regel van V11.37.23 in updateDichtbij na, zie test_meetwerk23)', anders2.length === 0, 'geen afwijking', anders2.join(', ') || 'geen');
   let code = [];

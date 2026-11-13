@@ -140,9 +140,10 @@ function testBboxAutoslot() {
         'slot niet in één frame',
         !!r2a.s1 && r2a.s1.cx === ANDERE_RIJBAAN,
         String(ANDERE_RIJBAAN), r2a.s1 ? String(r2a.s1.cx) : 'geen');
-    eis('A2b maar de uitdager wordt wél genoteerd — de klok loopt',
-        !!autoSlotUitdager && autoSlotUitdager.cx === MIDDEN,
-        'uitdager op ' + MIDDEN,
+    // V11.37.35: geselecteerd = blijven. Er bestaat geen uitdager meer (SLOT_BLIJFT); zie test_slot_blijft.
+    eis('A2b V11.37.35: er wordt geen uitdager meer genoteerd — de score beslist niet over het slot',
+        autoSlotUitdager === null,
+        'geen uitdager',
         autoSlotUitdager ? String(autoSlotUitdager.cx) : 'geen');
     // vijf runs binnen hetzelfde ogenblik: nog steeds te kort
     let r2b;
@@ -164,10 +165,10 @@ function testBboxAutoslot() {
     selecteerBesteDetectie([det(ANDERE_RIJBAAN, 210), det(MIDDEN, 200)]);
     klokTerug(AUTOSLOT_UITDAGER_MS + 100);
     const r3 = selecteerBesteDetectie([det(ANDERE_RIJBAAN, 210), det(MIDDEN, 200)]);
-    eis('A3 na AUTOSLOT_UITDAGER_MS wint de uitdager het slot alsnog over',
-        !!r3.s1 && r3.s1.cx === MIDDEN
-          && stickyDetectie && Math.round(stickyDetectie.cx) === MIDDEN,
-        String(MIDDEN) + ' + slot verhuisd',
+    eis('A3 V11.37.35: ook na AUTOSLOT_UITDAGER_MS houdt het slot vast (was: de uitdager won)',
+        !!r3.s1 && r3.s1.cx === ANDERE_RIJBAAN
+          && stickyDetectie && Math.round(stickyDetectie.cx) === ANDERE_RIJBAAN,
+        String(ANDERE_RIJBAAN) + ' + slot blijft',
         (r3.s1 ? r3.s1.cx : 'geen') + ' + slot op '
           + (stickyDetectie ? Math.round(stickyDetectie.cx) : 'weg'));
     eis('A3b en de uitdagersklok staat daarna weer op nul',
@@ -206,8 +207,8 @@ function testBboxAutoslot() {
     eis('A3e springt de uitdager naar een andere plek, dan is het een andere ' +
         'box en begint de klok opnieuw',
         !!r3e.s1 && r3e.s1.cx === ANDERE_RIJBAAN
-          && !!autoSlotUitdager && (Date.now() - autoSlotUitdager.sinds) < 200,
-        'slot houdt vast, klok vers',
+          && autoSlotUitdager === null,   // V11.37.35: geen uitdagersklok meer
+        'slot houdt vast, geen klok',
         (r3e.s1 ? r3e.s1.cx : 'geen') + ', klok '
           + (autoSlotUitdager ? (Date.now() - autoSlotUitdager.sinds) + ' ms' : 'weg'));
 
@@ -223,9 +224,9 @@ function testBboxAutoslot() {
         autoSlotActief() === true, 'true', String(autoSlotActief()));
     stickyDetectie.tijd = Date.now() - (STICKY_MISS_MS + 500);
     const r4c = selecteerBesteDetectie([det(100, 150)]);
-    eis('A4c pas na STICKY_MISS_MS laat het slot los en kiest de app weer vrij',
-        autoSlotActief() === false && !!r4c.s1 && r4c.s1.cx === 100,
-        'slot los, box 100',
+    eis('A4c V11.37.35: ook na STICKY_MISS_MS blijft het slot staan en wacht (was: los en vrij kiezen)',
+        autoSlotActief() === true && r4c.s1 === null && r4c.afwijsReden === 'autoslot_miss',
+        'slot blijft, geen box',
         'actief=' + autoSlotActief() + ', gekozen=' + (r4c.s1 ? r4c.s1.cx : 'geen'));
     eis('A4d dat is hetzelfde getal als stickyMagLosgelaten gebruikt — geen ' +
         'tweede drempel voor dezelfde vraag',
