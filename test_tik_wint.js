@@ -315,6 +315,9 @@ async function testTikWint() {
     schoon({ afst: 20 }); zetVol(); tikMetSticky(A);
     bboxOverrideTijd = Date.now() - 600000; bboxOverrideLaatsteMatch = Date.now() - 600000;
     eis('TW5a tien minuten niets gezien: de tik leeft', tapLockLeeft() === true, 'true', String(tapLockLeeft()));
+    // V11.37.35: sinds de veilige bovengrens (3 min, review 14 nov) leeft een tik in selecteerBesteDetectie hoogstens
+    // 3 minuten; TW5b toetst daarom met een tik van 2:50 (laatste match 10 min geleden), TW5d de grens zelf.
+    bboxOverrideTijd = Date.now() - 170000;   // V11.37.35
     r = selecteerBesteDetectie([det({ cx: 320, cy: 200 }, 0, 0.95, 20, 60)]);   // sterk, midden in beeld
     eis('TW5b ... en een sterke lamp midden in beeld wordt niet gekozen — de scorelus draait niet eens',
         r.s1 === null && bboxOverride !== null && voorkeursBboxCx === null && autoSlotActief() === false,
@@ -322,6 +325,11 @@ async function testTikWint() {
         (r.s1 ? 'box' : 'null') + ', voorkeur ' + voorkeursBboxCx + ', auto ' + autoSlotActief());
     eis('TW5c tapLockLeeft kent geen klok meer', !/TAP_KWIJT_MS|Date\.now/.test(zc(tapLockLeeft)), 'geen klok', zc(tapLockLeeft).replace(/\s+/g, ' '));
 
+    schoon({ afst: 20 }); zetVol(); tikMetSticky(A);   // V11.37.35
+    bboxOverrideTijd = Date.now() - 600000;   // V11.37.35
+    selecteerBesteDetectie([det({ cx: 320, cy: 200 }, 0, 0.95, 20, 60)]);   // V11.37.35
+    eis('TW5d V11.37.35 veilige bovengrens: een tik van 10 minuten gaat bij de volgende run los, met een los-regel max_3min',   // V11.37.35
+        bboxOverride === null && tiklog().some(x => x.s === 'los' && x.reden === 'max_3min'), 'los, max_3min', JSON.stringify(bboxOverride));   // V11.37.35
     // ═══ TW6 — F6: DE ZWAKKE ZONE ══════════════════════════
     const tensor = (ankers) => {
       const n = ankers.length, t = new Float32Array((4 + NC) * n);

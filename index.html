@@ -11284,6 +11284,7 @@ function autoSlotZet(det) {
 //   los: 'tik' (een nieuwe tik), 'voorbij', 'passage', 'achter', 'geen_licht'
 //   (GPS: het kruispunt is voorbij), 'kruispunt' (een mast van een ANDER
 //   kruispunt), 'startscherm' (de camera stopt).
+//   V11.37.35 bovengrens: 'max_3min' en 'stilstand_2min' (slotBovengrens).
 const SLOT_BLIJFT          = true;
 const SLOT_BUUR_MIN_FACTOR = 0.75;   // zelfde maat als TIK_VAST_FACTOR
 const SLOT_BUUR_MS         = 4000;   // een buur die zo lang niet gezien is, vervalt
@@ -11378,6 +11379,35 @@ function slotHerstel(b) {
   stickyDetectie = b.stickyDetectie; stickyMissTeller = b.stickyMissTeller;
 }
 
+// V11.37.35 VEILIGE BOVENGRENS (review 14 nov). "Kruispunt voorbij" komt alleen uit GPS
+// V11.37.35 (passage, achter, geen_licht, voorbij, of een mast van een ander kruispunt).
+// V11.37.35 Valt GPS weg of sta je stil, dan gebeurt dat nooit. Daarom: los na 3 minuten
+// V11.37.35 selectie ('max_3min'), of na 2 minuten stilstand met selectie ('stilstand_2min').
+// V11.37.35 Stilstand = snelheidKmh onder TIK_VAST_STIL_KMH; zonder GPS blijft de laatste
+// V11.37.35 snelheid staan, dan vangt de grens van 3 minuten het op.
+const SLOT_MAX_MS      = 180000;   // V11.37.35
+const SLOT_STIL_MAX_MS = 120000;   // V11.37.35
+let slotStilSinds = null;          // V11.37.35
+function slotBovengrens() {   // V11.37.35
+  try {   // V11.37.35
+    if (!SLOT_BLIJFT) return;   // V11.37.35
+    const s = stickyDetectie, tik = bboxOverride !== null;   // V11.37.35
+    if (!tik && !s) { slotStilSinds = null; return; }   // V11.37.35
+    const nu = Date.now();   // V11.37.35
+    const begin = tik ? bboxOverrideTijd : ((s && s.sinds) || 0);   // V11.37.35
+    const kmh = (typeof snelheidKmh === 'number' && !isNaN(snelheidKmh)) ? snelheidKmh : null;   // V11.37.35
+    if (kmh !== null && kmh < TIK_VAST_STIL_KMH) { if (slotStilSinds === null) slotStilSinds = nu; } else slotStilSinds = null;   // V11.37.35
+    let reden = null;   // V11.37.35
+    if (begin && nu - begin >= SLOT_MAX_MS) reden = 'max_3min';   // V11.37.35
+    else if (slotStilSinds !== null && nu - slotStilSinds >= SLOT_STIL_MAX_MS) reden = 'stilstand_2min';   // V11.37.35
+    if (!reden) return;   // V11.37.35
+    slotLosLog(reden);   // V11.37.35
+    tikLogLos(reden);   // V11.37.35
+    bboxOverride = null; bboxOverrideTijd = 0; bboxOverrideCamX = null; bboxOverrideCamY = null; bboxOverrideMatchTeller = 0;   // V11.37.35
+    stickyDetectie = null; stickyMissTeller = 0; tapSeedDetectie = null; slotStilSinds = null;   // V11.37.35
+  } catch (e) {}   // V11.37.35
+}   // V11.37.35
+
 // ── V11.37.35: DE CROP VOLGT DE GESELECTEERDE LAMP ───────────────
 // © 2026 StoplichtIQ — Y. Lemaalem
 //
@@ -11415,6 +11445,7 @@ function debugWeergaveAan() {
 
 function selecteerBesteDetectie(detecties) {
   tikTelWaak();   // V11.34.1: meetregel, beslist niets
+  slotBovengrens();   // V11.37.35: 3 min, of 2 min stilstand
   // V11.17.7 W1: laatsteAfwijsReden houdt bij welke filter/tak het beste-kandidaat
   // laat vallen. Alleen loggen, geen gedragswijziging.
   let laatsteAfwijsReden = null;

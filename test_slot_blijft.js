@@ -36,7 +36,8 @@ function testSlotBlijft() {
     voorkeursBboxCx, voorkeursBboxCy, voorkeursBboxRuns, voorkeursBboxTijd, voorkeursBboxStart,
     lbScale, lbPadX, lbPadY, cropRegio, headingBuffer: [...headingBuffer],
     klv: klasseVerdelingLog.slice(), conflog: localStorage.getItem('sl_conflog'),
-    tikLogArr, tikLogStop, tikLogVorige, tikLogLevend, tikTel, tiklog: localStorage.getItem(TIKLOG_SLEUTEL)
+    tikLogArr, tikLogStop, tikLogVorige, tikLogLevend, tikTel, tiklog: localStorage.getItem(TIKLOG_SLEUTEL),
+    slotStilSinds
   };
   tikLogStop = true;   // de tiklog schrijft niets tijdens deze toets
   const echtNu = Date.now;
@@ -60,7 +61,7 @@ function testSlotBlijft() {
     lbScale = 1; lbPadX = 0; lbPadY = 0; cropRegio = null;
     headingBuffer.length = 0;
     voorkeursBboxCx = null; voorkeursBboxCy = null; voorkeursBboxRuns = 0; voorkeursBboxTijd = 0; voorkeursBboxStart = 0;
-    bboxSlot = 'onbekend';
+    bboxSlot = 'onbekend'; slotStilSinds = null;
   };
   // Eén run: de detecties gaan door selecteerBesteDetectie; de klok loopt DT door.
   // Telt een wissel als s1 er is en NIET jouw lamp is (te herkennen aan cx).
@@ -159,6 +160,43 @@ function testSlotBlijft() {
     eis('SB5e een tik op een ander licht wint direct (b)', nT.metEigen === 1 && stickyDetectie && stickyDetectie.bron === 'tik',
         'getikte lamp, bron tik', nT.s1s.join(',') + ' bron ' + (stickyDetectie && stickyDetectie.bron));
 
+    // ═══ SB7 — veilige bovengrens (review 14 nov): 3 min, of 2 min stilstand ═══
+    const laatsteLos = () => { const c = JSON.parse(localStorage.getItem('sl_conflog') || '[]'); return c[c.length - 1] || {}; };
+    const loop = (ms, f, eigenCx) => speel(rij(Math.round(ms / DT), () => f), eigenCx);
+    // rijdend (20 km/u), auto-slot, eigen lamp altijd in beeld: 2:59 blijft, 3:00 los
+    opzet(); autoSlotZet(det(A, Y, 0.30));
+    const r7a = loop(179000, [det(A, Y, 0.30)], A);
+    const vast7a = !!stickyDetectie;
+    loop(1000, [], A);
+    const l7a = laatsteLos();
+    eis('SB7a rijdend: het auto-slot blijft 2:59 en gaat op 3:00 los (max_3min, bron auto, duur 180)',
+        r7a.wissels === 0 && vast7a && stickyDetectie === null && l7a.los === 'max_3min' && l7a.bron === 'auto' && l7a.duur === 180,
+        'blijft, dan los', 'wissels ' + r7a.wissels + ', vast ' + vast7a + ', ' + JSON.stringify(l7a));
+    // stilstand met tik: 1:59 blijft, 2:00 los
+    opzet(); snelheidKmh = 0;
+    tikZet({ det: det(A, Y, 0.30), camX: A, camY: Y, camH: 40 }, A, Y);
+    const r7b = loop(119000, [det(A, Y, 0.30)], A);
+    const vast7b = bboxOverride !== null;
+    loop(1250, [det(A, Y, 0.30)], A);
+    const l7b = laatsteLos();
+    eis('SB7b stilstand met een tik: 1:59 blijft, op 2:00 los (stilstand_2min, bron tik)',
+        r7b.wissels === 0 && vast7b && bboxOverride === null && l7b.los === 'stilstand_2min' && l7b.bron === 'tik',
+        'blijft, dan los', 'vast ' + vast7b + ', ' + JSON.stringify(l7b));
+    // stilstand onderbroken door rijden: de stilstandklok begint opnieuw
+    opzet(); snelheidKmh = 0; autoSlotZet(det(A, Y, 0.30));
+    loop(80000, [det(A, Y, 0.30)], A); snelheidKmh = 15; loop(1000, [det(A, Y, 0.30)], A); snelheidKmh = 0;
+    loop(80000, [det(A, Y, 0.30)], A);
+    eis('SB7c 80 s stil, even rijden, 80 s stil: blijft (de stilstandklok begint opnieuw; totaal < 3 min)',
+        !!stickyDetectie && stickyDetectie.bron === 'auto', 'blijft', String(!!stickyDetectie));
+    // GPS valt weg: geen nieuwe snelheid (de laatste blijft 20 km/u) en geen GPS-voorbij -> de 3 minuten
+    opzet(); autoSlotZet(det(A, Y, 0.30));
+    loop(181000, [], A);
+    eis('SB7d GPS weg en lamp weg: na 3 minuten toch los (max_3min)', stickyDetectie === null && laatsteLos().los === 'max_3min',
+        'los', JSON.stringify(laatsteLos()));
+    opzet(); const n7e = JSON.parse(localStorage.getItem('sl_conflog') || '[]').length; snelheidKmh = 0; loop(200000, [], A);
+    eis('SB7e zonder selectie schrijft de bovengrens niets', JSON.parse(localStorage.getItem('sl_conflog') || '[]').length === n7e && stickyDetectie === null,
+        'geen regel', 'n ' + n7e + ' -> ' + JSON.parse(localStorage.getItem('sl_conflog') || '[]').length);
+
     // ═══ SB6 — vastgezet in de code ═══
     const sel = zc(selecteerBesteDetectie);
     eis('SB6a de score beslist niet meer over het auto-slot: geen uitdager, geen tijdsgrens',
@@ -192,6 +230,7 @@ function testSlotBlijft() {
     klasseVerdelingLog = bewaard.klv;
     tikLogArr = bewaard.tikLogArr; tikLogStop = bewaard.tikLogStop; tikLogVorige = bewaard.tikLogVorige; tikLogLevend = bewaard.tikLogLevend; tikTel = bewaard.tikTel;
     try { if (bewaard.tiklog === null) localStorage.removeItem(TIKLOG_SLEUTEL); else localStorage.setItem(TIKLOG_SLEUTEL, bewaard.tiklog); } catch (e) {}
+    slotStilSinds = bewaard.slotStilSinds;
     try { if (bewaard.conflog === null) localStorage.removeItem('sl_conflog'); else localStorage.setItem('sl_conflog', bewaard.conflog); } catch (e) {}
   }
   const gefaald = regels.filter(r => r.uitslag === 'GEFAALD');
