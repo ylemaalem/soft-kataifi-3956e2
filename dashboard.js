@@ -7,36 +7,35 @@
 // - alle tekst uit de database gaat via textContent (namen komen van gebruikers).
 (function () {
   'use strict';
-  const URL_ = 'https://yizlnymlwkligabvwplt.supabase.co';
-  const ANON = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InlpemxueW1sd2tsaWdhYnZ3cGx0Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODk5MDM2MjQsImV4cCI6MjEwNTQ3OTYyNH0.QMbWOVxOqazEGdb40NFqn3ArV0ViA52_b5k9z3-yFao';
+  const S = window.SLIQ;                   // gedeeld met wachtwoord-instellen.html (inlog.js)
+  const { el, sv, foutTekst } = S;
   const ROL_SLEUTEL = 'dash_rol';          // de laatst bekende rol, voor offline (geen sl_: hoort niet in de backup)
   const VERVERS_MS = 45000;                // binnen de gevraagde 30-60 s
   const PULS_UUR = 3, PULS_MAX = 150;      // pulseren: nieuw in de laatste 3 uur, hooguit 150 punten
 
-  const db = window.supabase.createClient(URL_, ANON, { auth: { persistSession: true, autoRefreshToken: true, storageKey: 'dash_sessie' } });
+  // Een herstellink geeft hier NOOIT toegang. Komt er toch een binnen (bijvoorbeeld
+  // omdat de Site URL naar deze pagina wijst), dan gaat hij ongelezen door naar de
+  // pagina die alleen een nieuw wachtwoord vraagt. Alleen een bevestigingslink van
+  // het registreren (type=signup) mag hier een sessie maken; elke andere link met
+  // een token (uitnodiging, magic link) wordt genegeerd en uit de adresbalk gehaald.
+  const link = S.linkInfo();
+  if (link.soort === 'recovery') { location.replace('wachtwoord-instellen.html' + location.search + location.hash); return; }
+  const leesLink = link.soort === 'signup' && link.accessToken;                      // standaardlink: de client leest hem
+  const bevestigHash = link.soort === 'signup' && link.tokenHash ? link.tokenHash : null;   // token_hash-link: pas na een klik
+  let linkMelding = null;
+  if (link.fout) linkMelding = { t: S.linkFoutTekst(link.fout) + ' Log in, of vraag een nieuwe mail aan.', fout: true };
+  else if (link.token && !leesLink && !bevestigHash) linkMelding = { t: 'Deze link geeft hier geen toegang. Log in met je wachtwoord, of gebruik "Wachtwoord vergeten".', fout: true };
+  const startModus = new URLSearchParams(location.search).get('modus');
+  if ((link.token && !leesLink) || link.fout || startModus) S.wisLinkUitAdres();   // ook de token_hash: die staat nu alleen nog in bevestigHash
+
+  const db = window.supabase.createClient(S.URL_, S.ANON, { auth: { persistSession: true, autoRefreshToken: true, storageKey: 'dash_sessie', detectSessionInUrl: leesLink } });
   const app = document.getElementById('app');
   let profiel = null, tab = null, kaart = null, laag = null, uren = 24, klok = null, config = {}, offline = false;
 
   // ── hulpjes ─────────────────────────────────────────────────
-  function el(tag, attr, ...kind) {
-    const e = document.createElement(tag);
-    for (const [k, v] of Object.entries(attr || {})) {
-      if (k === 'tekst') e.textContent = v;
-      else if (k === 'klik') e.addEventListener('click', v);
-      else if (k === 'klasse') e.className = v;
-      else if (k === 'stijl') Object.assign(e.style, v);
-      else if (v === true) e.setAttribute(k, '');
-      else if (v !== false && v != null) e.setAttribute(k, v);
-    }
-    for (const c of kind.flat()) if (c != null) e.append(c);
-    return e;
-  }
-  const SVG = 'http://www.w3.org/2000/svg';
-  function sv(tag, attr) { const e = document.createElementNS(SVG, tag); for (const [k, v] of Object.entries(attr || {})) e.setAttribute(k, v); return e; }
   const getal = (x) => (x == null ? '–' : Number(x).toLocaleString('nl-NL'));
   function moment(t) { if (!t) return '–'; const d = new Date(t); return isNaN(d) ? '–' : d.toLocaleString('nl-NL', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' }); }
   function dag(t) { const d = new Date(t); return isNaN(d) ? '' : d.toLocaleDateString('nl-NL', { day: 'numeric', month: 'short' }); }
-  function foutTekst(e) { return String((e && e.message) || e || 'onbekende fout').slice(0, 160); }
   async function rpc(naam, args) {
     const { data, error } = await db.rpc(naam, args || {});
     if (error) throw error;
@@ -52,21 +51,81 @@
   function vervangInhoud(doel, ...kind) { doel.replaceChildren(...kind.flat().filter(Boolean)); }
 
   // ── inloggen ────────────────────────────────────────────────
-  function toonInlog(melding) {
-    stopKlok(); kaart = null;
-    const mail = el('input', { type: 'email', autocomplete: 'username', required: true, id: 'mail' });
-    const ww = el('input', { type: 'password', autocomplete: 'current-password', required: true, id: 'ww' });
-    const st = el('p', { klasse: 'status fout', tekst: melding || '' });
-    const knop = el('button', { type: 'submit', tekst: 'Inloggen' });
-    const form = el('form', { klasse: 'inlog' }, el('h1', { tekst: 'StoplichtIQ' }), el('label', null, 'E-mailadres', mail), el('label', null, 'Wachtwoord', ww), knop, st);
+  // Drie vormen in één kaart: inloggen, wachtwoord vergeten, registreren.
+  // melding: tekst (fout) of { t, ok }. Het ingevulde e-mailadres gaat mee bij wisselen.
+  let onthoudMail = '';
+  function toonInlog(melding, modus) {
+    stopKlok(); kaart = null; profiel = null;
+    modus = modus || 'inloggen';
+    const OND = { inloggen: 'Inloggen', vergeten: 'Wachtwoord vergeten', registreren: 'Account maken' };
+    const veld = (label, invoer, hulp) => el('label', null, label, invoer, hulp ? el('span', { klasse: 'hulp', tekst: hulp }) : null);
+    const mail = el('input', { type: 'email', autocomplete: 'username', required: true, id: 'mail', maxlength: '254' });
+    mail.value = onthoudMail; mail.addEventListener('input', () => { onthoudMail = mail.value; });
+    const ww = el('input', { type: 'password', autocomplete: modus === 'registreren' ? 'new-password' : 'current-password', required: true, id: 'ww', maxlength: String(S.WW_MAX) });
+    const ww2 = el('input', { type: 'password', autocomplete: 'new-password', required: true, id: 'ww2', maxlength: String(S.WW_MAX) });
+    const st = el('p', { klasse: 'status', role: 'status', 'aria-live': 'polite' });
+    const zet = (t, ok) => { st.className = 'status ' + (ok ? 'ok' : 'fout'); st.textContent = t || ''; };
+    if (melding) typeof melding === 'string' ? zet(melding) : zet(melding.t, melding.ok);
+    const ander = (t, m) => el('button', { type: 'button', klasse: 'link', tekst: t, klik: () => toonInlog(null, m) });
+    const extra = el('div', { klasse: 'extra' });
+    let velden, knopTekst, verstuur;
+
+    if (modus === 'vergeten') {
+      velden = [el('p', { klasse: 'klein stil', tekst: 'Vul je e-mailadres in. Je krijgt een mail met een link om een nieuw wachtwoord in te stellen.' }), veld('E-mailadres', mail)];
+      knopTekst = 'Stuur herstelmail';
+      verstuur = async () => {
+        const { error } = await db.auth.resetPasswordForEmail(mail.value.trim(), { redirectTo: S.HERSTEL_URL });
+        // Altijd dezelfde melding, of het adres nu bestaat of niet (verraadt geen accounts).
+        if (error && (error.status === 429 || /fetch|network|rate/i.test(foutTekst(error) + ' ' + (error.code || '')))) return zet(S.authMelding(error));
+        zet('Als dit e-mailadres bij ons bekend is, ontvang je binnen een paar minuten een mail. Kijk ook in je spam.', true);
+      };
+    } else if (modus === 'registreren') {
+      velden = [veld('E-mailadres', mail), veld('Wachtwoord', ww, 'Minstens ' + S.WW_MIN + ' tekens.'), veld('Herhaal wachtwoord', ww2)];
+      knopTekst = 'Account maken';
+      verstuur = async () => {
+        const f = S.wachtwoordFout(ww.value, ww2.value); if (f) return zet(f);
+        const { data, error } = await db.auth.signUp({ email: mail.value.trim(), password: ww.value, options: { emailRedirectTo: S.DASH_URL } });
+        ww.value = ''; ww2.value = '';
+        if (error) return zet(S.authMelding(error));
+        if (data && data.session) return naInloggen();   // alleen als e-mailbevestiging in Supabase uit staat
+        // Ook bij een bestaand adres geeft Supabase (met bevestiging aan) geen fout; dezelfde melding verraadt dus niets.
+        zet('Bijna klaar. We hebben een bevestigingsmail gestuurd. Klik op de link in die mail en log daarna in.', true);
+      };
+    } else {
+      velden = [veld('E-mailadres', mail), veld('Wachtwoord', ww)];
+      knopTekst = 'Inloggen';
+      verstuur = async () => {
+        const { error } = await db.auth.signInWithPassword({ email: mail.value.trim(), password: ww.value });
+        if (error) {
+          zet(S.authMelding(error));
+          if (error.code === 'email_not_confirmed' || /not.?confirmed/i.test(foutTekst(error))) {
+            vervangInhoud(extra, el('button', { type: 'button', klasse: 'link', tekst: 'Stuur de bevestigingsmail opnieuw', klik: async (ev) => {
+              ev.target.disabled = true;
+              const r = await db.auth.resend({ type: 'signup', email: mail.value.trim(), options: { emailRedirectTo: S.DASH_URL } });
+              zet(r.error ? S.authMelding(r.error) : 'De bevestigingsmail is opnieuw verstuurd.', !r.error);
+            } }));
+          }
+          return;
+        }
+        ww.value = ''; await naInloggen();
+      };
+    }
+    const knop = el('button', { type: 'submit', klasse: 'hoofdknop', tekst: knopTekst });
+    const wissel = modus === 'inloggen'
+      ? el('div', { klasse: 'wissel' }, ander('Wachtwoord vergeten?', 'vergeten'), ander('Nog geen account? Registreren', 'registreren'))
+      : el('div', { klasse: 'wissel' }, ander('← Terug naar inloggen', 'inloggen'));
+    const form = el('form', { klasse: 'inlog', novalidate: true, 'aria-label': OND[modus] },
+      S.merk(OND[modus]), velden, knop, st, extra, wissel);
     form.addEventListener('submit', async (ev) => {
-      ev.preventDefault(); knop.disabled = true; st.textContent = '';
-      const { error } = await db.auth.signInWithPassword({ email: mail.value.trim(), password: ww.value });
+      ev.preventDefault();
+      if (!mail.value.trim() || !mail.checkValidity()) return zet('Vul een geldig e-mailadres in.');
+      if (modus === 'inloggen' && !ww.value) return zet('Vul je wachtwoord in.');
+      knop.disabled = true; zet('');
+      try { await verstuur(); } catch (e) { zet(S.authMelding(e)); }
       knop.disabled = false;
-      if (error) { st.textContent = /invalid/i.test(error.message) ? 'E-mailadres of wachtwoord klopt niet.' : foutTekst(error); return; }
-      ww.value = ''; await naInloggen();
     });
-    vervangInhoud(app, form);
+    vervangInhoud(app, el('div', { klasse: 'inlogvak' }, form), S.voet());
+    (mail.value ? (modus === 'vergeten' ? knop : ww) : mail).focus();
   }
 
   async function naInloggen() {
@@ -79,7 +138,14 @@
     } catch (e) {
       let r = null; try { r = JSON.parse(localStorage.getItem(ROL_SLEUTEL) || 'null'); } catch (x) {}
       const geenNet = !navigator.onLine || /fetch|network/i.test(foutTekst(e));   // alleen zonder netwerk de oude rol, niet bij een verlopen sessie
-      if (!r || !geenNet) { toonInlog('Kon je profiel niet ophalen: ' + foutTekst(e)); return; }
+      if (!r || !geenNet) {
+        // Geen profiel (of geen toegang): niet ingelogd laten staan.
+        try { await db.auth.signOut({ scope: 'local' }); } catch (x) {}
+        try { localStorage.removeItem(ROL_SLEUTEL); } catch (x) {}
+        profiel = null;
+        toonInlog(/geen profiel/.test(foutTekst(e)) ? 'Dit account heeft geen toegang.' : 'Kon je profiel niet ophalen: ' + foutTekst(e));
+        return;
+      }
       offline = true; profiel = { is_admin: !!r.is_admin };
     }
     try { const { data } = await db.from('app_config').select('sleutel,waarde'); config = Object.fromEntries((data || []).map(x => [x.sleutel, x.waarde])); } catch (e) { config = {}; }
@@ -91,14 +157,14 @@
   function teken() {
     stopKlok(); kaart = null;
     const knop = (id, t) => el('button', { tekst: t, klasse: tab === id ? 'aan' : null, klik: () => { tab = id; teken(); } });
-    const kop = el('header', { klasse: 'kop' }, el('h1', { tekst: 'StoplichtIQ' }),
+    const kop = el('header', { klasse: 'kop' }, el('h1', { klasse: 'kopmerk' }, S.logo(28), 'Stoplicht', el('span', { tekst: 'IQ' })),
       profiel.is_admin ? el('nav', { klasse: 'tabs' }, knop('kaart', 'Kaart'), knop('gebruikers', 'Gebruikers'), knop('mijn', 'Mijn gegevens')) : null,
       el('span', { klasse: 'ruimte' }), el('button', { tekst: 'Uitloggen', klik: async () => { await db.auth.signOut(); profiel = null; try { localStorage.removeItem(ROL_SLEUTEL); } catch (e) {} toonInlog(); } }));
     const inhoud = el('div', { stijl: { flex: '1', display: 'flex', flexDirection: 'column', minHeight: '0' } });
     vervangInhoud(app, kop,
       offline ? el('div', { klasse: 'melding', tekst: 'Geen verbinding. Je ziet de laatst bekende rol; gegevens kunnen niet worden opgehaald.' }) : null,
       config.bericht ? el('div', { klasse: 'melding', tekst: String(config.bericht) }) : null,
-      inhoud);
+      inhoud, S.voet());
     if (tab === 'kaart') tekenBeheer(inhoud);
     else if (tab === 'gebruikers') tekenGebruikers(inhoud);
     else tekenMijn(inhoud);
@@ -262,8 +328,7 @@
         profiel.email ? el('p', { klasse: 'klein stil', tekst: 'Ingelogd als ' + profiel.email }) : null,
         el('label', { klasse: 'schakel', for: 'diag' }, toestemming, 'Diagnosegegevens delen om de app te verbeteren')),
       el('section', { klasse: 'blok' }, el('h2', { tekst: 'Mijn data' }), el('div', { klasse: 'rij' }, download), st),
-      el('section', { klasse: 'blok' }, el('h2', { tekst: 'Account verwijderen' }), el('p', { klasse: 'klein stil', tekst: 'Dit verwijdert je account en al je gegevens. Dit kan niet ongedaan worden gemaakt.' }), el('div', { klasse: 'rij' }, woord, verwijder))),
-      el('footer', { klasse: 'voet', tekst: '© 2026 StoplichtIQ — Y. Lemaalem' }));
+      el('section', { klasse: 'blok' }, el('h2', { tekst: 'Account verwijderen' }), el('p', { klasse: 'klein stil', tekst: 'Dit verwijdert je account en al je gegevens. Dit kan niet ongedaan worden gemaakt.' }), el('div', { klasse: 'rij' }, woord, verwijder))));
     if (offline) { vervangInhoud(lijst, el('p', { klasse: 'stil', tekst: 'Niet beschikbaar zonder verbinding.' })); return; }
     rpc('mijn_kruispunten').then(rijen => vervangInhoud(lijst, tabel([
       { t: 'Kruispunt', w: r => r.naam || r.node_id }, { t: 'Stad', w: r => r.stad },
@@ -273,11 +338,37 @@
   }
 
   // ── start ───────────────────────────────────────────────────
+  // Bevestigen van een nieuw account met een token_hash-link: pas na een klik.
+  function toonBevestig() {
+    const st = el('p', { klasse: 'status', role: 'status', 'aria-live': 'polite' });
+    const knop = el('button', { type: 'button', klasse: 'hoofdknop', tekst: 'Bevestig mijn e-mailadres', klik: async () => {
+      knop.disabled = true; st.className = 'status'; st.textContent = '';
+      try {
+        const { error } = await db.auth.verifyOtp({ token_hash: bevestigHash, type: 'signup' });
+        if (error) return toonInlog(S.linkFoutTekst(error.code || error.message) + ' Log in, of registreer opnieuw.');
+      } catch (e) { st.className = 'status fout'; st.textContent = S.authMelding(e); knop.disabled = false; return; }
+      linkMelding = { t: 'Je e-mailadres is bevestigd.', ok: true };
+      await naInloggen();
+      if (profiel) app.insertBefore(el('div', { klasse: 'melding goed', tekst: linkMelding.t }), app.children[1] || null);
+    } });
+    vervangInhoud(app, el('div', { klasse: 'inlogvak' }, el('div', { klasse: 'inlog' }, S.merk('E-mailadres bevestigen'),
+      el('p', { klasse: 'klein stil', tekst: 'Klik op de knop om je e-mailadres te bevestigen.' }), knop, st)), S.voet());
+  }
+
   (async () => {
+    if (bevestigHash) { toonBevestig(); return; }
     try {
       const { data } = await db.auth.getSession();
-      if (data && data.session) await naInloggen(); else toonInlog();
+      if (data && data.session) {
+        if (leesLink) { S.wisLinkUitAdres(); linkMelding = { t: 'Je e-mailadres is bevestigd.', ok: true }; }
+        await naInloggen();
+        if (linkMelding && linkMelding.ok && profiel) { const b = el('div', { klasse: 'melding goed', tekst: linkMelding.t }); app.insertBefore(b, app.children[1] || null); }
+      } else toonInlog(linkMelding, ['vergeten', 'registreren'].includes(startModus) ? startModus : 'inloggen');
     } catch (e) { toonInlog(foutTekst(e)); }
   })();
-  db.auth.onAuthStateChange((ev) => { if (ev === 'SIGNED_OUT' && profiel) { profiel = null; toonInlog(); } });
+  db.auth.onAuthStateChange((ev) => {
+    // Vangnet: een herstelsessie mag hier nooit blijven bestaan.
+    if (ev === 'PASSWORD_RECOVERY') { db.auth.signOut({ scope: 'local' }).finally(() => location.replace('wachtwoord-instellen.html')); return; }
+    if (ev === 'SIGNED_OUT' && profiel) { profiel = null; toonInlog(); }
+  });
 })();
