@@ -1051,7 +1051,7 @@ if (typeof ort !== 'undefined') {
 //
 // De stijl volgt de eerdere labels: nummer, kastlijntje, korte omschrijving in
 // kleine letters. De CSS zet hem zelf in kapitalen (text-transform:uppercase).
-const APP_VERSIE = 'V11.37.34 — wachter op de Nano-worker en de derde reservestap';
+const APP_VERSIE = 'V11.37.35 — geselecteerd = blijven, en de crop volgt jouw lamp';
 
 // ── CONSTANTEN ────────────────────────────────────────────────
 const OSM_RADIUS       = 5000;
@@ -7590,6 +7590,7 @@ function tikSlotMatch(bruikbaar, straal) {
     if (detLogStickyDx === null || afst < detLogStickyDx) detLogStickyDx = afst;
     if (afst < straal && (!winner || afst < winner.afst)) winner = { det, afst };
   }
+  winner = slotZonderBuur(winner, bruikbaar, straal);   // V11.37.35: nooit een bekende buur
   return winner;
 }
 
@@ -7982,6 +7983,7 @@ canvas.addEventListener('click', (e) => {
   if (!heeftActieveBbox) {
     // V11.15.8 Fix 2d: nieuwe tap → sticky reset. V11.33.0: tikZet zet hem
     // daarna meteen op jouw lamp, als je op een box tikte.
+    slotLosLog('tik');   // V11.37.35
     stickyDetectie = null; stickyMissTeller = 0;
     tikZet(keuze, videoX, videoY);
     if (keuze) {
@@ -8015,6 +8017,7 @@ canvas.addEventListener('click', (e) => {
     zoomVergrendeld = true;
     vergrendeldNodeId = null;
     bboxAnchorCx = null; bboxAnchorCy = null; bboxAnchorTijd = 0;
+    slotLosLog('tik');   // V11.37.35
     stickyDetectie = null; stickyMissTeller = 0;
     tikZet(keuze, videoX, videoY);
     // V11.15.8 Fix 1: cropHint ook bij tap dichtbij anchor
@@ -8026,6 +8029,7 @@ canvas.addEventListener('click', (e) => {
     // om weg te breken van de vorige lock (V11.14.4 FIX 1b).
     vergrendeldNodeId = null;
     bboxAnchorCx = null; bboxAnchorCy = null; bboxAnchorTijd = 0;
+    slotLosLog('tik');   // V11.37.35
     stickyDetectie = null; stickyMissTeller = 0;
     tikZet(keuze, videoX, videoY);
     if (!keuze) cropHintNaastBox();
@@ -10525,6 +10529,7 @@ function berekenCropRegio(vW, vH, afstand) {
     }
   }
 
+  { const sp35 = slotCropPositie(); if (sp35) { cropCentrumX = sp35.x; cropCentrumY = sp35.y; detLogHintBron = 5; } }   // V11.37.35: jouw lamp gaat voor (hint 5), zie slotCropPositie
   let cropX = cropCentrumX - cropMaat / 2;
   let cropY = cropCentrumY - cropMaat / 2;
   cropX = Math.max(0, Math.min(vW - cropMaat, cropX));
@@ -10545,6 +10550,7 @@ function preprocessVoorYOLO() {
   // uit de tap-handler, geen state-afhankelijkheid.
   if (bboxOverride && bboxOverrideCamX != null && Date.now() - bboxOverrideTijd < TAP_CROPHINT_MS) {
     cropHintPositie = { x: bboxOverrideCamX, y: bboxOverrideCamY };
+    { const sp35 = slotCropPositie(); if (sp35) cropHintPositie = { x: sp35.x, y: sp35.y }; }   // V11.37.35: de lamp, niet de vaste tikplek
     cropHintTeller = 10;
   }
 
@@ -11124,6 +11130,7 @@ function stickySlotMatch(bruikbaar, straal = STICKY_MATCH_PX) {   // V11.33.0: d
     }
   }
   if (!kandidaten.length) return null;
+  if (SLOT_BLIJFT) { const z = kandidaten.filter(k => !slotIsBuur(k.det)); if (z.length < kandidaten.length) slotBuurGeweigerd++; if (!z.length) return null; kandidaten.length = 0; kandidaten.push(...z); }   // V11.37.35: nooit een bekende buur
   kandidaten.sort((a, b) => a.effAfst - b.effAfst);
   const winner = kandidaten[0];
   // W3 log: alleen als winner penalty kreeg én throttle open
@@ -11171,6 +11178,10 @@ function stickyNeemOver(match) {
 // maar een grendel. Wie de rand in V11.20.0 dun-en-dicht zag worden, zag dus
 // precies de momenten waarop dit slot nu dichtgaat.
 //
+// V11.37.35: (a) EN (c) GELDEN NIET MEER zolang SLOT_BLIJFT aan staat. Alleen
+// (b): een tik, of het kruispunt voorbij (GPS, of een mast van een ANDER
+// kruispunt). Zie het blok V11.37.35 bij slotBurenBij. De oude tekst:
+//
 // DRIE MANIEREN OM HET SLOT TE VERLIEZEN, EN GEEN VIERDE:
 //   (a) de lamp is weg — STICKY_MISS_MS zonder geslaagde match, gemeten in tijd
 //       via stickyDetectie.tijd. Hetzelfde getal en dezelfde vorm als
@@ -11204,6 +11215,7 @@ function autoSlotActief() {
 // detectie-objecten zijn elke run nieuw. Springt hij verder dan STICKY_MATCH_PX,
 // dan is het een andere box en begint de teller opnieuw.
 function autoSlotUitdagerRijp(det, nu) {
+  if (SLOT_BLIJFT) { autoSlotUitdager = null; return false; }   // V11.37.35: een hogere score wint nooit meer van de selectie
   if (!autoSlotUitdager
       || Math.abs(det.cx - autoSlotUitdager.cx) > STICKY_MATCH_PX
       || Math.abs(det.cy - autoSlotUitdager.cy) > STICKY_MATCH_PX) {
@@ -11223,10 +11235,182 @@ function autoSlotZet(det) {
     familie: KLASSE_MAP[det.klasse] || null,
     hoogte: det.h, klasse: det.klasse,
     tijd: Date.now(),
+    sinds: Date.now(),   // V11.37.35: voor de duur in de los-regel
     bron: 'auto'          // V11.21.0: wie het slot bezit
   };
   stickyMissTeller = 0;
   autoSlotReset();
+}
+
+// ── V11.37.35: GESELECTEERD = BLIJVEN ───────────────────────────
+// © 2026 StoplichtIQ — Y. Lemaalem
+//
+// DE KLACHT. Na een selectie (tik of automatisch) gaat de box heen en weer en
+// zoekt de app een "beter" licht met een hogere detectie. Younes' regel:
+// geselecteerd = blijven, tot (a) je het kruispunt voorbij bent (GPS) of (b) je
+// zelf een ander licht tikt.
+//
+// WAT DE SELECTIE TOT V11.37.34 KON LATEN WISSELEN (onderzoek 13 nov):
+//   1. het auto-slot gaf zich over aan een uitdager met >= 40% hogere SCORE die
+//      dat 1,5 s volhield (AUTOSLOT_UITDAGER_*, autoSlotUitdagerRijp). Precies
+//      "een beter licht met hogere detectie". Nu: autoSlotUitdagerRijp zegt
+//      altijd nee zolang SLOT_BLIJFT aan staat.
+//   2. het auto-slot viel na STICKY_MISS_MS (5,3 s) zonder match, bij elke
+//      overgang naar groen (verwerkFase) en bij elke uitval (resetNeutraal
+//      'dropout'/'stale'). Daarna koos de scorelus vrij. Nu: vasthouden en
+//      wachten.
+//   3. tik én auto: mist jouw lamp een run en staat er een andere detectie
+//      binnen de straal, dan werd die als jouw lamp genomen (M7, sept). Met Nano
+//      stond er in 24% van de runs met een match een tweede detectie binnen de
+//      straal (235 van 961 runs, 19 tikken, export 13 nov); met YOLOv8n 5%
+//      (16 van 323, 19 tikken, export 8 nov). Nu: het BURENGEHEUGEN.
+//   4. een node-wissel binnen hetzelfde kruispunt (vindDichtbij of de
+//      automatische correctie kiest een andere mast) wiste de selectie. Nu:
+//      binnen SLOT_KRUISPUNT_M blijft de camera-selectie staan; de node voor de
+//      countdown wisselt gewoon (slotBewaar / slotHerstel).
+//
+// HET BURENGEHEUGEN. Bij elke run waarin jouw lamp gevonden is, onthoudt het
+// slot waar de ANDERE lampen ten opzichte van de jouwe staan (camerapixels).
+// Een kandidaat die dichter bij zo'n bekende buurplek ligt dan bij de plek van
+// jouw lamp, is de buur en nooit jouw lamp. Alleen posities, geen score.
+// Dubbele boxen op dezelfde lamp (Nano geeft soms een kleine box binnen een
+// grote) zijn geen buur: een buur overlapt jouw box niet en staat minstens
+// SLOT_BUUR_MIN_FACTOR x de hoogte van jouw lamp weg.
+// GRENS: een buur die nooit naast jouw lamp gezien is, is niet bekend. Valt
+// jouw lamp weg en staat zo'n onbekende detectie binnen de straal, dan kan
+// positie alleen haar niet onderscheiden (test_slot_blijft SB4d).
+//
+// LOSLATEN, en elke keer een regel in sl_conflog: { t, los, bron, duur }.
+//   los: 'tik' (een nieuwe tik), 'voorbij', 'passage', 'achter', 'geen_licht'
+//   (GPS: het kruispunt is voorbij), 'kruispunt' (een mast van een ANDER
+//   kruispunt), 'startscherm' (de camera stopt).
+const SLOT_BLIJFT          = true;
+const SLOT_BUUR_MIN_FACTOR = 0.75;   // zelfde maat als TIK_VAST_FACTOR
+const SLOT_BUUR_MS         = 4000;   // een buur die zo lang niet gezien is, vervalt
+const SLOT_BUUR_MAX        = 6;
+const SLOT_KRUISPUNT_M     = 60;     // masten van één kruispunt, zoals WISSEL_KRUISPUNT_M
+let slotBuurGeweigerd = 0;           // teller voor de toetsen; beslist niets
+
+function slotBurenBij(winnerDet, bruikbaar) {
+  try {
+    const s = stickyDetectie;
+    if (!SLOT_BLIJFT || !s || !winnerDet || !(lbScale > 0)) return;
+    const nu = Date.now();
+    const eigen = stickyCam(winnerDet);
+    const buren = (s.buren || []).filter(b => nu - b.t < SLOT_BUUR_MS);
+    const minAfst = Math.max(eigen.camH || 0, 1) * SLOT_BUUR_MIN_FACTOR;
+    for (const d of bruikbaar) {
+      if (d === winnerDet || berekenIoU(d, winnerDet) > 0) continue;
+      const c = stickyCam(d);
+      const dx = c.camX - eigen.camX, dy = c.camY - eigen.camY;
+      if (Math.hypot(dx, dy) < minAfst) continue;
+      const zelfde = buren.find(b => Math.hypot(b.dx - dx, b.dy - dy) < minAfst);
+      if (zelfde) { zelfde.dx = dx; zelfde.dy = dy; zelfde.t = nu; }
+      else if (buren.length < SLOT_BUUR_MAX) buren.push({ dx, dy, t: nu });
+    }
+    s.buren = buren;
+  } catch (e) {}
+}
+// Is deze detectie een bekende buur van jouw lamp? Vergelijkt met de plek waar
+// jouw lamp NU hoort (de sticky na stickyVoorspel), in camerapixels.
+function slotIsBuur(det) {
+  const s = stickyDetectie;
+  if (!SLOT_BLIJFT || !s || !s.buren || !s.buren.length || s.camX == null || !(lbScale > 0)) return false;
+  const nu = Date.now();
+  const c = stickyCam(det);
+  const eigenAfst = Math.hypot(c.camX - s.camX, c.camY - s.camY);
+  for (const b of s.buren) {
+    if (nu - b.t >= SLOT_BUUR_MS) continue;
+    if (Math.hypot(c.camX - (s.camX + b.dx), c.camY - (s.camY + b.dy)) < eigenAfst) return true;
+  }
+  return false;
+}
+// Na de matchkern van de tik: was de winnaar een bekende buur, dan de
+// dichtstbijzijnde andere kandidaat binnen dezelfde straal die géén buur is,
+// of niets. De sticky is door de matchkern al voorspeld en geprojecteerd.
+function slotZonderBuur(winner, bruikbaar, straal) {
+  if (!winner || !slotIsBuur(winner.det)) return winner;
+  slotBuurGeweigerd++;
+  let beste = null;
+  for (const det of bruikbaar) {
+    if (det === winner.det || slotIsBuur(det)) continue;
+    const afst = Math.hypot(det.cx - stickyDetectie.cx, det.cy - stickyDetectie.cy);
+    if (afst < straal && (!beste || afst < beste.afst)) beste = { det, afst };
+  }
+  return beste;
+}
+// Eén regel in sl_conflog per loslating, als er iets geselecteerd was. Zelfde
+// ring (50) en dezelfde schrijfwijze als logKlasseVerdelingIndienBeschikbaar.
+function slotLosLog(reden, bronGedwongen) {
+  try {
+    const s = stickyDetectie;
+    if (bboxOverride === null && !s) return;
+    const bron = bronGedwongen || (bboxOverride !== null ? 'tik' : (s && s.bron) || '-');
+    const begin = bron === 'tik' ? bboxOverrideTijd : (s && s.sinds) || null;
+    const entry = { t: Date.now(), los: reden, bron, duur: begin ? Math.round((Date.now() - begin) / 1000) : null };
+    klasseVerdelingLog.push(entry);
+    if (klasseVerdelingLog.length > KLASSE_VERDELING_MAX) klasseVerdelingLog.shift();
+    let opslag = [];
+    try { opslag = JSON.parse(localStorage.getItem('sl_conflog') || '[]'); } catch (e) { opslag = []; }
+    opslag.push(entry);
+    if (opslag.length > 50) opslag = opslag.slice(-50);
+    localStorage.setItem('sl_conflog', JSON.stringify(opslag));
+  } catch (e) {}
+}
+// Blijft de camera-selectie staan bij een node-wissel? Ja binnen hetzelfde
+// kruispunt (de oude en de nieuwe mast hoogstens SLOT_KRUISPUNT_M uit elkaar).
+function slotBlijftBijWissel(oud, nieuw) {
+  if (!SLOT_BLIJFT || !oud || !nieuw || !Number.isFinite(oud.lat) || !Number.isFinite(nieuw.lat)) return false;
+  if (bboxOverride === null && !stickyDetectie) return false;
+  return afstand(oud.lat, oud.lon, nieuw.lat, nieuw.lon) <= SLOT_KRUISPUNT_M;
+}
+// Vóór de bbox-reset van een node-wissel: de selectie bewaren als hij blijft,
+// anders de los-regel schrijven. Na de reset zet slotHerstel hem terug.
+function slotBewaar(oud, nieuw) {
+  if (!slotBlijftBijWissel(oud, nieuw)) { slotLosLog('kruispunt'); return null; }
+  return { bboxOverride, bboxOverrideTijd, bboxOverrideCamX, bboxOverrideCamY, bboxOverrideMatchTeller, stickyDetectie, stickyMissTeller };
+}
+function slotHerstel(b) {
+  if (!b) return;
+  bboxOverride = b.bboxOverride; bboxOverrideTijd = b.bboxOverrideTijd;
+  bboxOverrideCamX = b.bboxOverrideCamX; bboxOverrideCamY = b.bboxOverrideCamY;
+  bboxOverrideMatchTeller = b.bboxOverrideMatchTeller;
+  stickyDetectie = b.stickyDetectie; stickyMissTeller = b.stickyMissTeller;
+}
+
+// ── V11.37.35: DE CROP VOLGT DE GESELECTEERDE LAMP ───────────────
+// © 2026 StoplichtIQ — Y. Lemaalem
+//
+// DE KLACHT. Bij een geselecteerd licht stopt de box soms bij de groene lijn en
+// gaat niet mee met het licht. De groene lijn is de rand van de crop (de
+// gestippelde rechthoek in tekenOverlay). Het model ziet in een crop-run ALLEEN
+// wat binnen die rechthoek valt.
+//
+// DE OORZAAK (gelezen in de code, 13 nov). Na een tik zette preprocessVoorYOLO
+// het cropcentrum TAP_CROPHINT_MS (25 s) lang op de TIKPLEK (bboxOverrideCamX/Y),
+// en die beweegt niet. Rijd je verder, dan schuift het licht in beeld omhoog en
+// naar buiten, tot over de rand van de crop. Vanaf dan vindt het model het licht
+// alleen nog in de volbeeld-run (elke vijfde) of onder 15 m; de andere runs zijn
+// leeg en de box blijft op zijn laatste plek staan: bij de groene lijn. Zonder
+// tik volgde het anker (prio 2) het licht wel, maar met een vertraging
+// (BBOX_ANCHOR_EXP 0,75 per run).
+//
+// DE REGEL. Zolang er een selectie is (tik met een lamp, of het auto-slot) en de
+// sticky een camerapositie heeft, staat het cropcentrum op de plek waar jouw lamp
+// NU hoort: de sticky, die elke run met de match en de voorspelling meebeweegt.
+// Mist de lamp, dan blijft de crop op de laatste plek staan en wacht. De
+// overgang naar volbeeld (onder 15 m, elke vijfde run) verandert niet: de sticky
+// rekent in camerapixels, dus de box loopt daar gewoon door.
+function slotCropPositie() {
+  const s = stickyDetectie;
+  if (!SLOT_BLIJFT || !s || s.camX == null || s.camY == null) return null;
+  if (bboxOverride === null && s.bron !== 'auto') return null;
+  return { x: s.camX, y: s.camY };
+}
+// De debugweergave = het leerlog staat open (tik op de debugbalk). Alleen dan
+// tekent tekenOverlay de groene cropgrens en het groene kruis.
+function debugWeergaveAan() {
+  try { const el = document.getElementById('leer-log'); return !!el && el.style.display === 'block'; } catch (e) { return false; }
 }
 
 function selecteerBesteDetectie(detecties) {
@@ -11279,6 +11463,7 @@ function selecteerBesteDetectie(detecties) {
     // EEN TAP ERFT NOOIT HET AUTO-SLOT (V11.21.0). De tik-handler nult de sticky
     // al, maar dit maakt "een tap wint altijd" een eigenschap van deze functie.
     if (stickyDetectie && stickyDetectie.bron === 'auto') {
+      slotLosLog('tik', 'auto');   // V11.37.35
       stickyDetectie = null; stickyMissTeller = 0; autoSlotReset();
     }
     const straal = tikStraalYolo();
@@ -11297,6 +11482,7 @@ function selecteerBesteDetectie(detecties) {
         tikLogSprong(basis, match);
         tikTelRun('m', ref, straal, bruikbaar, match);
         stickyNeemOver(match);
+        slotBurenBij(match, bruikbaar);   // V11.37.35
         stickyMissTeller = 0;
         tapGezien();   // V11.20.1: slotje én de kwijt-klok
         return { s1: match, s2Rest: bruikbaar.filter(d => d !== match), afwijsReden:'ok' };
@@ -11465,6 +11651,7 @@ function selecteerBesteDetectie(detecties) {
       const vast = winner.det;
       stickyNeemOver(vast);
       stickyMissTeller = 0;
+      slotBurenBij(vast, bruikbaar);   // V11.37.35
       // (c) een uitdager moet overtuigend ÉN langdurig beter zijn
       const sVast = scorePer.has(vast) ? scorePer.get(vast) : -Infinity;
       const sBest = (beste && scorePer.has(beste)) ? scorePer.get(beste) : -Infinity;
@@ -11479,6 +11666,7 @@ function selecteerBesteDetectie(detecties) {
     } else {
       // (a) niets gevonden. Zelfde vorm en hetzelfde getal als
       // stickyMagLosgelaten: pas na STICKY_MISS_MS is de lamp echt weg.
+      if (SLOT_BLIJFT) { stickyMissTeller++; return { s1: null, s2Rest: bruikbaar, afwijsReden: 'autoslot_miss' }; }   // V11.37.35: vasthouden en wachten, geen tijdsgrens
       stickyMissTeller++;
       if ((nuSlot - (stickyDetectie.tijd || 0)) >= STICKY_MISS_MS) {
         stickyDetectie = null; stickyMissTeller = 0; autoSlotReset();
@@ -13126,7 +13314,7 @@ function tekenOverlay(box, score, horizontaal) {
     octx.restore();
   }
   // V11.16.14: stippellijn + cirkel + kruis + teller ontkoppeld van cropRegio.
-  if (cropHintPositie && cropHintTeller > 0) {
+  if (cropHintPositie && cropHintTeller > 0 && debugWeergaveAan()) {   // V11.37.35: de groene cropgrens alleen in de debugweergave
     const cr = cropRegio || laatsteCropRegio;
     if (cr) {
       octx.save();
@@ -13137,7 +13325,7 @@ function tekenOverlay(box, score, horizontaal) {
       octx.restore();
     }
   }
-  if (cropHintPositie && cropHintTeller > 0) {
+  if (cropHintPositie && cropHintTeller > 0 && debugWeergaveAan()) {   // V11.37.35: idem het groene kruis
     const hx = cropHintPositie.x, hy = cropHintPositie.y;
     octx.save();
     octx.strokeStyle = 'rgba(0,200,80,0.8)';
@@ -13485,6 +13673,8 @@ function resetNeutraal(reden) {
   // weg, waarna de scorelus en het auto-slot de buur vastzetten (STAP 0, M4).
   // Het startscherm wist hem wel: dan is de rit voorbij.
   const tikBlijft = bboxOverride !== null && (reden === 'dropout' || reden === 'stale');
+  const slotAuto35 = (SLOT_BLIJFT && stickyDetectie && stickyDetectie.bron === 'auto' && (reden === 'dropout' || reden === 'stale')) ? stickyDetectie : null;   // V11.37.35: tijdelijk geen detectie = vasthouden
+  if (!tikBlijft && !slotAuto35) slotLosLog(reden === 'startscherm' ? 'startscherm' : 'reset_' + (reden || 'onbekend'));   // V11.37.35
   if (tikBlijft) tikLogRun('reset_' + reden, {});
   else tikLogLos('reset_' + (reden || 'onbekend'));
   // V11.17.39: leg vast wat de tellers waren VOOR de reset — de zichtlog-sampler
@@ -13515,6 +13705,7 @@ function resetNeutraal(reden) {
   // hij staat hier zodat de staat niet meereist naar het volgende kruispunt.
   getoondeLaag = null;
   if (!tikBlijft) { stickyDetectie = null; stickyMissTeller = 0; } // V11.15.8 — V11.33.0: behalve die van de tik
+  if (slotAuto35) stickyDetectie = slotAuto35;   // V11.37.35
   tapSeedDetectie = null; // V11.16.4
   correctieMultiframe = null; wachtGroenIntentie = null; // V11.16.3
   // Zoom ontgrendelen
@@ -13659,7 +13850,9 @@ function verwerkFase(nieuw, horizontaal, conf=null) {
     // V11.33.0 F4: behalve de identiteit van jouw getikte lamp. Rood naar
     // groen is DEZELFDE lamp; de klassestraf van 30 px in stickySlotMatch vangt
     // die kleurwissel al op. Het auto-slot (V11.21.0) houdt zijn reset.
+    const slotAuto35 = (SLOT_BLIJFT && stickyDetectie && stickyDetectie.bron === 'auto') ? stickyDetectie : null;   // V11.37.35: rood naar groen is dezelfde lamp
     if (bboxOverride === null) { stickyDetectie = null; stickyMissTeller = 0; } // V11.15.8
+    if (slotAuto35) stickyDetectie = slotAuto35;   // V11.37.35
     tapSeedDetectie = null; // V11.16.4
     // V11.12.2: voorkeursBbox NIET direct resetten bij groen — dit hield de
     // detectie instabiel tijdens het bevestig-knoppen venster (15s),
@@ -23238,6 +23431,7 @@ function updateDichtbij(lat, lon) {
     stilstandSinds = Date.now() - 6000;
   }
   if (nieuw.id !== vorigOsmId) {
+    const slotOud35 = dichtstbijOSM;   // V11.37.35: de oude node, hieronder wordt dichtstbijOSM al de nieuwe
     bevestigBevries(nieuw, 'wissel');   // V11.37.8: vóór er iets van het oude licht verandert
     // V11.5.5: Sla groene fase op bij node-wissel (dichtstbijOSM = nog OUDE node)
     if (fase === 'groen' && groenStart && dichtstbijOSM) {
@@ -23347,6 +23541,7 @@ function updateDichtbij(lat, lon) {
       activeCdModus = null; activeCdMin = null; activeCdMax = null;
     }
     bijwerkLeerkaart(nieuw); bijwerkDashboardKnop();
+    const slotBewaard35 = slotBewaar(slotOud35, nieuw);   // V11.37.35: zelfde kruispunt = jouw lamp blijft
     bboxOverride = null; bboxOverrideTijd = 0;  // V11.4.5: override vervalt bij echte node-wissel
     bboxOverrideCamX = null; bboxOverrideCamY = null;
     bboxOverrideMatchTeller = 0;
@@ -23354,6 +23549,7 @@ function updateDichtbij(lat, lon) {
     vergrendeldNodeId = null;  // V11.10.0: vergrendeling breken bij node-wissel
     stickyDetectie = null; stickyMissTeller = 0; // V11.15.8
     tapSeedDetectie = null; // V11.16.4
+    slotHerstel(slotBewaard35);   // V11.37.35
     correctieMultiframe = null; wachtGroenIntentie = null; // V11.16.3: geen oogst op ander kruispunt
     // V11.13.4: bij node-wissel is de vorige-fase-context van het oude
     // kruispunt niet meer relevant voor het nieuwe.
@@ -23777,6 +23973,7 @@ function checkHandLockPassage(lat, lon) {
   stilstandAutoLock = false;
   // De tik op de lamp eindigt hier zelf, met zijn eigen reden. Bleef hij staan,
   // dan schreef de wachter (tikLogWaak) bij de wissel nog een tweede los-regel.
+  slotLosLog('passage');   // V11.37.35
   tikLogLos('passage');
   bboxOverride = null; bboxOverrideTijd = 0;
   bboxOverrideCamX = null; bboxOverrideCamY = null;
@@ -23903,6 +24100,7 @@ function achterTik(lat, lon) {
     handmatigLockActief = false;
     handmatigGeselecteerdNodeId = null;
     stilstandAutoLock = false;
+    slotLosLog('achter');   // V11.37.35
     tikLogLos('achter');
     bboxOverride = null; bboxOverrideTijd = 0;
     bboxOverrideCamX = null; bboxOverrideCamY = null;
@@ -23932,6 +24130,7 @@ function geenLichtZetten() {
   cdPillGetal.textContent = '—'; cdPillGetal.style.color = '#fff';
   cdPillLabel.textContent = 'groen over';
   activeCdModus = null; activeCdMin = null; activeCdMax = null;
+  slotLosLog('geen_licht');   // V11.37.35
   tikLogLos('geen');
   bboxOverride = null; bboxOverrideTijd = 0;
   bboxOverrideCamX = null; bboxOverrideCamY = null;
@@ -24343,6 +24542,7 @@ function corrigeerNodeAutomatisch(nieuweNode, reden) {
   richtingBlokVerborgen = false;
 
   // bbox-state resetten (mirror van updateDichtbij node-wissel-pad)
+  const slotBewaard35 = slotBewaar(oude, nieuw);   // V11.37.35: zelfde kruispunt = jouw lamp blijft
   bboxOverride = null; bboxOverrideTijd = 0;
   bboxOverrideCamX = null; bboxOverrideCamY = null;
   bboxOverrideMatchTeller = 0;
@@ -24350,6 +24550,7 @@ function corrigeerNodeAutomatisch(nieuweNode, reden) {
   bboxAnchorCx = null; bboxAnchorCy = null; bboxAnchorTijd = 0;
   stickyDetectie = null; stickyMissTeller = 0;
   tapSeedDetectie = null;
+  slotHerstel(slotBewaard35);   // V11.37.35
 
   // richting-lock hoort bij oude node
   wisRichtingLock();   // V11.17.96
@@ -24806,6 +25007,7 @@ async function onGPS(pos) {
     // 15-25s aan het oude stoplicht blijft kleven. Volgorde: eerst state
     // resetten, dan tekenOverlay(null) — anders tekent tekenOverlay de
     // anchor-cirkel/TAP-indicator opnieuw ondanks de wis-intentie.
+    slotLosLog('voorbij');   // V11.37.35
     tikLogLos('voorbij');   // V11.32.0
     bboxOverride = null;
     bboxOverrideTijd = 0;
