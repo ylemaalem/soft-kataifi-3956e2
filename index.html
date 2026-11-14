@@ -1051,7 +1051,7 @@ if (typeof ort !== 'undefined') {
 //
 // De stijl volgt de eerdere labels: nummer, kastlijntje, korte omschrijving in
 // kleine letters. De CSS zet hem zelf in kapitalen (text-transform:uppercase).
-const APP_VERSIE = 'V11.37.38 — vast licht als schaduw: rekenen en loggen, niets tonen';
+const APP_VERSIE = 'V11.37.39 — versietekst kort, de lange tekst alleen in de debugweergave';
 
 // ── CONSTANTEN ────────────────────────────────────────────────
 const OSM_RADIUS       = 5000;
@@ -2826,7 +2826,18 @@ function toggleLeerLog() {
   const el = document.getElementById('leer-log');
   if (!el) return;
   el.style.display = el.style.display === 'none' ? 'block' : 'none';
+  versieLabelBij();   // V11.37.39: de lange versietekst alleen in de debugweergave
 }
+// Het versielabel op het startscherm: gewone gebruikers zien alleen het nummer   // V11.37.39
+// (V11.37.39), de debugweergave (het leerlog open) de hele tekst. Alleen de   // V11.37.39
+// tekstknoop wordt gezet, zodat het TEST-merkteken erachter blijft staan.   // V11.37.39
+function versieLabelBij() {   // V11.37.39
+  const ver = document.getElementById('s-versie');   // V11.37.39
+  if (!ver) return;   // V11.37.39
+  let t = ver.firstChild && ver.firstChild.nodeType === 3 ? ver.firstChild : null;   // V11.37.39
+  if (!t) { t = document.createTextNode(''); ver.insertBefore(t, ver.firstChild); }   // V11.37.39
+  t.nodeValue = debugWeergaveAan() ? APP_VERSIE : appVersieKort();   // V11.37.39
+}   // V11.37.39
 
 // ── V11.17.23: OPSLAG-DIAGNOSTIEK ────────────────────────────
 // Maakt elke stille weigering in de opslagketen zichtbaar. Wijzigt GEEN
@@ -25792,7 +25803,8 @@ bijwerkDashboardKnop();
   if (ver) {
     // V11.18.9: vóór mvWerkIndicatorBij, want die hangt het TEST-merkteken
     // achter dit label aan en textContent zou dat er weer afvegen.
-    ver.textContent = APP_VERSIE;
+    ver.textContent = '';   // V11.37.39: eerst leeg, dan alleen het nummer (versieLabelBij)
+    versieLabelBij();   // V11.37.39
     ver.addEventListener('click', mvTik);
   }
   mvWerkIndicatorBij();

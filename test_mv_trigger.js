@@ -202,9 +202,13 @@ function testMvTrigger() {
     // hardcoderen, of het vullen weghalen, dan valt hij om.
     aanZetten(false);   // zonder TEST-merkteken, anders plakt dat aan de tekst
     const verEl = document.getElementById('s-versie');
-    eis('T5 het zichtbare label is exact APP_VERSIE',
-        verEl.textContent === APP_VERSIE,
-        APP_VERSIE, verEl.textContent);
+    // V11.37.39: gewone gebruikers zien alleen het nummer; de lange tekst staat in de debugweergave (test_versie_kort).
+    const _ll = document.getElementById('leer-log'), _llw = _ll ? _ll.style.display : null;
+    if (_ll) _ll.style.display = 'none'; versieLabelBij();
+    eis('T5 het zichtbare label is exact het nummer uit APP_VERSIE (V11.37.39: kort)',
+        verEl.textContent === APP_VERSIE.split(' ')[0],
+        APP_VERSIE.split(' ')[0], verEl.textContent);
+    if (_ll) _ll.style.display = _llw; versieLabelBij();
     // startsWith en geen reguliere expressie: een versienummer zit vol punten
     // die in een regex ontsnapt moeten worden, en juist dat ging bij het
     // schrijven van dit bestand mis — er belandde een letterlijk
