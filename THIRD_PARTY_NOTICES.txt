@@ -6,7 +6,7 @@ die de app bij het starten ophaalt, met hun bron en licentie. Het is een
 opsomming, geen juridisch advies.
 
 
-1. YOLOv8 / Ultralytics (het hoofdmodel model.onnx en het reservemodel
+1. YOLOv8 / Ultralytics (stond in eerdere versies als model.onnx en
    model/model.onnx)
 -----------------------------------------------------------------------
 
@@ -14,11 +14,12 @@ Bron:       https://github.com/ultralytics/ultralytics
 Licentie:   GNU Affero General Public License, versie 3 (AGPL-3.0),
             https://www.gnu.org/licenses/agpl-3.0.html
 
-model.onnx en model/model.onnx zijn YOLOv8n-netwerken, met het pakket
+model.onnx en model/model.onnx waren YOLOv8n-netwerken, met het pakket
 Ultralytics getraind op beelden van verkeerslichten (vier klassen) en
-daarna omgezet naar ONNX. Voor model.onnx was dat Ultralytics 8.4.155
-(volgens het commentaar in index.html, niet geverifieerd). Voor
-model/model.onnx is de gebruikte versie niet vastgelegd.
+daarna omgezet naar ONNX. Vanaf V11.37.31 waren ze alleen nog reserve;
+vanaf V11.37.36 staan ze niet meer in deze repository en laadt de app ze
+niet meer. Ze zijn nog te vinden in de git-geschiedenis (tot en met
+V11.37.35).
 
 
 2. YOLOX (het model model/yolox_nano.onnx)
