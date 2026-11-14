@@ -1051,7 +1051,7 @@ if (typeof ort !== 'undefined') {
 //
 // De stijl volgt de eerdere labels: nummer, kastlijntje, korte omschrijving in
 // kleine letters. De CSS zet hem zelf in kapitalen (text-transform:uppercase).
-const APP_VERSIE = 'V11.37.36 — Nano is het enige model, met een eerlijke melding als het niet start';
+const APP_VERSIE = 'V11.37.37 — de hele cyclus als schaduw: rekenen en loggen, niets tonen';
 
 // ── CONSTANTEN ────────────────────────────────────────────────
 const OSM_RADIUS       = 5000;
@@ -5233,6 +5233,49 @@ function slaPassiefMeting(werkDur) {
   passiefSnapshot = null;  // verbruikt
 }
 
+// ── V11.37.37: DE HELE CYCLUS ALS SCHADUW (ALLEEN REKENEN EN LOGGEN) ──   // V11.37.37
+// © 2026 StoplichtIQ — Y. Lemaalem   // V11.37.37
+//   // V11.37.37
+// WENS (Younes): oranje, dan rood, dan groen; de app ziet de hele cyclus, maar   // V11.37.37
+// de countdown is dan toch vaak fout. Experiment, vooraf vastgelegd in de   // V11.37.37
+// kladmap (s_cyclus/beslisregel_14nov.txt). NIETS hiervan komt in beeld.   // V11.37.37
+//   // V11.37.37
+// NIEUWE METHODE. Is het begin van rood bekend (de app zag zelf groen of oranje   // V11.37.37
+// naar rood op deze node: zagRoodOvergang), dan: verwachte rest = geleerde   // V11.37.37
+// rooddauer van deze node en dit dagdeel (gewGem over laadM, dezelfde   // V11.37.37
+// halfwaardetijd als nu) min de tijd sinds dat begin. Anders: de huidige   // V11.37.37
+// methode (nieuw = huidig). De hele cyclus (oranje + rood + groen) controleert   // V11.37.37
+// de rooddauer NIET: op 13 nov was een volledige cyclus maar bij 291 van de   // V11.37.37
+// 2.530 roodmetingen gezien (12%), en de cyclus per emmer varieerde zelf sterk   // V11.37.37
+// (IQR mediaan 30,5 s): een controle met zo'n cyclus voegt ruis toe.   // V11.37.37
+//   // V11.37.37
+// LOG. Elke regel van sl_schaduwlog krijgt vier velden: g (1 = begin onbekend,   // V11.37.37
+// 2 = begin bekend; G1 = alle regels, G2 = g 2), hu (wat de app op dat moment   // V11.37.37
+// als rest toonde), nw (de nieuwe methode), wr (de werkelijke rest: van de   // V11.37.37
+// momentopname tot groen), in hele seconden. Dezelfde ring van 200.   // V11.37.37
+function cyclusSchaduwZet(snap) {   // V11.37.37
+  try {   // V11.37.37
+    if (!snap) return;   // V11.37.37
+    const pnu = performance.now();   // V11.37.37
+    const g = (zagRoodOvergang && faseStart !== null && faseNodeId === snap.nodeId) ? 2 : 1;   // V11.37.37
+    const verstr = cdStart !== null ? (pnu - cdStart) / 1000 : 0;   // V11.37.37
+    const hu = Math.max(0, activeCdDoel - verstr);   // V11.37.37
+    let nw = hu;   // V11.37.37
+    if (g === 2) {   // V11.37.37
+      const b = gewGem(laadM(snap.nodeId, snap.dd));   // V11.37.37
+      if (b > 0) nw = Math.max(0, b - (pnu - faseStart) / 1000);   // V11.37.37
+    }   // V11.37.37
+    snap.cy = { g, hu, nw, p: pnu };   // V11.37.37
+  } catch (_) {}   // V11.37.37
+}   // V11.37.37
+function cyclusSchaduwSluit(rec, snap) {   // V11.37.37
+  try {   // V11.37.37
+    if (!rec || !snap || !snap.cy) return;   // V11.37.37
+    rec.g = snap.cy.g; rec.hu = Math.round(snap.cy.hu); rec.nw = Math.round(snap.cy.nw);   // V11.37.37
+    rec.wr = Math.round((performance.now() - snap.cy.p) / 1000);   // V11.37.37
+  } catch (_) {}   // V11.37.37
+}   // V11.37.37
+
 // ── V11.17.30 W3: SCHADUWLOG R-SCHATTING ─────────────────────────
 // Zelfde vorm als het passief-snapshot hierboven: bevriezen bij countdown-
 // start, wegschrijven bij rood→groen met de ECHTE roodduur erbij. Puur
@@ -5270,6 +5313,7 @@ function maakSchaduwSnapshot() {
       ns: telOvergangMetingen(m),
       zag: zagRoodOvergang            // zag de app DEZE overgang zelf?
     };
+    cyclusSchaduwZet(schaduwSnapshot);   // V11.37.37: G1/G2, huidig en nieuw, alleen loggen
   } catch(_) { schaduwSnapshot = null; }
 }
 
@@ -5300,6 +5344,7 @@ function schaduwLogSluit(werkDur) {
       dow: now.getDay(),
       uur: now.getHours()
     };
+    cyclusSchaduwSluit(rec, snap);   // V11.37.37: g, hu, nw, wr
     if (rec.bron) rec.bron = latin1Veilig(rec.bron);   // V11.37.23: 'V5 ↑' liet Safari de hele sleutel dubbel tellen (alleen het weggeschreven veld; huidigCdBron blijft gelijk)
     let arr;
     try { arr = JSON.parse(localStorage.getItem('sl_schaduwlog')) || []; } catch(_) { arr = []; }
