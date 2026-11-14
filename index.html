@@ -1051,7 +1051,7 @@ if (typeof ort !== 'undefined') {
 //
 // De stijl volgt de eerdere labels: nummer, kastlijntje, korte omschrijving in
 // kleine letters. De CSS zet hem zelf in kapitalen (text-transform:uppercase).
-const APP_VERSIE = 'V11.37.37 — de hele cyclus als schaduw: rekenen en loggen, niets tonen';
+const APP_VERSIE = 'V11.37.38 — vast licht als schaduw: rekenen en loggen, niets tonen';
 
 // ── CONSTANTEN ────────────────────────────────────────────────
 const OSM_RADIUS       = 5000;
@@ -5275,6 +5275,51 @@ function cyclusSchaduwSluit(rec, snap) {   // V11.37.37
     rec.wr = Math.round((performance.now() - snap.cy.p) / 1000);   // V11.37.37
   } catch (_) {}   // V11.37.37
 }   // V11.37.37
+// ── V11.37.38: VAST LICHT ALS SCHADUW (ALLEEN REKENEN EN LOGGEN) ──   // V11.37.38
+// © 2026 StoplichtIQ   // V11.37.38
+//   // V11.37.38
+// IDEE (Younes): sommige lichten, vooral in drukke steden, hebben een vaste   // V11.37.38
+// klok. Ziet de app 3 volledige roodfasen met (bijna) dezelfde duur, gebruik   // V11.37.38
+// dan die duur in plaats van het geleerde gemiddelde. Experiment, vooraf   // V11.37.38
+// vastgelegd in de kladmap (s_cyclus/beslisregel_vast_licht.txt). NIETS   // V11.37.38
+// hiervan komt in beeld.   // V11.37.38
+//   // V11.37.38
+// STATUS VAST (per node en dagdeel, dezelfde emmer als de huidige methode):   // V11.37.38
+// de laatste 3 VOLLEDIGE rood-metingen (isOvergangMeting: de app zag de   // V11.37.38
+// overgang naar rood zelf) liggen binnen 2 s van elkaar (max - min <= 2).   // V11.37.38
+// Dan is de voorspelling hun mediaan M. De status wordt bij elke passage   // V11.37.38
+// opnieuw bepaald, zonder opgeslagen toestand: wijkt een nieuwe volledige   // V11.37.38
+// meting meer dan 3 s af, dan is de spreiding van de laatste 3 groter dan   // V11.37.38
+// 2 s en vervalt de status direct (15, 15, 15, 35 -> niet vast).   // V11.37.38
+//   // V11.37.38
+// LOG. Elke regel van sl_schaduwlog krijgt: v (1 = vast, 0 = niet), vn (de   // V11.37.38
+// vast-licht-voorspelling van de rest; bij v 0 gelijk aan hu) en bij v 1 vm   // V11.37.38
+// (de mediaan M). hu (huidig) en wr (werkelijke rest) staan er al (V11.37.37).   // V11.37.38
+// Dezelfde ring van 200; per regel hoogstens ~25 tekens erbij.   // V11.37.38
+function vastLichtStatus(m) {   // V11.37.38
+  const vol = (Array.isArray(m) ? m : []).filter(isOvergangMeting).slice().sort((a, b) => b.tijd - a.tijd).slice(0, 3);   // V11.37.38
+  if (vol.length < 3) return { v: 0, m: null };   // V11.37.38
+  const d = vol.map(x => x.duur).sort((a, b) => a - b);   // V11.37.38
+  if (d[2] - d[0] > 2) return { v: 0, m: null };   // V11.37.38
+  return { v: 1, m: d[1] };   // V11.37.38
+}   // V11.37.38
+function vastLichtZet(snap) {   // V11.37.38
+  try {   // V11.37.38
+    if (!snap) return;   // V11.37.38
+    const pnu = snap.cy && typeof snap.cy.p === 'number' ? snap.cy.p : performance.now();   // V11.37.38
+    const verstr = cdStart !== null ? (pnu - cdStart) / 1000 : 0;   // V11.37.38
+    const hu = Math.max(0, activeCdDoel - verstr);   // V11.37.38
+    const st = vastLichtStatus(laadM(snap.nodeId, snap.dd));   // V11.37.38
+    snap.vl = { v: st.v, m: st.m, vn: st.v === 1 ? Math.max(0, st.m - verstr) : hu };   // V11.37.38
+  } catch (_) {}   // V11.37.38
+}   // V11.37.38
+function vastLichtSluit(rec, snap) {   // V11.37.38
+  try {   // V11.37.38
+    if (!rec || !snap || !snap.vl) return;   // V11.37.38
+    rec.v = snap.vl.v; rec.vn = Math.round(snap.vl.vn);   // V11.37.38
+    if (snap.vl.v === 1) rec.vm = snap.vl.m;   // V11.37.38
+  } catch (_) {}   // V11.37.38
+}   // V11.37.38
 
 // ── V11.17.30 W3: SCHADUWLOG R-SCHATTING ─────────────────────────
 // Zelfde vorm als het passief-snapshot hierboven: bevriezen bij countdown-
@@ -5314,6 +5359,7 @@ function maakSchaduwSnapshot() {
       zag: zagRoodOvergang            // zag de app DEZE overgang zelf?
     };
     cyclusSchaduwZet(schaduwSnapshot);   // V11.37.37: G1/G2, huidig en nieuw, alleen loggen
+    vastLichtZet(schaduwSnapshot);   // V11.37.38: vast licht, alleen loggen
   } catch(_) { schaduwSnapshot = null; }
 }
 
@@ -5345,6 +5391,7 @@ function schaduwLogSluit(werkDur) {
       uur: now.getHours()
     };
     cyclusSchaduwSluit(rec, snap);   // V11.37.37: g, hu, nw, wr
+    vastLichtSluit(rec, snap);   // V11.37.38: v, vn, vm
     if (rec.bron) rec.bron = latin1Veilig(rec.bron);   // V11.37.23: 'V5 ↑' liet Safari de hele sleutel dubbel tellen (alleen het weggeschreven veld; huidigCdBron blijft gelijk)
     let arr;
     try { arr = JSON.parse(localStorage.getItem('sl_schaduwlog')) || []; } catch(_) { arr = []; }

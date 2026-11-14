@@ -43,7 +43,7 @@
 //      s.onload = () => testTikVast().then(r => console.table(r.regels));
 // ═══════════════════════════════════════════════════════════════
 // V11.37.21: de regels met dit merkteken weg, zodat de vergelijkingen hieronder de functies van vóór V11.37.21 blijven toetsen (zie test_meetwerk21)
-function zonderV113721(s) { return String(s).split('\n').map(terugV113731).map(terugV113726).filter(l => !/V11\.37\.21(?!\d)|V11\.37\.22(?!\d)|V11\.37\.23(?!\d)|V11\.37\.25(?!\d)|V11\.37\.26(?!\d)|V11\.37\.30(?!\d)|V11\.37\.31(?!\d)|V11\.37\.34(?!\d)|V11\.37\.35(?!\d)|V11\.37\.36(?!\d)|V11\.37\.37(?!\d)/.test(l)).join('\n'); }   // V11.37.22: ook de meetregels van V11.37.22 (test_meetwerk22); V11.37.23: idem (test_meetwerk23); V11.37.25: idem (test_plaatsen)   // V11.37.26: idem (test_schaduw_nano), met terugV113726
+function zonderV113721(s) { return String(s).split('\n').map(terugV113731).map(terugV113726).filter(l => !/V11\.37\.21(?!\d)|V11\.37\.22(?!\d)|V11\.37\.23(?!\d)|V11\.37\.25(?!\d)|V11\.37\.26(?!\d)|V11\.37\.30(?!\d)|V11\.37\.31(?!\d)|V11\.37\.34(?!\d)|V11\.37\.35(?!\d)|V11\.37\.36(?!\d)|V11\.37\.37(?!\d)|V11\.37\.38(?!\d)/.test(l)).join('\n'); }   // V11.37.22: ook de meetregels van V11.37.22 (test_meetwerk22); V11.37.23: idem (test_meetwerk23); V11.37.25: idem (test_plaatsen)   // V11.37.26: idem (test_schaduw_nano), met terugV113726
 // V11.37.26: drie regels van laadONNXModel zijn vervangen (de modelnaam komt uit MODEL_PADEN, test_schaduw_nano).
 // Die gaan hier terug naar de oude tekst; daarna vallen de regels met merkteken V11.37.26 weg zoals de andere.
 // V11.37.31: Nano is het hoofdmodel; deze regels zijn VERVANGEN (niet toegevoegd). Hier gaat precies de oude regel terug,
@@ -322,7 +322,7 @@ async function testTikVast() {
         'geen toewijzing', 'ok');
 
     // ═══ TV10 — regressie ══════════════════════════════════════
-    const ssm = String(stickySlotMatch).split('\n').filter(l => !/V11\.37\.35(?!\d)|V11\.37\.36(?!\d)|V11\.37\.37(?!\d)/.test(l)).join('\n');   // V11.37.35: zonder de regel met het burengeheugen (test_slot_blijft)
+    const ssm = String(stickySlotMatch).split('\n').filter(l => !/V11\.37\.35(?!\d)|V11\.37\.36(?!\d)|V11\.37\.37(?!\d)|V11\.37\.38(?!\d)/.test(l)).join('\n');   // V11.37.35: zonder de regel met het burengeheugen (test_slot_blijft)
     eis('TV10a stickySlotMatch is byte-gelijk aan V11.36.2 (het auto-slot gebruikt hem)',
         fnv(ssm) === '7d812b24' && ssm.length === 2081, '7d812b24 / 2081', fnv(ssm) + ' / ' + ssm.length);
     const sbd = String(selecteerBesteDetectie);
@@ -331,7 +331,7 @@ async function testTikVast() {
     eis('TV10b het auto-slot roept nog steeds stickySlotMatch(bruikbaar) aan, en de tik-tak niet meer',
         aanroepen === 1 && !!auto && auto[1].trim() === 'bruikbaar' && (zc(selecteerBesteDetectie).match(/tikSlotMatch\(/g) || []).length === 1,
         '1x stickySlotMatch (auto-slot), 1x tikSlotMatch', aanroepen + 'x / ' + (auto ? auto[1] : 'geen'));
-    const terug = sbd.split('\n').filter(l => !/V11\.36\.3(?!\d)|V11\.37\.35(?!\d)|V11\.37\.36(?!\d)|V11\.37\.37(?!\d)/.test(l)).join('\n')
+    const terug = sbd.split('\n').filter(l => !/V11\.36\.3(?!\d)|V11\.37\.35(?!\d)|V11\.37\.36(?!\d)|V11\.37\.37(?!\d)|V11\.37\.38(?!\d)/.test(l)).join('\n')
       .replace('const winner = tikSlotMatch(bruikbaar, straalVast);', 'const winner = stickySlotMatch(bruikbaar, straal);');
     eis('TV10c selecteerBesteDetectie zonder de V11.36.3-regels is byte-gelijk aan V11.34.1',
         fnv(terug) === '79a403fa' && terug.length === 14376, '79a403fa / 14376', fnv(terug) + ' / ' + terug.length);
