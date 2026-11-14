@@ -541,10 +541,12 @@ async function testSchaduwNano() {
     const paden = [...new Set([...html.matchAll(/['"`](\.\/[A-Za-z0-9_\/.-]+\.onnx)['"`]/g)].map(m => m[1]))];
     const onbekend = paden.filter(p => !MODEL_PADEN[p]);
     eis('N4a elk .onnx-pad in index.html staat in MODEL_PADEN (een nieuw pad zonder soort laat deze toets falen)',
-        paden.length >= 3 && onbekend.length === 0, '0 onbekend', kort({ paden, onbekend }));
+        paden.length >= 1 && paden.includes('./model/yolox_nano.onnx') && onbekend.length === 0, '0 onbekend', kort({ paden, onbekend }));   // V11.37.36: alleen Nano (was >= 3)
     // V11.37.31: het hoofdpad is Nano (yolox) met YOLOv8n als reserve; laadONNXModel aanvaardt elke bekende soort en kiest worker en drempels op de soort
-    eis('N4b het hoofdpad is Nano (yolox), de reserves zijn YOLOv8; laadONNXModel controleert de soort (V11.37.31)',
-        modelSoortVan('./model/yolox_nano.onnx') === 'yolox' && modelSoortVan('./model.onnx') === 'yolov8' && modelSoortVan('./model/model.onnx') === 'yolov8'
+    // V11.37.36: geen YOLOv8n-reserves meer; een onbekend pad (zoals ./model.onnx) gooit.
+    const gooitPad = (p) => { try { modelSoortVan(p); return false; } catch (e) { return true; } };
+    eis('N4b het hoofdpad is Nano (yolox) en er zijn geen reserves meer (V11.37.36); laadONNXModel controleert de soort',
+        modelSoortVan('./model/yolox_nano.onnx') === 'yolox' && gooitPad('./model.onnx') && gooitPad('./model/model.onnx')
         && MODEL_PADEN['./model/yolox_nano.onnx'].rol === 'hoofd' && /in MODEL_SOORTEN/.test(String(laadONNXModel)) && /hoofdWorkerCode\(modelPad\)/.test(String(laadONNXModel)), 'yolox hoofd + controle', '');
     const plannen = {};
     for (const m of MODELVGL_MODI) { try { const p = vglPlan(m); plannen[m] = p.soort + '/' + p.worker; } catch (e) { plannen[m] = 'FOUT ' + e.message; } }
@@ -561,8 +563,8 @@ async function testSchaduwNano() {
     const g6 = gooit(() => vglPlan('nano', { './model/yolox_nano.onnx': { soort: 'yolov8', naam: 'x' } }));
     eis('N4d KERN: een YOLOv8-bestand krijgt nooit de Nano-worker en een YOLOX-bestand nooit een YOLOv8-worker, ook niet in de motorproef; een onbekend pad start niet',
         !!(g1 && g2 && g3 && g4 && g5 && g6), 'zes keer een fout', kort([g1, g2, g3, g4, g5, g6]));
-    const hoofdWorkerZelfde = YOLO_WORKER_CODE.indexOf("output['output0']") > 0 && YOLO_WORKER_CODE.indexOf('sessie.run({images:tensor})') > 0;
-    eis('N4e het hoofdpad zelf is onaangeroerd: YOLO_WORKER_CODE leest images en output0, kent geen Nano', hoofdWorkerZelfde && YOLO_WORKER_CODE.indexOf('255') < 0, 'ongewijzigd', '');
+    // V11.37.36: de YOLOv8-worker (YOLO_WORKER_CODE) is weg met het reservemodel; het hoofdpad gebruikt altijd de Nano-worker.
+    eis('N4e V11.37.36: er is geen YOLOv8-worker meer; het hoofdpad krijgt altijd de Nano-worker', typeof YOLO_WORKER_CODE === 'undefined' && hoofdWorkerCode('./model/yolox_nano.onnx') === NANO_WORKER_CODE, 'alleen Nano', typeof YOLO_WORKER_CODE);
     eis('N4f de Nano-worker vraagt precies één provider en valt nergens op terug', /executionProviders:\['wasm'\]/.test(NANO_WORKER_CODE) && (NANO_WORKER_CODE.match(/executionProviders/g) || []).length === 1, 'wasm', '');
 
     // ═══ N5 — de workers in een zandbak ═══
@@ -607,10 +609,8 @@ async function testSchaduwNano() {
     z3.self.onmessage({ data: { type: 'initialiseer', modelBuffer: new ArrayBuffer(4) } }); await wacht(); await wacht();
     z3.self.onmessage({ data: { type: 'inferentie', pixelData: new Float32Array(12), breedte: 2, hoogte: 2, frameId: 7 } }); await wacht(); await wacht(); await wacht();
     eis('N5e een uitvoer van de verkeerde vorm wordt een fout, geen resultaat', z3.berichten.some(b => b.type === 'fout' && /^vorm/.test(b.bericht)) && !z3.berichten.some(b => b.type === 'resultaat'), 'vorm-fout', kort(z3.berichten));
-    const z4 = zandbak(YOLO_WORKER_CODE, { inputNames: ['images'], outputNames: ['output'], run: async () => ({ output: { data: new Float32Array(9), dims: [1, 1, 9] } }) });
-    z4.self.onmessage({ data: { type: 'initialiseer', modelBuffer: new ArrayBuffer(4) } }); await wacht(); await wacht();
-    z4.self.onmessage({ data: { type: 'inferentie', pixelData: new Float32Array(12), breedte: 2, hoogte: 2, frameId: 8 } }); await wacht(); await wacht(); await wacht();
-    eis('N5f de YOLO-worker van het hoofdpad geeft op een YOLOX-bestand een fout, geen resultaat', z4.berichten.some(b => b.type === 'fout') && !z4.berichten.some(b => b.type === 'resultaat'), 'fout', kort(z4.berichten));
+    // V11.37.36: de YOLOv8-worker van het hoofdpad bestaat niet meer (geen reservemodel); er is dus geen worker die een YOLOX-bestand verkeerd kan lezen.
+    eis('N5f V11.37.36: er is geen YOLO(v8)-worker meer die een YOLOX-bestand verkeerd kan lezen', typeof YOLO_WORKER_CODE === 'undefined', 'weg', typeof YOLO_WORKER_CODE);
 
     // ═══ N6 — starten en stoppen ═══
     const nepWorkers = [], blobs = [], fetches = [];
@@ -653,10 +653,10 @@ async function testSchaduwNano() {
     eis('N6f bestand laadt niet (404): uit, met de reden, en geen terugval op een ander bestand', !nanoStaat.actief && /404/.test(nanoStaat.gestopt || '') && fetches.length === 2 && fetches.every(f => f === './model/yolox_nano.onnx'),
         'uit (404)', kort({ gestopt: nanoStaat.gestopt, fetches }));
     fetchAntwoord = 'ok';
-    VGL_MODUS_PAD.nano = './model/model.onnx';
+    VGL_MODUS_PAD.nano = './model/model.onnx';   // V11.37.36: dit YOLOv8-pad bestaat niet meer; een onbekend pad wordt net zo geweigerd
     const voorW = nepWorkers.length, voorF = fetches.length;
     vglStartSchaduw('nano'); await rust(); await rust();
-    eis('N6g een tabelfout (nano wijst naar een YOLOv8-bestand): niets opgehaald, geen worker, uit met de reden', fetches.length === voorF && nepWorkers.length === voorW && /plan: stand nano vraagt een YOLOX/.test(nanoStaat.gestopt || ''),
+    eis('N6g een tabelfout (nano wijst naar een YOLOv8-bestand): niets opgehaald, geen worker, uit met de reden', fetches.length === voorF && nepWorkers.length === voorW && /plan: (stand nano vraagt een YOLOX|onbekend modelpad)/.test(nanoStaat.gestopt || ''),
         'niets gestart', kort(nanoStaat.gestopt));
     VGL_MODUS_PAD.nano = bewaard.pad.nano;
     vglStartSchaduw('ort130'); await rust(); await rust();
@@ -739,39 +739,27 @@ async function testSchaduwNano() {
 
     // ═══ N10 — de teksten ═══
     eis('N10a het startscherm zegt "Model laden", niet meer "YOLOv8 model laden"', /id="s-model-label">🤖 Model laden…</.test(html) && html.indexOf('YOLOv8 model laden') < 0 && html.indexOf('✓ YOLOv8 klaar') < 0, 'Model laden', '');
-    eis('N10b de naam na het laden komt uit de tabel', modelNaamVan('./model.onnx') === 'YOLOv8n' && /Model klaar: \$\{modelNaamVan\(modelPad\)\}/.test(String(laadONNXModel)), 'YOLOv8n', modelNaamVan('./model.onnx'));
+    eis('N10b de naam na het laden komt uit de tabel', modelNaamVan(HOOFD_PADEN_NANO[0]) === 'YOLOX-Nano' && /Model klaar: \$\{modelNaamVan\(modelPad\)\}/.test(String(laadONNXModel)), 'YOLOX-Nano (V11.37.36)', modelNaamVan(HOOFD_PADEN_NANO[0]));
     const sam = mvSamenvattingTekst();
-    eis('N10c het overzicht noemt A en B; geen andere stand meer (V11.37.27)', /A = hoofdpad \(YOLOv8n\)/.test(sam) && /\nB = YOLOX-Nano/.test(sam) && !/D-FINE|ORT 1\.30|WebGPU|reservemodel/.test(sam), 'A = hoofdpad, B = YOLOX-Nano', kort(sam.split('\n').filter(r => /^[AB] = /.test(r))));
+    eis('N10c het overzicht noemt A en B; geen andere stand meer (V11.37.27)', /A = hoofdpad \(YOLOX-Nano\)/.test(sam) && /\nB = YOLOX-Nano/.test(sam) && !/D-FINE|ORT 1\.30|WebGPU|reservemodel/.test(sam), 'A = hoofdpad, B = YOLOX-Nano', kort(sam.split('\n').filter(r => /^[AB] = /.test(r))));
     eis('N10d de Nano-tussenstand geeft geen oordeel', /Tussenstand, GEEN oordeel/.test(sam) && !/GOED|TWIJFEL|\bAF\b/.test(sam), 'geen oordeel', '');
     const n10eVm = /^V11\.37\.(\d+)(?!\d)/.exec(APP_VERSIE);   // V11.37.27: een latere versie (bijvoorbeeld de Nano-wissel) mag, een eerdere niet
-    eis('N10e versie V11.37.27 of later en de copyright blijft staan', !!n10eVm && Number(n10eVm[1]) >= Number('V11.37.27'.split('.')[2]) && (document.getElementById('s-copyright') || {}).textContent === '© 2026 StoplichtIQ — Y. Lemaalem', 'V11.37.27 of later + ©', APP_VERSIE.slice(0, 40));
+    eis('N10e versie V11.37.27 of later en de copyright blijft staan (V11.37.36: zonder naam)', !!n10eVm && Number(n10eVm[1]) >= Number('V11.37.27'.split('.')[2]) && (document.getElementById('s-copyright') || {}).textContent === '© 2026 StoplichtIQ', 'V11.37.27 of later + ©', APP_VERSIE.slice(0, 40));
     eis('N10f de meetdata-export neemt sl_nano_* en sl_modelvgl mee', /key\.startsWith\('sl_nano_'\) \|\| key === 'sl_modelvgl'\) doel = uit\.nano/.test(html), 'uit.nano', '');
 
-    // ═══ N11 — ECHT: de schakelaar aan, de echte worker, het echte bestand ═══
-    // V11.37.31: in de iframe met YOLOv8 als hoofd (sl_hoofdmodel=yolov8, de terugzetkeuze): alleen dan draait de schaduw
-    const E = await inFrame((w) => w.schaduwNanoBinnen('echt', {}), () => { localStorage.setItem('sl_modelvgl_aan', '1'); localStorage.setItem('sl_modelvgl_model', 'nano'); localStorage.setItem('sl_hoofdmodel', 'yolov8'); });   // V11.37.31: sl_hoofdmodel
-    eis('N11a met de schakelaar aan en de stand nano start de echte Nano-worker en zegt dat in beeld', E.aan === true && E.model === 'nano' && E.klaar && E.label === 'Nano' && E.badge === 'TEST · Nano' && E.versieBadge === 'TEST · Nano',
-        'klaar, TEST · Nano', kort(E));
-    // V11.37.28: eigen-2 last ziet de getekende lamp niet (0 detecties); de oude Nano wel. Alleen nog: draait hij, en is de uitvoer geldig.
-    const geldig = !!E.b && typeof E.b.ms === 'number' && E.b.ms >= 0 && Number.isInteger(E.b.lu) && E.b.lu >= 0 && E.b.lu <= 255
-      && (E.b.kl === -1 || [0, 1, 2, 3].includes(E.b.kl)) && Array.isArray(E.b.dets)
-      && E.b.dets.every(d => [0, 1, 2, 3].includes(d.k) && d.s >= 0 && d.s <= 1 && d.w > 0 && d.h > 0);
-    eis('N11b de echte Nano-worker rekent op een getekend beeld en geeft geldige uitvoer (tijd, helderheid, klassen en boxen)', geldig, 'ms, lu 0..255, geldige dets', kort(E.b));
-    eis('N11c de schaduw liet detLogBest van het hoofdmodel onaangeroerd', E.detLogBestOnaangeroerd === true, 'null', kort(E.detLogBestOnaangeroerd));
-    const HG = E.hoofdGooit || {}, HW = E.hoofdGewoon || {}, BG = E.beginGooit || {};
-    eis('N1g de echte onmessage van de hoofdworker: een fout in nanoNaHoofd ontsnapt niet, aiBezig gaat uit, de verwerking en de telling draaien',
-        HG.nanoAangeroepen === 1 && HG.ontsnapt === null && HG.aiBezig === false && HG.verwerkt === 1 && HG.geteld === 1 && HG.yoloWorker && HG.workerKlaar,
-        'aangeroepen 1, ontsnapt null, aiBezig false, verwerkt 1, geteld 1', kort(HG));
-    eis('N1g2 en zonder fout precies hetzelfde hoofdpad (controle dat de toets de echte route neemt)',
-        HW.nanoAangeroepen === 1 && HW.ontsnapt === null && HW.aiBezig === false && HW.verwerkt === 1 && HW.geteld === 1, 'idem', kort(HW));
-    eis('N1h startVglWorker met een nanoBegin die gooit: niets ontsnapt naar laadONNXModel, het hoofdmodel blijft, de schaduw staat uit en zegt het',
-        BG.ontsnapt === null && BG.yoloWorker === true && BG.workerKlaar === true && BG.schaduw === false && BG.label === 'Nano uit' && /^begin: nep/.test(BG.gestopt || ''),
-        'ontsnapt null, hoofdmodel staat, Nano uit (begin: ...)', kort(BG));
+    // ═══ N11 / N1g / N1h — V11.37.36 ═══
+    // Deze echte proeven draaiden de schaduw in een iframe met YOLOv8n als hoofd (sl_hoofdmodel=yolov8). Dat model
+    // en die keuze bestaan niet meer: met Nano als hoofd kan de Nano-schaduw niet starten (hij zou Nano met Nano
+    // vergelijken). De echte Nano-worker op het hoofdpad toetst test_nano_hoofd (NH3b).
+    const hsBew = hoofdSoort; hoofdSoort = 'yolox';
+    let n11 = null; try { vglPlan('nano'); } catch (e) { n11 = e.message; }
+    hoofdSoort = hsBew;
+    eis('N11 V11.37.36: met Nano als hoofd (het enige model) start de Nano-schaduw niet; vglPlan zegt waarom', /al Nano/.test(n11 || ''), 'gooit: al Nano', String(n11));
 
     // ═══ N13 — V11.37.27: een oude stand doet niets ═══
-    const O = await inFrame((w) => w.schaduwNanoBinnen('oud', {}), () => { localStorage.setItem('sl_modelvgl_aan', '1'); localStorage.setItem('sl_modelvgl_model', 'ort130'); localStorage.setItem('sl_hoofdmodel', 'yolov8'); });   // V11.37.31: met Nano als hoofd haalt het HOOFDpad model/yolox_nano.onnx; hier telt alleen wat de schaduw ophaalt
+    const O = await inFrame((w) => w.schaduwNanoBinnen('oud', {}), () => { localStorage.setItem('sl_modelvgl_aan', '1'); localStorage.setItem('sl_modelvgl_model', 'ort130'); localStorage.setItem('sl_hoofdmodel', 'yolov8'); localStorage.removeItem('sl_nano_meta'); });   // V11.37.36: sl_hoofdmodel doet niets meer; sl_nano_meta leeg vooraf (N6 hierboven schrijft hem in dit venster)   // V11.37.31: met Nano als hoofd haalt het HOOFDpad model/yolox_nano.onnx; hier telt alleen wat de schaduw ophaalt
     eis('N13a schakelaar aan met de oude stand ort130: geen schaduw, geen terugval op v8n of Nano, niets opgehaald',
-        !O.fout && O.aan === true && O.model === null && O.oud === 'ort130' && O.worker === false && O.actief === false && O.geladen.length === 0,
+        !O.fout && O.aan === true && O.model === null && O.oud === 'ort130' && O.worker === false && O.actief === false && O.geladen.length <= 1 && O.geladen.every(n => /model\/yolox_nano\.onnx/.test(n)),   // V11.37.36: hoogstens de ene download van het HOOFDpad (Nano), niets van de schaduw
         'model null, geen worker, 0 bestanden', kort(O));
     eis('N13b het merkteken en het overzicht zeggen het, met de uitweg', O.badge === 'TEST · oude stand' && O.versieBadge === 'TEST · oude stand'
         && /Oude stand "ort130" gevonden/.test(O.tekst || '') && /Zet uit/.test(O.tekst || '') && /oude stand ort130/.test(O.console || ''),

@@ -32,14 +32,17 @@ async function testNanoHoofd() {
         'yolox, nano, uitgesteld, klaar, Nano', [hoofdSoort, onnxSession && onnxSession.pad, workerKlaar, pAIT.textContent, sModelLabel.textContent].join(' | '));
 
     // ═══ NH1 ═══
+    // V11.37.36: alleen Nano; sl_hoofdmodel doet niets meer; er is geen volgend pad.
+    const hmBew = localStorage.getItem('sl_hoofdmodel');
     hoofdPoging = 0; localStorage.removeItem('sl_hoofdmodel');
     const a = hoofdPaden().join(',');
     localStorage.setItem('sl_hoofdmodel', 'yolov8'); const b = hoofdPaden().join(',');
     localStorage.removeItem('sl_hoofdmodel'); hoofdPoging = 1; const c = hoofdPaden().join(','); hoofdPoging = 0;
-    eis('NH1 volgorde: Nano dan YOLOv8n; met sl_hoofdmodel=yolov8 de oude volgorde; na een laadfout het volgende pad',
-        a === './model/yolox_nano.onnx,./model.onnx,./model/model.onnx' && b === './model.onnx,./model/model.onnx' && c === './model.onnx,./model/model.onnx'
-          && MODEL_PADEN['./model/yolox_nano.onnx'].rol === 'hoofd' && MODEL_PADEN['./model.onnx'].rol === 'reserve',
-        'nano,v8,oud | v8,oud | v8,oud', [a, b, c].join(' | '));
+    if (hmBew !== null) localStorage.setItem('sl_hoofdmodel', hmBew);
+    eis('NH1 V11.37.36: alleen Nano; sl_hoofdmodel=yolov8 verandert niets; na Nano is er geen volgend pad',
+        a === './model/yolox_nano.onnx' && b === './model/yolox_nano.onnx' && c === ''
+          && MODEL_PADEN['./model/yolox_nano.onnx'].rol === 'hoofd' && !MODEL_PADEN['./model.onnx'],
+        'nano | nano | leeg', [a, b, c].join(' | '));
 
     // ═══ NH2 ═══
     const gehaald = []; let sessies = 0;
@@ -78,12 +81,12 @@ async function testNanoHoofd() {
     hoofdPoging = 0; workerKlaar = false; yoloWorker = { terminate() {} }; modelTerugvalFout = null;
     const neeKlaar = hoofdInitFout({ type: 'fout', bericht: 'gewone fout tijdens een run' });
     const ja = hoofdInitFout({ type: 'fout', bericht: 'init: geen YOLOX-bestand (invoer x; uitvoer y)' });
-    const poging1 = hoofdPoging;
-    hoofdPoging = 2;   // V11.37.34: de derde stap is de laatste
-    const nogEens = hoofdInitFout({ type: 'fout', bericht: 'init: weer' });
-    eis('NH4 alleen een init-fout van de worker vóór "klaar" laadt het volgende pad (één keer; na het laatste pad niet meer)',
-        neeKlaar === false && ja === true && herlaad === 1 && poging1 === 1 && nogEens === false && /^init/.test(modelTerugvalFout) && yoloWorker === null && modelGeladen === false,
-        'false, true, 1, 1, false', [neeKlaar, ja, herlaad, poging1, nogEens, modelTerugvalFout].join(', '));
+    const poging1 = hoofdPoging, faalt1 = modelFaalt, faalEl = !!document.getElementById('model-faal');
+    modelFaalt = false; { const m = document.getElementById('model-faal'); if (m) m.remove(); }   // V11.37.36: opruimen voor de volgende toetsen
+    // V11.37.36: een init-fout laadt geen volgend pad meer; hij geeft de faalmelding (modelFaal), zie test_nano_wachter.
+    eis('NH4 V11.37.36: alleen een init-fout vóór "klaar" telt; die geeft de faalmelding en laadt GEEN volgend pad',
+        neeKlaar === false && ja === true && herlaad === 0 && poging1 === 0 && faalt1 === true && faalEl === true && yoloWorker === null && modelGeladen === false,
+        'false, true, 0, 0, faal', [neeKlaar, ja, herlaad, poging1, faalt1, faalEl].join(', '));
     hoofdPoging = 0;
 
     // ═══ NH5 ═══

@@ -601,7 +601,7 @@ async function testNaderingsbewijs() {
       const zonderV113712 = (s) => zonderV113713(s).split('\n').filter(l => !/V11\.37\.12(?!\d)/.test(l)).join('\n');   // V11.37.12: de rem op de kaartvraag en de dekking van de fietslijst (test_overpass); hier terug
       const zonderV113711 = (s) => zonderV113712(s).split('\n').filter(l => !/V11\.37\.11(?!\d)/.test(l)).join('\n');   // V11.37.11: de tegenrichting-regel (test_tegenrichting); hier terug
       const terugV11378 = (s) => zonderV113711(s).replace("      if (wisselStaat.min === null || af < wisselStaat.min) { wisselStaat.min = af; wisselStaat.minT = Date.now(); }   // V11.37.8: en wanneer (tMin)", "      if (wisselStaat.min === null || af < wisselStaat.min) wisselStaat.min = af;").replace("  if (!dichtstbijOSM) { logOpslagMis('bevestig_geen_licht', { element: categorie }); return; }   // V11.37.8: niet meer stil", "  if (!dichtstbijOSM) return;").split('\n').filter(l => !/V11\.37\.8(?!\d)/.test(l)).join('\n');   // V11.37.8: het fietsfilter en de bevroren knoppen (test_fietslicht); hier terug
-      const src = terugV11378(window[naam]).split('\n').filter(l => !/V11\.37\.4(?!\d)|V11\.37\.35(?!\d)/.test(l)).join('\n');   // V11.37.35: ook de toegevoegde regels van V11.37.35 (test_slot_blijft)
+      const src = terugV11378(window[naam]).split('\n').filter(l => !/V11\.37\.4(?!\d)|V11\.37\.35(?!\d)|V11\.37\.36(?!\d)|V11\.37\.37(?!\d)/.test(l)).join('\n');   // V11.37.35: ook de toegevoegde regels van V11.37.35 (test_slot_blijft)
       eis('NB14 ' + naam + ' is byte-gelijk aan V11.26.0', fnv(src) === h && src.length === len,
           h + ' / ' + len, fnv(src) + ' / ' + src.length);
     }

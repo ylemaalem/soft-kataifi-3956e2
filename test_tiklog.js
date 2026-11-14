@@ -344,7 +344,7 @@ async function testTiklog() {
                   ['corrigeerNodeAutomatisch', 'afe7b427', 4118], ['updateDichtbij', 'e82d3c0', 11914],
                   ['vindDichtbij', '2db98dab', 2954]];
     // V11.37.4: zonder de vier regels met merkteken (de achter-regel, zie test_achter).
-    const zonder374 = (s) => s.split('\n').filter(l => !/V11\.37\.4(?!\d)|V11\.37\.35(?!\d)/.test(l)).join('\n');   // V11.37.35: ook de toegevoegde regels van V11.37.35
+    const zonder374 = (s) => s.split('\n').filter(l => !/V11\.37\.4(?!\d)|V11\.37\.35(?!\d)|V11\.37\.36(?!\d)|V11\.37\.37(?!\d)/.test(l)).join('\n');   // V11.37.35: ook de toegevoegde regels van V11.37.35
     const zonderV113718 = (s) => String(s).split('\n').filter(l => !/V11\.37\.23(?!\d)|V11\.37\.25(?!\d)/.test(l)).join('\n').replace('const d = await kaartLeesInhoud(r, ctrl);   // V11.37.18: ook de inhoud heeft een grens (stond: await r.json()), zie kaartLeesInhoud', 'const d = await r.json();').split('\n').filter(l => !/V11\.37\.18(?!\d)/.test(l)).join('\n');   // V11.37.18: de bewaarde kaart, C5 en C7 (test_kaartbewaar); hier terug; V11.37.23: eerst de regels van V11.37.23 weg (test_meetwerk23)
     const zonderV113717 = (s) => zonderV113718(s).split('\n').filter(l => !/V11\.37\.17(?!\d)/.test(l)).join('\n');   // V11.37.17: de startlog (test_startlog); hier terug
     const zonderV113713 = (s) => zonderV113717(s).split('\n').filter(l => !/V11\.37\.13(?!\d)/.test(l)).join('\n');   // V11.37.13: R1 en R3 van de tegenrichting-regel (test_tegenbocht); hier terug

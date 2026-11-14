@@ -38,7 +38,7 @@
 //      s.onload = () => testAchter().then(r => console.table(r.regels));
 // ═══════════════════════════════════════════════════════════════
 // V11.37.21: de regels met dit merkteken weg, zodat de vergelijkingen hieronder de functies van vóór V11.37.21 blijven toetsen (zie test_meetwerk21)
-function zonderV113721(s) { return String(s).split('\n').map(terugV113731).map(terugV113726).filter(l => !/V11\.37\.21(?!\d)|V11\.37\.22(?!\d)|V11\.37\.23(?!\d)|V11\.37\.25(?!\d)|V11\.37\.26(?!\d)|V11\.37\.30(?!\d)|V11\.37\.31(?!\d)|V11\.37\.34(?!\d)|V11\.37\.35(?!\d)/.test(l)).join('\n'); }   // V11.37.22: ook de meetregels van V11.37.22 (test_meetwerk22); V11.37.23: idem (test_meetwerk23); V11.37.25: idem (test_plaatsen)   // V11.37.26: idem (test_schaduw_nano), met terugV113726
+function zonderV113721(s) { return String(s).split('\n').map(terugV113731).map(terugV113726).filter(l => !/V11\.37\.21(?!\d)|V11\.37\.22(?!\d)|V11\.37\.23(?!\d)|V11\.37\.25(?!\d)|V11\.37\.26(?!\d)|V11\.37\.30(?!\d)|V11\.37\.31(?!\d)|V11\.37\.34(?!\d)|V11\.37\.35(?!\d)|V11\.37\.36(?!\d)|V11\.37\.37(?!\d)/.test(l)).join('\n'); }   // V11.37.22: ook de meetregels van V11.37.22 (test_meetwerk22); V11.37.23: idem (test_meetwerk23); V11.37.25: idem (test_plaatsen)   // V11.37.26: idem (test_schaduw_nano), met terugV113726
 // V11.37.26: drie regels van laadONNXModel zijn vervangen (de modelnaam komt uit MODEL_PADEN, test_schaduw_nano).
 // Die gaan hier terug naar de oude tekst; daarna vallen de regels met merkteken V11.37.26 weg zoals de andere.
 // V11.37.31: Nano is het hoofdmodel; deze regels zijn VERVANGEN (niet toegevoegd). Hier gaat precies de oude regel terug,
@@ -431,7 +431,7 @@ async function testAchter() {
   }
 
   // ═══ AR11 — regressie ══════════════════════════════════════
-  const zonder374 = (s) => s.split(NL).filter(l => !/V11\.37\.4(?!\d)|V11\.37\.35(?!\d)/.test(l)).join(NL);   // V11.37.35: ook de toegevoegde regels van V11.37.35 (test_slot_blijft)
+  const zonder374 = (s) => s.split(NL).filter(l => !/V11\.37\.4(?!\d)|V11\.37\.35(?!\d)|V11\.37\.36(?!\d)|V11\.37\.37(?!\d)/.test(l)).join(NL);   // V11.37.35: ook de toegevoegde regels van V11.37.35 (test_slot_blijft)
   const zonderV113718 = (s) => String(s).split('\n').filter(l => !/V11\.37\.23(?!\d)|V11\.37\.25(?!\d)/.test(l)).join('\n').replace('const d = await kaartLeesInhoud(r, ctrl);   // V11.37.18: ook de inhoud heeft een grens (stond: await r.json()), zie kaartLeesInhoud', 'const d = await r.json();').split('\n').filter(l => !/V11\.37\.18(?!\d)/.test(l)).join('\n');   // V11.37.18: de bewaarde kaart, C5 en C7 (test_kaartbewaar); hier terug; V11.37.23: eerst de regels van V11.37.23 weg (test_meetwerk23)
   const zonderV113717 = (s) => zonderV113718(s).split('\n').filter(l => !/V11\.37\.17(?!\d)/.test(l)).join('\n');   // V11.37.17: de startlog (test_startlog); hier terug
   const zonderV113715 = (s) => zonderV113717(s).split('\n').filter(l => !/V11\.37\.15(?!\d)/.test(l)).join('\n');   // V11.37.15: de koersmeting (test_koerslog); hier terug
@@ -459,7 +459,7 @@ async function testAchter() {
     checkHandLockPassage: ['7f001264', 1768], checkTikSlotSnel: ['d3a8edbe', 2071], regelTik: ['9c1b361b', 3087], vergrendelNodeHandmatig: ['9a007b96', 2295],
     selecteerNodeHandmatig: ['5275f4dd', 2379], tikRichting: ['9e40a595', 4410], isStoplichtVoorbij: ['38a0d2ed', 338] };
   // V11.37.5: tikRichting kreeg twee meetregels met merkteken (zie test_knoppen); zonder die regels gelijk.
-  const anders11 = Object.entries(V11373).filter(([n, [h, l]]) => { const s = terugV11378(window[n]).split(NL).filter(l => !/V11\.37\.5(?!\d)|V11\.37\.35(?!\d)/.test(l)).join(NL); return fnv(s) !== h || s.length !== l; }).map(x => x[0]);   // V11.37.35: idem
+  const anders11 = Object.entries(V11373).filter(([n, [h, l]]) => { const s = terugV11378(window[n]).split(NL).filter(l => !/V11\.37\.5(?!\d)|V11\.37\.35(?!\d)|V11\.37\.36(?!\d)|V11\.37\.37(?!\d)/.test(l)).join(NL); return fnv(s) !== h || s.length !== l; }).map(x => x[0]);   // V11.37.35: idem
   eis('AR11d dertien keuzefuncties die V11.37.4 niet raakt (de puntentelling, de drie loslaatroutes, de correcties, de snelle route, de tik): byte-gelijk',
       anders11.length === 0, 'geen afwijking', anders11.join(', ') || 'geen');
   const z = zc(onGPS);

@@ -100,7 +100,7 @@ async function meetwerk23Binnen(soort, opt) {
     const uit = {};
     window.Worker = function () { return { postMessage() {}, terminate() {} }; };   // V11.37.31: geen echte worker (die zou het nepbestand afkeuren en het volgende pad laden)
     for (const stand of ['gewoon', 'reserve', 'kapot']) {
-      modelTerugvalFout = null;
+      modelTerugvalFout = null; modelFaalt = false; { const m = document.getElementById('model-faal'); if (m) m.remove(); }   // V11.37.36
       hoofdBuffers.clear(); hoofdPoging = 0;   // V11.37.31: het hoofdpad haalt het bestand zelf (één download), dus de proef zit in fetch
       window.fetch = async (pad) => { if (stand === 'kapot') throw new Error('proef: geheugen op'); if (stand === 'reserve' && /yolox_nano/.test(String(pad))) throw new Error('proef: niet gevonden'); return { ok: true, status: 200, arrayBuffer: async () => new ArrayBuffer(2000) }; };   // V11.37.31
       ort.InferenceSession.create = async (pad) => {
@@ -109,7 +109,7 @@ async function meetwerk23Binnen(soort, opt) {
         return { run: async () => ({}) };
       };
       await laadONNXModel();
-      uit[stand] = { label: sModelLabel.textContent, kleur: sModelLabel.style.color, pil: pAIT.textContent, dot: pAI.className };
+      uit[stand] = { label: sModelLabel.textContent, kleur: sModelLabel.style.color, pil: pAIT.textContent, dot: pAI.className, faal: !!document.getElementById('model-faal') };   // V11.37.36: faal
     }
     return uit;
   }
@@ -361,11 +361,12 @@ async function testMeetwerk23() {
   // V11.37.31: het hoofdmodel is Nano: 'Model klaar: YOLOX-Nano', pil 'Nano'; de reserve is YOLOv8n (./model.onnx)
   eis('MA2a het gewone model: groen "klaar", de pil Nano (V11.37.31; was YOLOv8n)',
       !m2.fout && /Model klaar: YOLOX-Nano/.test(m2.gewoon.label) && m2.gewoon.pil === 'Nano' && /groen/.test(m2.gewoon.kleur), 'klaar, Nano', kort(m2.gewoon || m2));
-  eis('MA2b de terugval op het reservemodel is te zien: oranje melding en de pil "Reserve"',
-      !m2.fout && /Reservemodel geladen/.test(m2.reserve.label) && /oranje/.test(m2.reserve.kleur) && m2.reserve.pil === 'Reserve' && /pill-dot o/.test(m2.reserve.dot),
-      'Reservemodel, oranje, Reserve', kort(m2.reserve || m2));
-  eis('MA2c een echte fout noemt de reden in plaats van altijd "niet gevonden"',
-      !m2.fout && /Model laadde niet: proef: geheugen op/.test(m2.kapot.label), 'de reden', kort(m2.kapot || m2));
+  // V11.37.36: er is geen reservemodel meer. Nano niet te halen of kapot = de faalmelding; de reden staat in sl_modellog (test_nano_wachter).
+  eis('MA2b V11.37.36: Nano niet te halen geeft de faalmelding (geen reservemodel): oranje, pil "Geen detectie", herlaadmelding',
+      !m2.fout && /Detectie kon niet starten/.test(m2.reserve.label) && /oranje/.test(m2.reserve.kleur) && m2.reserve.pil === 'Geen detectie' && /pill-dot o/.test(m2.reserve.dot) && m2.reserve.faal === true,
+      'faalmelding', kort(m2.reserve || m2));
+  eis('MA2c V11.37.36: een echte fout geeft dezelfde faalmelding (de reden in sl_modellog)',
+      !m2.fout && /Detectie kon niet starten/.test(m2.kapot.label) && m2.kapot.faal === true, 'faalmelding', kort(m2.kapot || m2));
 
   // ═══ MA3 — de pijl Latin-1 ═══════════════════════════════════
   const p3 = await inFrame((w) => w.meetwerk23Binnen('pijl', { N: vers() }));
@@ -462,10 +463,11 @@ async function testMeetwerk23() {
   // Twee regels zijn vervangen: daar is de vingerafdruk die van V11.37.22 zonder de oude regel.
   const VERVANGEN = { toonV9Richtingen: ['31a5c83', 1639], refreshStadIndienNodig: ['dc5c1dee', 981] };
   const merk = (f) => String(f).split(NL).filter(l => /V11\.37\.23(?!\d)/.test(l)).length;
-  const telVerwacht = { laadONNXModel: 3, berekenGlosa: 2, schaduwLogSluit: 1, herzieningLogSluit: 1, passageTik: 1, passageSchrijf: 1, eindeGemistLog: 1, m5Sluit: 1,
+  const telVerwacht = { laadONNXModel: 0,   // V11.37.36: de drie .23-regels (reservemelding, pil, foutreden) zijn weg met het reservemodel
+    berekenGlosa: 2, schaduwLogSluit: 1, herzieningLogSluit: 1, passageTik: 1, passageSchrijf: 1, eindeGemistLog: 1, m5Sluit: 1,
     resetNeutraal: 1, verwerkFase: 1, bevestigNaWisselPad: 1, bevestigCountdown: 1, haalStraatnamenOp: 1, toonV9Richtingen: 1, refreshStadIndienNodig: 1, updateDichtbij: 1, renderRadarSheetNodeLijst: 1 };
   const telAf = Object.entries(telVerwacht).filter(([n, m]) => merk(window[n]) !== m).map(([n]) => n + ' ' + merk(window[n]));
-  eis('MA11a zeventien functies krijgen regels met merkteken V11.37.23: laadONNXModel 3, berekenGlosa 2, de andere 1',
+  eis('MA11a zeventien functies krijgen regels met merkteken V11.37.23: berekenGlosa 2, laadONNXModel 0 (V11.37.36), de andere 1',
       telAf.length === 0, 'precies zoveel', telAf.join(', ') || 'precies zoveel');
   // V11.37.26: drie regels van laadONNXModel zijn vervangen (de modelnaam uit MODEL_PADEN). Die gaan eerst terug
   // naar de oude tekst; daarna vallen de regels met merkteken V11.37.26 weg, zoals die van .23 en .25.
@@ -474,8 +476,9 @@ async function testMeetwerk23() {
     [/^(\s*)sModelLabel\.textContent = `✓ Model klaar: \$\{modelNaamVan\(modelPad\)\} \(\$\{t\}s\)`;.*V11\.37\.26(?!\d).*$/, '$1sModelLabel.textContent = `✓ YOLOv8 klaar (${t}s)`;'],
     [/^(\s*)pAI\.className='pill-dot g'; pAIT\.textContent='YOLOv8n';.*V11\.37\.26(?!\d).*$/, "$1pAI.className='pill-dot g'; pAIT.textContent='YOLOv8';"]];
   const terug26 = (l) => { for (const [re, oud] of TERUG26) if (re.test(l)) return l.replace(re, oud); return l; };
-  const zonder23 = (f) => String(terugV113727(f)).split(NL).map(terugV113731).map(terug26).filter(l => !/V11\.37\.23(?!\d)|V11\.37\.25(?!\d)|V11\.37\.26(?!\d)|V11\.37\.30(?!\d)|V11\.37\.31(?!\d)|V11\.37\.34(?!\d)|V11\.37\.35(?!\d)/.test(l)).join(NL);   // V11.37.25: ook de regels van V11.37.25 (test_plaatsen); V11.37.26 idem   // V11.37.27: eerst terugV113727
-  const anders = Object.entries(Object.assign({}, V113722, VERVANGEN)).filter(([n, [h, l]]) => { const s = zonder23(window[n]); return fnv(s) !== h || s.length !== l; })
+  const zonder23 = (f) => String(terugV113727(f)).split(NL).map(terugV113731).map(terug26).filter(l => !/V11\.37\.23(?!\d)|V11\.37\.25(?!\d)|V11\.37\.26(?!\d)|V11\.37\.30(?!\d)|V11\.37\.31(?!\d)|V11\.37\.34(?!\d)|V11\.37\.35(?!\d)|V11\.37\.36(?!\d)|V11\.37\.37(?!\d)/.test(l)).join(NL);   // V11.37.25: ook de regels van V11.37.25 (test_plaatsen); V11.37.26 idem   // V11.37.27: eerst terugV113727
+  const anders = Object.entries(Object.assign({}, V113722, VERVANGEN)).filter(([n]) => n !== 'laadONNXModel').filter(([n, [h, l]]) =>   // V11.37.36: laadONNXModel bewust herschreven
+    { const s = zonder23(window[n]); return fnv(s) !== h || s.length !== l; })
     .map(([n]) => n + ' ' + fnv(zonder23(window[n])) + '/' + zonder23(window[n]).length);
   eis('MA11b zonder die regels zijn ze byte-gelijk aan V11.37.22 (vijftien alleen toegevoegd; bij het stadsfilter en de plaatsnaamvraag is precies de oude regel vervangen)',
       anders.length === 0, 'geen afwijking', anders.join(', ') || 'geen');
@@ -484,7 +487,7 @@ async function testMeetwerk23() {
     stopLogAf: ['21c4b6e6', 928], beeindigFase: ['8234b742', 1404], onGPS: ['454f7f25', 15761], berekenLeerPct: ['5d38efe9', 986], verwerkBevestigLeren: ['9163848', 8583], exporteerMeetdata: ['64c15a78', 10084] };
   // V11.37.26: exporteerMeetdata kreeg twee regels (uit.nano); zonder de regels met dat merkteken is hij gelijk.
   const terug33 = (l) => l.replace(/conf < hoofdGrens\('leer'\)\) \{   \/\/ V11.37.33(?!d): de grens van het geladen model$/, 'conf < 0.20) {');   // V11.37.33: de vervangen regel in slaOp terug
-  const zonder26 = (f) => String(f).split(NL).map(terug33).filter(l => !/V11\.37\.26(?!\d)|V11\.37\.30(?!\d)|V11\.37\.31(?!\d)|V11\.37\.34(?!\d)|V11\.37\.35(?!\d)/.test(l)).join(NL);
+  const zonder26 = (f) => String(f).split(NL).map(terug33).filter(l => !/V11\.37\.26(?!\d)|V11\.37\.30(?!\d)|V11\.37\.31(?!\d)|V11\.37\.34(?!\d)|V11\.37\.35(?!\d)|V11\.37\.36(?!\d)|V11\.37\.37(?!\d)/.test(l)).join(NL);
   const anders2 = Object.entries(ONGEMOEID).filter(([n, [h, l]]) => fnv(zonder26(window[n])) !== h || zonder26(window[n]).length !== l).map(x => x[0]);
   eis('MA11c zestien functies voor het leren, de countdown, de lichtkeuze en de export zijn niet aangeraakt (op twee regels V11.37.26 in de export na)', anders2.length === 0, 'geen afwijking', anders2.join(', ') || 'geen');
   let code = [];
@@ -492,8 +495,8 @@ async function testMeetwerk23() {
     const html = await (await fetch(new URL('index.html', location.href).href + '?t=' + Date.now())).text();
     code = html.split(NL).filter(l => /V11\.37\.23(?!\d)/.test(l) && !/^\s*\/\//.test(l));
   } catch (e) { code = ['fout: ' + e]; }
-  eis('MA11d in de bron staat V11.37.23 buiten het commentaar alleen in die twintig regels in de zeventien functies (het blok zelf heeft een eigen kop; de versieregel heet sinds V11.37.25 anders)',
-      code.length === 20 && code.filter(l => /^const APP_VERSIE/.test(l)).length === 0,   // V11.37.25: de versieregel heet anders
+  eis('MA11d in de bron staat V11.37.23 buiten het commentaar alleen in die zeventien regels (V11.37.36: was twintig; drie in laadONNXModel zijn weg) (het blok zelf heeft een eigen kop; de versieregel heet sinds V11.37.25 anders)',
+      code.length === 17 && code.filter(l => /^const APP_VERSIE/.test(l)).length === 0,   // V11.37.25: de versieregel heet anders   // V11.37.36: 17, de drie .23-regels van het reservemodel in laadONNXModel zijn weg
       '20 regels', code.length + ': ' + code.map(l => l.trim().slice(0, 30)).join(' | '));
 
   herstel();

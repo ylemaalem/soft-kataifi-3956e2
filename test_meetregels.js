@@ -31,7 +31,7 @@
 var HAAK_NIEUW_V113727 = "              if (MODELVGL_MODEL === 'nano') {   // V11.37.27: alleen nog de stand nano (v8n, dfine, ort130 en webgpu zijn weg)\n                try { nanoNaHoofd(msg.frameId, inferentieTijd, detecties); } catch (_) {}   // V11.37.26: eigen try (de buitenste blijft), zie het blok NANO-SCHADUW\n              }   // V11.37.27";
 var HAAK_OUD_V113727 = "              // V11.18.14: in de D-FINE-modus komt er nooit een B-resultaat om\n              // aan te koppelen. vglOpenA zou dan elke frame een regel erbij\n              // krijgen en nooit een terug - een lek dat een uur rijden niet\n              // overleeft. Daarom in die modus alleen de tijd, geen paring.\n              if (MODELVGL_MODEL === 'dfine') {\n                vglNoteerHoofdInDfine(inferentieTijd);\n              } else if (MODELVGL_MODEL === 'nano') {   // V11.37.26\n                try { nanoNaHoofd(msg.frameId, inferentieTijd, detecties); } catch (_) {}   // V11.37.26: eigen try (de buitenste blijft), zie het blok NANO-SCHADUW\n              } else {\n                const _b = vglBeste(detecties);\n                vglOpenA.set(msg.frameId, { ms: inferentieTijd, kl: _b.kl, cf: _b.cf, n: _b.n });\n                vglKoppel(msg.frameId);\n              }";
 function terugV113727(s) { return String(s).split(HAAK_NIEUW_V113727).join(HAAK_OUD_V113727).split('\n').filter(l => !/\/\/ V11\.37\.27(?!\d): alleen meten/.test(l)).join('\n'); }   // V11.37.27: en de regels die alleen meten (startlog wk/d1, test_startlog SL15) weg
-function zonderV113721(s) { return String(terugV113727(s)).split('\n').map(terugV113731).map(terugV113726).filter(l => !/V11\.37\.21(?!\d)|V11\.37\.22(?!\d)|V11\.37\.23(?!\d)|V11\.37\.25(?!\d)|V11\.37\.26(?!\d)|V11\.37\.30(?!\d)|V11\.37\.31(?!\d)|V11\.37\.34(?!\d)|V11\.37\.35(?!\d)/.test(l)).join('\n'); }   // V11.37.22: ook de meetregels van V11.37.22 (test_meetwerk22); V11.37.23: idem (test_meetwerk23); V11.37.25: idem (test_plaatsen)   // V11.37.26: idem (test_schaduw_nano), met terugV113726   // V11.37.27: eerst terugV113727
+function zonderV113721(s) { return String(terugV113727(s)).split('\n').map(terugV113731).map(terugV113726).filter(l => !/V11\.37\.21(?!\d)|V11\.37\.22(?!\d)|V11\.37\.23(?!\d)|V11\.37\.25(?!\d)|V11\.37\.26(?!\d)|V11\.37\.30(?!\d)|V11\.37\.31(?!\d)|V11\.37\.34(?!\d)|V11\.37\.35(?!\d)|V11\.37\.36(?!\d)|V11\.37\.37(?!\d)/.test(l)).join('\n'); }   // V11.37.22: ook de meetregels van V11.37.22 (test_meetwerk22); V11.37.23: idem (test_meetwerk23); V11.37.25: idem (test_plaatsen)   // V11.37.26: idem (test_schaduw_nano), met terugV113726   // V11.37.27: eerst terugV113727
 // V11.37.26: drie regels van laadONNXModel zijn vervangen (de modelnaam komt uit MODEL_PADEN, test_schaduw_nano).
 // Die gaan hier terug naar de oude tekst; daarna vallen de regels met merkteken V11.37.26 weg zoals de andere.
 // V11.37.31: Nano is het hoofdmodel; deze regels zijn VERVANGEN (niet toegevoegd). Hier gaat precies de oude regel terug,
@@ -152,12 +152,13 @@ async function testMeetregels() {
     const iE1 = lm.indexOf('catch(e1)'), iTerug = lm.indexOf('modelTerugvalFout =');
     const iLog = lm.indexOf('modelLogNoteer(modelPad, modelArrayBuffer, modelTerugvalFout)');
     const iPost = lm.indexOf("postMessage({ type:'initialiseer'");
-    eis('ML3a de fout van de eerste laadpoging wordt onthouden, in catch(e1)',
-        iE1 > 0 && iTerug > iE1 && iTerug < iE1 + 200, 'in catch(e1)', iE1 + ' / ' + iTerug);
+    // V11.37.36: er is geen tweede laadpoging meer (geen reservemodel); een laadfout gaat naar modelFaal (test_nano_wachter).
+    eis('ML3a V11.37.36: geen catch(e1) en geen tweede pad meer; een laadfout gaat naar modelFaal',
+        iE1 < 0 && iTerug < 0 && /modelFaal\(/.test(lm), 'geen e1, wel modelFaal', iE1 + ' / ' + iTerug);
     eis('ML3b het model wordt gelogd vóór de overdracht aan de worker (die maakt de buffer leeg)',
         iLog > 0 && iPost > iLog, 'eerst loggen', iLog + ' < ' + iPost);
-    eis('ML3c ook "Model niet gevonden" laat een regel achter',
-        /Model niet gevonden[\s\S]*modelLogNoteer\(null, null,/.test(lm), 'aanwezig', 'gelezen');
+    eis('ML3c V11.37.36: ook een laadfout laat een regel achter (modelFaal schrijft "faal: ..." in sl_modellog)',
+        /catch\(e\) \{\s*modelFaal\(/.test(lm) && /modelLogNoteer\(HOOFD_PADEN_NANO\[0\], null, 'faal: '/.test(zc(modelFaal)), 'aanwezig', 'gelezen');
     // De aanroepen zelf: zonder camera draait er in een test geen echte run, dus
     // hier op de bron. Elk van de drie telpunten staat NA de verwerking.
     eis('ML3d de worker-uitslag telt mee, na _verwerkWorkerResultaat',
@@ -264,7 +265,8 @@ async function testMeetregels() {
     // niet meer, en dat toetst test_gate T9.
     const V1134_1 = { laadONNXModel: ['68bca74a', 3813], voerAIUit: ['3ca5a888', 2330], detLogSchrijf: ['113e60c6', 2607],
                       startApp: ['f6f7a306', 4498], exporteerMeetdata: ['ef1e19bb', 7864] };
-    const afw = Object.entries(V1134_1).filter(([n, [h, l]]) => { const s = zonderMeet(zonderV113721(eval(n))); return fnv(s) !== h || s.length !== l; }).map(x => x[0]);
+    // V11.37.36: laadONNXModel is bewust herschreven (geen reservemodel meer), zie test_nano_wachter.
+    const afw = Object.entries(V1134_1).filter(([n]) => n !== 'laadONNXModel').filter(([n, [h, l]]) => { const s = zonderMeet(zonderV113721(eval(n))); return fnv(s) !== h || s.length !== l; }).map(x => x[0]);
     eis('ML7a zonder de V11.34.2-regels zijn de vijf geraakte functies byte-gelijk aan V11.34.1',
         afw.length === 0, 'geen afwijking', afw.join(', ') || 'geen');
     const ONGEMOEID = { selecteerBesteDetectie: ['79a403fa', 14376], postprocessYOLO: ['42b30c6', 4725],
