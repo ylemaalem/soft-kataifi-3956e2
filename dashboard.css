@@ -1,4 +1,4 @@
-/* © 2026 StoplichtIQ — Y. Lemaalem */
+/* © 2026 StoplichtIQ */
 :root {
   --bg: #070D18; --vlak: #0F1A2B; --vlak2: #16243A; --lijn: #24344D;
   --tekst: #E6EDF7; --tekst2: #A9B7CC; --stil: #7A8AA3;
@@ -106,3 +106,18 @@ details summary { cursor: pointer; font-size: 12.5px; color: var(--tekst2); marg
 .extra:empty { display: none; }
 .inlog .status:empty { display: none; }
 .melding.goed { background: #0C3B26; color: #86EFAC; }
+
+/* (i)-knopjes met uitleg (14 nov) */
+.met-info { display: inline-flex; align-items: center; gap: 4px; }
+.info-vak { position: relative; display: inline-flex; vertical-align: middle; }
+.info { position: relative; min-height: 24px; min-width: 24px; width: 24px; height: 24px; padding: 0; border-radius: 50%; font-size: 12px; font-weight: 700; font-style: italic; line-height: 1;
+  color: var(--accent); background: var(--vlak2); border: 1px solid var(--lijn); text-transform: none; letter-spacing: 0; display: inline-flex; align-items: center; justify-content: center; }
+.info::before { content: ''; position: absolute; inset: -10px; }
+.info-tip { display: none; position: absolute; z-index: 1000; top: calc(100% + 6px); left: 50%; transform: translateX(-50%); width: min(280px, 80vw);
+  background: var(--bg); color: var(--tekst); border: 1px solid var(--lijn); border-radius: 10px; padding: 9px 11px; font-size: 13px; line-height: 1.45;
+  font-weight: 400; font-style: normal; text-transform: none; letter-spacing: 0; white-space: normal; text-align: left; box-shadow: 0 10px 30px rgba(0,0,0,.5); }
+.info-vak.open .info-tip { display: block; }
+@media (hover: hover) { .info-vak:hover .info-tip { display: block; } }
+.leeg div { margin-top: 4px; max-width: 280px; }
+/* 14 nov: een brede tabel (gebruikerslijst) mag de pagina niet breder maken; hij schuift binnen .schuif */
+.pagina > *, .zij > * { min-width: 0; }

@@ -1,4 +1,4 @@
-// © 2026 StoplichtIQ — Y. Lemaalem
+// © 2026 StoplichtIQ
 //
 // De twee dashboards: beheer (alleen als mijn_profiel().is_admin) en de eigen
 // gegevens van elke gebruiker. Volgens het Supabase-contract van 8 nov 2026:
@@ -8,7 +8,7 @@
 (function () {
   'use strict';
   const S = window.SLIQ;                   // gedeeld met wachtwoord-instellen.html (inlog.js)
-  const { el, sv, foutTekst } = S;
+  const { el, sv, foutTekst, info } = S;
   const ROL_SLEUTEL = 'dash_rol';          // de laatst bekende rol, voor offline (geen sl_: hoort niet in de backup)
   const VERVERS_MS = 45000;                // binnen de gevraagde 30-60 s
   const PULS_UUR = 3, PULS_MAX = 150;      // pulseren: nieuw in de laatste 3 uur, hooguit 150 punten
@@ -33,6 +33,22 @@
   let profiel = null, tab = null, kaart = null, laag = null, uren = 24, klok = null, config = {}, offline = false;
 
   // ── hulpjes ─────────────────────────────────────────────────
+  // De uitleg achter de (i)-knopjes. Nagelezen tegen de databasefuncties (14 nov 2026, alleen lezen):
+  // verwerk_meting, evalueer_meting, mijn_profiel, diag_dag_opslaan, diag_log_opslaan, admin_vraag_log,
+  // admin_zet_beta, mijn_data_export, admin_inflow_daily, admin_city_progress.
+  const UITLEG = {
+    bijdragen: 'Aantal metingen van deze gebruiker dat meteen bij binnenkomst is geaccepteerd. Een teller, geen percentage. Een meting die eerst in quarantaine stond en later alsnog werd geaccepteerd, telt hier (nog) niet mee.',
+    vertrouwen: "Getal van 0 tot 1. Nieuw = 0,50. Het stijgt met 0,01 bij elke meting die meteen wordt geaccepteerd, tot maximaal 1,00. Vanaf 0,70 telt iemand als 'vertrouwd' (een beheerder altijd): dan is voor een nieuw kruispunt maar 1 andere gebruiker nodig om het te bevestigen in plaats van 2. Het daalt nu nooit; slechte metingen blijven gewoon in quarantaine.",
+    quarantaine: 'Een meting die afwijkt van wat we al weten (meer dan 15 s of 35% naast de gewone waarde van de laatste 30 dagen), of voor een kruispunt waar nog niets bekend is, wacht tot genoeg andere gebruikers hetzelfde melden: bij een afwijking 2 anderen binnen 7 dagen, bij een nieuw kruispunt 2 anderen (of 1 als er een vertrouwde gebruiker bij is) binnen 30 dagen. Dat gebeurt zodra die laatste meting binnenkomt; daarna is hij automatisch geaccepteerd. Jij hoeft niets goed te keuren.',
+    vandaag: 'Metingen die vandaag zijn binnengekomen en nu zijn aangenomen / die nog wachten / aantal gebruikers dat vandaag iets stuurde. "Vandaag" is de dag in UTC (in Nederland begint die om 01:00 of 02:00).',
+    log: 'Vraagt deze gebruiker EENMALIG om een logbestand te sturen. Dat kan alleen als hij diagnose-toestemming heeft gegeven. Na versturen is het verzoek verbruikt. Let op: de app zelf leest dit verzoek nog niet; dat komt in een volgende fase.',
+    beta: 'Een vertrouwde tester die elke dag automatisch logs mag sturen (hoogstens 1 per soort per dag) zonder dat jij het vraagt. Alleen met diagnose-toestemming. Een gewone gebruiker kan dat niet. Let op: de app stuurt nog niets; dat komt in een volgende fase.',
+    diag: 'Als je dit aanzet, mag de app dagelijks technische gegevens sturen: appversie, opslag in KB, opstarttijd, gemiddelde rekentijd, aantal ritten en teltallen. Daarin staan geen locatie en geen naam. Met deze toestemming kan ook een logbestand worden gestuurd als de beheerder erom vraagt of als je beta-tester bent; een logbestand kan wel kruispuntnummers bevatten. Staat standaard uit en je kunt het altijd uitzetten. De app stuurt op dit moment nog niets.',
+    download: 'Geeft je een bestand met je profiel, je metingen, je validaties en je dagelijkse diagnosegegevens. Logbestanden die je hebt gestuurd zitten er nog niet in.',
+    steden: 'Per stad: Totaal = kruispunten in de database; Vers 7 d = kruispunten met een meting in de laatste 7 dagen; Geverif. = kruispunten met geaccepteerde metingen van minstens 2 verschillende gebruikers. De tabel zelf heeft geen kleuren; die horen bij de kaart.',
+    nieuw: 'Kleur van een punt op de kaart = aantal nieuwe metingen in de gekozen periode (1 u, 24 u of 7 d): helderblauw 20 of meer, middenblauw 5 tot 19, donkerblauw 1 tot 4, grijsblauw geen nieuwe. Hoe groter de stip, hoe meer nieuwe metingen. Een pulserende ring: een nieuwe meting in de laatste 3 uur.'
+  };
+  const metInfo = (tekst, sleutel) => el('span', { klasse: 'met-info' }, tekst, info(UITLEG[sleutel], tekst));
   const getal = (x) => (x == null ? '–' : Number(x).toLocaleString('nl-NL'));
   function moment(t) { if (!t) return '–'; const d = new Date(t); return isNaN(d) ? '–' : d.toLocaleString('nl-NL', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' }); }
   function dag(t) { const d = new Date(t); return isNaN(d) ? '' : d.toLocaleDateString('nl-NL', { day: 'numeric', month: 'short' }); }
@@ -44,7 +60,7 @@
   function tabel(koppen, rijen, leeg) {
     if (!rijen.length) return el('p', { klasse: 'stil klein', tekst: leeg || 'Nog niets.' });
     return el('div', { klasse: 'schuif' }, el('table', { klasse: 'tabel' },
-      el('thead', null, el('tr', null, koppen.map(k => el('th', { tekst: k.t, klasse: k.g ? 'getal' : null })))),
+      el('thead', null, el('tr', null, koppen.map(k => k.i ? el('th', { klasse: k.g ? 'getal' : null }, metInfo(k.t, k.i)) : el('th', { tekst: k.t, klasse: k.g ? 'getal' : null })))),
       el('tbody', null, rijen.map(r => el('tr', null, koppen.map(k => { const w = k.w(r); return w instanceof Node ? el('td', null, w) : el('td', { tekst: w == null ? '–' : String(w), klasse: k.g ? 'getal' : null }); }))))));
   }
   function stopKlok() { if (klok !== null) { clearInterval(klok); klok = null; } }
@@ -178,9 +194,9 @@
   function tekenBeheer(doel) {
     const kaartEl = el('div', { id: 'kaart' });
     const status = el('span', { klasse: 'status', tekst: '' });
-    const leeg = el('div', { klasse: 'leeg', tekst: 'Nog geen kruispunten binnengekomen.', stijl: { display: 'none' } });
+    const leeg = el('div', { klasse: 'leeg', stijl: { display: 'none' } }, el('b', { tekst: 'Nog geen kruispunten binnengekomen.' }), el('div', { klasse: 'klein stil', tekst: 'Nog geen data. De app stuurt nog geen metingen naar de database; dat komt in een volgende fase.' }));
     const filter = (u, t) => el('button', { tekst: t, klasse: uren === u ? 'aan' : null, klik: () => { uren = u; teken(); } });
-    const legenda = el('div', { klasse: 'legenda' }, el('b', { tekst: 'Nieuw in deze periode' }),
+    const legenda = el('div', { klasse: 'legenda' }, el('b', null, metInfo('Nieuw in deze periode', 'nieuw')),
       STAPPEN.map(s => el('div', null, el('span', { klasse: 'punt', stijl: { width: '10px', height: '10px', background: s.kleur } }), s.t)),
       el('div', { klasse: 'stil', tekst: 'Pulserend: laatste ' + PULS_UUR + ' uur' }));
     const vak = el('div', { klasse: 'kaartvak' }, kaartEl, el('div', { klasse: 'kaartbalk' }, filter(1, '1 u'), filter(24, '24 u'), filter(168, '7 d'), status), legenda, leeg);
@@ -193,7 +209,11 @@
     let aangepast = false;
     kaart.on('dragstart zoomstart', (e) => { if (e.originalEvent !== undefined || e.type === 'dragstart') aangepast = true; });
     new ResizeObserver(() => { if (kaart !== dezeKaart) return; dezeKaart.invalidateSize(); if (!aangepast && kaartEl.clientHeight > 100) dezeKaart.fitBounds(NL, { animate: false }); }).observe(kaartEl);
-    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', { maxZoom: 18, attribution: '&copy; OpenStreetMap' }).addTo(kaart);
+    // 14 nov: de pagina stuurt nergens een Referer mee (meta referrer no-referrer). De tegelserver van
+    // OpenStreetMap weigert tegels zonder Referer ("x-blocked: No referer sent", een blokkadeplaatje).
+    // Alleen voor de tegels gaat nu de herkomst mee (https://ylemaalem.github.io/), geen pad of query.
+    L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', { maxZoom: 18, referrerPolicy: 'strict-origin-when-cross-origin',
+      attribution: '&copy; <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener">OpenStreetMap</a>-bijdragers' }).addTo(kaart);
     laag = L.layerGroup().addTo(kaart);
 
     const ververs = () => Promise.all([laadKaart(status, leeg), laadZij(zij)]);
@@ -228,19 +248,22 @@
 
   async function laadZij(zij) {
     const [inflow, steden, quar, events] = await Promise.all(['admin_inflow_daily', 'admin_city_progress', 'admin_quarantaine_monitor', 'admin_recent_events'].map(n => rpc(n).catch(e => ({ fout: foutTekst(e) }))));
-    const sectie = (titel, d, maak) => el('section', null, el('h2', { tekst: titel }), d && d.fout ? el('p', { klasse: 'status fout', tekst: d.fout }) : maak(d || []));
+    const sectie = (titel, d, maak, sl) => el('section', null, sl ? el('h2', null, metInfo(titel, sl)) : el('h2', { tekst: titel }), d && d.fout ? el('p', { klasse: 'status fout', tekst: d.fout }) : maak(d || []));
     vervangInhoud(zij,
       sectie('Binnenkomst, 30 dagen', inflow, inflowBlok),
-      sectie('Steden', steden, d => tabel([{ t: 'Stad', w: r => r.stad }, { t: 'Totaal', g: 1, w: r => getal(r.nodes_totaal) }, { t: 'Vers 7 d', g: 1, w: r => getal(r.nodes_vers_7d) }, { t: 'Geverif.', g: 1, w: r => getal(r.nodes_geverifieerd) }], d.slice(0, 15), 'Nog geen steden.')),
-      sectie('Quarantaine', quar, d => tabel([{ t: 'Kruispunt', w: r => r.node_id }, { t: 'Aantal', g: 1, w: r => getal(r.in_quarantaine) }, { t: 'Dagen oud', g: 1, w: r => getal(r.dagen_oud) }], d.slice(0, 10), 'Niets in quarantaine.')),
+      sectie('Steden', steden, d => tabel([{ t: 'Stad', w: r => r.stad }, { t: 'Totaal', g: 1, w: r => getal(r.nodes_totaal) }, { t: 'Vers 7 d', g: 1, w: r => getal(r.nodes_vers_7d) }, { t: 'Geverif.', g: 1, w: r => getal(r.nodes_geverifieerd) }], d.slice(0, 15), 'Nog geen steden.'), 'steden'),
+      sectie('Quarantaine', quar, d => tabel([{ t: 'Kruispunt', w: r => r.node_id }, { t: 'Aantal', g: 1, w: r => getal(r.in_quarantaine) }, { t: 'Dagen oud', g: 1, w: r => getal(r.dagen_oud) }], d.slice(0, 10), 'Niets in quarantaine.'), 'quarantaine'),
       sectie('Recente gebeurtenissen', events, d => tabel([{ t: 'Tijd', w: r => moment(r.created_at) }, { t: 'Soort', w: r => r.soort }, { t: 'Stad', w: r => r.city }, { t: 'Wie', w: r => r.gebruiker_kort }], d.slice(0, 15), 'Nog geen gebeurtenissen.')));
   }
 
   function inflowBlok(rijen) {
     const d = rijen.slice().sort((a, b) => new Date(a.dag) - new Date(b.dag));
-    const nu = d[d.length - 1] || {};
-    const tegels = el('div', { klasse: 'tegels' },
-      [['Geaccepteerd', nu.geaccepteerd], ['Quarantaine', nu.in_quarantaine], ['Actief', nu.actieve_gebruikers]].map(([t, w]) => el('div', { klasse: 'tegel' }, el('b', { tekst: getal(w || 0) }), el('span', { tekst: t + ' vandaag' }))));
+    // 14 nov: de laatste rij is de laatste dag MET metingen, niet per se vandaag. Alleen een rij van vandaag (UTC, zoals de database telt) telt.
+    const vandaagUTC = new Date().toISOString().slice(0, 10);
+    const nu = d.find(r => String(r.dag).slice(0, 10) === vandaagUTC) || {};
+    const tegels = el('div', null, el('div', { klasse: 'tegels' },
+      [['Geaccepteerd', nu.geaccepteerd], ['Quarantaine', nu.in_quarantaine], ['Actief', nu.actieve_gebruikers]].map(([t, w]) => el('div', { klasse: 'tegel' }, el('b', { tekst: getal(w || 0) }), el('span', { tekst: t + ' vandaag' })))),
+      el('div', { klasse: 'klein stil', stijl: { marginTop: '4px' } }, metInfo('Wat tellen deze drie?', 'vandaag')));
     if (!d.length) return el('div', null, tegels, el('p', { klasse: 'stil klein', tekst: 'Nog geen metingen binnen.' }));
     const B = 348, H = 110, onder = 16, max = Math.max(1, ...d.map(r => (Number(r.geaccepteerd) || 0) + (Number(r.in_quarantaine) || 0)));
     const sl = B / d.length, br = Math.max(2, sl - 2), hgt = H - onder, svg = sv('svg', { viewBox: '0 0 ' + B + ' ' + H, role: 'img', 'aria-label': 'Binnenkomst per dag' });
@@ -276,10 +299,10 @@
           { t: 'Actief', w: r => moment(r.laatste_activiteit) },
           { t: 'Versie', w: r => r.laatste_versie },
           { t: 'Opslag KB', g: 1, w: r => getal(r.laatste_opslag_kb) },
-          { t: 'Bijdragen', g: 1, w: r => getal(r.contributions) },
-          { t: 'Vertrouwen', g: 1, w: r => r.trust_score == null ? '–' : Number(r.trust_score).toFixed(2).replace('.', ',') },
-          { t: 'Log', w: r => el('button', { tekst: 'Stuur je log', klik: (ev) => actie(ev.target, 'admin_vraag_log', { p_user_id: r.id }, 'Verzoek staat klaar.') }) },
-          { t: 'Beta', w: r => el('button', { tekst: 'Beta-tester', klasse: r.is_beta_tester ? 'aan' : null, 'aria-pressed': String(!!r.is_beta_tester), klik: (ev) => actie(ev.target, 'admin_zet_beta', { p_user_id: r.id, p_aan: !r.is_beta_tester }, 'Beta-status gewijzigd.', laad) }) },
+          { t: 'Bijdragen', g: 1, i: 'bijdragen', w: r => getal(r.contributions) },
+          { t: 'Vertrouwen', g: 1, i: 'vertrouwen', w: r => r.trust_score == null ? '–' : Number(r.trust_score).toFixed(2).replace('.', ',') },
+          { t: 'Log', i: 'log', w: r => el('button', { tekst: 'Stuur je log', klik: (ev) => actie(ev.target, 'admin_vraag_log', { p_user_id: r.id }, 'Verzoek staat klaar.') }) },
+          { t: 'Beta', i: 'beta', w: r => el('button', { tekst: 'Beta-tester', klasse: r.is_beta_tester ? 'aan' : null, 'aria-pressed': String(!!r.is_beta_tester), klik: (ev) => actie(ev.target, 'admin_zet_beta', { p_user_id: r.id, p_aan: !r.is_beta_tester }, 'Beta-status gewijzigd.', laad) }) },
         ], rijen, 'Nog geen gebruikers.'));
       } catch (e) { vervangInhoud(lijst, el('p', { klasse: 'status fout', tekst: foutTekst(e) })); }
     };
@@ -326,8 +349,8 @@
       el('section', { klasse: 'blok' }, el('h2', { tekst: 'Mijn kruispunten' }), lijst),
       el('section', { klasse: 'blok' }, el('h2', { tekst: 'Instellingen' }),
         profiel.email ? el('p', { klasse: 'klein stil', tekst: 'Ingelogd als ' + profiel.email }) : null,
-        el('label', { klasse: 'schakel', for: 'diag' }, toestemming, 'Diagnosegegevens delen om de app te verbeteren')),
-      el('section', { klasse: 'blok' }, el('h2', { tekst: 'Mijn data' }), el('div', { klasse: 'rij' }, download), st),
+        el('div', { klasse: 'rij' }, el('label', { klasse: 'schakel', for: 'diag' }, toestemming, 'Diagnosegegevens delen om de app te verbeteren'), info(UITLEG.diag, 'Diagnosegegevens delen'))),
+      el('section', { klasse: 'blok' }, el('h2', { tekst: 'Mijn data' }), el('div', { klasse: 'rij' }, download, info(UITLEG.download, 'Download mijn data')), st),
       el('section', { klasse: 'blok' }, el('h2', { tekst: 'Account verwijderen' }), el('p', { klasse: 'klein stil', tekst: 'Dit verwijdert je account en al je gegevens. Dit kan niet ongedaan worden gemaakt.' }), el('div', { klasse: 'rij' }, woord, verwijder))));
     if (offline) { vervangInhoud(lijst, el('p', { klasse: 'stil', tekst: 'Niet beschikbaar zonder verbinding.' })); return; }
     rpc('mijn_kruispunten').then(rijen => vervangInhoud(lijst, tabel([

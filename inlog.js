@@ -1,4 +1,4 @@
-// © 2026 StoplichtIQ — Y. Lemaalem
+// © 2026 StoplichtIQ
 //
 // Gedeeld door dashboard.html en wachtwoord-instellen.html: de projectgegevens,
 // de vaste adressen voor mails, het logo, en de meldingen bij inlogfouten.
@@ -40,7 +40,21 @@
   function merk(ondertitel) {
     return el('div', { klasse: 'merk' }, logo(44), el('div', null, el('div', { klasse: 'merknaam' }, 'Stoplicht', el('span', { tekst: 'IQ' })), ondertitel ? el('div', { klasse: 'stil klein', tekst: ondertitel }) : null));
   }
-  const voet = () => el('footer', { klasse: 'voet', tekst: '© 2026 StoplichtIQ — Y. Lemaalem' });
+  const voet = () => el('footer', { klasse: 'voet', tekst: '© 2026 StoplichtIQ' });
+  // Een klein (i)-knopje met uitleg in gewone taal. Tikken (telefoon) of klikken opent en sluit;
+  // met de muis erboven (laptop) verschijnt hij ook. Escape of ergens anders tikken sluit hem.
+  let infoTeller = 0;
+  const sluitInfo = () => document.querySelectorAll('.info-vak.open').forEach(x => { x.classList.remove('open'); x.firstChild.setAttribute('aria-expanded', 'false'); });
+  function info(uitleg, label) {
+    const id = 'info-' + (++infoTeller);
+    const tip = el('span', { klasse: 'info-tip', id, role: 'tooltip', tekst: uitleg });
+    const knop = el('button', { type: 'button', klasse: 'info', 'aria-label': 'Uitleg' + (label ? ': ' + label : ''), 'aria-expanded': 'false', 'aria-describedby': id, tekst: 'i' });
+    const vak = el('span', { klasse: 'info-vak' }, knop, tip);
+    knop.addEventListener('click', (ev) => { ev.stopPropagation(); const open = !vak.classList.contains('open'); sluitInfo(); if (open) { vak.classList.add('open'); knop.setAttribute('aria-expanded', 'true'); } });
+    return vak;
+  }
+  document.addEventListener('click', (ev) => { if (!ev.target.closest || !ev.target.closest('.info-vak')) sluitInfo(); });
+  document.addEventListener('keydown', (ev) => { if (ev.key === 'Escape') sluitInfo(); });
 
   function foutTekst(e) { return String((e && e.message) || e || 'onbekende fout').slice(0, 160); }
   // Eén plek voor de meldingen bij inloggen, registreren en wachtwoord instellen.
@@ -84,7 +98,7 @@
   // Haalt tokens en foutcodes uit de adresbalk, zodat ze niet in de geschiedenis blijven staan.
   function wisLinkUitAdres() { try { history.replaceState(null, '', location.pathname); } catch (e) {} }
 
-  window.SLIQ = Object.freeze({
+  window.SLIQ = Object.freeze({ info,
     URL_, ANON, WW_MIN, WW_MAX,
     DASH_URL: BASIS + 'dashboard.html', HERSTEL_URL: BASIS + 'wachtwoord-instellen.html',
     el, sv, logo, merk, voet, foutTekst, authMelding, wachtwoordFout, linkInfo, linkFoutTekst, wisLinkUitAdres,

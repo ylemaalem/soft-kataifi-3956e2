@@ -1,4 +1,4 @@
-// © 2026 StoplichtIQ — Y. Lemaalem
+// © 2026 StoplichtIQ
 //
 // wachtwoord-instellen.html: hier komt de link uit de herstelmail op uit.
 // Regels (Wegwijzer-aanpak, strenger):
