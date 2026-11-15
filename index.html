@@ -1051,7 +1051,7 @@ if (typeof ort !== 'undefined') {
 //
 // De stijl volgt de eerdere labels: nummer, kastlijntje, korte omschrijving in
 // kleine letters. De CSS zet hem zelf in kapitalen (text-transform:uppercase).
-const APP_VERSIE = 'V11.37.39 — versietekst kort, de lange tekst alleen in de debugweergave';
+const APP_VERSIE = 'V11.37.41 — logregel bij een volledig rood korter dan 10 s (alleen meten)';
 
 // ── CONSTANTEN ────────────────────────────────────────────────
 const OSM_RADIUS       = 5000;
@@ -3261,6 +3261,7 @@ function slaOp(osmId, richting, duur, conf=null, bypassAfstand=false, gewichtOve
   } else {
     slaOpIntern(osmId, richting, duur, gewichtOverride, huidigDDActief(), 's1', conf, zagOvergang);
   }
+  kortRoodLog(osmId, duur, zagOvergang);   // V11.37.41: alleen een logregel, de opslag hierboven is ongewijzigd
   voegToeAanRouteBuffer(osmId, duur);
   // W5: sl_pos_ opslaan
   if (huidigePos && huidigePos.lat && huidigePos.lon) {
@@ -11444,6 +11445,30 @@ function slotLosLog(reden, bronGedwongen) {
     localStorage.setItem('sl_conflog', JSON.stringify(opslag));
   } catch (e) {}
 }
+// Een "volledig" rood (de overgang gezien) korter dan KORT_ROOD_S: één regel   // V11.37.41
+// in sl_conflog, zodat later te zien is waarom het rood zo kort was: de kleur   // V11.37.41
+// ervoor (vk), het licht en de gevolgde lamp (node, box), de snelheid (kmh)   // V11.37.41
+// en de tijd (t). Alleen meten: wat er opgeslagen wordt, verandert niet.   // V11.37.41
+const KORT_ROOD_S = 10;   // V11.37.41
+function kortRoodLog(osmId, duur, zagOvergang) {   // V11.37.41
+  try {   // V11.37.41
+    if (zagOvergang !== true || !(duur < KORT_ROOD_S)) return false;   // V11.37.41
+    const s = stickyDetectie;   // V11.37.41
+    const b = bboxOverride !== null ? bboxOverride : s;   // V11.37.41: de lamp in beeld, in YOLO-pixels 0..640
+    const box = b && Number.isFinite(b.cx) ? Math.round(b.cx) + ',' + Math.round(b.cy) + ',' + (bboxOverride !== null ? 'tik' : ((s && s.bron) || '-') + ',' + ((s && s.klasse) || '-')) : null;   // V11.37.41
+    const entry = { t: Date.now(), kr: 1, duur: Math.round(duur * 10) / 10, vk: vorigeFaseVoorRood || null,   // V11.37.41
+      node: osmId ? String(osmId) : null, box,   // V11.37.41
+      kmh: (typeof snelheidKmh === 'number' && !isNaN(snelheidKmh)) ? Math.round(snelheidKmh) : null };   // V11.37.41
+    klasseVerdelingLog.push(entry);   // V11.37.41
+    if (klasseVerdelingLog.length > KLASSE_VERDELING_MAX) klasseVerdelingLog.shift();   // V11.37.41
+    let opslag = [];   // V11.37.41
+    try { opslag = JSON.parse(localStorage.getItem('sl_conflog') || '[]'); } catch (e) { opslag = []; }   // V11.37.41
+    opslag.push(entry);   // V11.37.41
+    if (opslag.length > 50) opslag = opslag.slice(-50);   // V11.37.41
+    localStorage.setItem('sl_conflog', JSON.stringify(opslag));   // V11.37.41
+    return true;   // V11.37.41
+  } catch (e) { return false; }   // V11.37.41
+}   // V11.37.41
 // Blijft de camera-selectie staan bij een node-wissel? Ja binnen hetzelfde
 // kruispunt (de oude en de nieuwe mast hoogstens SLOT_KRUISPUNT_M uit elkaar).
 function slotBlijftBijWissel(oud, nieuw) {
