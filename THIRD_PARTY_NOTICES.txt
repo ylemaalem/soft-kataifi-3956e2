@@ -88,6 +88,20 @@ Copyright:  Copyright (c) 2010-2023, Volodymyr Agafonkin
 Licentie:   BSD 2-Clause License, https://opensource.org/licenses/BSD-2-Clause
 
 
+
+7. supabase-js (vendor/supabase-js-2.45.4.js, in deze repository)
+-----------------------------------------------------------------
+
+Bron:       https://github.com/supabase/supabase-js (pakket @supabase/supabase-js
+            2.45.4, bestand dist/umd/supabase.js, ongewijzigd)
+Copyright:  Copyright (c) 2020 Supabase
+Licentie:   MIT License, https://opensource.org/licenses/MIT
+
+Gebruikt door de app (account.js), het dashboard en de pagina voor het
+instellen van een wachtwoord. Het bestand staat vast in de repository en
+wordt geladen met een SRI-controle (sha384); het wordt niet van een CDN
+opgehaald.
+
 =========================================================================
 Volledige tekst van de Apache License, Version 2.0, zoals in het bestand
 LICENSE van YOLOX (commit 6ddff48), ongewijzigd:
