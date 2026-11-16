@@ -85,6 +85,10 @@ details summary { cursor: pointer; font-size: 12.5px; color: var(--tekst2); marg
   .beheer { grid-template-columns: 1fr; }
   .kaartvak { height: 58vh; }
   .zij { border-left: 0; border-top: 1px solid var(--lijn); }
+  /* V11.38.1: op de telefoon krijgen de tabbladen een eigen regel en lopen ze door op de volgende regel */
+  .kop { gap: 8px 12px; padding: 8px 12px; }
+  .kop .tabs { order: 3; flex: 1 0 100%; min-width: 0; flex-wrap: wrap; }
+  .kop .tabs button { flex: 0 0 auto; white-space: nowrap; padding: 6px 10px; min-height: 40px; }
 }
 
 /* Inlogkaart, wachtwoord vergeten, registreren, nieuw wachtwoord */

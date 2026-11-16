@@ -30,6 +30,9 @@
   const ADB = 'StoplichtIQ_Account';
   const WW_MIN = 10, WW_MAX = 72;
   const BATCH = 100, RPC_MAX_MS = 20000;
+  // V11.38.1: nieuwste eerst, doorsturen met korte pauze, en wachttijden die geen enkele trigger meer overslaat.
+  const NIEUW_MS = 48 * 3600000, PAUZE_MS = 300, MAX_PER_MIN = 20;
+  const LIMIET_WACHT = 30 * 60000, TOESTEMMING_WACHT = 3600000, KAART_WACHT = 6 * 3600000, KAART_MAX = 5;
   const DAGDELEN = ['ochtend', 'dag', 'avond', 'nacht'];
   // Records van voor deze datum in het dagdeel 'dag' tussen 16 en 20 uur horen bij een oude fout
   // in de dagdeel-indeling (verholpen in de versie van 10 mei 2026) en gaan niet mee.
@@ -411,13 +414,7 @@
     k.append(...toestemmingTekst());
     if (m.sync) {
       k.append(el('p', null, el('strong', { tekst: 'Je deelt je metingen.' })), pSt, el('button', { klasse: 'sq-knop', type: 'button', tekst: 'Toestemming intrekken', klik: zet(false) }));
-      Sync.status().then(s => {
-        pSt.textContent = s.wacht + ' in de wachtrij, ' + s.klaar + ' verstuurd' + (s.wacht + s.klaar > 0 ? ' (' + s.klaar + ' van ' + (s.wacht + s.klaar) + ')' : '') +
-          (s.laatst ? ', laatst gesynchroniseerd ' + new Date(s.laatst).toLocaleString('nl-NL') : ', nog niet gesynchroniseerd') +
-          (s.kaart ? '; ' + s.kaart + ' wachten tot de kaart het kruispunt kent' : '') +
-          (s.afgewezen ? '; ' + s.afgewezen + ' afgewezen (' + Object.entries(s.redenen).map(([r, n]) => n + '× ' + r).join(', ') + ')' : '') +
-          (configSyncAan === false ? '. Synchronisatie is tijdelijk uitgezet door de beheerder.' : '.') + (sessieOk ? '' : ' Log opnieuw in om te synchroniseren.');
-      });
+      Sync.status().then(s => toonSyncStatus(pSt, s));
     } else {
       k.append(el('p', null, el('strong', { tekst: 'Je deelt nu niets. Alles blijft op dit toestel.' })),
         el('div', { klasse: 'sq-rij' }, el('button', { klasse: 'sq-knop hoofd', type: 'button', id: 'sliq-sync-ja', tekst: 'Ja, deel mijn metingen', klik: zet(true) }),
@@ -425,6 +422,24 @@
     }
     k.append(st);
     return k;
+  }
+  function tijdKort(t) { return new Date(t).toLocaleString('nl-NL', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' }); }
+  function toonSyncStatus(pSt, s) {
+    const regel = (id, tekst) => el('div', { id, tekst });
+    const t = s.tel || {}, red = Object.entries(s.redenen || {}).map(([r, n]) => n + '× ' + r).join(', ');
+    const uit = [
+      regel('sliq-sync-te', 'Nog te versturen: ' + s.teVersturen + (s.kaart ? ' (waarvan ' + s.kaart + ' wachten tot de kaart het kruispunt kent)' : '')),
+      regel('sliq-sync-klaar', 'Verstuurd: ' + s.klaar + (t.dubbel ? ' (waarvan ' + t.dubbel + ' al op de server stonden)' : '')),
+      regel('sliq-sync-af', 'Afgewezen: ' + s.afgewezen + (red ? ' (' + red + ')' : '')),
+      regel('sliq-sync-laatst', 'Laatste geslaagde pakket: ' + (s.laatst ? tijdKort(s.laatst) : 'nog geen')),
+    ];
+    if (s.overgeslagen) uit.push(regel('sliq-sync-uit', 'Niet verstuurd: ' + s.overgeslagen + ' onvolledige metingen (het begin van rood was niet gezien); ze blijven op dit toestel.'));
+    if (s.wachtReden === 'daglimiet') uit.push(regel('sliq-sync-wacht', 'De server neemt tijdelijk geen nieuwe metingen aan (daglimiet). Volgende poging om ' + tijdKort(s.wachtTot) + '.'));
+    else if (s.wachtReden === 'geen_toestemming') uit.push(regel('sliq-sync-wacht', 'De server kent je toestemming nog niet. Volgende poging om ' + tijdKort(s.wachtTot) + '.'));
+    else if (s.wachtReden === 'netwerk') uit.push(regel('sliq-sync-wacht', 'Laatste poging mislukt (' + s.fout + '). Volgende poging om ' + tijdKort(s.wachtTot) + '.'));
+    if (configSyncAan === false) uit.push(regel('sliq-sync-beheer', 'Synchronisatie is tijdelijk uitgezet door de beheerder.'));
+    if (!sessieOk) uit.push(regel('sliq-sync-inlog', 'Log opnieuw in om te synchroniseren.'));
+    pSt.replaceChildren(...uit);
   }
   const LOGS = { opslaglog: 'sl_opslaglog', conflog: 'sl_conflog', zichtlog: 'sl_zichtlog', detlog: 'sl_detlog', herzieninglog: 'sl_herzieninglog', schaduwlog: 'sl_schaduwlog' };
   // Haalt alles weg wat een positie kan zijn, voordat een log het toestel verlaat.
@@ -485,9 +500,45 @@
   // ── de synchronisatie ─────────────────────────────────────────
   const Sync = (function () {
     let loopt = false, gestopt = false, timer = null, pogingen = 0, laatsteFout = null, historieBezig = false;
+    let nietVoor = 0, wachtReden = null, volgendeOp = 0, laatsteRegel = -1;
+    const pakketTijden = [];
     const magSturen = () => { const m = P.staat(); return !gestopt && P.open() && !!m && m.sync === true && sessieOk && configSyncAan === true && online(); };
-    function plan(ms) { if (timer) clearTimeout(timer); timer = setTimeout(() => { timer = null; rustig(verzend); }, ms); }
+    // Plant de volgende poging. Een wachttijd (netwerkfout, daglimiet, geen toestemming) wordt nooit ingekort door een
+    // trigger zoals 'weer in beeld' of een nieuwe meting; een eerder geplande poging blijft staan.
+    function plan(ms) {
+      const nu = Date.now(), wacht = Math.max(ms, nietVoor - nu, 0);
+      if (timer && volgendeOp && volgendeOp <= nu + wacht) return;
+      if (timer) clearTimeout(timer);
+      volgendeOp = nu + wacht;
+      timer = setTimeout(() => { timer = null; volgendeOp = 0; rustig(() => verzend(false)); }, wacht);
+    }
     function rustig(fn) { (window.requestIdleCallback || ((f) => setTimeout(f, 50)))(() => { fn(); }, { timeout: 4000 }); }
+    // De kleine regel op het startscherm: alleen als er iets te versturen is.
+    function toonRegel(x) {
+      try {
+        if (x === laatsteRegel && (x > 0) === !!document.getElementById('sliq-syncregel')) return;
+        laatsteRegel = x;
+        let e = document.getElementById('sliq-syncregel');
+        if (!(x > 0)) { if (e) e.remove(); return; }
+        const s = document.getElementById('startscherm'); if (!s) return;
+        if (!e) {
+          e = document.createElement('div'); e.id = 'sliq-syncregel'; e.setAttribute('role', 'status');
+          e.style.cssText = 'margin-top:8px;color:rgba(232,238,247,.6);font-size:12px;text-align:center';
+          const c = document.getElementById('s-copyright'); if (c && c.parentNode === s) s.insertBefore(e, c); else s.appendChild(e);
+        }
+        e.textContent = 'Nog te versturen: ' + x + (x === 1 ? ' meting' : ' metingen');
+      } catch (e) {}
+    }
+    let regelTimer = null;
+    function verversRegel() { if (regelTimer) return; regelTimer = setTimeout(() => { regelTimer = null; status().then(x => toonRegel(x.teVersturen)).catch(() => {}); }, 1500); }
+    async function telBij(t) {
+      const o = Object.assign({ geaccepteerd: 0, quarantaine: 0, dubbel: 0, afgewezen: 0 }, (await kvLees('staat', 'sync_tel')) || {});
+      for (const k of Object.keys(t)) o[k] = (o[k] || 0) + t[k];
+      await kvZet('staat', 'sync_tel', o);
+    }
+    async function zetWacht(reden, tot) { wachtReden = reden; nietVoor = tot; await kvZet('staat', 'sync_wacht', reden ? { reden, tot } : null); }
+    // Een fout van de server zelf (raise in een functie) is geen netwerkfout.
+    const serverWeigert = (e) => !!e && e.code === 'P0001' && !/sync_uit|geen_toestemming|Niet ingelogd/.test(String(e.message || ''));
     function lichtVan(nodeId) {   // de plek van het STOPLICHT uit de kaart; nooit de positie van de gebruiker
       try { if (typeof osmCache !== 'undefined' && Array.isArray(osmCache)) { const n = osmCache.find(x => String(x.id) === String(nodeId)); if (n && typeof n.lat === 'number' && typeof n.lon === 'number') return { lat: n.lat, lon: n.lon, naam: n.naam || null }; } } catch (e) {}
       try { const p = opslagLees('sl_pos_' + nodeId, null); if (p && p.bron === 'osm' && typeof p.lat === 'number' && typeof p.lon === 'number') { let naam = null; try { naam = opslagLeesRuw('sl_naam_' + nodeId); } catch (e) {} return { lat: p.lat, lon: p.lon, naam }; } } catch (e) {}
@@ -497,6 +548,7 @@
       const duur = rec.duur, tijd = rec.tijd;
       if (typeof duur !== 'number' || !(duur > 3 && duur < 600) || typeof tijd !== 'number') return null;
       if (rec.bron != null && rec.bron !== 's1') return null;          // geen bevestig-regels, geen afgeleide records
+      if (rec.zo === 0) return null;                                    // V11.38.1: begin van rood niet gezien = geen volledige meting
       if (rec.s2 === true || DAGDELEN.indexOf(dd) < 0) return null;
       if (tijd < Date.now() - 399 * 86400000 || tijd > Date.now() + 240000) return null;
       if (dd === 'dag' && tijd < OUDE_DAG_GRENS) { const u = new Date(tijd).getHours(); if (u >= 16 && u < 20) return null; }
@@ -511,7 +563,7 @@
       const it = maakItem(m.uid, nodeId, dd, rec, voorspeld); if (!it) return;
       it.app_versie = versie();
       const l = lichtVan(nodeId); if (l) it.kn = l;
-      wachtrijZet([it]).then(() => plan(5000));
+      wachtrijZet([it]).then(() => { plan(5000); verversRegel(); });
     }
     // De bestaande leerdata van dit toestel, eenmalig na toestemming, in kleine stukjes.
     async function historie() {
@@ -532,67 +584,99 @@
       } catch (e) {} finally { historieBezig = false; }
       plan(500);
     }
-    async function verzend() {
+    async function verzend(dwing) {
       if (loopt || !magSturen()) return;
+      const nu0 = Date.now();
+      while (pakketTijden.length && nu0 - pakketTijden[0] > 60000) pakketTijden.shift();
+      if (!dwing && nu0 < nietVoor) { plan(nietVoor - nu0); return; }
+      if (!dwing && pakketTijden.length >= MAX_PER_MIN) { plan(60000 - (nu0 - pakketTijden[0]) + 50); return; }
       loopt = true;
       try {
-        const uid = P.staat().uid;
-        const alles = (await wachtrijAlles()).filter(x => x.uid === uid && (x.st === 'w' || x.st === 'k'));
+        const uid = P.staat().uid, nu = Date.now(), grens = nu - NIEUW_MS;
+        const kand = [], tijd = new Map();
+        for (const it of await wachtrijAlles()) {
+          if (it.uid !== uid) continue;
+          if (it.st === 'w' || (it.st === 'k' && !(it.kt && nu - it.kt < KAART_WACHT))) { kand.push(it); const t = Date.parse(it.observed_at); tijd.set(it, isNaN(t) ? 0 : t); }
+        }
+        // Nieuwste eerst; alles van de laatste 48 uur gaat altijd voor de oude achterstand.
+        kand.sort((x, y) => ((tijd.get(y) >= grens) - (tijd.get(x) >= grens)) || (tijd.get(y) - tijd.get(x)));
         const nodesOk = new Set((await kvLees('staat', 'nodes_ok')) || []);
         const batch = [];
-        for (const it of alles) {
+        for (const it of kand) {
           if (batch.length >= BATCH) break;
           if (it.st === 'k') { const l = lichtVan(it.node_id); if (!l) continue; it.kn = l; it.st = 'w'; }
           batch.push(it);
         }
-        if (!batch.length) { pogingen = 0; return; }
+        if (!batch.length) { pogingen = 0; toonRegel(kand.length); return; }
         let nodesNieuw = false;
         for (const id of new Set(batch.map(x => x.node_id))) {
           if (nodesOk.has(id)) continue;
           const l = (batch.find(x => x.node_id === id && x.kn) || {}).kn || lichtVan(id);
           if (!l) continue;   // de server zegt dan zelf of hij het kruispunt al kent
           const naam = l.naam ? String(l.naam) : null, stad = naam && naam.indexOf(',') >= 0 ? naam.slice(naam.lastIndexOf(',') + 1).trim() || null : null;
-          await rpc('registreer_node', { p_node_id: id, p_lat: l.lat, p_lon: l.lon, p_city: stad, p_name: naam });
-          nodesOk.add(id); nodesNieuw = true;
+          try { await rpc('registreer_node', { p_node_id: id, p_lat: l.lat, p_lon: l.lon, p_city: stad, p_name: naam }); nodesOk.add(id); nodesNieuw = true; }
+          catch (e) { if (!serverWeigert(e)) throw e; }   // geweigerd kruispunt: de metingen krijgen dan onbekend_kruispunt
         }
         if (nodesNieuw) await kvZet('staat', 'nodes_ok', [...nodesOk]);
         if (!magSturen()) return;
         const payload = batch.map(x => ({ client_ref: x.ref, node_id: x.node_id, dagdeel: x.dagdeel, duur: x.duur, observed_at: x.observed_at,
                                           voorspeld_sec: x.voorspeld_sec, app_versie: x.app_versie || versie(), volledig: x.volledig }));
+        pakketTijden.push(Date.now());
         const antw = await rpc('verwerk_batch', { p_metingen: payload });
         const res = (antw && antw.resultaten) || [];
         if (res.length !== batch.length) throw new Error('onverwacht antwoord');
-        const weg = [], bij = []; let wacht = false;
+        const weg = [], bij = [], tel = { geaccepteerd: 0, quarantaine: 0, dubbel: 0, afgewezen: 0 }; let wacht = null;
         for (let i = 0; i < batch.length; i++) {
           const it = batch[i], r = res[i] || {};
-          if (r.status === 'geaccepteerd' || r.status === 'quarantaine' || r.status === 'dubbel') weg.push(it.ref);
-          else if (r.reden === 'geen_toestemming' || r.reden === 'daglimiet') wacht = true;                    // later opnieuw, niet afgewezen
-          else if (r.reden === 'onbekend_kruispunt') { it.st = 'k'; delete it.kn; nodesOk.delete(it.node_id); bij.push(it); }   // wacht op de kaart
-          else { it.st = 'af'; it.reden = String(r.reden || 'onbekend'); bij.push(it); }                         // afgewezen: nooit opnieuw
+          if (r.status === 'geaccepteerd' || r.status === 'quarantaine' || r.status === 'dubbel') { weg.push(it.ref); tel[r.status]++; }
+          else if (r.reden === 'geen_toestemming' || r.reden === 'daglimiet') wacht = r.reden;                 // later opnieuw, niet afgewezen
+          else if (r.reden === 'onbekend_kruispunt') {                                                          // wacht op de kaart, maar niet eindeloos
+            it.kp = (it.kp || 0) + 1; it.kt = Date.now(); delete it.kn; nodesOk.delete(it.node_id);
+            if (it.kp >= KAART_MAX) { it.st = 'af'; it.reden = 'onbekend_kruispunt'; tel.afgewezen++; } else it.st = 'k';
+            bij.push(it);
+          }
+          else { it.st = 'af'; it.reden = String(r.reden || 'onbekend'); tel.afgewezen++; bij.push(it); }       // afgewezen: nooit opnieuw
         }
         if (weg.length) { await klaarZet(weg); await wachtrijWeg(weg); }
         if (bij.length) await wachtrijZet(bij);
-        await kvZet('staat', 'sync_laatst', Date.now());
+        await telBij(tel);
         pogingen = 0; laatsteFout = null;
-        if (wacht) { plan(3600000); return; }
-        if (alles.length > batch.length) plan(400);
+        const over = kand.length - weg.length - tel.afgewezen;
+        if (wacht) { await zetWacht(wacht, Date.now() + (wacht === 'daglimiet' ? LIMIET_WACHT : TOESTEMMING_WACHT)); toonRegel(over); plan(0); return; }
+        await kvZet('staat', 'sync_laatst', Date.now());
+        nietVoor = 0; if (wachtReden) await zetWacht(null, 0);
+        toonRegel(over);
+        if (kand.length > batch.length) plan(PAUZE_MS);
       } catch (e) {
         pogingen++; laatsteFout = foutTekst(e);
-        plan(Math.min(3600000, 30000 * Math.pow(2, Math.min(pogingen - 1, 7))));   // oplopende wachttijd
+        nietVoor = Date.now() + Math.min(3600000, 30000 * Math.pow(2, Math.min(pogingen - 1, 7)));   // oplopende wachttijd
+        plan(0); verversRegel();
       } finally { loopt = false; }
     }
     async function status() {
       const uid = (P.staat() || {}).uid, a = (await wachtrijAlles()).filter(x => x.uid === uid), redenen = {};
       for (const x of a) if (x.st === 'af') redenen[x.reden] = (redenen[x.reden] || 0) + 1;
-      return { wacht: a.filter(x => x.st === 'w').length, kaart: a.filter(x => x.st === 'k').length, afgewezen: a.filter(x => x.st === 'af').length, redenen,
-               klaar: await klaarAantal(), laatst: (await kvLees('staat', 'sync_laatst')) || null, fout: laatsteFout };
+      const wacht = a.filter(x => x.st === 'w').length, kaart = a.filter(x => x.st === 'k').length;
+      return { wacht, kaart, teVersturen: wacht + kaart, afgewezen: a.filter(x => x.st === 'af').length, redenen, overgeslagen: a.filter(x => x.st === 'uit').length,
+               klaar: await klaarAantal(), laatst: (await kvLees('staat', 'sync_laatst')) || null, fout: laatsteFout, pogingen,
+               tel: (await kvLees('staat', 'sync_tel')) || { geaccepteerd: 0, quarantaine: 0, dubbel: 0, afgewezen: 0 },
+               wachtReden: nietVoor > Date.now() ? (wachtReden || (laatsteFout ? 'netwerk' : null)) : null, wachtTot: nietVoor > Date.now() ? nietVoor : null, volgende: volgendeOp || null };
+    }
+    // Wat al in de wachtrij stond maar niet (meer) mee hoort: onvolledige metingen blijven op het toestel.
+    async function opruimen(uid) {
+      const a = (await wachtrijAlles()).filter(x => x.uid === uid && (x.st === 'w' || x.st === 'k') && x.volledig === false);
+      for (const x of a) { x.st = 'uit'; x.reden = 'onvolledig'; }
+      if (a.length) await wachtrijZet(a);
     }
     async function start() {
       gestopt = false;
-      const m = P.staat(); if (!m || m.sync !== true) return;
+      const m = P.staat(); if (!m || m.sync !== true) { toonRegel(0); return; }
+      try { const w = await kvLees('staat', 'sync_wacht'); if (w && w.tot > Date.now() && w.tot < Date.now() + 2 * 3600000) { wachtReden = w.reden; nietVoor = Math.max(nietVoor, w.tot); } } catch (e) {}
+      try { await opruimen(m.uid); } catch (e) {}
+      try { const s = await status(); toonRegel(s.teVersturen); } catch (e) {}
       if (!(await kvLees('staat', 'historie_' + m.uid))) rustig(historie); else plan(1500);
     }
-    function stop() { gestopt = true; if (timer) { clearTimeout(timer); timer = null; } }
+    function stop() { gestopt = true; if (timer) { clearTimeout(timer); timer = null; volgendeOp = 0; } toonRegel(0); }
     // Na elke echte meting (slaOpIntern, bron s1): het zojuist geschreven record opzoeken en melden. Wat de app
     // toonde komt uit het schaduwlog van dezelfde rode fase. Alleen lezen; het leren zelf is niet aangeraakt.
     function naMeting(nodeId, dd) {
@@ -620,13 +704,14 @@
       }
     } catch (e) {}
     try {
-      window.addEventListener('online', () => { if (!sessieOk) achtergrond(); else plan(2000); });
+      // Internet terug: een netwerk-wachttijd mag dan korter (de oorzaak is weg); een daglimiet of ontbrekende toestemming niet.
+      window.addEventListener('online', () => { if (!sessieOk) { achtergrond(); return; } if (laatsteFout && !wachtReden) nietVoor = Math.min(nietVoor, Date.now() + 2000); plan(2000); });
       document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') plan(3000); });
     } catch (e) {}
     return { noteer, historie, verzend, status, start, stop };
   })();
 
-  window.SLIQ_SYNC = Object.freeze({ noteer: Sync.noteer, status: Sync.status, nu: Sync.verzend });
+  window.SLIQ_SYNC = Object.freeze({ noteer: Sync.noteer, status: Sync.status, nu: () => Sync.verzend(true) });
   window.SLIQ_ACCOUNT = Object.freeze({ open, sluit, ververs: () => ververs().catch(() => null) });
 
   // ── begin ─────────────────────────────────────────────────────
