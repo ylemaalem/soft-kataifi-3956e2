@@ -1,7 +1,8 @@
 // © 2026 StoplichtIQ
 //
-// De twee dashboards: beheer (alleen als mijn_profiel().is_admin) en de eigen
-// gegevens van elke gebruiker. Volgens het Supabase-contract van 8 nov 2026:
+// Het beheer-dashboard. V11.38.0 (F1): alleen voor de beheerder (mijn_profiel().is_admin).
+// Ieder ander wordt hier lokaal uitgelogd en ziet alleen "Geen toegang"; gewone gebruikers
+// beheren hun account in de app zelf. Volgens het Supabase-contract van 8 nov 2026:
 // - alleen de publieke anon-sleutel; alles via rpc, behalve het lezen van app_config;
 // - verbergen is geen beveiliging: de database weigert admin-functies zelf;
 // - alle tekst uit de database gaat via textContent (namen komen van gebruikers).
@@ -37,14 +38,19 @@
   // verwerk_meting, evalueer_meting, mijn_profiel, diag_dag_opslaan, diag_log_opslaan, admin_vraag_log,
   // admin_zet_beta, mijn_data_export, admin_inflow_daily, admin_city_progress.
   const UITLEG = {
-    bijdragen: 'Aantal metingen van deze gebruiker dat meteen bij binnenkomst is geaccepteerd. Een teller, geen percentage. Een meting die eerst in quarantaine stond en later alsnog werd geaccepteerd, telt hier (nog) niet mee.',
+    bijdragen: 'Aantal geaccepteerde metingen van deze gebruiker. Een teller, geen percentage. Een meting die eerst in quarantaine stond en later alsnog wordt geaccepteerd, telt vanaf dan ook mee, precies een keer.',
+    quarlijst: 'Metingen die wachten op een oordeel. "Bekend" is de gewone duur die we voor dit kruispunt en dagdeel al hebben (met het aantal metingen); "nieuw" betekent dat er nog niets bekend is. Goedkeuren telt de meting mee in de statistiek en bij de bijdragen van de gebruiker. Afwijzen laat hem staan maar telt hem nergens mee. Elk oordeel komt in het logboek.',
+    kwaliteit: 'Per meting vergelijken we het aantal seconden dat de app toonde bij het begin van de countdown met de duur die daarna echt gemeten is. "Goed" = hoogstens 5 seconden ernaast. Alleen metingen waarbij de app iets toonde tellen mee. Onder de 30 metingen tonen we geen percentage: dat zegt nog niets.',
+    feedback: 'Wat gebruikers via "Feedback" in de app hebben gestuurd. Hoogstens 5 berichten per gebruiker per 24 uur, elk hoogstens 1000 tekens. De nieuwste 500 staan hier.',
+    mfa: 'Een tweede stap betekent: na je wachtwoord vraagt het dashboard ook een code van 6 cijfers uit een authenticator-app op je telefoon. Koppel eerst de app. Pas daarna kun je de stap verplicht maken; dan weigert ook de database beheerfuncties zonder die code. Raak je je telefoon kwijt, dan kan de verplichting alleen nog in Supabase zelf worden uitgezet (tabel app_config, sleutel admin_mfa_verplicht).',
+    laatstesync: 'Het moment waarop de app van deze gebruiker voor het laatst een meting heeft verstuurd. "deelt niet" = de gebruiker heeft geen toestemming gegeven voor synchronisatie; "nog niets" = wel toestemming, nog geen meting ontvangen.',
     vertrouwen: "Getal van 0 tot 1. Nieuw = 0,50. Het stijgt met 0,01 bij elke meting die meteen wordt geaccepteerd, tot maximaal 1,00. Vanaf 0,70 telt iemand als 'vertrouwd' (een beheerder altijd): dan is voor een nieuw kruispunt maar 1 andere gebruiker nodig om het te bevestigen in plaats van 2. Het daalt nu nooit; slechte metingen blijven gewoon in quarantaine.",
     quarantaine: 'Een meting die afwijkt van wat we al weten (meer dan 15 s of 35% naast de gewone waarde van de laatste 30 dagen), of voor een kruispunt waar nog niets bekend is, wacht tot genoeg andere gebruikers hetzelfde melden: bij een afwijking 2 anderen binnen 7 dagen, bij een nieuw kruispunt 2 anderen (of 1 als er een vertrouwde gebruiker bij is) binnen 30 dagen. Dat gebeurt zodra die laatste meting binnenkomt; daarna is hij automatisch geaccepteerd. Jij hoeft niets goed te keuren.',
     vandaag: 'Metingen die vandaag zijn binnengekomen en nu zijn aangenomen / die nog wachten / aantal gebruikers dat vandaag iets stuurde. "Vandaag" is de dag in UTC (in Nederland begint die om 01:00 of 02:00).',
     log: 'Vraagt deze gebruiker EENMALIG om een logbestand te sturen. Dat kan alleen als hij diagnose-toestemming heeft gegeven. Na versturen is het verzoek verbruikt. Let op: de app zelf leest dit verzoek nog niet; dat komt in een volgende fase.',
     beta: 'Een vertrouwde tester die elke dag automatisch logs mag sturen (hoogstens 1 per soort per dag) zonder dat jij het vraagt. Alleen met diagnose-toestemming. Een gewone gebruiker kan dat niet. Let op: de app stuurt nog niets; dat komt in een volgende fase.',
     diag: 'Als je dit aanzet, mag de app dagelijks technische gegevens sturen: appversie, opslag in KB, opstarttijd, gemiddelde rekentijd, aantal ritten en teltallen. Daarin staan geen locatie en geen naam. Met deze toestemming kan ook een logbestand worden gestuurd als de beheerder erom vraagt of als je beta-tester bent; een logbestand kan wel kruispuntnummers bevatten. Staat standaard uit en je kunt het altijd uitzetten. De app stuurt op dit moment nog niets.',
-    download: 'Geeft je een bestand met je profiel, je metingen, je validaties en je dagelijkse diagnosegegevens. Logbestanden die je hebt gestuurd zitten er nog niet in.',
+    download: 'Geeft je een bestand met je profiel, je metingen, je validaties en je dagelijkse diagnosegegevens. Ook logbestanden die je hebt gestuurd, je feedback en de momenten waarop je toestemming gaf of introk zitten erin.',
     steden: 'Per stad: Totaal = kruispunten in de database; Vers 7 d = kruispunten met een meting in de laatste 7 dagen; Geverif. = kruispunten met geaccepteerde metingen van minstens 2 verschillende gebruikers. De tabel zelf heeft geen kleuren; die horen bij de kaart.',
     nieuw: 'Kleur van een punt op de kaart = aantal nieuwe metingen in de gekozen periode (1 u, 24 u of 7 d): helderblauw 20 of meer, middenblauw 5 tot 19, donkerblauw 1 tot 4, grijsblauw geen nieuwe. Hoe groter de stip, hoe meer nieuwe metingen. Een pulserende ring: een nieuwe meting in de laatste 3 uur.'
   };
@@ -164,9 +170,79 @@
       }
       offline = true; profiel = { is_admin: !!r.is_admin };
     }
+    // V11.38.0 (F1): geen beheerder = lokaal uitloggen en alleen "Geen toegang". Er komt geen tabblad, kaart of beheerdata in beeld.
+    if (!profiel.is_admin) { await geenToegang(); return; }
     try { const { data } = await db.from('app_config').select('sleutel,waarde'); config = Object.fromEntries((data || []).map(x => [x.sleutel, x.waarde])); } catch (e) { config = {}; }
-    tab = profiel.is_admin ? 'kaart' : 'mijn';
+    // V11.38.0 (F4): staat de schakelaar aan, dan eerst de tweede stap. De database eist hem dan ook (is_admin()).
+    if (!offline && config.admin_mfa_verplicht === true && !(await mfaInOrde())) return;
+    tab = 'kaart';
     teken();
+  }
+  async function geenToegang() {
+    profiel = null;
+    try { await db.auth.signOut({ scope: 'local' }); } catch (x) {}
+    try { localStorage.removeItem(ROL_SLEUTEL); } catch (x) {}
+    vervangInhoud(app, el('div', { klasse: 'inlogvak', id: 'geen-toegang' }, S.merk(), el('h2', { tekst: 'Geen toegang' }),
+      el('p', { klasse: 'stil', tekst: 'Dit dashboard is alleen voor de beheerder. Je bent hier uitgelogd. Je account en je gegevens beheer je in de app.' }),
+      el('p', null, el('a', { href: 'index.html', tekst: 'Naar de app' }))), S.voet());
+  }
+
+  // ── tweede stap (MFA, een authenticator-app) ────────────────
+  async function mfaInOrde() {
+    try {
+      const { data, error } = await db.auth.mfa.getAuthenticatorAssuranceLevel();
+      if (error) throw error;
+      if (data && data.currentLevel === 'aal2') return true;
+      const f = await db.auth.mfa.listFactors();
+      const klaar = ((f.data && f.data.totp) || []).filter(x => x.status === 'verified');
+      toonMfa(klaar[0] || null);
+    } catch (e) { profiel = null; toonInlog('De tweede stap kon niet worden gecontroleerd: ' + foutTekst(e)); }
+    return false;
+  }
+  function codeVeld() { return el('input', { type: 'text', inputmode: 'numeric', autocomplete: 'one-time-code', maxlength: '6', placeholder: '6 cijfers', 'aria-label': 'Code uit de authenticator-app' }); }
+  function toonMfa(factor) {
+    const st = el('p', { klasse: 'status' });
+    const uit = el('button', { tekst: 'Uitloggen', klik: async () => { profiel = null; await db.auth.signOut(); toonInlog(); } });
+    if (!factor) {
+      vervangInhoud(app, el('div', { klasse: 'inlogvak', id: 'mfa-instellen' }, S.merk(), el('h2', { tekst: 'Tweede stap instellen' }),
+        el('p', { klasse: 'stil', tekst: 'Voor het dashboard is een tweede stap verplicht, en die is op dit account nog niet ingesteld.' }), mfaAanmeldBlok(() => naInloggen()), uit), S.voet());
+      return;
+    }
+    const code = codeVeld();
+    const knop = el('button', { klasse: 'hoofd', tekst: 'Controleer', klik: async () => {
+      knop.disabled = true;
+      try { const { error } = await db.auth.mfa.challengeAndVerify({ factorId: factor.id, code: code.value.trim() }); if (error) throw error; await naInloggen(); }
+      catch (e) { st.className = 'status fout'; st.textContent = 'De code klopt niet of is verlopen. Probeer het opnieuw.'; }
+      knop.disabled = false;
+    } });
+    vervangInhoud(app, el('div', { klasse: 'inlogvak', id: 'mfa-vraag' }, S.merk(), el('h2', { tekst: 'Tweede stap' }),
+      el('p', { klasse: 'stil', tekst: 'Open je authenticator-app en typ de code van 6 cijfers voor StoplichtIQ.' }), code, knop, st, uit), S.voet());
+    code.focus();
+  }
+  // Aanmelden van een authenticator-app. Roept `klaar` aan zodra de eerste code is goedgekeurd.
+  function mfaAanmeldBlok(klaar) {
+    const st = el('p', { klasse: 'status' }), vak = el('div', null);
+    const start = el('button', { tekst: 'Authenticator-app koppelen', klik: async () => {
+      start.disabled = true; st.className = 'status'; st.textContent = '';
+      try {
+        const f = await db.auth.mfa.listFactors();
+        for (const x of ((f.data && f.data.all) || []).filter(x => x.status !== 'verified')) { try { await db.auth.mfa.unenroll({ factorId: x.id }); } catch (e) {} }
+        const { data, error } = await db.auth.mfa.enroll({ factorType: 'totp', friendlyName: 'StoplichtIQ ' + new Date().toISOString().slice(0, 10) });
+        if (error) throw error;
+        const code = codeVeld();
+        const ok = el('button', { klasse: 'hoofd', tekst: 'Bevestig', klik: async () => {
+          ok.disabled = true;
+          try { const r = await db.auth.mfa.challengeAndVerify({ factorId: data.id, code: code.value.trim() }); if (r.error) throw r.error; st.className = 'status ok'; st.textContent = 'De tweede stap is ingesteld.'; vervangInhoud(vak); if (klaar) await klaar(); }
+          catch (e) { st.className = 'status fout'; st.textContent = 'De code klopt niet. Wacht op een nieuwe code in de app en probeer het opnieuw.'; }
+          ok.disabled = false;
+        } });
+        vervangInhoud(vak, el('p', { klasse: 'stil', tekst: '1. Open een authenticator-app (bijvoorbeeld die van je telefoon). 2. Scan deze code. 3. Typ de 6 cijfers die de app toont.' }),
+          el('img', { src: data.totp.qr_code, alt: 'QR-code voor de authenticator-app', width: '180', height: '180', stijl: { background: '#fff', borderRadius: '8px' } }),
+          el('p', { klasse: 'klein stil', tekst: 'Lukt scannen niet? Typ dan deze sleutel in de app: ' + data.totp.secret }), code, ok);
+      } catch (e) { st.className = 'status fout'; st.textContent = /mfa|disabled|not enabled/i.test(foutTekst(e)) ? 'De tweede stap staat nog uit in Supabase (Authentication > Multi-Factor). Zet TOTP daar eerst aan.' : foutTekst(e); }
+      start.disabled = false;
+    } });
+    return el('div', { id: 'mfa-aanmelden' }, start, vak, st);
   }
 
   // ── de schil ────────────────────────────────────────────────
@@ -174,7 +250,7 @@
     stopKlok(); kaart = null;
     const knop = (id, t) => el('button', { tekst: t, klasse: tab === id ? 'aan' : null, klik: () => { tab = id; teken(); } });
     const kop = el('header', { klasse: 'kop' }, el('h1', { klasse: 'kopmerk' }, S.logo(28), 'Stoplicht', el('span', { tekst: 'IQ' })),
-      profiel.is_admin ? el('nav', { klasse: 'tabs' }, knop('kaart', 'Kaart'), knop('gebruikers', 'Gebruikers'), knop('mijn', 'Mijn gegevens')) : null,
+      el('nav', { klasse: 'tabs' }, knop('kaart', 'Kaart'), knop('gebruikers', 'Gebruikers'), knop('quarantaine', 'Quarantaine'), knop('kwaliteit', 'Countdown'), knop('feedback', 'Feedback'), knop('beveiliging', 'Beveiliging'), knop('mijn', 'Mijn gegevens')),
       el('span', { klasse: 'ruimte' }), el('button', { tekst: 'Uitloggen', klik: async () => { await db.auth.signOut(); profiel = null; try { localStorage.removeItem(ROL_SLEUTEL); } catch (e) {} toonInlog(); } }));
     const inhoud = el('div', { stijl: { flex: '1', display: 'flex', flexDirection: 'column', minHeight: '0' } });
     vervangInhoud(app, kop,
@@ -183,7 +259,83 @@
       inhoud, S.voet());
     if (tab === 'kaart') tekenBeheer(inhoud);
     else if (tab === 'gebruikers') tekenGebruikers(inhoud);
+    else if (tab === 'quarantaine') tekenQuarantaine(inhoud);
+    else if (tab === 'kwaliteit') tekenKwaliteit(inhoud);
+    else if (tab === 'feedback') tekenFeedback(inhoud);
+    else if (tab === 'beveiliging') tekenBeveiliging(inhoud);
     else tekenMijn(inhoud);
+  }
+
+  // ── V11.38.0 (F2): quarantaine, countdown-kwaliteit, feedback, beveiliging ──
+  function pagina(doel, titel, sleutel, ...kind) {
+    vervangInhoud(doel, el('div', { klasse: 'pagina' }, el('section', { klasse: 'blok' }, el('h2', null, metInfo(titel, sleutel)), ...kind)));
+  }
+  async function tekenQuarantaine(doel) {
+    const lijst = el('div', { id: 'quar-lijst' }, el('p', { klasse: 'stil', tekst: 'Laden…' })), st = el('p', { klasse: 'status' });
+    pagina(doel, 'Quarantaine', 'quarlijst', st, lijst);
+    const laad = async () => {
+      try {
+        const rijen = (await rpc('admin_quarantaine_lijst')) || [];
+        const doe = (r, goed) => async (ev) => {
+          ev.target.disabled = true;
+          try { await rpc('admin_beoordeel_meting', { p_id: r.id, p_goedkeuren: goed }); st.className = 'status ok'; st.textContent = goed ? 'Meting goedgekeurd.' : 'Meting afgewezen.'; await laad(); }
+          catch (e) { st.className = 'status fout'; st.textContent = foutTekst(e); ev.target.disabled = false; }
+        };
+        vervangInhoud(lijst, tabel([
+          { t: 'Binnen', w: r => moment(r.aangemaakt_op) }, { t: 'Kruispunt', w: r => r.naam || r.node_id }, { t: 'Dagdeel', w: r => r.dagdeel },
+          { t: 'Gemeten s', g: 1, w: r => getal(Math.round(r.duur)) }, { t: 'Bekend s', g: 1, w: r => r.mediaan_sec == null ? 'nieuw' : getal(Math.round(r.mediaan_sec)) + ' (n=' + getal(r.n_bekend) + ')' },
+          { t: 'Gebruiker', w: r => r.gebruiker },
+          { t: 'Oordeel', w: r => el('span', null, el('button', { tekst: 'Goedkeuren', klik: doe(r, true) }), ' ', el('button', { tekst: 'Afwijzen', klik: doe(r, false) })) },
+        ], rijen, 'Er wacht niets in quarantaine.'));
+      } catch (e) { vervangInhoud(lijst, el('p', { klasse: 'status fout', tekst: foutTekst(e) })); }
+    };
+    laad();
+  }
+  const KWAL_MIN_N = 30;   // onder dit aantal geen percentage: te weinig om iets te zeggen
+  async function tekenKwaliteit(doel) {
+    const lijst = el('div', { id: 'kwal-lijst' }, el('p', { klasse: 'stil', tekst: 'Laden…' }));
+    pagina(doel, 'Hoe vaak klopte de countdown', 'kwaliteit', lijst);
+    try {
+      const rijen = ((await rpc('admin_countdown_kwaliteit')) || []).filter(r => r.gebruiker === 'alle gebruikers' || Number(r.n) > 0);
+      vervangInhoud(lijst, tabel([
+        { t: 'Gebruiker', w: r => r.gebruiker }, { t: 'Metingen (n)', g: 1, w: r => getal(r.n) },
+        { t: 'Goed', g: 1, w: r => Number(r.n) < KWAL_MIN_N ? 'nog niet genoeg data' : String(r.pct_goed).replace('.', ',') + '% (' + getal(r.n_goed) + ' van ' + getal(r.n) + ')' },
+        { t: 'Mediaan ernaast', g: 1, w: r => Number(r.n) < KWAL_MIN_N || r.mediaan_fout_sec == null ? '–' : getal(Math.round(r.mediaan_fout_sec)) + ' s' },
+      ], rijen, 'Nog niet genoeg data.'));
+    } catch (e) { vervangInhoud(lijst, el('p', { klasse: 'status fout', tekst: foutTekst(e) })); }
+  }
+  async function tekenFeedback(doel) {
+    const lijst = el('div', { id: 'fb-lijst' }, el('p', { klasse: 'stil', tekst: 'Laden…' }));
+    pagina(doel, 'Feedback van gebruikers', 'feedback', lijst);
+    try {
+      const rijen = (await rpc('admin_feedback_lijst')) || [];
+      vervangInhoud(lijst, tabel([{ t: 'Wanneer', w: r => moment(r.aangemaakt_op) }, { t: 'Van', w: r => r.email }, { t: 'Versie', w: r => r.app_versie }, { t: 'Tekst', w: r => r.tekst }], rijen, 'Nog geen feedback.'));
+    } catch (e) { vervangInhoud(lijst, el('p', { klasse: 'status fout', tekst: foutTekst(e) })); }
+  }
+  async function tekenBeveiliging(doel) {
+    const vak = el('div', { id: 'mfa-vak' }, el('p', { klasse: 'stil', tekst: 'Laden…' })), st = el('p', { klasse: 'status' });
+    pagina(doel, 'Tweede stap bij inloggen (MFA)', 'mfa', st, vak);
+    const laad = async () => {
+      try {
+        const f = await db.auth.mfa.listFactors(); if (f.error) throw f.error;
+        const klaar = ((f.data && f.data.totp) || []).filter(x => x.status === 'verified');
+        const niveau = await db.auth.mfa.getAuthenticatorAssuranceLevel();
+        const aal2 = niveau.data && niveau.data.currentLevel === 'aal2', verplicht = config.admin_mfa_verplicht === true;
+        const zet = (aan) => async (ev) => {
+          ev.target.disabled = true;
+          try { await rpc('admin_zet_config', { p_sleutel: 'admin_mfa_verplicht', p_waarde: aan, p_omschrijving: null }); config.admin_mfa_verplicht = aan; st.className = 'status ok'; st.textContent = aan ? 'De tweede stap is nu verplicht voor het dashboard.' : 'De tweede stap is niet meer verplicht.'; await laad(); }
+          catch (e) { st.className = 'status fout'; st.textContent = foutTekst(e); ev.target.disabled = false; }
+        };
+        vervangInhoud(vak,
+          el('p', { tekst: klaar.length ? 'Er is een authenticator-app gekoppeld aan dit account.' : 'Er is nog geen authenticator-app gekoppeld.' }),
+          klaar.length ? el('button', { tekst: 'Koppeling verwijderen', disabled: verplicht, title: verplicht ? 'Zet eerst "verplicht" uit' : null, klik: async (ev) => { ev.target.disabled = true; try { for (const x of klaar) await db.auth.mfa.unenroll({ factorId: x.id }); await laad(); } catch (e) { st.className = 'status fout'; st.textContent = foutTekst(e); } } }) : mfaAanmeldBlok(laad),
+          el('p', { tekst: 'Verplicht voor het dashboard: ' + (verplicht ? 'ja' : 'nee') + '.' }),
+          verplicht ? el('button', { tekst: 'Verplichting uitzetten', klik: zet(false) })
+                    : el('button', { tekst: 'Tweede stap verplicht maken', disabled: !aal2, title: aal2 ? null : 'Kan pas als je in deze sessie zelf met de tweede stap bent ingelogd', klik: zet(true) }),
+          aal2 || verplicht ? null : el('p', { klasse: 'klein stil', tekst: 'Verplicht maken kan pas nadat je een app hebt gekoppeld en in deze sessie een code hebt ingevuld. Zo sluit je jezelf niet buiten.' }));
+      } catch (e) { vervangInhoud(vak, el('p', { klasse: 'status fout', tekst: foutTekst(e) })); }
+    };
+    laad();
   }
 
   // ── beheer: kaart + zijpaneel ───────────────────────────────
@@ -296,7 +448,10 @@
         const rijen = (await rpc('admin_gebruikers_lijst')) || [];
         vervangInhoud(lijst, tabel([
           { t: 'E-mail', w: r => r.email },
+          { t: 'Rol', w: r => r.is_admin ? 'beheerder' : (r.is_beta_tester ? 'beta-tester' : 'gewoon') },
           { t: 'Actief', w: r => moment(r.laatste_activiteit) },
+          { t: 'Laatste sync', i: 'laatstesync', w: r => r.laatste_sync ? moment(r.laatste_sync) : (r.sync_toestemming_op ? 'nog niets' : 'deelt niet') },
+          { t: 'Quar.', g: 1, w: r => getal(r.in_quarantaine) },
           { t: 'Versie', w: r => r.laatste_versie },
           { t: 'Opslag KB', g: 1, w: r => getal(r.laatste_opslag_kb) },
           { t: 'Bijdragen', g: 1, i: 'bijdragen', w: r => getal(r.contributions) },
