@@ -8,6 +8,63 @@
   <meta name="apple-mobile-web-app-status-bar-style" content="black-fullscreen"/>
   <meta name="apple-mobile-web-app-title" content="StoplichtIQ"/>
   <title>StoplichtIQ</title>
+  <!-- V11.38.0: DE INLOGPOORT. (c) 2026 StoplichtIQ
+       Dit script staat bewust IN de pagina en als eerste: het hangt van geen enkel ander bestand of
+       netwerk af. Het leest alleen een merkteken (geen token) dat bij het inloggen is gezet. Zonder
+       geldig merkteken blijft de app dicht en staat alleen het inlogscherm in beeld. Het merkteken
+       is 30 dagen geldig na de laatste geslaagde controle bij de server; zo start de app ook zonder
+       bereik. Dit is bruikbaarheid, geen beveiliging: de beveiliging zit in de database. -->
+  <script>
+  (function () {
+    'use strict';
+    var SLEUTEL = 'sliq_poort', MAX_MS = 30 * 86400000, mem = null;
+    function lees() {
+      var p = null;
+      try { p = JSON.parse(localStorage.getItem(SLEUTEL) || 'null'); } catch (e) { p = mem; }
+      if (!p && mem) p = mem;
+      return (p && typeof p === 'object' && typeof p.ok === 'number' && typeof p.uid === 'string' && p.uid) ? p : null;
+    }
+    // Was de poort open toen deze pagina laadde, dan blijft hij deze hele sessie open (zelfde gebruiker): de 30 dagen
+    // mogen nooit midden in een rit aflopen, en een verzette klok mag een ingelogde gebruiker niet buitensluiten.
+    var sessieUid = null;
+    function geldig(p) { if (!p) return false; if (sessieUid && p.uid === sessieUid) return true; var d = Date.now() - p.ok; return d < MAX_MS && d > -86400000; }
+    function rol() {
+      var p = lees(); if (!geldig(p)) return 'geen';
+      return (p.rol && p.rol.a === true) ? 'beheerder' : ((p.rol && p.rol.b === true) ? 'beta' : 'gewoon');
+    }
+    function pasToe() {
+      try {
+        var h = document.documentElement, r = rol();
+        h.classList.toggle('sliq-dicht', r === 'geen');
+        ['beheerder', 'beta', 'gewoon'].forEach(function (x) { h.classList.toggle('rol-' + x, r === x); });
+      } catch (e) {}
+    }
+    mem = lees(); if (geldig(mem)) sessieUid = mem.uid;
+    var api = {
+      MAX_DAGEN: 30,
+      staat: lees,
+      open: function () { return geldig(lees()); },
+      verlopen: function () { var p = lees(); return !!p && !geldig(p); },
+      // na inloggen of uitloggen in deze sessie
+      zetSessie: function (uid) { sessieUid = uid || null; },
+      rol: rol,
+      isBeheerder: function () { return rol() === 'beheerder'; },
+      isBeta: function () { var r = rol(); return r === 'beta' || r === 'beheerder'; },
+      pasToe: pasToe,
+      zet: function (p) { mem = p; try { localStorage.setItem(SLEUTEL, JSON.stringify(p)); } catch (e) {} pasToe(); },
+      wis: function () { sessieUid = null; mem = null; try { localStorage.removeItem(SLEUTEL); } catch (e) {} pasToe(); }
+    };
+    window.SLIQ_POORT = Object.freeze(api);
+    pasToe();
+  })();
+  </script>
+  <style>
+    html.sliq-dicht body > *:not(#sliq-poort):not(#sliq-toast){display:none !important}
+    html:not(.sliq-dicht) #sliq-poort{display:none !important}
+    html:not(.rol-beheerder) .alleen-beheerder, html:not(.rol-beheerder) #debug, html:not(.rol-beheerder) #leer-log, html:not(.rol-beheerder) #dashboard{display:none !important}
+    html:not(.rol-beheerder):not(.rol-beta) .alleen-beta{display:none !important}
+    #s-account{margin-top:10px;padding:9px 18px;background:rgba(255,255,255,0.06);color:#fff;border:1px solid var(--border);border-radius:10px;font-family:inherit;font-size:14px;letter-spacing:0.06em;cursor:pointer}
+  </style>
   <script src="https://cdn.jsdelivr.net/npm/onnxruntime-web@1.17.1/dist/ort.min.js"></script>
   <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/>
   <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
@@ -820,6 +877,7 @@
     <button id="geluid-toggle" onclick="toggleGeluid()"></button>
   </div>
   <button id="s-knop" onclick="startApp()">Start detectie</button>
+  <button id="s-account" onclick="if(window.SLIQ_ACCOUNT)SLIQ_ACCOUNT.open();">Account</button>
   <div id="s-copyright">© 2026 StoplichtIQ</div>
 </div>
 
@@ -1051,7 +1109,7 @@ if (typeof ort !== 'undefined') {
 //
 // De stijl volgt de eerdere labels: nummer, kastlijntje, korte omschrijving in
 // kleine letters. De CSS zet hem zelf in kapitalen (text-transform:uppercase).
-const APP_VERSIE = 'V11.37.41 — logregel bij een volledig rood korter dan 10 s (alleen meten)';
+const APP_VERSIE = 'V11.38.0 — inloggen, rollen en synchronisatie';
 
 // ── CONSTANTEN ────────────────────────────────────────────────
 const OSM_RADIUS       = 5000;
@@ -2165,10 +2223,12 @@ function opslagSchrijfRuw(sleutel, ruw) {
   else opslagCache.set(sleutel, { ruw });
   try {
     localStorage.setItem(sleutel, ruw);
+    if (overloopSleutels.size && overloopSleutels.has(sleutel)) overloopWeg(sleutel);   // V11.38.0: past weer, dus niet meer alleen in IndexedDB
     return true;
   } catch(e) {
     const m = opslagCache.get(sleutel);
     if (m) m.onopgeslagen = true;
+    if (overloopSchrijf(sleutel, ruw)) return true;   // V11.38.0: in stand 'idb' gaat de waarde naar IndexedDB
     opslagQuotaFouten++;
     console.warn(`[OPSLAG-VOL] ${sleutel} (${ruw.length} tekens) niet opgeslagen`
       + ` - fout ${opslagQuotaFouten} deze sessie:`, e && e.name);
@@ -2190,6 +2250,7 @@ function opslagSchrijf(sleutel, waarde) {
 }
 
 function opslagVerwijder(sleutel) {
+  if (overloopSleutels.size && overloopSleutels.has(sleutel)) overloopWeg(sleutel);   // V11.38.0
   opslagCache.delete(sleutel);
   try { localStorage.removeItem(sleutel); } catch(e) {}
 }
@@ -2358,6 +2419,147 @@ function opslagHersynchroniseer(sleutels) {
   }
   return n;
 }
+
+
+// -- V11.38.0: FASE 3 VAN HET OPSLAGPLAN, VOORZICHTIG ---------
+// (c) 2026 StoplichtIQ
+//
+// WAT ER VERANDERT. localStorage blijft staan en blijft geschreven worden: er wordt gekopieerd,
+// niets verplaatst en niets gewist. Nieuw is dat de app na VIJF geverifieerde starts op rij
+// (de spiegel in IndexedDB is dan vijf keer volledig gelijk bevonden: aantal sleutels, aantal
+// regels, en elke waarde) een waarde die NIET meer in localStorage past, in IndexedDB bewaart
+// in plaats van hem te verliezen. Zo'n waarde staat in een eigen database (de overloop), zodat
+// de spiegel en het herstel van V11.24.0/V11.31.0 ongemoeid blijven.
+//
+// BIJ ELKE AFWIJKING terug naar localStorage: de reeks gaat naar 0, er komt een melding in beeld
+// en een regel in sl_spiegellog, en de overloop wordt niet gebruikt tot er opnieuw vijf goede
+// starts zijn. Kan de overloop zelf niet schrijven, dan gebeurt wat er voor V11.38.0 gebeurde:
+// de waarde blijft deze sessie in het geheugen en de melding "Opslag vol" verschijnt.
+const FASE3_SLEUTEL = 'sl_idbfase3';       // { reeks, stand: 'kopie' | 'idb', t }
+const FASE3_STARTS = 5;
+const OVERLOOP_DB = 'StoplichtIQ_Overloop', OVERLOOP_STORE = 'kv';
+const OVERLOOP_WACHT_MS = 3000;
+const overloopSleutels = new Set();        // sleutels waarvan de nieuwste waarde alleen in IndexedDB staat
+let overloopDb = null, overloopBelofte = null, overloopGemeld = false, overloopFouten = 0;
+
+function fase3Stand() {
+  try { const f = JSON.parse(localStorage.getItem(FASE3_SLEUTEL) || 'null'); if (f && typeof f.reeks === 'number') return f; } catch (e) {}
+  return { reeks: 0, stand: 'kopie', t: 0 };
+}
+function fase3Zet(f) { try { localStorage.setItem(FASE3_SLEUTEL, JSON.stringify(f)); } catch (e) {} }
+// De melding staat vast op het startscherm (geen toast: die zou een andere melding wegdrukken).
+function fase3Melding(tekst) {
+  try {
+    let el = document.getElementById('sliq-opslagmelding');
+    if (!el) { el = document.createElement('div'); el.id = 'sliq-opslagmelding'; el.style.cssText = 'margin-top:10px;color:var(--oranje);font-size:13px;text-align:center;max-width:320px'; const s = document.getElementById('startscherm'); if (s) s.appendChild(el); }
+    el.textContent = tekst;
+  } catch (e) {}
+}
+function fase3Actief() { return fase3Stand().stand === 'idb' && !!overloopDb; }
+
+// Na elke start van de spiegel: was alles gelijk? Dan telt deze start mee. Anders terug naar 0.
+function fase3Beoordeel(goed, reden) {
+  try {
+    const f = fase3Stand();
+    if (goed) { f.reeks = Math.min(f.reeks + 1, 999); if (f.reeks >= FASE3_STARTS) f.stand = 'idb'; }
+    else {
+      const was = f.stand; f.reeks = 0; f.stand = 'kopie';
+      try { logOpslagMis('fase3_afwijking', { node: String(reden || 'verschil') }); } catch (_) {}
+      if (was === 'idb') fase3Melding('⚠️ Opslag: afwijking gevonden, de app gebruikt weer de gewone opslag. Je leerdata staat nog in de gewone opslag.');
+    }
+    f.t = Date.now(); fase3Zet(f);
+  } catch (e) {}
+}
+
+function overloopOpen() {
+  return new Promise((klaar, mis) => {
+    let v;
+    try { v = indexedDB.open(OVERLOOP_DB, 1); } catch (e) { mis(e); return; }
+    v.onupgradeneeded = (e) => { const db = e.target.result; if (!db.objectStoreNames.contains(OVERLOOP_STORE)) db.createObjectStore(OVERLOOP_STORE); };
+    v.onsuccess = (e) => klaar(e.target.result);
+    v.onerror = () => mis(v.error);
+    v.onblocked = () => mis(new Error('geblokkeerd'));
+  });
+}
+function overloopTx(fn) {
+  return new Promise((klaar, mis) => {
+    try {
+      const tx = overloopDb.transaction(OVERLOOP_STORE, 'readwrite'); fn(tx.objectStore(OVERLOOP_STORE));
+      tx.oncomplete = () => klaar(true); tx.onerror = () => mis(tx.error); tx.onabort = () => mis(tx.error || new Error('afgebroken'));
+    } catch (e) { mis(e); }
+  });
+}
+// Leest bij de start de overloop in het geheugen. Alleen in stand 'idb'. Elke fout = terug naar localStorage.
+function overloopLaad() {
+  if (overloopBelofte) return overloopBelofte;
+  overloopBelofte = (async () => {
+    if (fase3Stand().stand !== 'idb') return 0;
+    try {
+      overloopDb = await overloopOpen();
+      const alles = await new Promise((klaar, mis) => {
+        const tx = overloopDb.transaction(OVERLOOP_STORE, 'readonly'), st = tx.objectStore(OVERLOOP_STORE);
+        const vk = st.getAllKeys(), vw = st.getAll();
+        tx.oncomplete = () => klaar([vk.result || [], vw.result || []]); tx.onerror = () => mis(tx.error);
+      });
+      for (let i = 0; i < alles[0].length; i++) {
+        const k = String(alles[0][i]), ruw = alles[1][i];
+        if (typeof ruw !== 'string') continue;
+        opslagCache.set(k, { ruw, onopgeslagen: true });   // de laag leest deze waarde, niet de oude uit localStorage
+        overloopSleutels.add(k);
+      }
+      return overloopSleutels.size;
+    } catch (e) {
+      overloopDb = null; overloopFouten++;
+      fase3Beoordeel(false, 'overloop_open');
+      return 0;
+    }
+  })();
+  return overloopBelofte;
+}
+// startApp wacht hierop, maar nooit langer dan OVERLOOP_WACHT_MS: een hangende IndexedDB houdt de start niet tegen.
+function overloopWacht() {
+  if (fase3Stand().stand !== 'idb') return Promise.resolve(0);
+  return Promise.race([overloopLaad(), new Promise(r => setTimeout(() => r(-1), OVERLOOP_WACHT_MS))]);
+}
+// Een waarde die niet in localStorage past. true = hij staat (of komt) in IndexedDB; false = oude gedrag.
+function overloopSchrijf(sleutel, ruw) {
+  try {
+    if (!fase3Actief() || typeof sleutel !== 'string' || !sleutel.startsWith('sl_')) return false;
+    overloopSleutels.add(sleutel);
+    const m = opslagCache.get(sleutel); if (m) m.onopgeslagen = true;
+    overloopTx(st => st.put(ruw, sleutel)).catch(() => {
+      overloopFouten++; overloopSleutels.delete(sleutel);
+      try { logOpslagMis('opslag_vol', { node: sleutel, dur: ruw.length }); } catch (_) {}
+      if (!opslagQuotaGemeld) { opslagQuotaGemeld = true; try { toonToast('⚠️ Opslag vol - metingen worden niet bewaard'); } catch (_) {} }
+    });
+    if (!overloopGemeld) { overloopGemeld = true; try { logOpslagMis('overloop_idb', { node: sleutel, dur: ruw.length }); } catch (_) {} }
+    return true;
+  } catch (e) { return false; }
+}
+function overloopWeg(sleutel) {
+  try { overloopSleutels.delete(sleutel); if (overloopDb) overloopTx(st => st.delete(sleutel)).catch(() => { overloopFouten++; }); } catch (e) {}
+}
+
+// B3: de browser vragen de opslag niet zomaar te wissen. Eerlijk melden als dat geweigerd wordt of de ruimte krap is.
+let opslagBewaarUitslag = null;
+function opslagVraagBewaren() {
+  try {
+    if (!navigator.storage || !navigator.storage.persist) { opslagBewaarUitslag = 'niet_ondersteund'; return; }
+    navigator.storage.persist().then(async (ja) => {
+      opslagBewaarUitslag = ja ? 'ja' : 'nee';
+      let krap = false;
+      try { const e = await navigator.storage.estimate(); if (e && e.quota && e.usage != null) krap = (e.quota - e.usage) < 20 * 1024 * 1024; } catch (_) {}
+      if (ja && !krap) return;
+      let vorige = 0; try { vorige = parseInt(localStorage.getItem('sl_bewaarmeld') || '0', 10) || 0; } catch (_) {}
+      if (Date.now() - vorige < 7 * 86400000) return;
+      try { localStorage.setItem('sl_bewaarmeld', String(Date.now())); } catch (_) {}
+      try { toonToast(krap ? '⚠️ Weinig opslagruimte op dit toestel. Maak een backup via Account.' : 'ℹ️ De browser kan je leerdata wissen bij ruimtegebrek. Maak af en toe een backup via Account.'); } catch (_) {}
+    }).catch(() => { opslagBewaarUitslag = 'fout'; });
+  } catch (e) { opslagBewaarUitslag = 'fout'; }
+}
+
+// V11.38.0: beheerfuncties (D5). Dit is bruikbaarheid, geen beveiliging; de beveiliging zit in de database.
+function sliqBeheer() { try { return !!window.SLIQ_POORT && SLIQ_POORT.isBeheerder(); } catch (e) { return false; } }
 
 // -- V11.24.0: DE SPIEGEL -------------------------------------
 // (c) 2026 StoplichtIQ - Y. Lemaalem
@@ -2675,6 +2877,7 @@ async function startIdbSpiegel() {
     return null;
   }
   idbKlaar = true;
+  try { await overloopLaad(); } catch (e) {}   // V11.38.0: eerst de overloop in het geheugen, dan pas vergelijken
   // V11.31.0: zo is na afloop te zien of DEZE start de overzet deed of het herstel.
   const spiegelMigVoor = idbMigratieUitslag;
   idbHerstelVoor = null; idbHerstelNa = null;
@@ -2701,6 +2904,16 @@ async function startIdbSpiegel() {
   } else {
     spiegelLogStart('fout', spiegelT0, { fout: spiegelFout || (idbHerstelVoor && idbHerstelVoor.fout) || 'onbekend' });
   }
+  // V11.38.0: telt deze start mee als geverifieerd? Alleen als opslag en spiegel NA deze start volledig gelijk zijn.
+  try {
+    let goed = !spiegelFout && idbFouten === 0, reden = spiegelFout ? 'fout' : (idbFouten ? 'idb_fouten' : '');
+    if (goed) {
+      const v = await opslagIdbVergelijk();
+      goed = !v.fout && v.mistInSpiegel === 0 && v.anders === 0 && v.teveelInSpiegel === 0 && v.inOpslag === v.inSpiegel;
+      if (!goed) reden = 'verschil';
+    }
+    fase3Beoordeel(goed, reden);
+  } catch (e) { fase3Beoordeel(false, 'beoordeling'); }
   return idbMigratieUitslag;
 }
 
@@ -16234,6 +16447,7 @@ let uitgeklapteDD = null; // { nodeId, dagdeel } of null
 let dashboardZoekterm = '';
 
 function openDashboard() {
+  if (!sliqBeheer()) { try { if (window.SLIQ_ACCOUNT) SLIQ_ACCOUNT.open('voortgang'); } catch (_) {} return; }   // V11.38.0
   dashboardLaatsteDD = huidigDDActief();
   dashboardZoekterm = '';
   uitgeklapteDD = null;
@@ -26278,6 +26492,43 @@ opruimPosV2();   // V11.37.10: eenmalig, zie daar
 // top-level await staan. startApp wacht er wel op, en dat is het enige punt
 // waar het moet - tot die knop ingedrukt wordt staat er niets te lezen dat
 // niet ook rechtstreeks uit localStorage mag komen.
+
+// -- V11.38.0: DE POORT EN DE ROLLEN, OM DE BESTAANDE FUNCTIES HEEN --
+// (c) 2026 StoplichtIQ
+//
+// De functies hieronder zijn zelf NIET gewijzigd: geen regel erbij, geen regel eraf. Ze krijgen
+// een schil die eerst iets controleert en daarna de oorspronkelijke functie aanroept:
+//   - startApp: zonder geldige inlog start er niets (geen camera, geen detectie). Met inlog wacht de
+//     schil op de opslag-boot en op de overloop (hoogstens 3 s) en vraagt hij de browser de opslag
+//     te bewaren; daarna loopt de oorspronkelijke startApp ongewijzigd.
+//   - de beheerfuncties (exports van logs, trainframes, opruimknoppen, analyses, de kaart, het
+//     samenvoegen): alleen voor de beheerder. Dit is bruikbaarheid, geen beveiliging.
+// De schil geeft bij String(functie) de tekst van de oorspronkelijke functie terug en bewaart die als
+// .sliqOrig. Zo blijven de byte-gelijk-bewakers in de toetsen de ONGEWIJZIGDE functie bewaken; de schil
+// zelf wordt bewaakt door de toetsen van V11.38.0 (geen camera zonder inlog, geen export zonder rol).
+const SLIQ_BEHEERFUNCTIES = ['exporteerMeetdata', 'exporteerConfLog', 'exporteerZichtLog', 'exporteerHerzieningLog', 'exporteerDetLog',
+  'exporteerTrainframes', 'toggleTrainframes', 'toggleOranjeFocus', 'verwijderTrainframes', 'ruimOpslagNuOp', 'ruimBevestigLusOp',
+  'toonKlokAnalyse', 'toonTerugAnalyse', 'toonDuurLabelAnalyse', 'toonTrainframeAnalyse', 'toonCamStats', 'toggleLeerLog',
+  'openKaartOverlay', 'startMergeModus', 'toonV9Richtingen', 'importeerData'];
+(function sliqOmwikkel() {
+  try {
+    const schil = (naam, maak) => {
+      const orig = window[naam];
+      if (typeof orig !== 'function' || orig.sliqOrig) return;
+      const nieuw = maak(orig);
+      nieuw.toString = () => orig.toString(); nieuw.sliqOrig = orig;
+      window[naam] = nieuw;
+    };
+    schil('startApp', (orig) => async function () {
+      if (!window.SLIQ_POORT || !SLIQ_POORT.open()) { try { SLIQ_POORT.pasToe(); } catch (_) {} return; }
+      try { await startOpslagBoot(); await overloopWacht(); } catch (e) {}
+      try { opslagVraagBewaren(); } catch (e) {}
+      return orig.apply(this, arguments);
+    });
+    for (const naam of SLIQ_BEHEERFUNCTIES) schil(naam, (orig) => function () { if (!sliqBeheer()) return; return orig.apply(this, arguments); });
+  } catch (e) { console.warn('[V11.38.0] schil mislukt:', e); }
+})();
+
 startOpslagBoot();
 </script>
 
@@ -26323,5 +26574,6 @@ startOpslagBoot();
   <div id="radar-sheet-nodes" style="margin-top:14px;max-height:80px;overflow-y:auto;padding:0 4px"></div>
 </div>
 
+<script src="account.js"></script>
 </body>
 </html>
