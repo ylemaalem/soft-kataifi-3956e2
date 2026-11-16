@@ -30,7 +30,7 @@ class Server(http.server.ThreadingHTTPServer):
 # ── V11.37.20: de bestanden voor test_privacyscan ──────────────
 # Alle tekstbestanden in de repo-map, behalve kaart/ (de uitzondering: openbare
 # OSM-data), verborgen mappen en binaire bestanden.
-OVERSLAAN_MAPPEN = {'kaart', '__pycache__', 'node_modules'}
+OVERSLAAN_MAPPEN = {'kaart', '__pycache__', 'node_modules', 'vendor'}   # V11.38.0: vendor/ = vastgezette bibliotheek van derden
 BINAIR = ('.onnx', '.png', '.jpg', '.jpeg', '.gif', '.pt', '.zip', '.gz', '.pbf', '.ico', '.webp')
 
 

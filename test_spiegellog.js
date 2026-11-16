@@ -200,9 +200,10 @@ async function testSpiegellog() {
     for (let i = 0; i < localStorage.length; i++) { const k = localStorage.key(i); lsVoor.set(k, localStorage.getItem(k)); }
     await startIdbSpiegel();
     let lsAnders = 0;
-    for (const [k, w] of lsVoor) if (k !== SPIEGELLOG_SLEUTEL && localStorage.getItem(k) !== w) lsAnders++;
+    const sl6dMag = (k) => k === SPIEGELLOG_SLEUTEL || k === FASE3_SLEUTEL || k === 'sl_opslaglog';   // V11.38.0: de reeks van fase 3 en de melding van een afwijking
+    for (const [k, w] of lsVoor) if (!sl6dMag(k) && localStorage.getItem(k) !== w) lsAnders++;
     const nieuweSleutels = [];
-    for (let i = 0; i < localStorage.length; i++) { const k = localStorage.key(i); if (!lsVoor.has(k)) nieuweSleutels.push(k); }
+    for (let i = 0; i < localStorage.length; i++) { const k = localStorage.key(i); if (!lsVoor.has(k) && !sl6dMag(k)) nieuweSleutels.push(k); }
     eis('SL6d een start wijzigt localStorage alleen in sl_spiegellog',
         lsAnders === 0 && nieuweSleutels.length === 0, '0 gewijzigd, 0 nieuw',
         `${lsAnders} gewijzigd, nieuw: ${nieuweSleutels.join(',') || '-'}`);
