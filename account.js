@@ -428,12 +428,13 @@
     const regel = (id, tekst) => el('div', { id, tekst });
     const t = s.tel || {}, red = Object.entries(s.redenen || {}).map(([r, n]) => n + '× ' + r).join(', ');
     const uit = [
-      regel('sliq-sync-te', 'Nog te versturen: ' + s.teVersturen + (s.kaart ? ' (waarvan ' + s.kaart + ' wachten tot de kaart het kruispunt kent)' : '')),
+      regel('sliq-sync-te', 'Nog te versturen: ' + s.teVersturen + (s.kaart ? ' (waarvan ' + s.kaart + ' wachten tot de kaart het kruispunt kent)' : '')
+                            + (s.onvolledig ? ' (waarvan ' + s.onvolledig + ' onvolledig: begin van rood niet gezien)' : '')),
       regel('sliq-sync-klaar', 'Verstuurd: ' + s.klaar + (t.dubbel ? ' (waarvan ' + t.dubbel + ' al op de server stonden)' : '')),
       regel('sliq-sync-af', 'Afgewezen: ' + s.afgewezen + (red ? ' (' + red + ')' : '')),
       regel('sliq-sync-laatst', 'Laatste geslaagde pakket: ' + (s.laatst ? tijdKort(s.laatst) : 'nog geen')),
     ];
-    if (s.overgeslagen) uit.push(regel('sliq-sync-uit', 'Niet verstuurd: ' + s.overgeslagen + ' onvolledige metingen (het begin van rood was niet gezien); ze blijven op dit toestel.'));
+    if (s.overgeslagen) uit.push(regel('sliq-sync-uit', 'Niet verstuurd: ' + s.overgeslagen + ' metingen; ze blijven op dit toestel.'));
     if (s.wachtReden === 'daglimiet') uit.push(regel('sliq-sync-wacht', 'De server neemt tijdelijk geen nieuwe metingen aan (daglimiet). Volgende poging om ' + tijdKort(s.wachtTot) + '.'));
     else if (s.wachtReden === 'geen_toestemming') uit.push(regel('sliq-sync-wacht', 'De server kent je toestemming nog niet. Volgende poging om ' + tijdKort(s.wachtTot) + '.'));
     else if (s.wachtReden === 'netwerk') uit.push(regel('sliq-sync-wacht', 'Laatste poging mislukt (' + s.fout + '). Volgende poging om ' + tijdKort(s.wachtTot) + '.'));
@@ -544,11 +545,13 @@
       try { const p = opslagLees('sl_pos_' + nodeId, null); if (p && p.bron === 'osm' && typeof p.lat === 'number' && typeof p.lon === 'number') { let naam = null; try { naam = opslagLeesRuw('sl_naam_' + nodeId); } catch (e) {} return { lat: p.lat, lon: p.lon, naam }; } } catch (e) {}
       return null;
     }
+    // V11.38.2: nieuwe sleutel, zodat de leerdata een keer opnieuw worden gelezen en de onvolledige metingen die V11.38.1 oversloeg
+    // alsnog meegaan. Wat al verstuurd is of al in de wachtrij staat, wordt niet dubbel opgenomen (zelfde ref).
+    const HISTORIE_SLEUTEL = 'historie2_';
     function maakItem(uid, nodeId, dd, rec, voorspeld) {
       const duur = rec.duur, tijd = rec.tijd;
       if (typeof duur !== 'number' || !(duur > 3 && duur < 600) || typeof tijd !== 'number') return null;
       if (rec.bron != null && rec.bron !== 's1') return null;          // geen bevestig-regels, geen afgeleide records
-      if (rec.zo === 0) return null;                                    // V11.38.1: begin van rood niet gezien = geen volledige meting
       if (rec.s2 === true || DAGDELEN.indexOf(dd) < 0) return null;
       if (tijd < Date.now() - 399 * 86400000 || tijd > Date.now() + 240000) return null;
       if (dd === 'dag' && tijd < OUDE_DAG_GRENS) { const u = new Date(tijd).getHours(); if (u >= 16 && u < 20) return null; }
@@ -580,7 +583,7 @@
           if (nieuw.length) await wachtrijZet(nieuw);
           if (i % 25 === 24) await new Promise(r => setTimeout(r, 30));
         }
-        await kvZet('staat', 'historie_' + m.uid, Date.now());
+        await kvZet('staat', HISTORIE_SLEUTEL + m.uid, Date.now());
       } catch (e) {} finally { historieBezig = false; }
       plan(500);
     }
@@ -656,16 +659,16 @@
     async function status() {
       const uid = (P.staat() || {}).uid, a = (await wachtrijAlles()).filter(x => x.uid === uid), redenen = {};
       for (const x of a) if (x.st === 'af') redenen[x.reden] = (redenen[x.reden] || 0) + 1;
-      const wacht = a.filter(x => x.st === 'w').length, kaart = a.filter(x => x.st === 'k').length;
-      return { wacht, kaart, teVersturen: wacht + kaart, afgewezen: a.filter(x => x.st === 'af').length, redenen, overgeslagen: a.filter(x => x.st === 'uit').length,
+      const wacht = a.filter(x => x.st === 'w').length, kaart = a.filter(x => x.st === 'k').length, onvolledig = a.filter(x => (x.st === 'w' || x.st === 'k') && x.volledig === false).length;
+      return { wacht, kaart, onvolledig, teVersturen: wacht + kaart, afgewezen: a.filter(x => x.st === 'af').length, redenen, overgeslagen: a.filter(x => x.st === 'uit').length,
                klaar: await klaarAantal(), laatst: (await kvLees('staat', 'sync_laatst')) || null, fout: laatsteFout, pogingen,
                tel: (await kvLees('staat', 'sync_tel')) || { geaccepteerd: 0, quarantaine: 0, dubbel: 0, afgewezen: 0 },
                wachtReden: nietVoor > Date.now() ? (wachtReden || (laatsteFout ? 'netwerk' : null)) : null, wachtTot: nietVoor > Date.now() ? nietVoor : null, volgende: volgendeOp || null };
     }
-    // Wat al in de wachtrij stond maar niet (meer) mee hoort: onvolledige metingen blijven op het toestel.
+    // V11.38.2: onvolledige metingen gaan WEL mee (met volledig=false). Wat V11.38.1 daarom opzij zette, gaat terug in de wachtrij.
     async function opruimen(uid) {
-      const a = (await wachtrijAlles()).filter(x => x.uid === uid && (x.st === 'w' || x.st === 'k') && x.volledig === false);
-      for (const x of a) { x.st = 'uit'; x.reden = 'onvolledig'; }
+      const a = (await wachtrijAlles()).filter(x => x.uid === uid && x.st === 'uit' && x.reden === 'onvolledig');
+      for (const x of a) { x.st = 'w'; delete x.reden; }
       if (a.length) await wachtrijZet(a);
     }
     async function start() {
@@ -674,7 +677,7 @@
       try { const w = await kvLees('staat', 'sync_wacht'); if (w && w.tot > Date.now() && w.tot < Date.now() + 2 * 3600000) { wachtReden = w.reden; nietVoor = Math.max(nietVoor, w.tot); } } catch (e) {}
       try { await opruimen(m.uid); } catch (e) {}
       try { const s = await status(); toonRegel(s.teVersturen); } catch (e) {}
-      if (!(await kvLees('staat', 'historie_' + m.uid))) rustig(historie); else plan(1500);
+      if (!(await kvLees('staat', HISTORIE_SLEUTEL + m.uid))) rustig(historie); else plan(1500);
     }
     function stop() { gestopt = true; if (timer) { clearTimeout(timer); timer = null; volgendeOp = 0; } toonRegel(0); }
     // Na elke echte meting (slaOpIntern, bron s1): het zojuist geschreven record opzoeken en melden. Wat de app

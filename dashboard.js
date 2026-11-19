@@ -40,13 +40,13 @@
   const UITLEG = {
     bijdragen: 'Aantal geaccepteerde metingen van deze gebruiker. Een teller, geen percentage. Een meting die eerst in quarantaine stond en later alsnog wordt geaccepteerd, telt vanaf dan ook mee, precies een keer.',
     quarlijst: 'Metingen die wachten op een oordeel. "Bekend" is de gewone duur die we voor dit kruispunt en dagdeel al hebben (met het aantal metingen); "nieuw" betekent dat er nog niets bekend is. Goedkeuren telt de meting mee in de statistiek en bij de bijdragen van de gebruiker. Afwijzen laat hem staan maar telt hem nergens mee. Elk oordeel komt in het logboek.',
-    kwaliteit: 'Per meting vergelijken we het aantal seconden dat de app toonde bij het begin van de countdown met de duur die daarna echt gemeten is. "Goed" = hoogstens 5 seconden ernaast. Alleen metingen waarbij de app iets toonde tellen mee. Onder de 30 metingen tonen we geen percentage: dat zegt nog niets.',
+    kwaliteit: 'Per meting vergelijken we het aantal seconden dat de app toonde bij het begin van de countdown met de duur die daarna echt gemeten is. "Goed" = hoogstens 5 seconden ernaast. Alleen VOLLEDIGE metingen waarbij de app iets toonde tellen mee: bij een onvolledige meting (begin van rood niet gezien) is de gemeten duur te kort, dus zegt de vergelijking niets. Die staan apart in de laatste kolom. Onder de 30 metingen tonen we geen percentage: dat zegt nog niets.',
     feedback: 'Wat gebruikers via "Feedback" in de app hebben gestuurd. Hoogstens 5 berichten per gebruiker per 24 uur, elk hoogstens 1000 tekens. De nieuwste 500 staan hier.',
     mfa: 'Een tweede stap betekent: na je wachtwoord vraagt het dashboard ook een code van 6 cijfers uit een authenticator-app op je telefoon. Koppel eerst de app. Pas daarna kun je de stap verplicht maken; dan weigert ook de database beheerfuncties zonder die code. Raak je je telefoon kwijt, dan kan de verplichting alleen nog in Supabase zelf worden uitgezet (tabel app_config, sleutel admin_mfa_verplicht).',
     laatstesync: 'Het moment waarop de app van deze gebruiker voor het laatst een meting heeft verstuurd. "deelt niet" = de gebruiker heeft geen toestemming gegeven voor synchronisatie; "nog niets" = wel toestemming, nog geen meting ontvangen.',
     vertrouwen: "Getal van 0 tot 1. Nieuw = 0,50. Het stijgt met 0,01 bij elke meting die meteen wordt geaccepteerd, tot maximaal 1,00. Vanaf 0,70 telt iemand als 'vertrouwd' (een beheerder altijd): dan is voor een nieuw kruispunt maar 1 andere gebruiker nodig om het te bevestigen in plaats van 2. Het daalt nu nooit; slechte metingen blijven gewoon in quarantaine.",
-    quarantaine: 'Een meting die afwijkt van wat we al weten (meer dan 15 s of 35% naast de gewone waarde van de laatste 30 dagen), of voor een kruispunt waar nog niets bekend is, wacht tot genoeg andere gebruikers hetzelfde melden: bij een afwijking 2 anderen binnen 7 dagen, bij een nieuw kruispunt 2 anderen (of 1 als er een vertrouwde gebruiker bij is) binnen 30 dagen. Dat gebeurt zodra die laatste meting binnenkomt; daarna is hij automatisch geaccepteerd. Jij hoeft niets goed te keuren.',
-    vandaag: 'Metingen die vandaag zijn binnengekomen en nu zijn aangenomen / die nog wachten / aantal gebruikers dat vandaag iets stuurde. "Vandaag" is de dag in UTC (in Nederland begint die om 01:00 of 02:00).',
+    quarantaine: 'Sinds V11.38.2 worden metingen van de beheerder of een vertrouwd account (vertrouwen 0,7 of meer) en onvolledige metingen (begin van rood niet gezien) binnen de harde grenzen direct aangenomen. Voor andere metingen: een meting die afwijkt van wat we al weten (meer dan 15 s of 35% naast de gewone waarde van de metingen van VOOR dat moment, 400 dagen, recente zwaarder), of voor een kruispunt waar nog niets bekend is, wacht tot genoeg andere gebruikers hetzelfde melden: bij een afwijking 2 anderen binnen 7 dagen, bij een nieuw kruispunt 2 anderen (of 1 als er een vertrouwde gebruiker bij is) binnen 30 dagen. Dat gebeurt zodra die laatste meting binnenkomt; daarna is hij automatisch geaccepteerd. Jij hoeft niets goed te keuren.',
+    vandaag: 'Metingen die vandaag zijn binnengekomen en nu zijn aangenomen (tussen haakjes: waarvan onvolledig, begin van rood niet gezien) / die nog wachten / aantal gebruikers dat vandaag iets stuurde. "Vandaag" is de dag in UTC (in Nederland begint die om 01:00 of 02:00).',
     log: 'Vraagt deze gebruiker EENMALIG om een logbestand te sturen. Dat kan alleen als hij diagnose-toestemming heeft gegeven. Na versturen is het verzoek verbruikt. Let op: de app zelf leest dit verzoek nog niet; dat komt in een volgende fase.',
     beta: 'Een vertrouwde tester die elke dag automatisch logs mag sturen (hoogstens 1 per soort per dag) zonder dat jij het vraagt. Alleen met diagnose-toestemming. Een gewone gebruiker kan dat niet. Let op: de app stuurt nog niets; dat komt in een volgende fase.',
     diag: 'Als je dit aanzet, mag de app dagelijks technische gegevens sturen: appversie, opslag in KB, opstarttijd, gemiddelde rekentijd, aantal ritten en teltallen. Daarin staan geen locatie en geen naam. Met deze toestemming kan ook een logbestand worden gestuurd als de beheerder erom vraagt of als je beta-tester bent; een logbestand kan wel kruispuntnummers bevatten. Staat standaard uit en je kunt het altijd uitzetten. De app stuurt op dit moment nog niets.',
@@ -284,12 +284,18 @@
         vervangInhoud(lijst, tabel([
           { t: 'Binnen', w: r => moment(r.aangemaakt_op) }, { t: 'Kruispunt', w: r => r.naam || r.node_id }, { t: 'Dagdeel', w: r => r.dagdeel },
           { t: 'Gemeten s', g: 1, w: r => getal(Math.round(r.duur)) }, { t: 'Bekend s', g: 1, w: r => r.mediaan_sec == null ? 'nieuw' : getal(Math.round(r.mediaan_sec)) + ' (n=' + getal(r.n_bekend) + ')' },
-          { t: 'Gebruiker', w: r => r.gebruiker },
+          { t: 'Gebruiker', w: r => r.gebruiker }, { t: 'Wacht al', w: r => wachtDuur(r.aangemaakt_op) },
           { t: 'Oordeel', w: r => el('span', null, el('button', { tekst: 'Goedkeuren', klik: doe(r, true) }), ' ', el('button', { tekst: 'Afwijzen', klik: doe(r, false) })) },
         ], rijen, 'Er wacht niets in quarantaine.'));
       } catch (e) { vervangInhoud(lijst, el('p', { klasse: 'status fout', tekst: foutTekst(e) })); }
     };
     laad();
+  }
+  // Hoe lang een meting al in quarantaine staat. Er wordt niets automatisch verwijderd.
+  function wachtDuur(t) {
+    const ms = Date.now() - new Date(t).getTime(); if (!(ms >= 0)) return '–';
+    const u = Math.floor(ms / 3600000), d = Math.floor(u / 24);
+    return d >= 1 ? d + ' d ' + (u % 24) + ' u' : u >= 1 ? u + ' u' : Math.max(1, Math.round(ms / 60000)) + ' min';
   }
   const KWAL_MIN_N = 30;   // onder dit aantal geen percentage: te weinig om iets te zeggen
   async function tekenKwaliteit(doel) {
@@ -301,6 +307,7 @@
         { t: 'Gebruiker', w: r => r.gebruiker }, { t: 'Metingen (n)', g: 1, w: r => getal(r.n) },
         { t: 'Goed', g: 1, w: r => Number(r.n) < KWAL_MIN_N ? 'nog niet genoeg data' : String(r.pct_goed).replace('.', ',') + '% (' + getal(r.n_goed) + ' van ' + getal(r.n) + ')' },
         { t: 'Mediaan ernaast', g: 1, w: r => Number(r.n) < KWAL_MIN_N || r.mediaan_fout_sec == null ? '–' : getal(Math.round(r.mediaan_fout_sec)) + ' s' },
+        { t: 'Onvolledig (niet meegeteld)', g: 1, w: r => r.n_onvolledig == null ? '–' : getal(r.n_onvolledig) },
       ], rijen, 'Nog niet genoeg data.'));
     } catch (e) { vervangInhoud(lijst, el('p', { klasse: 'status fout', tekst: foutTekst(e) })); }
   }
@@ -414,7 +421,7 @@
     const vandaagUTC = new Date().toISOString().slice(0, 10);
     const nu = d.find(r => String(r.dag).slice(0, 10) === vandaagUTC) || {};
     const tegels = el('div', null, el('div', { klasse: 'tegels' },
-      [['Geaccepteerd', nu.geaccepteerd], ['Quarantaine', nu.in_quarantaine], ['Actief', nu.actieve_gebruikers]].map(([t, w]) => el('div', { klasse: 'tegel' }, el('b', { tekst: getal(w || 0) }), el('span', { tekst: t + ' vandaag' })))),
+      [['Geaccepteerd', nu.geaccepteerd, nu.onvolledig], ['Quarantaine', nu.in_quarantaine], ['Actief', nu.actieve_gebruikers]].map(([t, w, o]) => el('div', { klasse: 'tegel' }, el('b', { tekst: getal(w || 0) }), el('span', { tekst: t + ' vandaag' + (Number(o) > 0 ? ' (' + getal(o) + ' onvolledig)' : '') })))),
       el('div', { klasse: 'klein stil', stijl: { marginTop: '4px' } }, metInfo('Wat tellen deze drie?', 'vandaag')));
     if (!d.length) return el('div', null, tegels, el('p', { klasse: 'stil klein', tekst: 'Nog geen metingen binnen.' }));
     const B = 348, H = 110, onder = 16, max = Math.max(1, ...d.map(r => (Number(r.geaccepteerd) || 0) + (Number(r.in_quarantaine) || 0)));
@@ -427,7 +434,7 @@
       if (a) svg.append(sv('rect', { x, y: hgt - ha, width: br, height: Math.max(1, ha), rx: Math.min(2, br / 2), fill: css('--s1') }));
       if (q) svg.append(sv('rect', { x, y: hgt - ha - hq - (a ? 2 : 0), width: br, height: Math.max(1, hq), rx: Math.min(2, br / 2), fill: css('--s2') }));
       const hit = sv('rect', { x: i * sl, y: 0, width: sl, height: H, class: 'hit' });
-      hit.addEventListener('mouseenter', () => { tip.textContent = dag(r.dag) + ': ' + getal(a) + ' geaccepteerd, ' + getal(q) + ' quarantaine, ' + getal(r.actieve_gebruikers) + ' actief'; tip.style.display = ''; tip.style.top = '0'; tip.style.left = Math.min(i * sl, B - 230) + 'px'; });
+      hit.addEventListener('mouseenter', () => { tip.textContent = dag(r.dag) + ': ' + getal(a) + ' geaccepteerd (' + getal(Number(r.onvolledig) || 0) + ' onvolledig), ' + getal(q) + ' quarantaine, ' + getal(r.actieve_gebruikers) + ' actief'; tip.style.display = ''; tip.style.top = '0'; tip.style.left = Math.min(i * sl, B - 230) + 'px'; });
       hit.addEventListener('mouseleave', () => { tip.style.display = 'none'; });
       svg.append(hit);
     });
@@ -435,7 +442,7 @@
     lab(0, dag(d[0].dag), 'start'); lab(B, dag(d[d.length - 1].dag), 'end');
     return el('div', null, tegels, el('div', { klasse: 'legenda-rij', stijl: { marginTop: '10px' } }, el('span', null, el('i', { klasse: 'blokje s1' }), 'Geaccepteerd'), el('span', null, el('i', { klasse: 'blokje s2' }), 'Quarantaine')),
       el('div', { klasse: 'grafiek' }, svg, tip),
-      el('details', null, el('summary', { tekst: 'Als tabel' }), tabel([{ t: 'Dag', w: r => dag(r.dag) }, { t: 'Geacc.', g: 1, w: r => getal(r.geaccepteerd) }, { t: 'Quar.', g: 1, w: r => getal(r.in_quarantaine) }, { t: 'Actief', g: 1, w: r => getal(r.actieve_gebruikers) }], d.slice().reverse())));
+      el('details', null, el('summary', { tekst: 'Als tabel' }), tabel([{ t: 'Dag', w: r => dag(r.dag) }, { t: 'Geacc.', g: 1, w: r => getal(r.geaccepteerd) }, { t: 'Onvolledig', g: 1, w: r => getal(Number(r.onvolledig) || 0) }, { t: 'Quar.', g: 1, w: r => getal(r.in_quarantaine) }, { t: 'Actief', g: 1, w: r => getal(r.actieve_gebruikers) }], d.slice().reverse())));
   }
 
   // ── beheer: gebruikers ──────────────────────────────────────
