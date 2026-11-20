@@ -1,6 +1,6 @@
 // ═══════════════════════════════════════════════════════════════
 //  StoplichtIQ — test_meetregels_correctie.js
-//  © 2026 StoplichtIQ — Y. Lemaalem
+//  © 2026 StoplichtIQ
 //
 //  Test bij V11.34.3: de meetregels uit de STAP 0's over de trage correctie en
 //  het 47%-geval, en het veld appVersie in alle acht exports. Alleen meten en

@@ -1,6 +1,6 @@
 // ═══════════════════════════════════════════════════════════════
 //  StoplichtIQ — test_tiklog.js
-//  © 2026 StoplichtIQ — Y. Lemaalem
+//  © 2026 StoplichtIQ
 //
 //  Test bij V11.32.0 (de tik laat een spoor na, een meetlaag), V11.33.0
 //  (de tik wint, of de app toont niets) en V11.34.1 (de telling per tik, TL8).
@@ -340,8 +340,8 @@ async function testTiklog() {
     eis('TL3l een tik vlak na een ongemelde wissel meldt eerst die wissel',
         tiklog().map(r => r.s === 'los' ? 'los:' + r.reden : r.s).join(',') === 'los:node,tik',
         'los:node,tik', tiklog().map(r => r.s === 'los' ? 'los:' + r.reden : r.s).join(','));
-    const NB14 = [['checkHandLockVerval', '2df4f7ed', 5513], ['checkNodeCorrectieStilstand', '8c801fd8', 4751],
-                  ['corrigeerNodeAutomatisch', 'afe7b427', 4118], ['updateDichtbij', 'e82d3c0', 11914],
+    const NB14 = [['checkHandLockVerval', '274f90da', 5499], ['checkNodeCorrectieStilstand', '8c801fd8', 4751],
+                  ['corrigeerNodeAutomatisch', 'afe7b427', 4118], ['updateDichtbij', '65f005bd', 11900],
                   ['vindDichtbij', '2db98dab', 2954]];
     // V11.37.4: zonder de vier regels met merkteken (de achter-regel, zie test_achter).
     const zonder374 = (s) => s.split('\n').filter(l => !/V11\.37\.4(?!\d)|V11\.37\.35(?!\d)|V11\.37\.36(?!\d)|V11\.37\.37(?!\d)|V11\.37\.38(?!\d)|V11\.37\.39(?!\d)|V11\.37\.41(?!\d)|V11\.38\.3(?!\d)|V11\.38\.4(?!\d)/.test(l)).join('\n');   // V11.37.35: ook de toegevoegde regels van V11.37.35

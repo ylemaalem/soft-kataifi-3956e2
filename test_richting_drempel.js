@@ -1,6 +1,6 @@
 // ═══════════════════════════════════════════════════════════════
 //  StoplichtIQ — test_richting_drempel.js
-//  © 2026 StoplichtIQ — Y. Lemaalem
+//  © 2026 StoplichtIQ
 //
 //  Test bij V11.18.2: stap 1 van kiesCountdownBron telt vanaf de EERSTE eigen
 //  meting, in plaats van pas vanaf V9_MIN_METINGEN (5).

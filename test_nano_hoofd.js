@@ -1,6 +1,6 @@
 // ═══════════════════════════════════════════════════════════════
 //  StoplichtIQ — test_nano_hoofd.js
-//  © 2026 StoplichtIQ — Y. Lemaalem
+//  © 2026 StoplichtIQ
 //
 //  Test bij V11.37.31: YOLOX-Nano (eigen-2 last) is het hoofdmodel.
 //

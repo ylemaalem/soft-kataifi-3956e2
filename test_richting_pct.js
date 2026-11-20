@@ -1,6 +1,6 @@
 // ═══════════════════════════════════════════════════════════════
 //  StoplichtIQ — test_richting_pct.js
-//  © 2026 StoplichtIQ — Y. Lemaalem
+//  © 2026 StoplichtIQ
 //
 //  Test bij V11.17.84 (D1): een richting wordt gescoord als een stoplicht.
 //  Bijgewerkt bij V11.18.19: T7 is OMGEKEERD. De drie node-brede bonussen

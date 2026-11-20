@@ -1,6 +1,6 @@
 // ═══════════════════════════════════════════════════════════════
 //  StoplichtIQ — test_crop_volgt.js
-//  © 2026 StoplichtIQ — Y. Lemaalem
+//  © 2026 StoplichtIQ
 //
 //  Toets bij V11.37.35: de crop volgt de geselecteerde lamp (opdracht punt 10).
 //  Een nagespeelde nadering van 120 naar 15 m in 60 runs van 250 ms (15 s) op

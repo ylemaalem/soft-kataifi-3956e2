@@ -1,6 +1,6 @@
 // ═══════════════════════════════════════════════════════════════
 //  StoplichtIQ — test_cyclus_schaduw.js
-//  © 2026 StoplichtIQ — Y. Lemaalem
+//  © 2026 StoplichtIQ
 //
 //  Test bij V11.37.37: de hele cyclus als schaduw (alleen rekenen en loggen).
 //  Beslisregel vooraf: kladmap/s_cyclus/beslisregel_14nov.txt.

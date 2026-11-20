@@ -1,6 +1,6 @@
 // ═══════════════════════════════════════════════════════════════
 //  StoplichtIQ — test_startlog.js
-//  © 2026 StoplichtIQ — Y. Lemaalem
+//  © 2026 StoplichtIQ
 //
 //  Test bij V11.37.17: de startlog (sl_startlog), alleen meten. Per app-start
 //  de tijd tot camera, video, GPS-watch, model, eerste GPS-tik, eerste kaart en
@@ -384,8 +384,8 @@ async function testStartlog() {
   const zonderV113720 = (s) => String(s).replace(DL20_NIEUW, DL20_OUD);   // V11.37.20: het eigen kaartbestand (test_kaartbestand); hier de oude zeven regels terug
   const zonderV113718 = (s) => zonderV113720(s).replace('const d = await kaartLeesInhoud(r, ctrl);   // V11.37.18: ook de inhoud heeft een grens (stond: await r.json()), zie kaartLeesInhoud', 'const d = await r.json();').replace('setTimeout(() => { if (!cacheBezig && huidigePos && kaartNodig(huidigePos.lat, huidigePos.lon)) downloadOSM(huidigePos.lat, huidigePos.lon); }, 30000);   // V11.37.18: alleen zonder lopende vraag en als er nog een kaart nodig is (stond: cacheBezig=false en altijd downloadOSM, ook naast een lopende vraag), zie kaartNodig', 'setTimeout(() => { cacheBezig=false; if(huidigePos)downloadOSM(huidigePos.lat,huidigePos.lon); }, 30000);').split(NL).filter(l => !/V11\.37\.18(?!\d)/.test(l)).join(NL);   // V11.37.18: de bewaarde kaart, C5 en C7 (test_kaartbewaar); hier terug   // V11.37.20: eerst zonderV113720
   const zonderV113717 = (s) => zonderV113718(s).replace(STARTLOG_WATCH_NU, STARTLOG_WATCH_OUD).split(NL).filter(l => !/V11\.37\.17(?!\d)/.test(l)).join(NL);
-  const V113715 = { startApp: ['7f067c8a', 4583, 5], onGPS: ['b8aa01fe', 15469, 1], downloadOSM: ['b47c263f', 4666, 3], updateDichtbij: ['67e9f3ec', 12423, 1],   // V11.37.18: downloadOSM met twee commentaarregels zonder plaatsnaam (was e89feb02/4655), zie test_kaartbewaar KB12
-                    laadONNXModel: ['68b764e9', 4402, 1], minStatZeker: ['17831b15', 292, 1], exporteerMeetdata: ['c7a3b47a', 9327, 2] };
+  const V113715 = { startApp: ['5681d916', 4569, 5], onGPS: ['32d857fd', 15455, 1], downloadOSM: ['97841c30', 4652, 3], updateDichtbij: ['80f876a7', 12409, 1],   // V11.37.18: downloadOSM met twee commentaarregels zonder plaatsnaam (was e89feb02/4655), zie test_kaartbewaar KB12
+                    laadONNXModel: ['68b764e9', 4402, 1], minStatZeker: ['17831b15', 292, 1], exporteerMeetdata: ['add5dd36', 9313, 2] };
   const telAf = Object.entries(V113715).filter(([n, [h, l, m]]) => merk(window[n]) !== m).map(([n]) => n + ' ' + merk(window[n]));
   eis('SL10a zeven functies krijgen regels met merkteken V11.37.17: startApp 5, downloadOSM 3, exporteerMeetdata 2, de andere 1',
       telAf.length === 0, 'precies zoveel', telAf.join(', ') || 'precies zoveel');

@@ -1,6 +1,6 @@
 // ═══════════════════════════════════════════════════════════════
 //  StoplichtIQ — test_indeling.js
-//  © 2026 StoplichtIQ — Y. Lemaalem
+//  © 2026 StoplichtIQ
 //
 //  Test bij V11.17.68: de bevestigindeling GOED / BIJNA / FOUT, gemeten op het
 //  GROEN-moment en niet op het tikmoment.

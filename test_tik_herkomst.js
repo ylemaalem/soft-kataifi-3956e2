@@ -1,6 +1,6 @@
 // ═══════════════════════════════════════════════════════════════
 //  StoplichtIQ — test_tik_herkomst.js
-//  © 2026 StoplichtIQ — Y. Lemaalem
+//  © 2026 StoplichtIQ
 //
 //  Test bij V11.18.11, deel 1: elke richting-tik legt vast welk element werd
 //  aangeraakt, en elke logregel draagt de herkomst van de lock.

@@ -1,6 +1,6 @@
 // ═══════════════════════════════════════════════════════════════
 //  StoplichtIQ — test_maxspeed.js
-//  © 2026 StoplichtIQ — Y. Lemaalem
+//  © 2026 StoplichtIQ
 //
 //  Test bij V11.17.88 (GLOSA release A): de wettelijke maximumsnelheid wordt
 //  per node ingelezen en bewaard. Geen advies, geen UI, geen GLOSA.

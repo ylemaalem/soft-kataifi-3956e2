@@ -1,6 +1,6 @@
 // ═══════════════════════════════════════════════════════════════
 //  StoplichtIQ — test_tap_heilig.js
-//  © 2026 StoplichtIQ — Y. Lemaalem
+//  © 2026 StoplichtIQ
 //
 //  Test bij V11.20.1, release 2b van het bbox-slot: de getikte box is heilig.
 //
@@ -10,12 +10,12 @@
 //  aan wat de camera zag. En een lamp die zwak gedetecteerd werd (tegenlicht,
 //  regen, afstand) sneuvelde al vóór de lock: postprocessYOLO gooit alles onder
 //  CONF_DREMPEL (0,10) weg, en die laag wist niet eens dat er getikt was.
-//  Younes' woorden bij deze klacht: "Al is de bbox maar 5%."
+//  De woorden van de gebruiker bij deze klacht: "Al is de bbox maar 5%."
 //
 //  H1  de lock verloopt niet meer op een klok vanaf de tik
 //  H2  V11.33.0 HEEFT DEZE TOETS OMGEDRAAID, EN DAT IS DE BEDOELING. Tot en met
 //      V11.32.0 viel de lock na TAP_KWIJT_MS zonder match, en dan koos de app
-//      vrij — precies het overspringen waar Younes' eis 2 vanaf wil. Nu blijft
+//      vrij — precies het overspringen waar gebruikerseis 2 vanaf wil. Nu blijft
 //      hij staan en toont de app niets (een zoekringetje) tot de volgende tik.
 //  H3  de loslaatredenen: een nieuwe tik, een ander kruispunt, het startscherm
 //  H4  KERN: 5% binnen de straal komt door, 5% zonder tap niet

@@ -1,6 +1,6 @@
 // ═══════════════════════════════════════════════════════════════
 //  StoplichtIQ — test_koppel_eenrij.js
-//  © 2026 StoplichtIQ — Y. Lemaalem
+//  © 2026 StoplichtIQ
 //
 //  Test bij V11.18.4 (samenvoegen stap 2): een gekoppeld kruispunt toont nog
 //  één rij in plaats van twee — op het hoofdscherm én in het node-info-paneel.

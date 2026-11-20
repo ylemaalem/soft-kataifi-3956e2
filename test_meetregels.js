@@ -1,6 +1,6 @@
 // ═══════════════════════════════════════════════════════════════
 //  StoplichtIQ — test_meetregels.js
-//  © 2026 StoplichtIQ — Y. Lemaalem
+//  © 2026 StoplichtIQ
 //
 //  Test bij V11.34.2: de app meet zichzelf. Stap 1 uit de efficiëntie-STAP 0
 //  van 28 september (camcap, de minuutstatistiek met rAF-Hz en afstandsband,
@@ -264,17 +264,17 @@ async function testMeetregels() {
     // byte-gelijk aan V11.34.1 (4093429). slaKanslozeRunOver niet: die schrijft
     // niet meer, en dat toetst test_gate T9.
     const V1134_1 = { laadONNXModel: ['68bca74a', 3813], voerAIUit: ['3ca5a888', 2330], detLogSchrijf: ['113e60c6', 2607],
-                      startApp: ['f6f7a306', 4498], exporteerMeetdata: ['ef1e19bb', 7864] };
+                      startApp: ['9ee46152', 4484], exporteerMeetdata: ['a4af19b7', 7850] };
     // V11.37.36: laadONNXModel is bewust herschreven (geen reservemodel meer), zie test_nano_wachter.
     const afw = Object.entries(V1134_1).filter(([n]) => n !== 'laadONNXModel').filter(([n, [h, l]]) => { const s = zonderMeet(zonderV113721(eval(n))); return fnv(s) !== h || s.length !== l; }).map(x => x[0]);
     eis('ML7a zonder de V11.34.2-regels zijn de vijf geraakte functies byte-gelijk aan V11.34.1',
         afw.length === 0, 'geen afwijking', afw.join(', ') || 'geen');
-    const ONGEMOEID = { selecteerBesteDetectie: ['79a403fa', 14376], postprocessYOLO: ['42b30c6', 4725],
+    const ONGEMOEID = { selecteerBesteDetectie: ['1311ed03', 14362], postprocessYOLO: ['ae0829b6', 4717],
       _verwerkWorkerResultaatKern: ['23a782f3', 6144], _verwerkWorkerResultaat: ['16e601a6', 201],
       verwerkDetecties: ['caa90b0a', 8724], preprocessVoorYOLO: ['f379eecc', 2733], runIsKansloos: ['d631b73b', 1660],
       // V11.37.0: onGPS kreeg de aanroep van A3 (checkHandLockPassage). Dat is gedrag, geen meetregel,
-      // dus een eerlijke nieuwe pin. Zonder die ene regel is hij nog 58346b1c / 14246 (test_passage PS9).
-      lus: ['251a0dd1', 3167], onGPS: ['c767e2a3', 14333] };
+      // dus een eerlijke nieuwe pin. Zonder die ene regel is hij nog c7585f8d / 14232 (test_passage PS9).
+      lus: ['251a0dd1', 3167], onGPS: ['5b12c116', 14319] };
     // V11.36.3: de tik-tak van selecteerBesteDetectie kreeg de vaste straal en een
     // eigen matchkern. Zonder de gemarkeerde regels, en met de oude aanroep terug,
     // is hij nog steeds V11.34.1. De rest van de functie is dus onaangeroerd.

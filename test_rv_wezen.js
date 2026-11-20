@@ -1,6 +1,6 @@
 // ═══════════════════════════════════════════════════════════════
 //  StoplichtIQ — test_rv_wezen.js
-//  © 2026 StoplichtIQ — Y. Lemaalem
+//  © 2026 StoplichtIQ
 //
 //  Test bij V11.17.92: de eenmalige reparatie van rv-gemarkeerde metingen die
 //  tussen D2 (V11.17.85, 8 september) en release 1 (V11.17.91) in het

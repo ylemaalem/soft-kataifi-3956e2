@@ -1,11 +1,11 @@
 // ═══════════════════════════════════════════════════════════════
 //  StoplichtIQ — test_tik_wint.js
-//  © 2026 StoplichtIQ — Y. Lemaalem
+//  © 2026 StoplichtIQ
 //
 //  Test bij V11.33.0: de tik wint, of de app toont niets. Plus V11.34.0: de
 //  tik klopt ook aan de rand (TW10).
 //
-//  YOUNES' TWEE EISEN (27 september 2026):
+//  DE TWEE GEBRUIKERSEISEN (27 september 2026):
 //   1. een tik weegt zwaarder dan de automatische keuze; wegspringen naar een
 //      ander licht mag alleen als er bij het getikte licht niets te zien is;
 //   2. is er niets te zien, dan géén box — niet overspringen — tot de volgende
@@ -402,9 +402,9 @@ async function testTikWint() {
         'bruikbaar', autoAanroep ? autoAanroep[1] : 'niet gevonden');
     const ONGEWIJZIGD = {   // V11.32.0 (fase_d), volledige tekst
       _verwerkWorkerResultaatKern: ['23a782f3', 6144], verwerkDetecties: ['caa90b0a', 8724],
-      naarStartscherm: ['6fcbf8b7', 415], updateDichtbij: ['e82d3c0', 11914],
-      corrigeerNodeAutomatisch: ['afe7b427', 4118], onGPS: ['c767e2a3', 14333], lus: ['251a0dd1', 3167],   // onGPS: V11.37.0 A3, nieuwe pin
-      exporteerMeetdata: ['ef1e19bb', 7864], stickyVoorspel: ['f5cc4e22', 1864], stickyNeemOver: ['c06db2ce', 386],
+      naarStartscherm: ['6fcbf8b7', 415], updateDichtbij: ['65f005bd', 11900],
+      corrigeerNodeAutomatisch: ['afe7b427', 4118], onGPS: ['5b12c116', 14319], lus: ['251a0dd1', 3167],   // onGPS: V11.37.0 A3, nieuwe pin
+      exporteerMeetdata: ['a4af19b7', 7850], stickyVoorspel: ['f5cc4e22', 1864], stickyNeemOver: ['c06db2ce', 386],
       autoSlotZet: ['4e12277f', 313], preprocessVoorYOLO: ['f379eecc', 2733], runIsKansloos: ['d631b73b', 1660],
       tikLogNoteer: ['d9f96f8', 1154], tikLogWaak: ['25490478', 714]
     };

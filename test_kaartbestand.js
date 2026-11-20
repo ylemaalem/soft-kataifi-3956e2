@@ -1,6 +1,6 @@
 // ═══════════════════════════════════════════════════════════════
 //  StoplichtIQ — test_kaartbestand.js
-//  © 2026 StoplichtIQ — Y. Lemaalem
+//  © 2026 StoplichtIQ
 //
 //  Test bij V11.37.20: de kaart uit een eigen bestand (kaart/), Overpass alleen
 //  nog als reserve.
@@ -699,7 +699,7 @@ async function testKaartbestand() {
       '    if (!r.ok) throw new Error(`HTTP ${r.status}`);', '    const d = await kaartLeesInhoud(r, ctrl);   // V11.37.18: ook de inhoud heeft een grens (stond: await r.json()), zie kaartLeesInhoud'].join(NL);
     const ATTR_NIEUW = "      attribution: '© <a href=\"https://www.openstreetmap.org/copyright\" target=\"_blank\" rel=\"noopener\">OpenStreetMap-bijdragers</a> (<a href=\"https://opendatacommons.org/licenses/odbl/\" target=\"_blank\" rel=\"noopener\">ODbL</a>)'   // V11.37.20: de bron en de licentie, zoals de OSMF-richtlijnen vragen (osmfoundation.org/wiki/Licence/Attribution_Guidelines)";
     const zonderV113720 = (s) => String(s).replace(DL20_NIEUW, DL_OUD).replace(ATTR_NIEUW, "      attribution: '© OpenStreetMap'").split(NL).filter(l => !/V11\.37\.20(?!\d)|V11\.37\.25(?!\d)/.test(l)).join(NL);   // V11.37.25: ook de regel van V11.37.25 in downloadOSM (test_plaatsen)
-    const V113718 = { downloadOSM: ['59824e76', 5692], kaartWeergaveBij: ['ee5e6148', 1602], fietsHaalOp: ['855f1423', 2068], openKaartOverlay: ['4d296210', 3765] };
+    const V113718 = { downloadOSM: ['b01fa33f', 5678], kaartWeergaveBij: ['ee5e6148', 1602], fietsHaalOp: ['855f1423', 2068], openKaartOverlay: ['4d296210', 3765] };
     const merk = (f) => String(f).split(NL).filter(l => /V11\.37\.20(?!\d)/.test(l)).length;
     const MERK = { downloadOSM: 1, kaartWeergaveBij: 3, fietsHaalOp: 3, openKaartOverlay: 1 };
     const telAf = Object.entries(MERK).filter(([n, m]) => merk(window[n]) !== m).map(([n]) => n + ' ' + merk(window[n]));
@@ -709,8 +709,8 @@ async function testKaartbestand() {
     const ONGEWIJZIGD = { kaartRemNa: ['7bcfcc97', 567], kaartLeesInhoud: ['205518d9', 518], kaartFoutReden: ['821ff4cd', 230], kaartFoutNoteer: ['b0fb37e5', 99],
       kaartPilTik: ['99d7651c', 924], kaartZelfOpnieuw: ['a9736b11', 725], kaartNodig: ['71ae6aa9', 166], kaartKlokTik: ['865695f4', 77], kaartBewaar: ['aac30b1e', 1063],
       kaartKeur: ['c783f42d', 1313], kaartNaDownload: ['54dc4432', 269], kaartBewaardTik: ['479952c2', 496], kaartBewaardZet: ['37f122a5', 539], kaartBewaardLaad: ['e23cf72d', 902],
-      kaartIdbOpen: ['94d3d90e', 498], startLogKaartFout: ['e9d0c340', 331], overpassRetryAfter: ['4e9804b8', 244], onGPS: ['9c40a4a2', 15631], updateDichtbij: ['cbf57ede', 12709],
-      logOpslagMis: ['6d7fd828', 16172], startApp: ['7d034c90', 4902], kiesBesteWeg: ['724fc2d7', 650], kiesMaxspeed: ['a7b6bce7', 461], tegenRijrichtingen: ['54bb2b55', 1112],
+      kaartIdbOpen: ['94d3d90e', 498], startLogKaartFout: ['e9d0c340', 331], overpassRetryAfter: ['4e9804b8', 244], onGPS: ['eb7ee2b1', 15617], updateDichtbij: ['ea6a509d', 12695],
+      logOpslagMis: ['6d7fd828', 16172], startApp: ['355333b8', 4888], kiesBesteWeg: ['724fc2d7', 650], kiesMaxspeed: ['a7b6bce7', 461], tegenRijrichtingen: ['54bb2b55', 1112],
       peilingNaar: ['64ce3937', 609], berekenClusterNodes: ['3c2246d1', 1361], migratieSlPos: ['2f5621af', 396], haalStraatnamenOp: ['2a318437', 1102],
       refreshStadIndienNodig: ['a5c82101', 1145], vindDichtbij: ['d32386d8', 4753], fietsSluitUit: ['ec1d273c', 170], fietsTerug: ['6f950997', 372], fietsPuurDichtst: ['2a9b09f8', 418],
       fietsLees: ['3decdc6d', 314], fietsLaad: ['c920654a', 154], fietsGedekt: ['f6776294', 196], fietsBewaar: ['2879ff66', 358], fietsDekking: ['ef0400e2', 402],

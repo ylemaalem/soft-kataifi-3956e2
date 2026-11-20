@@ -1,6 +1,6 @@
 // ═══════════════════════════════════════════════════════════════
 //  StoplichtIQ — test_tapvast.js
-//  © 2026 StoplichtIQ — Y. Lemaalem
+//  © 2026 StoplichtIQ
 //
 //  Test bij V11.18.17, de veiligheidsrelease. Drie onderdelen, één doel:
 //  de app mag niet spontaan naar een ander stoplicht springen terwijl de
@@ -66,7 +66,7 @@ function testTapVast() {
   // Vergrendeld op GEKOZEN, stilstaand, met ANDER op `afwijking` meter dichterbij.
   //
   // ── V11.19.0: DE PEILING VAN `ANDER` STAAT NU EXPLICIET ────
-  // © 2026 StoplichtIQ — Y. Lemaalem
+  // © 2026 StoplichtIQ
   //
   // Deze fixture zette ANDER onveranderlijk op peiling 90 terwijl de koers op
   // 10 stond: een koersverschil van 80 graden. Zolang checkHandLockVerval geen

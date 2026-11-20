@@ -1,6 +1,6 @@
 // ═══════════════════════════════════════════════════════════════
 //  StoplichtIQ — test_toast_past.js
-//  © 2026 StoplichtIQ — Y. Lemaalem
+//  © 2026 StoplichtIQ
 //
 //  Test bij V11.18.23: elke melding past op een telefoonscherm, en de knop
 //  in een melding is met een echte vingertik te raken.
@@ -55,7 +55,7 @@ function testToastPast() {
     return { geslaagd: 0, gefaald: 1, regels };
   }
 
-  // 375 px is de iPhone-klasse waarop Younes rijdt; 32 px marge (16 per kant)
+  // 375 px is de iPhone-klasse waarop de gebruiker rijdt; 32 px marge (16 per kant)
   // komt overeen met #correctie-sheet, het andere zwevende paneel in de app.
   const TELEFOON = 375, MARGE = 32, BUDGET = TELEFOON - MARGE;   // 343
 

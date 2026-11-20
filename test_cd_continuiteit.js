@@ -1,6 +1,6 @@
 // ═══════════════════════════════════════════════════════════════
 //  StoplichtIQ — test_cd_continuiteit.js
-//  © 2026 StoplichtIQ — Y. Lemaalem
+//  © 2026 StoplichtIQ
 //
 //  Test bij V11.17.98: de countdown herkent een ECHTE nieuwe rode fase na groen,
 //  in plaats van hem aan te zien voor de voortzetting van de vorige.

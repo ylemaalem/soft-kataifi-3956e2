@@ -1,6 +1,6 @@
 // ═══════════════════════════════════════════════════════════════
 //  StoplichtIQ — test_mv_trigger.js
-//  © 2026 StoplichtIQ — Y. Lemaalem
+//  © 2026 StoplichtIQ
 //
 //  Test bij V11.18.9: de verborgen 5-tikken-zone waarmee de modelvergelijking
 //  aan en uit gaat zonder console en zonder Mac.

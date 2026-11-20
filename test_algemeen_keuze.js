@@ -1,6 +1,6 @@
 // ═══════════════════════════════════════════════════════════════
 //  StoplichtIQ — test_algemeen_keuze.js
-//  © 2026 StoplichtIQ — Y. Lemaalem
+//  © 2026 StoplichtIQ
 //
 //  Test bij V11.17.93 (richting release 2): Algemeen krijgt zijn eigen waarde
 //  in richtingLockKeuze in plaats van "geen van de drie richtingen" te zijn.

@@ -1,8 +1,8 @@
 // ═══════════════════════════════════════════════════════════════
 //  StoplichtIQ — test_schaduwregel.js
-//  © 2026 StoplichtIQ — Y. Lemaalem
+//  © 2026 StoplichtIQ
 //
-//  Test bij V11.37.1: de schaduwregel van Younes (sl_regellog), alleen meten.
+//  Test bij V11.37.1: de schaduwregel van de gebruiker (sl_regellog), alleen meten.
 //
 //  De regel: het dichtstbijzijnde licht binnen 400 m, hoogstens 60 graden van de
 //  rijrichting, waar je naartoe rijdt; beoordeeld vanaf 5 km/u en alleen op een
@@ -366,8 +366,8 @@ async function testSchaduwregel() {
   const zonderV113712 = (s) => zonderV113713(s).split(NL).filter(l => !/V11\.37\.12(?!\d)/.test(l)).join(NL);   // V11.37.14: de rem en de fietsdekking (test_overpass); idem
   const zonderV113711 = (s) => zonderV113712(s).split(NL).filter(l => !/V11\.37\.11(?!\d)/.test(l)).join(NL);   // V11.37.14: de tegenrichting-regel (test_tegenrichting); idem
   const g = terugV11374(zonderV113711(zonderV113721(onGPS))).split(NL).filter(l => !/V11\.34\.[2-9](?!\d)|V11\.36\.[14](?!\d)|V11\.37\.[124](?!\d)/.test(l)).join(NL);   // V11.37.2: gedrag, getoetst in test_snelroute SN6b; V11.37.4: test_achter; V11.37.14: zonderV113711
-  eis('SR10a onGPS zonder de meetregels (ook de schaduwregel) is byte-gelijk aan V11.37.0 (c767e2a3 / 14333)',
-      fnv(g) === 'c767e2a3' && g.length === 14333, 'c767e2a3 / 14333', fnv(g) + ' / ' + g.length);
+  eis('SR10a onGPS zonder de meetregels (ook de schaduwregel) is byte-gelijk aan V11.37.0 (5b12c116 / 14319)',
+      fnv(g) === '5b12c116' && g.length === 14319, '5b12c116 / 14319', fnv(g) + ' / ' + g.length);
   const og = zc(onGPS);
   eis('SR10b in onGPS staat de schaduwregel na wisselNa, dus na de hele beslisketen',
       og.indexOf('regelTik(lat, lon)') > og.indexOf('wisselNa(lat, lon)') && og.indexOf('wisselNa(lat, lon)') > 0, 'na wisselNa', 'ok');

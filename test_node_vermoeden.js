@@ -1,6 +1,6 @@
 // ═══════════════════════════════════════════════════════════════
 //  StoplichtIQ — test_node_vermoeden.js
-//  © 2026 StoplichtIQ — Y. Lemaalem
+//  © 2026 StoplichtIQ
 //
 //  Test bij V11.18.12: de app waarschuwt zichtbaar zodra een ander stoplicht
 //  aantoonbaar dichterbij ligt dan de actieve keuze — ook tijdens een

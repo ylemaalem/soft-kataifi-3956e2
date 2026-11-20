@@ -1,6 +1,6 @@
 // ═══════════════════════════════════════════════════════════════
 //  StoplichtIQ — test_opruim_safari.js
-//  © 2026 StoplichtIQ — Y. Lemaalem
+//  © 2026 StoplichtIQ
 //
 //  Test bij V11.37.10: de opruimrem telt zoals Safari (ontwerp van 4 okt).
 //
@@ -216,8 +216,8 @@ async function testOpruimSafari() {
   const zonderV113711 = (s) => zonderV113712(s).split('\n').filter(l => !/V11\.37\.11(?!\d)/.test(l)).join('\n');   // V11.37.11: de tegenrichting-regel (test_tegenrichting); hier terug
   const ONGEWIJZIGD = { trimDiagnostiekV1: ['a4df7e2b', 693], voerOpruimPassenUit: ['b5221ec9', 5515], logOpruiming: ['e2c2508', 3108], berekenSafariOpslag: ['f3e8d002', 1245],
     ruimRedundantePosCache: ['ec31b124', 380], berekenLocalStorageKB: ['8fd8ab6c', 193], ruimOpslagNuOp: ['4dbcfffc', 3289], slaOpIntern: ['c284229a', 2342],
-    vindDichtbij: ['d444ee3', 3717], vindDichtbijScore: ['bc9b7937', 2105], updateDichtbij: ['7b7fce62', 12303], onGPS: ['d99821b8', 15000], downloadOSM: ['261d2457', 4158],   // V11.37.18: downloadOSM met twee commentaarregels zonder plaatsnaam (was 82a16b3c/4147), zie test_kaartbewaar KB12
-    renderRichtingBlok: ['173947bd', 18753], opslagOverzicht: ['5ff742b9', 1762], verwerkS2: ['d60b1d38', 1964], bevestigCountdown: ['8457401d', 16073] };
+    vindDichtbij: ['d444ee3', 3717], vindDichtbijScore: ['bc9b7937', 2105], updateDichtbij: ['8b09641', 12289], onGPS: ['38878b3b', 14986], downloadOSM: ['55c8ea56', 4144],   // V11.37.18: downloadOSM met twee commentaarregels zonder plaatsnaam (was 82a16b3c/4147), zie test_kaartbewaar KB12
+    renderRichtingBlok: ['a7ea6388', 18711], opslagOverzicht: ['5ff742b9', 1762], verwerkS2: ['d60b1d38', 1964], bevestigCountdown: ['dbfaeb26', 16017] };
   const anders2 = Object.entries(ONGEWIJZIGD).filter(([n, [h, l]]) => { const s = zonderV113711(zonderV113721(window[n])); return fnv(s) !== h || s.length !== l; }).map(x => x[0]);
   eis('OS8c zeventien functies die V11.37.10 niet raakt (de passen, de teller, de Safari-meting, de knop, het leren, de lichtkeuze, de kaart): byte-gelijk aan V11.37.9',
       anders2.length === 0, 'geen afwijking', anders2.join(', ') || 'geen');

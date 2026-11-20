@@ -1,6 +1,6 @@
 // ═══════════════════════════════════════════════════════════════
 //  StoplichtIQ — test_meetwerk22.js
-//  © 2026 StoplichtIQ — Y. Lemaalem
+//  © 2026 StoplichtIQ
 //
 //  Test bij V11.37.22: alleen meten, geen gedragsverandering.
 //
@@ -586,8 +586,8 @@ async function testMeetwerk22() {
       'geen fout, 0 dan 1', kort(det12));
 
   // ═══ MV11 — regressie ════════════════════════════════════════
-  const V113721 = { startCd: ['490b39a0', 7140], verwerkFase: ['6a38a072', 12634], beeindigFase: ['7dc8111e', 1286], resetNeutraal: ['7eea8c30', 3601],
-    onGPS: ['cbd2a89c', 15696], stopLogTik: ['30d3cdff', 3528], detLogSchrijf: ['9f1497e0', 3508], exporteerMeetdata: ['a5ffd57a', 9797] };
+  const V113721 = { startCd: ['49372c85', 7126], verwerkFase: ['6a38a072', 12634], beeindigFase: ['7dc8111e', 1286], resetNeutraal: ['7eea8c30', 3601],
+    onGPS: ['f054858f', 15682], stopLogTik: ['30d3cdff', 3528], detLogSchrijf: ['9f1497e0', 3508], exporteerMeetdata: ['8f6c8bd6', 9783] };
   // Gemeten in de bron van V11.37.21 (6b4bcd9) in een eigen headless Chrome, niet afgeleid uit deze versie.
   const merk = (f) => String(f).split(NL).filter(l => /V11\.37\.22(?!\d)/.test(l)).length;
   const telVerwacht = { startCd: 2, verwerkFase: 2, beeindigFase: 1, resetNeutraal: 1, onGPS: 1, stopLogTik: 1, detLogSchrijf: 4, exporteerMeetdata: 3 };
@@ -598,9 +598,9 @@ async function testMeetwerk22() {
   const anders = Object.entries(V113721).filter(([n, [h, l]]) => { const s = zonder22(window[n]); return fnv(s) !== h || s.length !== l; })
     .map(([n]) => n + ' ' + fnv(zonder22(window[n])) + '/' + zonder22(window[n]).length);
   eis('MV11b zonder die regels zijn ze byte-gelijk aan V11.37.21 (alles is toegevoegd, niets gewijzigd)', anders.length === 0, 'geen afwijking', anders.join(', ') || 'geen');
-  const ONGEMOEID = { berekenSchaduwWaarden: ['dfd1c572', 1799], kiesCountdownBron: ['8e69db98', 12851], slaOp: ['411179eb', 3252], slaOpIntern: ['c284229a', 2342],
+  const ONGEMOEID = { berekenSchaduwWaarden: ['dfd1c572', 1799], kiesCountdownBron: ['95562985', 12809], slaOp: ['411179eb', 3252], slaOpIntern: ['c284229a', 2342],
     slaOpV5: ['3b4df08', 1650], schrijfV5DirectBijGroen: ['78222c0c', 1872], gewGem: ['eb1936ea', 1025], bepaalCdModus: ['261892b5', 3388],
-    vindDichtbij: ['d32386d8', 4753], updateDichtbij: ['cbf57ede', 12709], slaPassiefMeting: ['eac878bc', 1945], meetRingSchrijf: ['60245787', 420], stopLogAf: ['21c4b6e6', 928] };
+    vindDichtbij: ['d32386d8', 4753], updateDichtbij: ['ea6a509d', 12695], slaPassiefMeting: ['eac878bc', 1945], meetRingSchrijf: ['60245787', 420], stopLogAf: ['21c4b6e6', 928] };
   const terug33 = (l) => l.replace(/conf < hoofdGrens\('leer'\)\) \{   \/\/ V11.37.33(?!d): de grens van het geladen model$/, 'conf < 0.20) {');   // V11.37.33: de vervangen regel in slaOp terug
   const zonder23 = (f) => String(f).split(NL).map(terug33).filter(l => !/V11\.37\.23(?!\d)|V11\.37\.35(?!\d)|V11\.37\.36(?!\d)|V11\.37\.37(?!\d)|V11\.37\.38(?!\d)|V11\.37\.39(?!\d)|V11\.37\.41(?!\d)|V11\.38\.3(?!\d)|V11\.38\.4(?!\d)/.test(l)).join(NL);   // V11.37.35: ook de toegevoegde regels van V11.37.35 (test_slot_blijft)   // V11.37.23: updateDichtbij kreeg één regel (test_meetwerk23)
   const anders2 = Object.entries(ONGEMOEID).filter(([n, [h, l]]) => fnv(zonder23(window[n])) !== h || zonder23(window[n]).length !== l).map(x => x[0]);

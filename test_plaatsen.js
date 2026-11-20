@@ -1,6 +1,6 @@
 // ═══════════════════════════════════════════════════════════════
 //  StoplichtIQ — test_plaatsen.js
-//  © 2026 StoplichtIQ — Y. Lemaalem
+//  © 2026 StoplichtIQ
 //
 //  Test bij V11.37.25: de plaats in de naam van een licht komt uit
 //  kaart/plaatsen.json (waar het licht ligt), niet uit huidigeStad (waar je
@@ -207,11 +207,11 @@ async function testPlaatsen() {
 
     // ═══ PL8 ═══════════════════════════════════════════════════
     // Gemeten in de bron van V11.37.23 (a8a8fa6) in een eigen headless Chrome, niet afgeleid uit deze versie.
-    const V113723 = { geraakt: { downloadOSM: ['8d85b686', 5297], kaartBewaardZet: ['37f122a5', 539], vindNaamVoorId: ['fb79c497', 797], refreshStadIndienNodig: ['8c90a4b5', 1249] },
+    const V113723 = { geraakt: { downloadOSM: ['aa765385', 5283], kaartBewaardZet: ['37f122a5', 539], vindNaamVoorId: ['fb79c497', 797], refreshStadIndienNodig: ['8c90a4b5', 1249] },
       ongemoeid: { kiesBesteWeg: ['724fc2d7', 650], kaartKeur: ['c783f42d', 1313], kaartBewaar: ['aac30b1e', 1063], kaartNaDownload: ['54dc4432', 269], kaartNodig: ['71ae6aa9', 166],
-        updateDichtbij: ['4bca6fd4', 12847], vindDichtbij: ['d32386d8', 4753], onGPS: ['454f7f25', 15761], toonV9Richtingen: ['af05f130', 1926], renderRadarSheetNodeLijst: ['34b1c257', 1309],
-        haalStraatnamenOp: ['366a2c5a', 1250], herstelOpslagGlobals: ['85be2216', 239], kiesCountdownBron: ['8e69db98', 12851], slaOp: ['411179eb', 3252], slaOpIntern: ['c284229a', 2342],
-        gewGem: ['eb1936ea', 1025], startCd: ['4c0000d7', 7397], exporteerMeetdata: ['64c15a78', 10084], kaartHaalKaart: ['a16f2e6e', 415], kaartBestandKnip: ['2a73781', 912] } };
+        updateDichtbij: ['4bf2765b', 12833], vindDichtbij: ['d32386d8', 4753], onGPS: ['d1ed43de', 15747], toonV9Richtingen: ['af05f130', 1926], renderRadarSheetNodeLijst: ['34b1c257', 1309],
+        haalStraatnamenOp: ['366a2c5a', 1250], herstelOpslagGlobals: ['85be2216', 239], kiesCountdownBron: ['95562985', 12809], slaOp: ['411179eb', 3252], slaOpIntern: ['c284229a', 2342],
+        gewGem: ['eb1936ea', 1025], startCd: ['5b67624c', 7383], exporteerMeetdata: ['be910bb4', 10070], kaartHaalKaart: ['a16f2e6e', 415], kaartBestandKnip: ['2a73781', 912] } };
     const merk = (f) => String(f).split(NL).filter(l => /V11\.37\.25(?!\d)/.test(l)).length;
     const telAf = Object.keys(V113723.geraakt).filter(n => merk(window[n]) !== 1).map(n => n + ' ' + merk(window[n]));
     eis('PL8a vier functies krijgen elk één regel met merkteken V11.37.25', telAf.length === 0, 'precies één', telAf.join(', ') || 'precies één');

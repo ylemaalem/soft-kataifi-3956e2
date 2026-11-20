@@ -1,6 +1,6 @@
 // ═══════════════════════════════════════════════════════════════
 //  StoplichtIQ — test_nodewissel.js
-//  © 2026 StoplichtIQ — Y. Lemaalem
+//  © 2026 StoplichtIQ
 //
 //  Regressietest bij V11.17.65. Toetst de twee wisselpaden op achtergebleven
 //  state van de VORIGE node:

@@ -1,6 +1,6 @@
 // ═══════════════════════════════════════════════════════════════
 //  StoplichtIQ — test_bbox_autoslot.js
-//  © 2026 StoplichtIQ — Y. Lemaalem
+//  © 2026 StoplichtIQ
 //
 //  Test bij V11.21.0, release 2c van het bbox-slot: het slot zonder tap.
 //  Dit is de reparatie van klacht 1 — de box springt tussen lampen.

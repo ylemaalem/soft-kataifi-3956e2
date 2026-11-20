@@ -1,6 +1,6 @@
 // ═══════════════════════════════════════════════════════════════
 //  StoplichtIQ — test_herkomst_poort.js
-//  © 2026 StoplichtIQ — Y. Lemaalem
+//  © 2026 StoplichtIQ
 //
 //  Test bij V11.18.10: een automatisch herstelde richting mag de countdown nog
 //  sturen, maar schrijft geen V5-meting meer weg. Alleen een echte tik doet dat.

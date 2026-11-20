@@ -1,6 +1,6 @@
 // ═══════════════════════════════════════════════════════════════
 //  StoplichtIQ — test_rond_gewicht.js
-//  © 2026 StoplichtIQ — Y. Lemaalem
+//  © 2026 StoplichtIQ
 //
 //  Test bij V11.37.9.
 //
@@ -300,8 +300,8 @@ async function testRondGewicht() {
     .replace("    return { gem: gewGem(m), n: m.filter(heeftGemetenDuur).length, m };   // V11.37.9: het aantal in de tegel, zie bij algPct; m blijft vol", "    return { gem: gewGem(m), n: m.length, m };")
     .split(NL).filter(l => !/V11\.37\.9(?!\d)/.test(l)).join(NL);
   const merk = (f) => String(f).split(NL).filter(l => /V11\.37\.9(?!\d)/.test(l)).length;
-  const V11378 = { renderRichtingBlok: ['50d0ad24', 18184, 6], renderNodeInfo: ['8353a70b', 9891, 1], laagDagdeelCijfers: ['6b47544b', 822, 1],
-    mergeRichtingen: ['808553a5', 7340, 2], mergeUndoUitvoeren: ['8fe778b', 560, 1], kiesLaagAlgemeen: ['53d548ba', 1323, 1], ruimBevestigLusOp: ['a6c7c94', 2489, 1] };
+  const V11378 = { renderRichtingBlok: ['54285043', 18142, 6], renderNodeInfo: ['1f06541c', 9849, 1], laagDagdeelCijfers: ['6b47544b', 822, 1],
+    mergeRichtingen: ['93776992', 7326, 2], mergeUndoUitvoeren: ['8fe778b', 560, 1], kiesLaagAlgemeen: ['2f24ce3d', 1309, 1], ruimBevestigLusOp: ['a6c7c94', 2489, 1] };
   const telAf = Object.entries(V11378).filter(([n, [h, l, m]]) => merk(window[n]) !== m).map(([n]) => n + ' ' + merk(window[n]));
   eis('RG7a zeven functies veranderen, alleen met regels met merkteken V11.37.9', telAf.length === 0, 'precies zoveel', telAf.join(', ') || 'precies zoveel');
   const anders = Object.entries(V11378).filter(([n, [h, l]]) => { const s = terug(zonderV113721(window[n])); return fnv(s) !== h || s.length !== l; }).map(x => x[0]);
@@ -314,8 +314,8 @@ async function testRondGewicht() {
   const zonderV113711 = (s) => zonderV113712(s).split('\n').filter(l => !/V11\.37\.11(?!\d)/.test(l)).join('\n');   // V11.37.11: de tegenrichting-regel (test_tegenrichting); hier terug
   const ONGEWIJZIGD = { berekenLeerPct: ['5d38efe9', 986], algemeenMetingen: ['40c40223', 1285], laagDagdeelPct: ['8c863dca', 914], tikRichting: ['b44110d5', 4619],
     kiesLaagRichting: ['94ad3b74', 596], verplaatsAlgemeenNaarRichting: ['f66a53f0', 2052], herstelRvVoorMerge: ['ea697b84', 2338], analyseerBevestigLus: ['e4d5feee', 1468],
-    bijwerkLeerkaart: ['8344c773', 8107], laagMetingen: ['ca21e0f9', 421], richtingLeerPct: ['e4a7222', 925], vindDichtbij: ['d444ee3', 3717], updateDichtbij: ['7b7fce62', 12303],
-    onGPS: ['d99821b8', 15000], bevestigCountdown: ['8457401d', 16073], verwerkBevestigLeren: ['9163848', 8583], slaOpIntern: ['c284229a', 2342], toonMergeDialoog: ['6d14fe13', 3633] };
+    bijwerkLeerkaart: ['8fd8176b', 8079], laagMetingen: ['ca21e0f9', 421], richtingLeerPct: ['e4a7222', 925], vindDichtbij: ['d444ee3', 3717], updateDichtbij: ['8b09641', 12289],
+    onGPS: ['38878b3b', 14986], bevestigCountdown: ['dbfaeb26', 16017], verwerkBevestigLeren: ['1edefee2', 8555], slaOpIntern: ['c284229a', 2342], toonMergeDialoog: ['e22754c', 3619] };
   const anders2 = Object.entries(ONGEWIJZIGD).filter(([n, [h, l]]) => { const s = zonderV113711(zonderV113721(window[n])); return fnv(s) !== h || s.length !== l; }).map(x => x[0]);
   eis('RG7c achttien functies die V11.37.9 niet raakt (het leren, de percentages, de tik, de verhuizing, de lichtkeuze, de knoppen): byte-gelijk aan V11.37.8',
       anders2.length === 0, 'geen afwijking', anders2.join(', ') || 'geen');

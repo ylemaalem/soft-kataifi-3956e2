@@ -1,6 +1,6 @@
 // ═══════════════════════════════════════════════════════════════
 //  StoplichtIQ — test_opslaglaag.js
-//  © 2026 StoplichtIQ — Y. Lemaalem
+//  © 2026 StoplichtIQ
 //
 //  Test bij V11.18.21 — opslag fase 2: de cache-laag.
 //
@@ -69,7 +69,7 @@ async function testOpslaglaag() {
   const opruimen = () => {
     for (const k of [K, K + '_b', K + '_c']) { zetLS(k, null); opslagCache.delete(k); }
     // ── V11.18.22: ÉÉN VEEG OP NODE-ID IN PLAATS VAN EEN PREFIXLIJST ──
-    // © 2026 StoplichtIQ — Y. Lemaalem
+    // © 2026 StoplichtIQ
     //
     // De handmatige lijst die hier stond miste `_bezoek` (en `_groen`). Omdat
     // updateBezoekPerFase OPTELT, stond de teller bij een tweede run in dezelfde

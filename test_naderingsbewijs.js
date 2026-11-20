@@ -1,6 +1,6 @@
 // ═══════════════════════════════════════════════════════════════
 //  StoplichtIQ — test_naderingsbewijs.js
-//  © 2026 StoplichtIQ — Y. Lemaalem
+//  © 2026 StoplichtIQ
 //
 //  Test bij V11.27.0: bewijs verzamelen tijdens het naderen, en bij V11.36.0
 //  (A1: een tik op het beeld wist dat bewijs niet meer; A2: de getikte lamp
@@ -39,7 +39,7 @@
 //        RESTZONE, bewust niet getoetst als goedgekeurd gedrag: stop je 0-3 m
 //        ná P terwijl P >= 8 m dichterbij ligt dan J, dan kan de route naar P
 //        wisselen. Dat is met telefoon-GPS niet te onderscheiden van het
-//        veldgeval NB1, en door Younes aanvaard (27 sept). Het vangnet is 'Terug'.
+//        veldgeval NB1, en door de gebruiker aanvaard (27 sept). Het vangnet is 'Terug'.
 //  NB5   veldgeval H, masten opzij: 95 graden (12,5 m), 97 graden (10 m),
 //        144 graden (13 m), en een kruisend licht op 6 m. Nooit een wissel;
 //        97 graden en 6 m worden geweigerd op 'dwars'. Plus 6 m met ruis, 10 keer.
@@ -424,7 +424,7 @@ async function testNaderingsbewijs() {
     // ═══ NB6 — EEN LATE TIK ══════════════════════════════════
     // V11.36.0 A1: tot en met V11.34.3 stond hier "een tik op 8 m wist het
     // bewijs, en daarna geldt het oude gedrag". Precies dat gedrag maakte V11.27.0
-    // in het veld onbruikbaar: in veldgeval NB15 tikte Younes tot 24 m bij 3 km/u,
+    // in het veld onbruikbaar: in veldgeval NB15 tikte de gebruiker tot 24 m bij 3 km/u,
     // en nam de route in negen uur log nul keer een beslissing (zie NB15). Een tik
     // op het BEELD zegt welke lamp, niet welk kruispunt; het bewijs blijft staan.
     // Een keuze uit de LIJST zegt wel welk kruispunt, en wist het nog steeds (NB6c).
@@ -547,7 +547,7 @@ async function testNaderingsbewijs() {
     // ═══ NB15 — HET VELDGEVAL ══════════════════
     // Zoals gemeten: de app toonde W (vastgezet door een tik op het beeld op
     // 236 m), het juiste licht C lag recht vooruit, 10 m dichterbij bij de stop.
-    // Younes tikte zes keer, de laatste keer vlak voor stilstand (24 m, 3 km/u).
+    // De gebruiker tikte zes keer, de laatste keer vlak voor stilstand (24 m, 3 km/u).
     // Daar wisselde de app, 6 s na de stop, via de oude route.
     const F = { W: { id: 8101, naam: 'veld W', x: -14, y: 24 }, C: { id: 8102, naam: 'veld C', x: 0, y: 14 } };
     const pF = naderProfiel({ vanAfstand: 250, v0Kmh: 47, a: 2.5, stilS: 20 });
@@ -589,8 +589,8 @@ async function testNaderingsbewijs() {
 
     // ═══ NB14 — REGRESSIE ════════════════════════════════════
     // De twee bestaande routes, byte voor byte gelijk aan V11.26.0.
-    const refs = [['checkHandLockVerval', '2df4f7ed', 5513], ['checkNodeCorrectieStilstand', '8c801fd8', 4751],
-                  ['corrigeerNodeAutomatisch', 'afe7b427', 4118], ['updateDichtbij', 'e82d3c0', 11914],
+    const refs = [['checkHandLockVerval', '274f90da', 5499], ['checkNodeCorrectieStilstand', '8c801fd8', 4751],
+                  ['corrigeerNodeAutomatisch', 'afe7b427', 4118], ['updateDichtbij', '65f005bd', 11900],
                   ['vindDichtbij', '2db98dab', 2954]];
     for (const [naam, h, len] of refs) {
       // V11.37.4: vindDichtbij en updateDichtbij kregen vier regels met merkteken (de achter-regel,

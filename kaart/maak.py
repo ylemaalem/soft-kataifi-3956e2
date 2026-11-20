@@ -1,6 +1,6 @@
 # ═══════════════════════════════════════════════════════════════
 #  StoplichtIQ — kaart/maak.py
-#  © 2026 StoplichtIQ — Y. Lemaalem
+#  © 2026 StoplichtIQ
 #
 #  Maakt de kaartbestanden van de app uit een OSM-uittreksel (.osm.pbf) van
 #  Geofabrik, in dezelfde vorm als de antwoorden van Overpass die de app
@@ -15,7 +15,7 @@
 #    versie.json   datum, aantallen, groottes en sha256 van beide bestanden.
 #  Eén element per regel, op oplopend nummer (zoals Overpass): een verversing
 #  verandert dan alleen de regels die in OSM veranderden.
-#  De datum van de data staat erin zonder kloktijd (besluit van Younes).
+#  De datum van de data staat erin zonder kloktijd (besluit van de gebruiker).
 #
 #  GEBRUIK (zie LEESMIJ.md)
 #    python -m pip install osmium          (pyosmium, vrije software, BSD)

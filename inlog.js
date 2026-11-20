@@ -5,7 +5,7 @@
 // De adressen staan hier vast als volledige https-URL, zodat een herstel- of
 // bevestigingsmail nooit naar localhost wijst. Supabase gebruikt zo'n adres
 // alleen als het op de lijst "Redirect URLs" staat; anders valt het terug op de
-// Site URL. Die lijst stelt Younes zelf in.
+// Site URL. Die lijst stelt de gebruiker zelf in.
 (function () {
   'use strict';
   const BASIS = 'https://ylemaalem.github.io/soft-kataifi-3956e2/';

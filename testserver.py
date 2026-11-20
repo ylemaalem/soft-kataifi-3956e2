@@ -1,6 +1,6 @@
 # ═══════════════════════════════════════════════════════════════
 #  StoplichtIQ — testserver.py
-#  © 2026 StoplichtIQ — Y. Lemaalem
+#  © 2026 StoplichtIQ
 #
 #  De testserver voor de toetsen (alleen 127.0.0.1). Hetzelfde als
 #  python -m http.server, maar met een wachtrij van 128 in plaats van 5, en

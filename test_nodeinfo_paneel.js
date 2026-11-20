@@ -1,6 +1,6 @@
 // ═══════════════════════════════════════════════════════════════
 //  StoplichtIQ — test_nodeinfo_paneel.js
-//  © 2026 StoplichtIQ — Y. Lemaalem
+//  © 2026 StoplichtIQ
 //
 //  Test bij V11.17.97: het node-info-paneel is niet langer beperkt tot
 //  stilstand, en sluit zichzelf na 20 seconden zonder interactie.

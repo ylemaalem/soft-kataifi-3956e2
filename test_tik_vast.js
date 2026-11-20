@@ -1,12 +1,12 @@
 // ═══════════════════════════════════════════════════════════════
 //  StoplichtIQ — test_tik_vast.js
-//  © 2026 StoplichtIQ — Y. Lemaalem
+//  © 2026 StoplichtIQ
 //
 //  Test bij V11.36.3: de tik houdt vast.
 //
 //  DE KLACHT (veldgeval TV1, stilstaand op
 //  68 m). Twee rode lichten, tik op het rechter. ~2 s later keek de app naar
-//  het linker en bleef daar, ook toen het rechter groen werd. Younes: "Het
+//  het linker en bleef daar, ook toen het rechter groen werd. De gebruiker: "Het
 //  maakt niet uit welke kleur, als hij maar mijn tik vasthoudt."
 //
 //  DE OORZAAK (detlog in de meetdata-export). In de volbeeld-run van dat moment
@@ -334,10 +334,10 @@ async function testTikVast() {
     const terug = sbd.split('\n').filter(l => !/V11\.36\.3(?!\d)|V11\.37\.35(?!\d)|V11\.37\.36(?!\d)|V11\.37\.37(?!\d)|V11\.37\.38(?!\d)|V11\.37\.39(?!\d)|V11\.37\.41(?!\d)|V11\.38\.3(?!\d)|V11\.38\.4(?!\d)/.test(l)).join('\n')
       .replace('const winner = tikSlotMatch(bruikbaar, straalVast);', 'const winner = stickySlotMatch(bruikbaar, straal);');
     eis('TV10c selecteerBesteDetectie zonder de V11.36.3-regels is byte-gelijk aan V11.34.1',
-        fnv(terug) === '79a403fa' && terug.length === 14376, '79a403fa / 14376', fnv(terug) + ' / ' + terug.length);
+        fnv(terug) === '1311ed03' && terug.length === 14362, '1311ed03 / 14362', fnv(terug) + ' / ' + terug.length);
     const ONGEMOEID = { stickyVoorspel: ['f5cc4e22', 1864], stickyProjecteer: ['67c1517b', 312], stickyNeemOver: ['c06db2ce', 386],
       autoSlotZet: ['4e12277f', 313], autoSlotActief: ['f6d9de74', 134], autoSlotUitdagerRijp: ['e5affee2', 413],
-      postprocessYOLO: ['42b30c6', 4725], tapZwakPositie: ['49f903a8', 295], tikStraalYolo: ['7014cad2', 165],
+      postprocessYOLO: ['ae0829b6', 4717], tapZwakPositie: ['49f903a8', 295], tikStraalYolo: ['7014cad2', 165],
       tikStraalCam: ['83ae570a', 208], tikTelRun: ['3475f84', 550], preprocessVoorYOLO: ['f379eecc', 2733] };
     // V11.37.5: postprocessYOLO kreeg vijf regels met merkteken (de beste kandidaat voor de detlog, zie test_knoppen).
     const afw = Object.entries(ONGEMOEID).filter(([n, [h, l]]) => { const s = zonderV113721(eval(n)).split('\n').filter(l => !/V11\.37\.5(?!\d)/.test(l)).join('\n'); return fnv(s) !== h || s.length !== l; }).map(x => x[0]);

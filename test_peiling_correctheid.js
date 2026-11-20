@@ -1,6 +1,6 @@
 // ═══════════════════════════════════════════════════════════════
 //  StoplichtIQ — test_peiling_correctheid.js
-//  © 2026 StoplichtIQ — Y. Lemaalem
+//  © 2026 StoplichtIQ
 //
 //  Test bij V11.17.86 (release E): de peiling rekent overal met de
 //  breedtegraad-correctie, en de alternatieven-tekst zegt wat hij toetst.

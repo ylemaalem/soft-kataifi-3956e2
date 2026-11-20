@@ -1,6 +1,6 @@
 // ═══════════════════════════════════════════════════════════════
 //  StoplichtIQ — test_meetregel_c4.js
-//  © 2026 StoplichtIQ — Y. Lemaalem
+//  © 2026 StoplichtIQ
 //
 //  Test bij V11.38.3: meetregel C4 "tikloos detecteren". Alleen meten: extra
 //  velden in sl_detlog en sl_passagelog, niets beslist er iets mee.
@@ -163,7 +163,7 @@ async function testMeetregelC4() {
     eis('MC10b de Backup bevat dezelfde velden', bd.ep === 'w' && bd.bx === 1660 && bp.tk === 2 && bp.b1a === 70, 'ep, bx, tk, b1a', JSON.stringify({ bd, bp }));
 
     // ═══ MC11 — byte-gelijk aan V11.38.2 ═══════════════════════
-    const V11382 = {"postprocessYOLO":["8b81ff6c",5418],"selecteerBesteDetectie":["2bb13ec1",15098],"_verwerkWorkerResultaatKern":["b7c52393",6208],"_verwerkWorkerResultaat":["16e601a6",201],"nmsFilter":["60d0b197",416],"tapZwakPositie":["49f903a8",295],"tapLockLeeft":["edc39a25",104],"autoSlotActief":["f6d9de74",134],"autoSlotZet":["b132d1e2",381],"autoSlotUitdagerRijp":["60c2dce5",540],"slotCropPositie":["e501ae7",231],"slotBurenBij":["3e0a5a21",882],"hoofdConf":["895272ce",82],"hoofdTapConf":["7d04ece0",92],"runIsKansloos":["d631b73b",1660],"slaKanslozeRunOver":["57f1b46",408],"berekenCropRegio":["ca7bd568",3709],"preprocessVoorYOLO":["1f7ec00d",3139],"voerAIUit":["3b2ef19d",3075],"tikKiesDetectie":["9990bf6b",905],"detLogAfwijsFilter":["851d7f93",522],"detLogBestVelden":["75440359",456],"passageTik":["8bcd3b99",1501],"verwerkDetecties":["319a4ea6",8916],"tekenOverlay":["cf613d48",7255],"vergrendelNodeHandmatig":["1f250aa1",2373],"tikNaarYolo":["f464af55",186],"famSom":["b5135afe",422],"familieScore":["76a7732e",315],"eindeGemistLog":["e64f66dd",701],"tikLogNoteer":["171c833e",1235]};
+    const V11382 = {"postprocessYOLO":["d75a1e7c",5410],"selecteerBesteDetectie":["80841f8c",15084],"_verwerkWorkerResultaatKern":["b7c52393",6208],"_verwerkWorkerResultaat":["16e601a6",201],"nmsFilter":["60d0b197",416],"tapZwakPositie":["49f903a8",295],"tapLockLeeft":["edc39a25",104],"autoSlotActief":["f6d9de74",134],"autoSlotZet":["b132d1e2",381],"autoSlotUitdagerRijp":["60c2dce5",540],"slotCropPositie":["e501ae7",231],"slotBurenBij":["3e0a5a21",882],"hoofdConf":["895272ce",82],"hoofdTapConf":["7d04ece0",92],"runIsKansloos":["d631b73b",1660],"slaKanslozeRunOver":["57f1b46",408],"berekenCropRegio":["ca7bd568",3709],"preprocessVoorYOLO":["1f7ec00d",3139],"voerAIUit":["3b2ef19d",3075],"tikKiesDetectie":["9990bf6b",905],"detLogAfwijsFilter":["851d7f93",522],"detLogBestVelden":["75440359",456],"passageTik":["8bcd3b99",1501],"verwerkDetecties":["319a4ea6",8916],"tekenOverlay":["8306f61f",7250],"vergrendelNodeHandmatig":["be9c18a0",2371],"tikNaarYolo":["f464af55",186],"famSom":["b5135afe",422],"familieScore":["76a7732e",315],"eindeGemistLog":["e64f66dd",701],"tikLogNoteer":["171c833e",1235]};
     const anders = Object.entries(V11382).filter(([n, [h, l]]) => { const s = String(window[n]); return fnv(s) !== h || s.length !== l; }).map(x => x[0]);
     eis('MC11a de 31 beslissende functies (selectie, slot, drempels, filters, crop, poort, tik) zijn byte-gelijk aan V11.38.2',
       anders.length === 0, 'geen afwijking', anders.join(', ') || 'geen');

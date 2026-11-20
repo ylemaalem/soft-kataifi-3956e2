@@ -1,6 +1,6 @@
 // ═══════════════════════════════════════════════════════════════
 //  StoplichtIQ — test_bbox_slot.js
-//  © 2026 StoplichtIQ — Y. Lemaalem
+//  © 2026 StoplichtIQ
 //
 //  Test bij V11.20.0, release 2a van het bbox-slot: het meetinstrument.
 //  Deze release verandert NIET welke box gekozen wordt. Ze maakt zichtbaar

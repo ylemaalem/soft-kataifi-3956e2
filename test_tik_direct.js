@@ -1,6 +1,6 @@
 // ═══════════════════════════════════════════════════════════════
 //  StoplichtIQ — test_tik_direct.js
-//  © 2026 StoplichtIQ — Y. Lemaalem
+//  © 2026 StoplichtIQ
 //
 //  Test bij V11.18.5: een getikte richting wordt geschreven zodra de rode fase
 //  afloopt, in plaats van pas na de passage.

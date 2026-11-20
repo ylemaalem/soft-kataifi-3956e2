@@ -25,7 +25,7 @@ Alleen in deze map staan OSM-nummers en straatnamen: het is de volledige, openba
 
 ## Verversen ("ververs de kaart")
 
-Eén keer per maand is genoeg (gemeten: in 45 dagen veranderde 1,6% van de lichten). Younes zegt "ververs de kaart"; Claude doet dan:
+Eén keer per maand is genoeg (gemeten: in 45 dagen veranderde 1,6% van de lichten). De gebruiker zegt "ververs de kaart"; Claude doet dan:
 
 1. Het nieuwste uittreksel ophalen en controleren:
    ```
@@ -34,7 +34,7 @@ Eén keer per maand is genoeg (gemeten: in 45 dagen veranderde 1,6% van de licht
    ```
    (ongeveer 1,4 GB; de md5 moet kloppen).
 2. Op een nieuwe tak vanaf main: `python kaart/maak.py <uittreksel.osm.pbf>` (pyosmium nodig: `python -m pip install osmium`; ongeveer 4 minuten). Het script stopt als het aantal lichten meer dan 2% of het aantal wegen meer dan 3% verandert.
-3. Wees-leerdata tellen, vóór het publiceren (sinds V11.37.21). Neem de nieuwste backup van Younes en zoek elk lichtnummer met leerdata (`sl_v4_`, `sl_v5_`, `sl_bevestig_`, `sl_klok_`, met een meting met duur > 0) op in de nieuwe `lichten.json`. Ontbreekt een nummer, dan heeft OSM dat licht opnieuw ingetekend: zoek per ontbrekend nummer een kandidaat binnen 15 m in de nieuwe kaart. Rapporteer dit eerst aan Younes (aantal nummers, aantal metingen, met en zonder kandidaat), vóór er iets gepubliceerd wordt. De leerdata zelf wordt niet aangeraakt. Bij de kaart van V11.37.20 waren het er 0 (486 nummers met metingen, alle 486 aanwezig).
+3. Wees-leerdata tellen, vóór het publiceren (sinds V11.37.21). Neem de nieuwste backup van de gebruiker en zoek elk lichtnummer met leerdata (`sl_v4_`, `sl_v5_`, `sl_bevestig_`, `sl_klok_`, met een meting met duur > 0) op in de nieuwe `lichten.json`. Ontbreekt een nummer, dan heeft OSM dat licht opnieuw ingetekend: zoek per ontbrekend nummer een kandidaat binnen 15 m in de nieuwe kaart. Rapporteer dit eerst aan de gebruiker (aantal nummers, aantal metingen, met en zonder kandidaat), vóór er iets gepubliceerd wordt. De leerdata zelf wordt niet aangeraakt. Bij de kaart van V11.37.20 waren het er 0 (486 nummers met metingen, alle 486 aanwezig).
 4. Daarna `plaatsen.json` opnieuw maken, want het hoort bij precies deze `lichten.json` (het veld `kaart` is de sha256 ervan):
    - de woonplaatsen en de gemeenten van Overpass halen (de twee vragen staan bovenin `maak_plaatsen.py`; samen ~125 MB, ~2 minuten; een User-Agent meesturen, anders 406);
    - `python kaart/maak_plaatsen.py <woonplaatsen.json> <gemeenten.json>` (shapely nodig: `python -m pip install shapely`);
@@ -42,7 +42,7 @@ Eén keer per maand is genoeg (gemeten: in 45 dagen veranderde 1,6% van de licht
    - toetsen tegen de BAG-woonplaatsen (PDOK), niet tegen de opgeslagen namen: minstens 99% van de lichten in dezelfde woonplaats.
 5. De toetsen draaien, in elk geval `test_kaartbestand.js`, `test_plaatsen.js` en `test_privacyscan.js`, en daarna alle suites.
 6. Committen met alleen aantallen in het bericht (geen namen of nummers), en een rapport schrijven.
-7. Pushen pas nadat Claude het rapport beoordeeld heeft en Younes "ga verder" zegt.
+7. Pushen pas nadat Claude het rapport beoordeeld heeft en de gebruiker "ga verder" zegt.
 8. Na de push op de echte iPhone de vervangroute toetsen: start de app via het icoon en controleer in de startlog dat `kbv` op `nieuw` staat en dat de kaart uit het bestand komt. Die route (een nieuwe versie vervangt de oude) is in het veld nog niet doorlopen; tot 22 okt waren alleen de eerste start en 'zelfde' gezien (34 starts, 33 keer zelfde).
 
 Gebruik het uittreksel daarna niet meer: het mag weg (1,4 GB).

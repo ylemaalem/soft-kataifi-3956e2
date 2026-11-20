@@ -1,6 +1,6 @@
 // ═══════════════════════════════════════════════════════════════
 //  StoplichtIQ — test_nano_wachter.js
-//  © 2026 StoplichtIQ — Y. Lemaalem
+//  © 2026 StoplichtIQ
 //
 //  Test bij V11.37.36 (was V11.37.34): Nano is het enige model. Start het niet,
 //  dan de eerlijke faalmelding: korte tekst, een herlaadknop, een regel in

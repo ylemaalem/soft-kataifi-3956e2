@@ -1,6 +1,6 @@
 // ═══════════════════════════════════════════════════════════════
 //  StoplichtIQ — test_getoond_licht.js
-//  © 2026 StoplichtIQ — Y. Lemaalem
+//  © 2026 StoplichtIQ
 //
 //  Test bij V11.37.7: Meetdata wist het schaduwlog niet meer, en de radar en
 //  de debugregel volgen het licht dat de app toont (dichtstbijOSM), niet het
@@ -149,15 +149,15 @@ async function testGetoondLicht() {
     updateDebugOverlay: (s) => s.replace("  const tag = dichtstbijOSM ? laadStoplichtTag(String(dichtstbijOSM.id)) : null;   // V11.37.7: het getoonde licht, zie hierboven",
                                          "  const tag = huidigBevestigdOsmNodeId ? laadStoplichtTag(huidigBevestigdOsmNodeId) : null;")
   };
-  const V11376 = { exporteerMeetdata: ['71d08542', 9147], tekenRadarSheet: ['aec656b5', 5759], updateDebugOverlay: ['c6db2f01', 1018] };
+  const V11376 = { exporteerMeetdata: ['1eaeaeb6', 9133], tekenRadarSheet: ['aec656b5', 5759], updateDebugOverlay: ['c6db2f01', 1018] };
   const veranderd = Object.entries(V11376).filter(([n, [h, l]]) => { const s = String(window[n]); return s.split('\n').filter(r => /V11\.37\.7(?!\d)/.test(r)).length !== 1; }).map(x => x[0]);
   eis('GL4a in elk van de drie functies staat precies één regel met merkteken V11.37.7', veranderd.length === 0, 'drie keer één', veranderd.join(', ') || 'drie keer één');
   const anders3 = Object.entries(V11376).filter(([n, [h, l]]) => { const s = terug[n](zonderV113721(window[n])); return fnv(s) !== h || s.length !== l; }).map(x => x[0]);
   eis('GL4b met die ene regel terug zijn exporteerMeetdata, tekenRadarSheet en updateDebugOverlay byte-gelijk aan V11.37.6', anders3.length === 0, 'geen afwijking', anders3.join(', ') || 'geen');
   const nogOud = ['tekenRadarSheet', 'updateDebugOverlay'].filter(n => /huidigBevestigdOsmNodeId/.test(String(window[n])));
   eis('GL4c de radar en de debugregel lezen huidigBevestigdOsmNodeId niet meer', nogOud.length === 0, 'geen', nogOud.join(', ') || 'geen');
-  const KEUZE = { vindDichtbij: ['55d1f775', 3320], updateDichtbij: ['42aee748', 12051], onGPS: ['d99821b8', 15000], regelKies: ['d8d1f767', 1993],
-    achterTik: ['e9e105a3', 1583], checkHandLockVerval: ['2df4f7ed', 5513], checkHandLockPassage: ['7f001264', 1768], checkNodeCorrectieStilstand: ['8c801fd8', 4751],
+  const KEUZE = { vindDichtbij: ['55d1f775', 3320], updateDichtbij: ['4282e085', 12037], onGPS: ['38878b3b', 14986], regelKies: ['d8d1f767', 1993],
+    achterTik: ['e9e105a3', 1583], checkHandLockVerval: ['274f90da', 5499], checkHandLockPassage: ['7f001264', 1768], checkNodeCorrectieStilstand: ['8c801fd8', 4751],
     corrigeerNodeAutomatisch: ['afe7b427', 4118], checkTikSlotSnel: ['d3a8edbe', 2071], vindDichtbijScore: ['bc9b7937', 2105],
     isGetoondLicht: ['36a3cc63', 126], tikRichting: ['b44110d5', 4619], heropenRichtingKeuze: ['d2442860', 386] };
   const zonderV113718 = (s) => String(s).replace('const d = await kaartLeesInhoud(r, ctrl);   // V11.37.18: ook de inhoud heeft een grens (stond: await r.json()), zie kaartLeesInhoud', 'const d = await r.json();').split('\n').filter(l => !/V11\.37\.18(?!\d)/.test(l)).join('\n');   // V11.37.18: de bewaarde kaart, C5 en C7 (test_kaartbewaar); hier terug

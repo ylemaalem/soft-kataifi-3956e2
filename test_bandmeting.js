@@ -1,6 +1,6 @@
 // ═══════════════════════════════════════════════════════════════
 //  StoplichtIQ — test_bandmeting.js
-//  © 2026 StoplichtIQ — Y. Lemaalem
+//  © 2026 StoplichtIQ
 //
 //  Test bij V11.18.0 (Countdown Release B, variant A): KLOPTE en BIJNA lichten
 //  op binnen een VAST venster rond het verwachte nulpunt — ±2s en ±10s —

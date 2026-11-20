@@ -1,6 +1,6 @@
 // ═══════════════════════════════════════════════════════════════
 //  StoplichtIQ — test_richting_ui.js
-//  © 2026 StoplichtIQ — Y. Lemaalem
+//  © 2026 StoplichtIQ
 //
 //  Test bij V11.17.83 (richting release C1): het scherm beweegt mee met de
 //  gekozen richting, en een geleende countdown krijgt een eerlijk label.

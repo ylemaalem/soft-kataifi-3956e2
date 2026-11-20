@@ -1,12 +1,12 @@
 // ═══════════════════════════════════════════════════════════════
 //  StoplichtIQ — test_snelroute.js
-//  © 2026 StoplichtIQ — Y. Lemaalem
+//  © 2026 StoplichtIQ
 //
 //  Test bij V11.37.2: de snelle stilstandroute voor een tikslot.
 //
 //  Het veldgeval SN, recht noord gedraaid: je stopt
 //  op (0, 0); licht C staat 5 m recht vooruit, licht W
-//  23 m schuin rechts (52 graden). Tijdens het aanrijden tikte Younes op het
+//  23 m schuin rechts (52 graden). Tijdens het aanrijden tikte de gebruiker op het
 //  beeld terwijl de app W toonde.
 //
 //  SN1  de constanten, en het merkteken staat in de tik-handler direct na het
@@ -259,8 +259,8 @@ async function testSnelroute() {
   }
 
   // ═══ SN6 — regressie ════════════════════════════════════════
-  const refs = [['checkHandLockVerval', '2df4f7ed', 5513], ['checkNodeCorrectieStilstand', '8c801fd8', 4751],
-                ['corrigeerNodeAutomatisch', 'afe7b427', 4118], ['updateDichtbij', 'e82d3c0', 11914], ['vindDichtbij', '2db98dab', 2954]];
+  const refs = [['checkHandLockVerval', '274f90da', 5499], ['checkNodeCorrectieStilstand', '8c801fd8', 4751],
+                ['corrigeerNodeAutomatisch', 'afe7b427', 4118], ['updateDichtbij', '65f005bd', 11900], ['vindDichtbij', '2db98dab', 2954]];
   // V11.37.4: zonder de regels met merkteken (de achter-regel, zie test_achter).
   const zonderV113718 = (s) => String(s).split('\n').filter(l => !/V11\.37\.23(?!\d)|V11\.37\.25(?!\d)/.test(l)).join('\n').replace('const d = await kaartLeesInhoud(r, ctrl);   // V11.37.18: ook de inhoud heeft een grens (stond: await r.json()), zie kaartLeesInhoud', 'const d = await r.json();').split('\n').filter(l => !/V11\.37\.18(?!\d)/.test(l)).join('\n');   // V11.37.18: de bewaarde kaart, C5 en C7 (test_kaartbewaar); hier terug; V11.37.23: eerst de regels van V11.37.23 weg (test_meetwerk23)
   const zonderV113717 = (s) => zonderV113718(s).split('\n').filter(l => !/V11\.37\.17(?!\d)/.test(l)).join('\n');   // V11.37.17: de startlog (test_startlog); hier terug
@@ -279,8 +279,8 @@ async function testSnelroute() {
     .replace('const nodeId = dichtstbijOSM ? String(dichtstbijOSM.id) : null;   // V11.37.4', 'const nodeId = String(dichtstbijOSM.id);')
     .replace('kandidaatPos ?? (dichtstbijOSM ? { lat: dichtstbijOSM.lat, lon: dichtstbijOSM.lon } : { lat, lon }),   // V11.37.4', 'kandidaatPos ?? { lat: dichtstbijOSM.lat, lon: dichtstbijOSM.lon },');
   const g = terugV11374(zonderV113711(zonderV113721(onGPS))).split(NL).filter(l => !/V11\.34\.[2-9](?!\d)|V11\.36\.[14](?!\d)|V11\.37\.[124](?!\d)/.test(l)).join(NL);   // V11.37.14: zonderV113711
-  eis('SN6b onGPS zonder de V11.37.2-regel (en de meetregels) is byte-gelijk aan V11.37.0 (c767e2a3 / 14333)',
-      fnv(g) === 'c767e2a3' && g.length === 14333, 'c767e2a3 / 14333', fnv(g) + ' / ' + g.length);
+  eis('SN6b onGPS zonder de V11.37.2-regel (en de meetregels) is byte-gelijk aan V11.37.0 (5b12c116 / 14319)',
+      fnv(g) === '5b12c116' && g.length === 14319, '5b12c116 / 14319', fnv(g) + ' / ' + g.length);
   const og = zc(onGPS);
   const p = ['checkNaderingsCorrectie(lat, lon)', 'wisselTussen()', 'checkTikSlotSnel(lat, lon)', 'checkNodeCorrectieStilstand(lat, lon)'].map(x => og.indexOf(x));
   eis('SN6c in onGPS: na de naderingscorrectie en haar wissellog-merk, vóór de oude hercontrole', p.every(x => x > 0) && p.every((x, i) => i === 0 || x > p[i - 1]),

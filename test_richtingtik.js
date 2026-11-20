@@ -1,12 +1,12 @@
 // ═══════════════════════════════════════════════════════════════
 //  StoplichtIQ — test_richtingtik.js
-//  © 2026 StoplichtIQ — Y. Lemaalem
+//  © 2026 StoplichtIQ
 //
 //  Test bij V11.37.3: een richtingtik gaat altijd naar het licht waar de box nu
 //  op staat (het getoonde licht, dichtstbijOSM).
 //
 //  Het veldgeval RT: de knoppen verschenen voor licht A,
-//  en Younes koos daarna uit de lijst licht B; zijn
+//  en de gebruiker koos daarna uit de lijst licht B; zijn
 //  richtingtik ging toch naar A.
 //
 //  RT1  het veldgeval: de tik gaat naar B; A blijft onaangeroerd; het
@@ -121,11 +121,11 @@ async function testRichtingtik() {
 
   // ═══ RT6 — regressie ════════════════════════════════════════
   // Gemeten op V11.37.2 (f4f6018); deze release raakt ze niet aan.
-  const V11372 = { vindDichtbij: ['2db98dab', 2954], vindDichtbijScore: ['bc9b7937', 2105], updateDichtbij: ['e82d3c0', 11914],
-    checkHandLockVerval: ['2df4f7ed', 5513], checkNodeCorrectieStilstand: ['8c801fd8', 4751], corrigeerNodeAutomatisch: ['afe7b427', 4118],
+  const V11372 = { vindDichtbij: ['2db98dab', 2954], vindDichtbijScore: ['bc9b7937', 2105], updateDichtbij: ['65f005bd', 11900],
+    checkHandLockVerval: ['274f90da', 5499], checkNodeCorrectieStilstand: ['8c801fd8', 4751], corrigeerNodeAutomatisch: ['afe7b427', 4118],
     checkNaderingsCorrectie: ['6aeb87b3', 3595], verzamelNaderingsBewijs: ['3d6ad85f', 3526], checkHandLockPassage: ['7f001264', 1768],
-    checkTikSlotSnel: ['d3a8edbe', 2071], regelTik: ['9c1b361b', 3087], onGPS: ['e1da9bf9', 14694],   // regelKies: V11.37.4 herschreven, zie test_achter
-    vergrendelNodeHandmatig: ['9a007b96', 2295], selecteerNodeHandmatig: ['5275f4dd', 2379] };
+    checkTikSlotSnel: ['d3a8edbe', 2071], regelTik: ['9c1b361b', 3087], onGPS: ['ee74ca80', 14680],   // regelKies: V11.37.4 herschreven, zie test_achter
+    vergrendelNodeHandmatig: ['c7622f4b', 2287], selecteerNodeHandmatig: ['5275f4dd', 2379] };
   const NL = String.fromCharCode(10);
   // V11.37.4: vier regels van het V9-blok in onGPS kregen een tak voor 'geen licht'; hier terug
   // naar hun oude vorm, daarna gaat de aanroep van achterTik weg met het filter (zie test_achter).

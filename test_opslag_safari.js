@@ -1,6 +1,6 @@
 // ═══════════════════════════════════════════════════════════════
 //  StoplichtIQ — test_opslag_safari.js
-//  © 2026 StoplichtIQ — Y. Lemaalem
+//  © 2026 StoplichtIQ
 //
 //  Test bij V11.36.1: de app meet de opslag zoals Safari hem telt (A2 uit de
 //  opslag-STAP 0 van 30 september), de duur van een vuring van de rem, en een
@@ -225,8 +225,8 @@ async function testOpslagSafari() {
     eis('SA5b de UTF-16-telling, de passen en het overzicht zijn onaangeroerd', afw2.length === 0, 'geen afwijking', afw2.join(', ') || 'geen');
     const terugV11377 = (s) => String(s).replace("  const naExport = () => {};   // V11.37.7: het schaduwlog niet meer wissen; het is een ring (MAX_SCHADUWLOG)", "  const naExport = () => { try { localStorage.removeItem('sl_schaduwlog'); } catch(_) {} };");   // V11.37.7: het schaduwlog wist niet meer (test_getoond_licht); hier terug
     const zonder = terugV11377(zonderV113721(exporteerMeetdata)).split('\n').filter(l => !/V11\.34\.[2-9](?!\d)|V11\.36\.[14](?!\d)|V11\.37\.1(?!\d)|V11\.37\.15(?!\d)|V11\.37\.17(?!\d)/.test(l)).join('\n');   // V11.36.4: de wisselbak; V11.37.15: de koersbak; V11.37.17: de startbak
-    eis('SA5c exporteerMeetdata zonder meetregels is nog steeds V11.34.1', fnv(zonder) === 'ef1e19bb' && zonder.length === 7864,
-        'ef1e19bb / 7864', fnv(zonder) + ' / ' + zonder.length);
+    eis('SA5c exporteerMeetdata zonder meetregels is nog steeds V11.34.1', fnv(zonder) === 'a4af19b7' && zonder.length === 7850,
+        'a4af19b7 / 7850', fnv(zonder) + ' / ' + zonder.length);
     zet('sl_v4_996803_dag', [{ duur: 42, tijd: 3 }]);
     const n5 = telSchrijvingen(() => berekenSafariOpslag());
     eis('SA5d de meting zelf schrijft niets', n5 === 0, '0 schrijvingen', String(n5));

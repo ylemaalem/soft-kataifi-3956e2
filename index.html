@@ -667,7 +667,7 @@
     @keyframes puls-focus{0%,100%{border-color:rgba(255,255,255,0.25)}50%{border-color:rgba(56,189,248,0.80)}}
     /* V11.11.0: Leer toast */
     /* ── V11.18.23: DE TOAST PAST NU OP EEN TELEFOONSCHERM ────
-       © 2026 StoplichtIQ — Y. Lemaalem
+       © 2026 StoplichtIQ
 
        WAT ER MIS WAS. Deze regel stond op `white-space:nowrap` zonder
        max-width, en wordt gecentreerd met translateX(-50%). Een tekst die
@@ -1088,7 +1088,7 @@
 //  — Observatieduur per meting + dagdeel-overspanning
 //  — Adaptieve betrouwbaarheidsdrempels (consistent)
 //  — Leaflet memory leak fix + localStorage ruimtebeheer
-//  © 2026 StoplichtIQ — Y. Lemaalem
+//  © 2026 StoplichtIQ
 // ═══════════════════════════════════════════════════════════════
 
 if (typeof ort !== 'undefined') {
@@ -1096,7 +1096,7 @@ if (typeof ort !== 'undefined') {
 }
 
 // ── V11.18.9: ÉÉN BRON VOOR HET VERSIENUMMER ────────────────
-// © 2026 StoplichtIQ — Y. Lemaalem
+// © 2026 StoplichtIQ
 //
 // Het nummer stond op twee plekken: in de HTML van #s-versie en in de
 // commentaarkop hierboven. Geen van beide werd automatisch bijgewerkt, en dus
@@ -1109,7 +1109,7 @@ if (typeof ort !== 'undefined') {
 //
 // De stijl volgt de eerdere labels: nummer, kastlijntje, korte omschrijving in
 // kleine letters. De CSS zet hem zelf in kapitalen (text-transform:uppercase).
-const APP_VERSIE = 'V11.38.4 — meetvelden volledig en weggegooid rood (alleen meten)';
+const APP_VERSIE = 'V11.38.5 — naam uit het commentaar (geen gedrag)';
 
 // ── CONSTANTEN ────────────────────────────────────────────────
 const OSM_RADIUS       = 5000;
@@ -1215,7 +1215,7 @@ const VOLGORDE_LOG_INTERVAL_MS    = 1000; // diagnose [VOLGORDE] throttle
 const VOLGORDE_KENNIS_RESET_MS    = 5000; // Laag 3b/c: amnesia-venster na reset
 
 // ── V11.18.17: BEZINKTIJD IN SECONDEN, NIET IN RUNS ──────────
-// © 2026 StoplichtIQ — Y. Lemaalem
+// © 2026 StoplichtIQ
 //
 // WAT ER MIS GING. Vier drempels tellen RUNS: AI_DREMPEL (2), zijn onverwachte
 // broer (3), TOLERANTIE_RUNS (5) en STICKY_MISS_MAX (5). Zolang een run ~1066 ms
@@ -1405,7 +1405,7 @@ const CD_DROPOUT_MAX_S = 12;
 const BEVESTIG_TOON_MS = 15000;
 
 // ── V11.20.1: TAP_FORCE_TIMEOUT SPLITST IN TWEEËN ───────
-// © 2026 StoplichtIQ — Y. Lemaalem
+// © 2026 StoplichtIQ
 //
 // Eén getal van 25 seconden deed drie verschillende dingen, en dat was er twee
 // te veel:
@@ -1848,7 +1848,7 @@ function berekenObsScore(metingen) {
 }
 
 // ── V11.17.85: METINGEN DIE BIJ EEN RICHTING HOREN ──────────
-// © 2026 StoplichtIQ — Y. Lemaalem
+// © 2026 StoplichtIQ
 //
 // Een getikte richting-meting belandt in TWEE stores: in haar eigen V5-emmer
 // én in V4. Dat is geen ongeluk — voerV9DelayedWriteUit doet het met zoveel
@@ -1876,7 +1876,7 @@ function zonderRichtingVerwant(m) {
 }
 
 // ── V11.17.99: DE METINGEN VAN DE RONDE CATEGORIE ─────────────
-// © 2026 StoplichtIQ — Y. Lemaalem
+// © 2026 StoplichtIQ
 //
 // Zonder koppeling is dit letterlijk wat er op vier plekken los stond: de
 // V4-records die NIET bij een richting horen. Die vier plekken lezen hem nu
@@ -1914,7 +1914,7 @@ function zonderRichtingVerwant(m) {
 // 'Terug' telt niet mee. Een 180-graden-groep is vrijwel altijd GPS-jitter —
 // dezelfde reden waarom de rijenbouwer hem uit `aanwezig` houdt (r9001).
 // ── V11.18.4: EEN LABEL TERUGVERTALEN NAAR EEN BOCHT ──────────
-// © 2026 StoplichtIQ — Y. Lemaalem
+// © 2026 StoplichtIQ
 //
 // Deze cascade stond op vier plekken los in de code: in algemeenMetingen, in
 // de `aanwezig`-lus van het rijblok, in de rij-renderlus en in het node-info-
@@ -1938,7 +1938,7 @@ function bochtUitLabel(tekst, terugAlsRechtdoor = false) {
 }
 
 // ── V11.18.19: EEN V5-RECORD OP DE V4-SCHAAL ──────────────
-// © 2026 StoplichtIQ — Y. Lemaalem
+// © 2026 StoplichtIQ
 //
 // Deze omrekening stond twee keer letterlijk hetzelfde: in algemeenMetingen
 // (de gekoppelde helft die in het ronde licht meetelt) en in richtingLeerPct.
@@ -2032,7 +2032,7 @@ function berekenLeerPct(osmId) {
 }
 
 // ── V11.18.19: DE DRIE BONUSSEN DIE BIJ HET KRUISPUNT HOREN ───
-// © 2026 StoplichtIQ — Y. Lemaalem
+// © 2026 StoplichtIQ
 //
 // Deze drie stonden binnen berekenLeerPct en golden daardoor UITSLUITEND voor
 // het ronde licht. Dat was een bewuste keuze — alle drie zijn per NODE
@@ -2113,7 +2113,7 @@ function checkCyclusReset(duur, gem, metingen, nodeId) {
 }
 
 // -- V11.18.21: DE OPSLAGLAAG (FASE 2 VAN HET OPSLAGPLAN) -----
-// (c) 2026 StoplichtIQ - Y. Lemaalem
+// (c) 2026 StoplichtIQ
 //
 // WAAROM DEZE LAAG BESTAAT. localStorage loopt tegen zijn 5 MB-plafond en de
 // uitweg is IndexedDB. Dat is geen plafond van 5 MB maar van honderden MB's -
@@ -2256,7 +2256,7 @@ function opslagVerwijder(sleutel) {
 }
 
 // -- V11.22.0: DE SLEUTELLIJST UIT HET GEHEUGEN ---------------
-// (c) 2026 StoplichtIQ - Y. Lemaalem
+// (c) 2026 StoplichtIQ
 //
 // HET PROBLEEM, GEMETEN. Vijf functies zoeken alle sl_v5_-sleutels van EEN
 // node op door de VOLLEDIGE sleutellijst af te lopen:
@@ -2562,7 +2562,7 @@ function opslagVraagBewaren() {
 function sliqBeheer() { try { return !!window.SLIQ_POORT && SLIQ_POORT.isBeheerder(); } catch (e) { return false; } }
 
 // -- V11.24.0: DE SPIEGEL -------------------------------------
-// (c) 2026 StoplichtIQ - Y. Lemaalem
+// (c) 2026 StoplichtIQ
 //
 // WAT DIT WEL IS. Vanaf nu staat alles OOK in IndexedDB. Elke schrijving gaat
 // naar allebei, en bij de eerste start wordt de bestaande voorraad eenmalig
@@ -2597,7 +2597,7 @@ const idbWachtrij = new Map();     // sleutel -> ruwe string, of null = verwijde
 let idbFlushTimer = null;
 
 // -- V11.31.0: DE SPIEGEL WORDT MEETBAAR ----------------------
-// (c) 2026 StoplichtIQ - Y. Lemaalem
+// (c) 2026 StoplichtIQ
 //
 // WAT ER MIS WAS. idbHerstel() trekt de spiegel bij elke start gelijk met
 // localStorage, en meldt wat hij deed alleen aan de console. Een vergelijking
@@ -2929,7 +2929,7 @@ try {
 } catch(e) { /* geen window/document: niets aan de hand */ }
 
 // -- V11.18.21: DE OPSTARTFASE --------------------------------
-// (c) 2026 StoplichtIQ - Y. Lemaalem
+// (c) 2026 StoplichtIQ
 //
 // Vult de cache met alles wat er staat. In fase 2 is dat nog een warmloop -
 // de lezingen halen hun waarde nog bij localStorage - maar in fase 3 is dit
@@ -3058,7 +3058,7 @@ function versieLabelBij() {   // V11.37.39
 // vorm (ontbrekende waarden expliciet null) zodat analyse simpel blijft.
 //
 // -- V11.18.20: DE CAP VAN 500 NAAR 150 -----------------------
-// (c) 2026 StoplichtIQ - Y. Lemaalem
+// (c) 2026 StoplichtIQ
 //
 // WAAROM. Dit log is de grootste en snelst groeiende LOSSE sleutel in
 // localStorage. Gemeten op de backups van 23 en 28 augustus: 258,4 KB naar
@@ -3101,7 +3101,7 @@ const MAX_OPSLAGLOG = 150;
 // verklaringen vragen om een tegengestelde fix. Zonder deze peiling is elke
 // wijziging aan de scorefunctie een gok.
 // ── V11.17.86: ÉÉN DEFINITIE VAN "WELKE KANT OP LIGT DIE NODE" ──
-// © 2026 StoplichtIQ — Y. Lemaalem
+// © 2026 StoplichtIQ
 //
 // De peiling tussen twee punten werd op ELF plekken in dit bestand berekend,
 // in twee smaken, zonder één gedeelde bron:
@@ -3578,7 +3578,7 @@ function berekenCyclusTijd(osmId, dd) {
 }
 
 // ── V11.37.10: GEEN KOPIEËN MEER IN sl_pos_ ─────────────────────
-// © 2026 StoplichtIQ — Y. Lemaalem
+// © 2026 StoplichtIQ
 //
 // Deze functie schreef bij elke kaart voor elk licht zonder sl_pos_ een kopie
 // van zijn eigen positie (bron 'osm'): 580 tot 2.200 sleutels per kaart.
@@ -4031,7 +4031,7 @@ function laadMV5Geclusterd(nodeId, aanrij, afrij, dd) {
 }
 
 // ── V11.17.85: HET STEMPEL, ACHTERAF EN ALLEEN ALS HET ZEKER IS ──
-// © 2026 StoplichtIQ — Y. Lemaalem
+// © 2026 StoplichtIQ
 //
 // WAAROM ACHTERAF EN NIET BIJ HET SCHRIJVEN. verwerkFase schrijft het
 // V4-record als de rode fase eindigt — dus vóórdat het kruispunt gepasseerd is
@@ -4164,7 +4164,7 @@ function slaOpV5(nodeId, aanrij, afrij, dd, duur, gewicht, zagOvergang=null, bro
 // ontdubbeld. Eenmalig, geguard op een vlag, en het resultaat gaat naar
 // sl_opslaglog zodat achteraf te zien is wat er gebeurd is.
 // ── V11.17.92: DE WEZEN UIT HET GAT TUSSEN D2 EN RELEASE 1 ──
-// © 2026 StoplichtIQ — Y. Lemaalem
+// © 2026 StoplichtIQ
 //
 // Tussen V11.17.85 (D2) en V11.17.91 (release 1) verwijderde "samenvoegen met
 // Algemeen" de V5-bron zonder het rv-stempel van de V4-tweelingen te halen. Die
@@ -4340,7 +4340,7 @@ function migratieAfrijConventie() {
 }
 
 // ── V11.17.81: GELEERDE NADERINGEN ────────────────────────────
-// © 2026 StoplichtIQ — Y. Lemaalem
+// © 2026 StoplichtIQ
 //
 // HET PROBLEEM. De aanrijrichting van een V5-sleutel komt uit
 // gpsHeadingNaarWindrichting (r2368): Math.round(h/45)%8. De grenzen liggen dus
@@ -4482,7 +4482,7 @@ function naderingLabel(naderingen, g) {
 }
 
 // ── V11.17.84: EEN RICHTING WORDT GESCOORD ALS EEN STOPLICHT ───
-// © 2026 StoplichtIQ — Y. Lemaalem
+// © 2026 StoplichtIQ
 //
 // Het architectuurprincipe van dit project is dat elke richting een EIGEN
 // stoplicht is met een eigen cyclus. Dat stond niet in de formule. Tot deze
@@ -4520,7 +4520,7 @@ function naderingLabel(naderingen, g) {
 // bocht toe te wijzen. V11.18.19 draait dat gedeeltelijk terug — zie hieronder.
 //
 // ── V11.18.19 STAP B: DE NODE-BREDE BONUSSEN, GEHALVEERD ────
-// © 2026 StoplichtIQ — Y. Lemaalem
+// © 2026 StoplichtIQ
 //
 // WAT ER MIS WAS — EN WAT ER NIET MIS WAS. Er zijn drie redenen waarom een
 // richting langzamer in percentage groeit dan het ronde licht, en maar twee
@@ -4587,7 +4587,7 @@ function richtingLeerPct(metingen, nodeId = null) {
 }
 
 // ── V11.28.0: ALLEEN DE EIGEN EMMER ────────────────────────────
-// © 2026 StoplichtIQ — Y. Lemaalem
+// © 2026 StoplichtIQ
 //
 // Zelfde reden als bij laagMetingen (r12750): dit las laadMV5Geclusterd, dus
 // telden de acht buuremmers mee — voor de helft in het percentage en VOLUIT
@@ -4826,7 +4826,7 @@ function verwerkBevestigLeren(osmId, categorie, mom) {
 
   if (categorie === 'fout') {
     // ── V11.18.0 (WIJZIGING 5): FOUT KENT NU TWEE RICHTINGEN ──
-    // (c) 2026 StoplichtIQ — Y. Lemaalem
+    // (c) 2026 StoplichtIQ
     //
     // Hier stond onvoorwaardelijk gem * 1,6: de schatting was te KORT, dus rek
     // hem op. Dat is maar de helft van de gevallen. Valt groen ruim voor de
@@ -4863,7 +4863,7 @@ function verwerkBevestigLeren(osmId, categorie, mom) {
 
   if (categorie === 'klopte') {
     // ── V11.18.0 (WIJZIGING 7): EEN POORT OP DE ZWAARSTE SCHRIJVING ──
-    // (c) 2026 StoplichtIQ — Y. Lemaalem
+    // (c) 2026 StoplichtIQ
     //
     // Deze tak had geen enkele poort en schrijft met het zwaarste gewicht van de
     // drie. Dat was onschadelijk zolang KLOPTE nooit voor het nulpunt oplichtte.
@@ -4908,7 +4908,7 @@ function verwerkBevestigLeren(osmId, categorie, mom) {
 
 // 5-stap leeslogica: welke data gebruiken voor countdown?
 // ── V11.18.13: EEN DAGDEEL MAG LENEN VAN ZICHZELF ────────────
-// © 2026 StoplichtIQ — Y. Lemaalem
+// © 2026 StoplichtIQ
 //
 // WAT ER VERANDERT. Tot nu toe was een dagdeel volledig op zichzelf aangewezen:
 // kiesCountdownBron krijgt één dagdeel mee en geeft dat door aan alle vier de
@@ -4981,7 +4981,7 @@ function kiesCountdownBron(nodeId, dd, aanrijRichting, preSelectieAfrij) {
   // Stap 1: pre-selectie via richtingknop (vanaf de EERSTE eigen meting)
   //
   // ── V11.18.2: DE DREMPEL WEG ──────────────────
-  // © 2026 StoplichtIQ — Y. Lemaalem
+  // © 2026 StoplichtIQ
   //
   // Stond hier `>= V9_MIN_METINGEN` (5). Een getikte richting met een eigen
   // emmer van 1 tot 4 metingen viel daardoor door naar stap 4 en kreeg het
@@ -5023,7 +5023,7 @@ function kiesCountdownBron(nodeId, dd, aanrijRichting, preSelectieAfrij) {
   // hoort bij de modusklasse zelf en raakt dan elke bron tegelijk.
   // test_richting_drempel T3 legt het vast zodat het niet ongemerkt schuift.
   // ── V11.18.18: ROND LICHT IS DE STANDAARD ────────────────────
-  // © 2026 StoplichtIQ — Y. Lemaalem
+  // © 2026 StoplichtIQ
   //
   // WAT HIER VERANDERT. Deze stap pakte de emmer van `preSelectieAfrij`, en die
   // waarde werd door TWEE paden gevuld: door een tik van de gebruiker, en door
@@ -5140,7 +5140,7 @@ function kiesCountdownBron(nodeId, dd, aanrijRichting, preSelectieAfrij) {
           enkelRichtLog(nodeId, enkelRicht, rijrichting(), modusCapped, modusFinaal);
         } else if (preSelectieAfrij) {
           // ── V11.17.83: HET EERLIJKE LABEL VOOR EEN GELEENDE COUNTDOWN ──
-          // © 2026 StoplichtIQ — Y. Lemaalem
+          // © 2026 StoplichtIQ
           //
           // We staan in stap 4, dus stap 1 heeft gefaald: er IS een richting
           // gekozen, maar haar eigen emmer haalt V9_MIN_METINGEN (5) niet.
@@ -5461,9 +5461,9 @@ function slaPassiefMeting(werkDur) {
 }
 
 // ── V11.37.37: DE HELE CYCLUS ALS SCHADUW (ALLEEN REKENEN EN LOGGEN) ──   // V11.37.37
-// © 2026 StoplichtIQ — Y. Lemaalem   // V11.37.37
+// © 2026 StoplichtIQ   // V11.37.37
 //   // V11.37.37
-// WENS (Younes): oranje, dan rood, dan groen; de app ziet de hele cyclus, maar   // V11.37.37
+// WENS (gebruiker): oranje, dan rood, dan groen; de app ziet de hele cyclus, maar   // V11.37.37
 // de countdown is dan toch vaak fout. Experiment, vooraf vastgelegd in de   // V11.37.37
 // kladmap (s_cyclus/beslisregel_14nov.txt). NIETS hiervan komt in beeld.   // V11.37.37
 //   // V11.37.37
@@ -5505,7 +5505,7 @@ function cyclusSchaduwSluit(rec, snap) {   // V11.37.37
 // ── V11.37.38: VAST LICHT ALS SCHADUW (ALLEEN REKENEN EN LOGGEN) ──   // V11.37.38
 // © 2026 StoplichtIQ   // V11.37.38
 //   // V11.37.38
-// IDEE (Younes): sommige lichten, vooral in drukke steden, hebben een vaste   // V11.37.38
+// IDEE (gebruiker): sommige lichten, vooral in drukke steden, hebben een vaste   // V11.37.38
 // klok. Ziet de app 3 volledige roodfasen met (bijna) dezelfde duur, gebruik   // V11.37.38
 // dan die duur in plaats van het geleerde gemiddelde. Experiment, vooraf   // V11.37.38
 // vastgelegd in de kladmap (s_cyclus/beslisregel_vast_licht.txt). NIETS   // V11.37.38
@@ -5821,7 +5821,7 @@ function updatePassiefTeller() {
 }
 
 // ── V11.37.7: MEETDATA WIST HET SCHADUWLOG NIET MEER ───────────
-// © 2026 StoplichtIQ — Y. Lemaalem
+// © 2026 StoplichtIQ
 //
 // Sinds V11.18.20 wiste deze export sl_schaduwlog na een geslaagde deel- of
 // downloadpoging. V11.37.6 haalde dat wissen al weg bij de vier losse
@@ -5848,7 +5848,7 @@ function exporteerMeetdata() {
     setTimeout(()=>URL.revokeObjectURL(url), 1000);
   };
   // -- V11.18.20: HET SCHADUWLOG VOLGT EINDELIJK HETZELFDE PAD --
-  // (c) 2026 StoplichtIQ - Y. Lemaalem
+  // (c) 2026 StoplichtIQ
   //
   // Vier diagnoselogs hebben een eigen exportknop die na afloop wist:
   // sl_conflog, sl_zichtlog, sl_detlog en sl_herzieninglog. sl_schaduwlog is
@@ -6002,7 +6002,7 @@ function exporteerMeetdata() {
 // zijn puur diagnostisch — ze sturen geen enkele opslagbeslissing aan, behalve
 // dat `onzeker` in het richtinglog belandt.
 // ── V11.18.1: ZOU DEZE METING EEN V5-RECORD ZIJN GEWORDEN? ──
-// (c) 2026 StoplichtIQ — Y. Lemaalem
+// (c) 2026 StoplichtIQ
 //
 // Gemeten op de export van 28 augustus: in 2,9 dagen werden 41 kandidaten met
 // een VOLTOOIDE meting weggegooid door de naderingstak (r14581), tegenover 85
@@ -6079,7 +6079,7 @@ function v5ZouLukken(nodeId, duur) {
 }
 
 // ── V11.18.5: DE TIK OPLOSSEN, OP ÉÉN PLEK ───────────────────
-// © 2026 StoplichtIQ — Y. Lemaalem
+// © 2026 StoplichtIQ
 //
 // Deze drie stappen stonden binnen voerV9DelayedWriteUit. V11.18.5 laat een
 // getikte richting AL bij het einde van de rode fase schrijven, en die vroege
@@ -6101,7 +6101,7 @@ function v5ZouLukken(nodeId, duur) {
 // Geeft de windrichting terug, of null als er geen bruikbare tik ligt. De
 // aanroeper logt zelf wat er gebeurde, want de twee paden loggen verschillend.
 // ── V11.18.10: KWAM DEZE RICHTING VAN EEN MENS? ──────────────
-// © 2026 StoplichtIQ — Y. Lemaalem
+// © 2026 StoplichtIQ
 //
 // WAT ER MIS WAS. v9PreSelectieAfrij wordt op twee manieren gevuld: door
 // tikRichting (de gebruiker duwt) en door activeerPersistenteRichting (de app
@@ -6165,7 +6165,7 @@ function bepaalGetikteAfrij(nodeId, aanrijNum) {
 }
 
 // ── V11.18.5: DE GETIKTE METING SCHRIJVEN ZODRA ROOD AFLOOPT ──
-// © 2026 StoplichtIQ — Y. Lemaalem
+// © 2026 StoplichtIQ
 //
 // WAAROM DIT BESTAAT. De V5-schrijving wachtte op de delayed write, en die
 // wacht op V9_AFRIJ_SETTLE_MS (4s) plus een passagepoort — om gpsAfrijRichting
@@ -6485,7 +6485,7 @@ function resetV9Staat() {
 // een andere categorie. Dit is de kleinste ingreep die het principe volgt: de
 // functie die de pijl zet, zet hem ook uit.
 // ── V11.17.96: DE INDICATOR VOLGT DE KEUZE VAN DÉZE NODE ──
-// © 2026 StoplichtIQ — Y. Lemaalem
+// © 2026 StoplichtIQ
 //
 // Drie dingen veranderen hier, en ze horen bij elkaar.
 //
@@ -6611,7 +6611,7 @@ let activeCdModus=null, activeCdMin=null, activeCdMax=null;
 // V11.8.0: Bevestigingsknoppen state
 let countdownNulTijd=null, cdBereikteNul=false, bevestigActief=false;
 // ── V11.17.89: BIJ WELKE NODE VERSCHENEN DEZE KNOPPEN? ──────
-// © 2026 StoplichtIQ — Y. Lemaalem
+// © 2026 StoplichtIQ
 //
 // bevestigCountdown leest dichtstbijOSM LIVE op het moment van schrijven, en
 // bevestigMarkerSleutel (r4285) doet dat ook. Er was geen enkele referentie uit
@@ -6695,7 +6695,7 @@ const BEV_GOED_MAX_MS  = 2000;
 const BEV_BIJNA_MAX_MS = 10000;
 
 // ── V11.18.0 (WIJZIGING 6): EEN KLOPTE OP EEN VAGE BAND WEEGT MINDER ──
-// (c) 2026 StoplichtIQ — Y. Lemaalem
+// (c) 2026 StoplichtIQ
 //
 // Het venster is vast (wijziging 1/2) — op elk kruispunt dezelfde twee seconden.
 // Maar een KLOPTE is niet overal even knap. Zegt de app "22s" en is het 22s, dan
@@ -6746,7 +6746,7 @@ function klopteGewicht(bandS) {
 // Welke categorie is op DIT moment de waarheid? null = niet vast te stellen.
 //
 // ── V11.18.0 (WIJZIGING 2): SYMMETRISCH ROND HET NULPUNT ──
-// (c) 2026 StoplichtIQ — Y. Lemaalem
+// (c) 2026 StoplichtIQ
 //
 // Hier stond `m.overschrMs`, en die bestaat alleen NA het nulpunt. Het venster
 // liep daardoor van 0 tot +2s en van +2s tot +10s — eenzijdig, terwijl een
@@ -6776,7 +6776,7 @@ function bevestigIndeling(mom) {
 // mag het leergeheugen in.
 //
 // ── V11.18.0 (WIJZIGING 4): OOK GROEN DAT TE VROEG VIEL ──
-// (c) 2026 StoplichtIQ — Y. Lemaalem
+// (c) 2026 StoplichtIQ
 //
 // Hier stond alleen 'groen-na-nul'. De andere helft — groen dat VOOR de
 // voorspelling viel — werd geregistreerd maar corrigeerde nooit, want die kant
@@ -6836,7 +6836,7 @@ function overschrNulRef() {
 // heeft. Dat tweede is nodig omdat updateBevestigKnopStaat beide poorten
 // raadpleegt en ze anders elk hun eigen milliseconde lezen — zie daar.
 // ── V11.18.0 (WIJZIGING 3): DE BLANCO-UITZONDERING IS WEG ──
-// (c) 2026 StoplichtIQ — Y. Lemaalem
+// (c) 2026 StoplichtIQ
 //
 // Hier stond `if (toestand === 'rood-voor-nul' || 'groen-voor-nul') return false`
 // — BIJNA was voor het nulpunt onvoorwaardelijk fel, de hele rode fase lang.
@@ -6915,7 +6915,7 @@ function klopteIsNoOp(mom) {
 // PUUR OBSERVEREND. Geen enkele bestaande beslissing leest deze velden; de
 // knoppen, de demping en het leergeheugen gedragen zich exact als voorheen.
 // ── V11.17.80: DE AFWIJKING MÉT TEKEN ─────────────────────────
-// © 2026 StoplichtIQ — Y. Lemaalem
+// © 2026 StoplichtIQ
 //
 // Het verwachte nulmoment in WANDKLOKTIJD, of null als het niet betrouwbaar
 // vast te stellen is. Dit is de enige nieuwe rekenregel van deze release.
@@ -6992,7 +6992,7 @@ function meetBevestigMoment() {
   // allemaal alleen overschrMs. Het samenvoegen van de twee grootheden is de
   // release waarin gedrag WEL mag veranderen.
   // ── V11.18.0 (WIJZIGING 1): EEN ONDERTEKENDE AFWIJKING VOOR HET VENSTER ──
-  // (c) 2026 StoplichtIQ — Y. Lemaalem
+  // (c) 2026 StoplichtIQ
   //
   // vensterAfwMs is het getal waarop de knoppen beslissen: hoeveel milliseconden
   // zit dit moment NAAST het verwachte nulpunt, met teken. Negatief = we zijn er
@@ -7089,7 +7089,7 @@ let bevInertStaat = '';
 function updateBevestigKnopStaat() {
   if (!bevestigActief) { bevInertStaat = ''; return; }
   // ── V11.17.89: ÉÉN KLOKMETING VOOR BEIDE POORTEN ──────────
-  // © 2026 StoplichtIQ — Y. Lemaalem
+  // © 2026 StoplichtIQ
   //
   // Hier stond klopteIsNoOp() en bijnaIsNoOp() los van elkaar, en elk van de
   // twee riep meetBevestigMoment() aan — dus elk las Date.now() opnieuw. Op
@@ -7282,7 +7282,7 @@ const AFRIJ_MIN_SNELHEID_KMU = 12;  // V11.17.17 W3: was 8 — afrij pas boven 1
 let richtingLockNodeId = null;
 
 // ── V11.17.93: ALGEMEEN IS EEN WAARDE, GEEN AFWEZIGE RICHTING ──
-// © 2026 StoplichtIQ — Y. Lemaalem
+// © 2026 StoplichtIQ
 //
 // richtingLockKeuze kende drie waarden: 'links', 'rechtdoor', 'rechts'. Een
 // vierde categorie bestond niet, dus "de gebruiker leest Algemeen" was alleen
@@ -7319,7 +7319,7 @@ function rijrichting() {
 }
 
 // ── V11.17.96: DE KEUZE HOORT BIJ ÉÉN KRUISPUNT, EN KENT HAAR HERKOMST ──
-// © 2026 StoplichtIQ — Y. Lemaalem
+// © 2026 StoplichtIQ
 //
 // De koppel-chip 'zelfde als →?' bleef verschijnen na V11.17.93. Die release
 // gaf Algemeen zijn eigen waarde en repareerde daarmee het geval "de gebruiker
@@ -7356,7 +7356,7 @@ function rijrichting() {
 //                geldt hier, niet de herkomst-toets.
 let richtingLockBron = null;    // 'tik' | 'hersteld' | null
 // ── V11.18.11: WANNEER EN WAARMEE ER GETIKT IS ───────────────
-// © 2026 StoplichtIQ — Y. Lemaalem
+// © 2026 StoplichtIQ
 //
 // De koppel-chip verschijnt alleen als richtingLockBron 'tik' is, en dat zet
 // uitsluitend tikRichting. Toch meldt de gebruiker de chip op momenten dat hij
@@ -7416,7 +7416,7 @@ let bboxOverrideCamY = null;
 // rijden (V11.16.11-gedrag). Reset naar 0 in tap-handler + bboxOverride-wis.
 let bboxOverrideMatchTeller = 0;
 // ── V11.20.1: DE GETIKTE BOX IS HEILIG ───────────────
-// © 2026 StoplichtIQ — Y. Lemaalem
+// © 2026 StoplichtIQ
 //
 // WAT ER MIS WAS. Een tik op het beeld hield 25 seconden. Daarna viel de lock
 // weg en koos de app weer op score — midden in een roodfase, zonder dat er iets
@@ -7447,9 +7447,9 @@ let bboxOverrideMatchTeller = 0;
 const TAP_KWIJT_MS = 20000;
 let bboxOverrideLaatsteMatch = 0;   // wanneer de lock voor het laatst iets vond
 // ── V11.33.0: (c) BESTAAT NIET MEER ────────────────────────
-// © 2026 StoplichtIQ — Y. Lemaalem
+// © 2026 StoplichtIQ
 //
-// Younes' eis 2: ziet de app het getikte licht niet, dan toont hij NIETS en
+// Gebruikerseis 2: ziet de app het getikte licht niet, dan toont hij NIETS en
 // springt hij niet over, tot er opnieuw getikt wordt. Loslaten na TAP_KWIJT_MS
 // deed precies dat overspringen: de lock viel, en de scorelus koos vrij. Een
 // tik leeft nu tot (a) een nieuwe tik of (b) een ander kruispunt — de
@@ -7476,7 +7476,7 @@ function tapGezien() {
 }
 
 // ── V11.20.1: WAAR MAG EEN ZWAKKE DETECTIE DOOR? ────────
-// © 2026 StoplichtIQ — Y. Lemaalem
+// © 2026 StoplichtIQ
 //
 // De positie waaromheen postprocessYOLO zijn ruimere drempel toepast, of null
 // als er geen levende tap is. De sticky gaat voor: die is elke run bijgewerkt
@@ -7512,7 +7512,7 @@ function tapZwakPositie() {
 }
 
 // ── V11.32.0: DE TIKLOG ─────────────────────────────────
-// © 2026 StoplichtIQ — Y. Lemaalem
+// © 2026 StoplichtIQ
 //
 // WAAROM. De klacht: tik op A, de box springt naar buurlicht B, tik op B, en
 // hij springt terug naar A. Uit de exports was dat niet te reconstrueren.
@@ -7593,7 +7593,7 @@ function tikLogNoteer(soort, velden) {
   } catch(e) {}
 }
 // ── V11.36.2: TWEE BUDGETTEN IN DE TIKLOG ───────────────────
-// © 2026 StoplichtIQ — Y. Lemaalem
+// © 2026 StoplichtIQ
 //
 // WAAROM. Eén ring van TIKLOG_MAX regels voor alles liet de run-regels de
 // tikken wegdrukken. In de export van 30 september waren 75 van de 100 regels
@@ -7729,7 +7729,7 @@ function tikLogSprong(voor, match) {
 }
 
 // ── V11.34.1: DE TELLING PER TIK (meetregel voor M7) ────────
-// © 2026 StoplichtIQ — Y. Lemaalem
+// © 2026 StoplichtIQ
 //
 // M7 uit de STAP 0 van 28 september: staat er naast jouw lamp nog een detectie
 // binnen de identiteitsstraal, en mist het model jouw lamp één run, dan pakt de
@@ -7798,9 +7798,9 @@ function tikTelWaak() {
 }
 
 // ── V11.33.0: DE TIK WINT, OF DE APP TOONT NIETS ────────────
-// © 2026 StoplichtIQ — Y. Lemaalem
+// © 2026 StoplichtIQ
 //
-// Younes' twee eisen bij een eerdere klacht ("tik op A, hij springt
+// De twee gebruikerseisen bij een eerdere klacht ("tik op A, hij springt
 // naar B; tik op B, hij springt terug naar A"):
 //   1. een tik weegt zwaarder dan de automatische keuze. Wegspringen naar een
 //      ander licht mag alleen als er bij het getikte licht werkelijk niets te
@@ -7840,11 +7840,11 @@ function tikStraalYolo() {
 }
 
 // ── V11.36.3: DE TIK HOUDT VAST ─────────────────────────────
-// © 2026 StoplichtIQ — Y. Lemaalem
+// © 2026 StoplichtIQ
 //
 // DE KLACHT (veldgeval TV1, test_tik_vast). Twee rode lichten,
 // tik op het rechter. Na ~2 s keek de app naar het linker en bleef daar, ook
-// toen het rechter groen werd. Opnieuw tikken: hetzelfde. Younes: "Het maakt
+// toen het rechter groen werd. Opnieuw tikken: hetzelfde. De gebruiker: "Het maakt
 // niet uit welke kleur, als hij maar mijn tik vasthoudt."
 //
 // DE OORZAAK, GEMETEN. Elke vijfde run kijkt het model naar het hele beeld
@@ -8063,7 +8063,7 @@ let stickyBLogLaatst = 0;               // throttle voor [STICKY-B] leerLog (1×
 // omdat tests en wisplekken hem nog noemen.
 let tapSeedDetectie = null;      // { cx, cy, familie, tijd }
 // ── V11.20.0: WELK SLOT HOUDT DEZE BOX VAST? ───────────
-// © 2026 StoplichtIQ — Y. Lemaalem
+// © 2026 StoplichtIQ
 //
 // WAAROM DIT BESTAAT. selecteerBesteDetectie geeft {s1, s2Rest, afwijsReden}
 // terug. afwijsReden zegt waarom iets AFVIEL, niet welke tak WON — 'ok' komt
@@ -8094,7 +8094,7 @@ let tapSeedDetectie = null;      // { cx, cy, familie, tijd }
 let bboxSlot = 'vrij';   // 'tap' | 'vast' | 'vrij'
 
 // ── V11.20.0: DE RANDSTIJL PER SLOT ──────────────────
-// © 2026 StoplichtIQ — Y. Lemaalem
+// © 2026 StoplichtIQ
 //
 // Eigen functie en niet inline in tekenOverlay, om twee redenen. Ten eerste is
 // dit de enige plek waar de drie toestanden een uiterlijk krijgen, en die moet
@@ -8117,7 +8117,7 @@ let voorkeursBboxCy   = null;
 let voorkeursBboxRuns = 0;
 let voorkeursBboxTijd = 0;
 // ── V11.20.0: DE VIJFDE VASTHOUDREGEL KRIJGT ZIJN TIJDGENOOT ──
-// © 2026 StoplichtIQ — Y. Lemaalem
+// © 2026 StoplichtIQ
 //
 // V11.18.17 gaf vier drempels een tijdseis naast hun runs-teller: AI_DREMPEL,
 // zijn onverwachte broer, TOLERANTIE_RUNS en STICKY_MISS_MAX. De reden stond
@@ -8174,7 +8174,7 @@ let isOnscherp     = false;
 let leerToastTimer = null;
 
 // ── V11.34.0: DE TIK KLOPT OOK AAN DE RAND ───────────────────
-// © 2026 StoplichtIQ — Y. Lemaalem
+// © 2026 StoplichtIQ
 //
 // M6 uit de STAP 0 van 27 september. #camera-canvas en #overlay-canvas staan
 // op object-fit: cover (r24-27). Staand is het scherm smaller dan het
@@ -8238,7 +8238,7 @@ canvas.addEventListener('click', (e) => {
   cameraTapMarker = { x: videoX, y: videoY, tijd: Date.now() };
 
   // ── V11.18.17: DEZE TIK ZET OOK DE NODE VAST ─────────────────
-  // © 2026 StoplichtIQ — Y. Lemaalem
+  // © 2026 StoplichtIQ
   //
   // WELKE node, en waarom niet de node ONDER de vingertop. Er bestaat code die
   // een vakje naar een node-id vertaalt (koppelBboxAanNode, r17311), maar die
@@ -8262,7 +8262,7 @@ canvas.addEventListener('click', (e) => {
   if (dichtstbijOSM) tikSlotMerk = { id: String(dichtstbijOSM.id), ts: handmatigGeselecteerdTimestamp };   // V11.37.2: dit slot komt van een tik op het beeld
 
   // ── V11.33.0 F1: DE TIK LANDT WAAR JE VINGER LANDDE ──
-  // © 2026 StoplichtIQ — Y. Lemaalem
+  // © 2026 StoplichtIQ
   //
   // Tot V11.32.0 pakte deze handler de dichtstbijzijnde BESTAANDE detectie
   // binnen 200 YOLO-pixels. Twee fouten, allebei gemeten in test_tiklog TL0:
@@ -8571,7 +8571,7 @@ const NODE_CHK_STANDSTILL_MAX_M   = 40;    // W1b: max afstand bij stilstand voo
 const NODE_CHK_STANDSTILL_KMH     = 3;     // W1b+W3: stilstand-drempel (km/u)
 const NODE_CHK_STANDSTILL_DUUR_MS = 3000;  // W3: minimum stilstand-duur voor hercontrole
 // ── V11.18.7: VAN 20 NAAR 8 METER ──────────────────
-// © 2026 StoplichtIQ — Y. Lemaalem
+// © 2026 StoplichtIQ
 //
 // Deze drempel stond sinds V11.17.9 op 20 en dekte op de meting van
 // 12 september 1 van de 20 afwijkingen — de route was feitelijk dood. De
@@ -8596,7 +8596,7 @@ const NODE_CHK_CORRECTIE_MARGE_M  = 8;     // W3: alternatief moet zoveel dichte
 const NODE_CHK_HEADING_MAX_GRAD   = 60;    // W3: heading-match tolerantie (indien beschikbaar)
 
 // ── V11.18.17: EEN TAP IS GEEN GOK ───────────────────────────
-// © 2026 StoplichtIQ — Y. Lemaalem
+// © 2026 StoplichtIQ
 //
 // De vervalregel van V11.18.7 liet een handmatige tap vallen zodra een andere
 // node 8 meter dichterbij lag. Twee dingen ontbraken daaraan, en samen maken ze
@@ -8633,7 +8633,7 @@ const NODE_CHK_HEADING_MAX_GRAD   = 60;    // W3: heading-match tolerantie (indi
 // ROUTE 1 BLIJFT ONGEMOEID. Wegrijden (>100 m, voorbij, >5 km/u) is geen
 // twijfelgeval en heeft geen stabiliteitseis nodig.
 // ── V11.19.0: DE MARGE GAAT TERUG NAAR 8, MET EEN KOERSTOETS ERBIJ ──
-// © 2026 StoplichtIQ — Y. Lemaalem
+// © 2026 StoplichtIQ
 //
 // De 20 hierboven is niet fout beredeneerd, maar hij laat een gat open dat in
 // de praktijk pijn doet. Tussen 8 en 20 meter ligt precies de typische afstand
@@ -8645,7 +8645,7 @@ const NODE_CHK_HEADING_MAX_GRAD   = 60;    // W3: heading-match tolerantie (indi
 // stilstand_node_afwijking met afwM=9 zes seconden later. Alle vijf de mogelijke
 // loslaat-routes zijn nagelopen; geen enkele had bij 9 meter gevuurd. Dat het
 // die dag maar zes seconden duurde, kwam doordat de bestuurder zelf naar de
-// correctielijst greep — niet doordat de app zich herstelde. Younes heeft
+// correctielijst greep — niet doordat de app zich herstelde. De gebruiker heeft
 // bevestigd dat dat niet altijd lukt en dat het vaker is voorgebeurd.
 //
 // WAAROM 8 NU WÉL KAN. V11.18.17 verlaagde deze marge niet omdat de tap dan
@@ -8749,7 +8749,7 @@ let naderWeigerTijd    = 0;
 function naderBewijsReset(reden) { if (reden) naderLeegMerk(reden); naderBewijs = null; }
 
 // ── V11.34.3: WAAROM WAS HET BEWIJS LEEG? ────────────────────
-// © 2026 StoplichtIQ — Y. Lemaalem
+// © 2026 StoplichtIQ
 //
 // ALLEEN METEN. Op 27 september nam V11.27.0 in negen uur log nul keer een
 // beslissing: checkNaderingsCorrectie stapt stil uit zodra er geen bewijs is
@@ -8809,7 +8809,7 @@ function naderLeegMeet(lat, lon, b) {
 
 let dichtstbijOSMTwijfel   = false;        // W1: huidige twijfel-vlag (edge-getriggerd log)
 // ── V11.18.12: DE MARKERING HEEFT NU TWEE BRONNEN ────────────
-// © 2026 StoplichtIQ — Y. Lemaalem
+// © 2026 StoplichtIQ
 //
 // De oranje ⚠-markering op #kruispunt-naam (r123-126) hing tot nu toe aan één
 // vlag. Er komt een tweede signaal bij met een lagere drempel, en die twee
@@ -8840,7 +8840,7 @@ let sessieFasenGezien       = {};     // { nodeId: { roodVolledig: bool, groenVo
 let nachtExposureActief=false;
 
 // ══ V11.34.2: DE APP MEET ZICHZELF — CAMERA, MODEL EN ELKE MINUUT ══
-// © 2026 StoplichtIQ — Y. Lemaalem
+// © 2026 StoplichtIQ
 //
 // Stap 1 uit de efficiëntie-STAP 0 van 28 september, plus de modelregel uit
 // het "ongevraagd gevonden" daarvan. ALLEEN METEN: niets hieronder beslist iets,
@@ -8897,9 +8897,9 @@ function meetRingSchrijf(sleutel, max, rec) {
 }
 
 // ── V11.36.4: DE WISSELLOG (ALLEEN METEN) ────────────────────
-// © 2026 StoplichtIQ — Y. Lemaalem
+// © 2026 StoplichtIQ
 //
-// WAAROM. Younes' prioriteitsklacht: na het voorbijrijden houdt de app het oude
+// WAAROM. De prioriteitsklacht van de gebruiker: na het voorbijrijden houdt de app het oude
 // licht te lang vast, en het volgende licht staat te laat klaar. Uit de exports
 // was een wissel maar half na te rekenen: de zichtlog ziet alleen wissels met
 // een fase in beeld, het tik-slot dat na 100 m loslaat schrijft niets, en er is
@@ -9065,10 +9065,10 @@ function wisselNa(lat, lon) {
   } catch (e) {}
 }
 
-// ── V11.37.1: DE SCHADUWREGEL VAN YOUNES (ALLEEN METEN) ───────
-// © 2026 StoplichtIQ — Y. Lemaalem
+// ── V11.37.1: DE SCHADUWREGEL VAN DE GEBRUIKER (ALLEEN METEN) ───────
+// © 2026 StoplichtIQ
 //
-// WAAROM. Younes stelde op 5 oktober een eenvoudiger lichtkeuze voor: neem bij
+// WAAROM. De gebruiker stelde op 5 oktober een eenvoudiger lichtkeuze voor: neem bij
 // elke GPS-update het dichtstbijzijnde licht dat ongeveer vooruit ligt en
 // waar je naartoe rijdt; een licht waarvan de afstand oploopt is voorbij. Op
 // de 19 stops die uit de exports na te rekenen waren, koos die regel bij
@@ -9076,7 +9076,7 @@ function wisselNa(lat, lon) {
 // weinig om de keuze om te zetten. Deze meting laat de regel naast de app
 // meerekenen, op de weg, met bochten en zijstraten erbij.
 //
-// DE REGEL, zoals afgesproken (Younes, 5 oktober):
+// DE REGEL, zoals afgesproken (gebruiker, 5 oktober):
 //   - alleen beoordelen vanaf REGEL_MIN_KMH; daaronder blijft de keuze staan
 //     (bij stilstand geeft de GPS ruis en geen bruikbare rijrichting);
 //   - alleen een NIEUWE GPS-positie telt. Een herhaalde, identieke positie
@@ -9093,7 +9093,7 @@ function wisselNa(lat, lon) {
 //     doen alleen niet mee zolang de auto binnen REGEL_OVERSTEEK_M van dat licht
 //     is: bij veldgeval AR9a sloeg de oude regel zo een echte volgende
 //     stopstreep 59 m verder over, en bij veldgeval AR9c het licht
-//     waar Younes stopte. En de huidige keuze laat de regel niet los op de hoek
+//     waar de gebruiker stopte. En de huidige keuze laat de regel niet los op de hoek
 //     alleen: tot REGEL_HOUD_HOEK graden zolang de afstand afloopt, of zolang
 //     hij binnen REGEL_HOUD_M staat en niet voorbij is. Nagerekend op de 63
 //     stops (rechte nadering): 6 van de 252 keuzes anders, 5 beter, 4 slechter
@@ -9268,7 +9268,7 @@ function regelTik(lat, lon) {
 }
 
 // ── V11.37.21: DE STOPLOG (ALLEEN METEN) ─────────────────────
-// © 2026 StoplichtIQ — Y. Lemaalem
+// © 2026 StoplichtIQ
 //
 // WAAROM. In sl_regellog duwden de afwijkingsregels de stopregels uit de ring
 // (in de exports tot de bouw: 159 afwijkingen tegen 41 stops), en een stopregel
@@ -9440,7 +9440,7 @@ function stopLogAf(S, nu, app) {
 }
 
 // ── V11.37.21: WEGGEGOOIDE KLOPTE- EN BIJNA-TIKKEN TELLEN (ALLEEN METEN) ──
-// © 2026 StoplichtIQ — Y. Lemaalem
+// © 2026 StoplichtIQ
 //
 // Een KLOPTE- of BIJNA-tik die volgens de app niets toevoegt (klopteIsNoOp,
 // bijnaIsNoOp) wordt niet bewaard; een FOUT-tik altijd. De opslaglog noteert het
@@ -9463,7 +9463,7 @@ function bevestigInertTel(soort) {
 }
 
 // ── V11.37.30: ALLEEN METEN — DE DOORRIJLOG (ELK LICHT, OOK NIET GEZIEN) ──
-// © 2026 StoplichtIQ — Y. Lemaalem
+// © 2026 StoplichtIQ
 //
 // WAAROM. sl_passagelog (V11.37.22) kent alleen het licht dat de app TOONDE.
 // Een licht dat de app niet koos of niet zag, een doorrit zonder detectie en de
@@ -9584,7 +9584,7 @@ try {
 } catch (e) { /* geen document: niets aan de hand */ }
 
 // ── V11.37.22: ALLEEN METEN — PASSAGES, EINDE GEMIST, SCHADUW WACHTTIJD ──
-// © 2026 StoplichtIQ — Y. Lemaalem
+// © 2026 StoplichtIQ
 //
 // Niets in dit blok beslist iets: geen keuze, geen countdown, geen leerdata.
 // Drie logs, elk een eigen ring via meetRingSchrijf (een vol quotum staakt
@@ -9668,7 +9668,7 @@ function passageTik(lat, lon) {
   } catch (e) {}
 }
 // -- V11.38.3: MEETREGEL C4 IN DE PASSAGELOG (ALLEEN METEN) -----------
-// (c) 2026 StoplichtIQ — Y. Lemaalem
+// (c) 2026 StoplichtIQ
 // Nieuwe velden in een passageregel (alleen als ze er zijn):
 //   tk   aantal tikken op dit licht tijdens de passage (geen veld = niet getikt)
 //   tka  afstand in m tot het licht bij de eerste tik
@@ -9860,7 +9860,7 @@ function stopTwijfel(appId, lat, lon) {
 }
 
 // ── V11.37.25: DE PLAATS VAN EEN LICHT UIT DE EIGEN KAART ──────
-// © 2026 StoplichtIQ — Y. Lemaalem
+// © 2026 StoplichtIQ
 //
 // WAAROM. De plaatsnaam in de naam van een licht ("Straat, Plaats") was niet
 // de plaats van het licht, maar huidigeStad: waar jij was toen de kaart laadde,
@@ -10003,7 +10003,7 @@ function plaatsZetOpCache(lijst) {
 }
 
 // ── V11.37.23: TERUG BIJ HETZELFDE LICHT, EN TWEE MEETVELDEN ─────
-// © 2026 StoplichtIQ — Y. Lemaalem
+// © 2026 StoplichtIQ
 //
 // 1. eindeGemistTerug. Reed de app bij een rood licht weg naar een ander licht
 //    en kwam hij binnen NODE_SESSION_MAX_MS terug (het herstel via
@@ -10167,7 +10167,7 @@ function eindeGemistTerug(nodeId, ouderdomMs) {
 }
 
 // ── V11.37.15: DE KOERS BIJ KRUIPEN (ALLEEN METEN) ────────────
-// © 2026 StoplichtIQ — Y. Lemaalem
+// © 2026 StoplichtIQ
 //
 // WAAROM. De STAP 0 van 11 oktober vond dat ruis op de koers tussen 5 en
 // 10 km/u het getoonde licht laat wisselen, vooral via de puntentelling van
@@ -10356,9 +10356,9 @@ function minStatSluit(eind, fEind) {
   } catch (e) {}
 }
 // ── V11.37.17: DE STARTLOG (ALLEEN METEN) ────────────────────
-// © 2026 StoplichtIQ — Y. Lemaalem
+// © 2026 StoplichtIQ
 //
-// WAAROM. Younes: "het duurt de laatste tijd minuten voordat de app verbinding
+// WAAROM. De gebruiker: "het duurt de laatste tijd minuten voordat de app verbinding
 // heeft met GPS". De export liet achteraf zien DAT een start traag was (de
 // eerste kaart kwam laat, de minuutlog had gaten zonder nieuwe start), maar
 // niet WAAR het bleef hangen: camera, model, GPS, kaart of het rekenen. Dit is
@@ -10548,7 +10548,7 @@ try {
 let modelTerugvalFout = null;   // de fout van de eerste laadpoging, als die er was
 
 // ── V11.37.26: ELK MODELPAD MET ZIJN EIGEN SOORT INVOER EN UITVOER ──
-// © 2026 StoplichtIQ — Y. Lemaalem
+// © 2026 StoplichtIQ
 //
 // WAAROM. YOLOv8 en YOLOX willen andere pixels en geven een andere tabel terug:
 //   yolov8  invoer 'images' RGB 0..1,   uitvoer 'output0' (1, 8, 8400), scores = kansen
@@ -10580,7 +10580,7 @@ function modelNaamVan(pad) {
 }
 
 // ── V11.37.31: YOLOX-NANO IS HET HOOFDMODEL ─────────────────────
-// © 2026 StoplichtIQ — Y. Lemaalem
+// © 2026 StoplichtIQ
 //
 // WAT. Het hoofdpad laadt ./model/yolox_nano.onnx (eigen-2 last). V11.37.36: er
 // is geen reserve en geen stille instelling meer (sl_hoofdmodel is weg). Laadt
@@ -10632,7 +10632,7 @@ function hoofdConf() { return hoofdSoort === 'yolox' ? NANO_CONF : CONF_DREMPEL;
 function hoofdTapConf() { return hoofdSoort === 'yolox' ? NANO_TAPCONF : TAP_CONF_DREMPEL; }
 
 // ── V11.37.33: DE VASTE SCOREGRENZEN VOLGEN HET GELADEN HOOFDMODEL ──
-// © 2026 StoplichtIQ — Y. Lemaalem
+// © 2026 StoplichtIQ
 //
 // Nano-scores (object x klasse) liggen hoger dan die van YOLOv8. Elke grens
 // heeft daarom twee waarden: [YOLOv8 (ongewijzigd), Nano]. De Nano-waarde is
@@ -10691,7 +10691,7 @@ function hoofdInitFout(msg) {
 }
 
 // ── V11.37.34: DE WACHTER OP DE HOOFD-WORKER ───────────────────
-// © 2026 StoplichtIQ — Y. Lemaalem
+// © 2026 StoplichtIQ
 //
 // Sinds V11.37.31 rekent de hoofdthread niet mee zolang de worker laadt. Meldt
 // de worker nooit "klaar" en geen fout, dan zou er stil niets gedetecteerd
@@ -10713,7 +10713,7 @@ function hoofdWorkerOpgeven(w, pad) {
 
 
 // ── V11.37.36: DE FAALMELDING ALS NANO NIET START ────────────────
-// © 2026 StoplichtIQ — Y. Lemaalem
+// © 2026 StoplichtIQ
 //
 // Er is geen reservemodel meer. Laadt ./model/yolox_nano.onnx niet, meldt de
 // worker een laadfout, crasht hij vóór 'klaar', of geeft hij in 20 s geen
@@ -11191,7 +11191,7 @@ function postprocessYOLO(outputData, dims) {
   const dynamischMaxY = (typeof snelheidKmh==='number' && !isNaN(snelheidKmh) && snelheidKmh<15)
     ? 0.85 : MAX_Y_RATIO;
   // ── V11.20.1: DE VIJF FILTERS GELDEN NIET VOOR JOUW LAMP ──
-  // © 2026 StoplichtIQ — Y. Lemaalem
+  // © 2026 StoplichtIQ
   //
   // Deze vijf regels gooien weg wat in het ALGEMEEN geen stoplicht kan zijn:
   // te vaag, te laag in beeld, te klein, te breed, te plat. Dat is verstandig
@@ -11200,7 +11200,7 @@ function postprocessYOLO(outputData, dims) {
   // Zodra de gebruiker heeft aangewezen wélke lamp het is, klopt die aanname
   // niet meer. Dan weten we dat daar een stoplicht staat, en een detectie van
   // 5% op die plek is geen ruis maar een slecht zichtbare lamp — tegenlicht,
-  // regen, afstand. Younes' eigen woorden bij deze klacht: "Al is de bbox maar
+  // regen, afstand. De woorden van de gebruiker bij deze klacht: "Al is de bbox maar
   // 5%." Met CONF_DREMPEL op 0,10 haalde die 5% het nooit, en sneuvelde de tik
   // in een laag waar de tik niet eens bekend was.
   //
@@ -11290,7 +11290,7 @@ function postprocessYOLO(outputData, dims) {
 
 
 // ── V11.37.26: DE NABEWERKING VOOR DE NANO-SCHADUW ─────────────
-// © 2026 StoplichtIQ — Y. Lemaalem
+// © 2026 StoplichtIQ
 //
 // Een KOPIE van postprocessYOLO, zodat het hoofdpad geen letter verandert.
 // Dezelfde vijf filters, dezelfde tikzone en dezelfde NMS, met drie verschillen:
@@ -11513,7 +11513,7 @@ function stickyProjecteer(s) {
 }
 
 // ── V11.21.0: DE MATCHKERN, ÉÉN KEER ─────────────────
-// © 2026 StoplichtIQ — Y. Lemaalem
+// © 2026 StoplichtIQ
 //
 // Deze twee functies stonden woordelijk in de bboxOverride-tak. Release 2c
 // heeft ze op een tweede plek nodig — het slot zonder tap — en dit bestand
@@ -11583,7 +11583,7 @@ function stickyNeemOver(match) {
 }
 
 // ── V11.21.0: HET SLOT ZONDER TAP ───────────────────
-// © 2026 StoplichtIQ — Y. Lemaalem
+// © 2026 StoplichtIQ
 //
 // KLACHT 1: de box springt tussen lampen. De oorzaak stond in het onderzoek:
 // de app heeft geen identiteit voor "welke lamp volg ik", alleen een score die
@@ -11670,10 +11670,10 @@ function autoSlotZet(det) {
 }
 
 // ── V11.37.35: GESELECTEERD = BLIJVEN ───────────────────────────
-// © 2026 StoplichtIQ — Y. Lemaalem
+// © 2026 StoplichtIQ
 //
 // DE KLACHT. Na een selectie (tik of automatisch) gaat de box heen en weer en
-// zoekt de app een "beter" licht met een hogere detectie. Younes' regel:
+// zoekt de app een "beter" licht met een hogere detectie. De regel van de gebruiker:
 // geselecteerd = blijven, tot (a) je het kruispunt voorbij bent (GPS) of (b) je
 // zelf een ander licht tikt.
 //
@@ -11860,7 +11860,7 @@ function slotBovengrens() {   // V11.37.35
 }   // V11.37.35
 
 // ── V11.37.35: DE CROP VOLGT DE GESELECTEERDE LAMP ───────────────
-// © 2026 StoplichtIQ — Y. Lemaalem
+// © 2026 StoplichtIQ
 //
 // DE KLACHT. Bij een geselecteerd licht stopt de box soms bij de groene lijn en
 // gaat niet mee met het licht. De groene lijn is de rand van de crop (de
@@ -11927,7 +11927,7 @@ function selecteerBesteDetectie(detecties) {
   // blok hieronder.
   if (bboxOverride !== null) {
     // ── V11.33.0: NA EEN TIK KIEST DEZE TAK NOOIT EEN ANDER LICHT ──
-    // © 2026 StoplichtIQ — Y. Lemaalem
+    // © 2026 StoplichtIQ
     //
     // Wat er weg is, en waarom (STAP 0 van 27 september, M1-M5):
     //   - de overnames (c) onder 15 m en (b) onder 40 m, die na één of twee
@@ -12558,7 +12558,7 @@ function slaKanslozeRunOver() {
 }
 
 // ══ MODELVERGELIJKING: DE NANO-SCHADUW NAAST HET HOOFDMODEL ═════
-// © 2026 StoplichtIQ — Y. Lemaalem
+// © 2026 StoplichtIQ
 //
 // V11.37.27: wat hier nog staat, is alleen voor de Nano-schaduwproef (zie het blok
 // NANO-SCHADUW). De standen v8n, dfine, ort130 en webgpu zijn weg, met hun code
@@ -12804,7 +12804,7 @@ if (typeof window !== 'undefined') window.modelVergelijking = modelVergelijking;
 
 
 // ══ V11.18.9: DE VERBORGEN 5-TIKKEN-ZONE ════════════════
-// © 2026 StoplichtIQ — Y. Lemaalem
+// © 2026 StoplichtIQ
 //
 // De meetmodus van V11.18.8 kon alleen via de Safari-console aan en uit, en
 // daar is een Mac voor nodig. Deze zone geeft dezelfde twee schakelaars op het
@@ -13046,7 +13046,7 @@ function vglStartSchaduw(modus) {
 
 
 // ══ V11.37.26: NANO-SCHADUW — YOLOX-Nano naast het huidige model ══════
-// © 2026 StoplichtIQ — Y. Lemaalem
+// © 2026 StoplichtIQ
 //
 // WAT. De schaduw van de modelvergelijking (vijf tikken op het versielabel;
 // V11.37.27: de enige stand die er nog is). Het huidige model (destijds YOLOv8n)
@@ -13058,7 +13058,7 @@ function vglStartSchaduw(modus) {
 // standaard UIT: zonder sl_modelvgl_aan draait geen regel van dit blok en wordt
 // het bestand niet eens opgehaald (er is geen service worker).
 //
-// HET CRITERIUM (vastgelegd door Younes VOOR de bouw):
+// HET CRITERIUM (vastgelegd door de gebruiker VOOR de bouw):
 //   K1 doorrijden  >15 km/u, niet gestopt, laatste 3 s voor de passage:
 //                  waarheid groen (oranje mag); fout = gemist of rood
 //   K2 stilstand   >=5 s binnen 25 m, zonder de laatste 3 s voor het
@@ -13613,7 +13613,7 @@ function nanoOverzichtRegels() {
 if (typeof window !== 'undefined') window.nanoOverzichtRegels = nanoOverzichtRegels;
 
 // ── V11.37.18: EEN VANGNET VOOR aiBezig (C7) ────────────────
-// © 2026 StoplichtIQ — Y. Lemaalem
+// © 2026 StoplichtIQ
 //
 // WAAROM. In de worker-route wist voerAIUit zijn eigen vangnet van 3 s (de
 // clearTimeout vóór de return), en daarna zet alleen een antwoord van de
@@ -13828,7 +13828,7 @@ function tekenOverlay(box, score, horizontaal) {
   // indicator bboxOverride terug met het stelsel van de LOPENDE run, terwijl
   // die in het stelsel van het tikmoment stond: dezelfde val als bij de tik.
   const tikPlek = tapActief ? tikPlekCam() : null;
-  // Het zoekringetje (Younes' keuze bij eis 2): zolang de app jouw lamp niet
+  // Het zoekringetje (keuze van de gebruiker bij eis 2): zolang de app jouw lamp niet
   // ziet, geen box maar een klein wit ringetje waar hij zoekt.
   if (tapActief && !box && tikPlek) tekenZoekring(tikPlek);
   const toonTapIndicator = tapActief && !!box && !!tikPlek && (aiTeller < 2 || !zoomVergrendeld);
@@ -13896,7 +13896,7 @@ function tekenOverlay(box, score, horizontaal) {
   const mg=8, hl=Math.min(box.w,box.h)*0.35+8;
   const x1=box.x-mg, y1=box.y-mg, x2=box.x+box.w+mg, y2=box.y+box.h+mg;
   // ── V11.20.0: DE RAND VERTELT WELK SLOT ACTIEF IS ──────
-  // © 2026 StoplichtIQ — Y. Lemaalem
+  // © 2026 StoplichtIQ
   //
   // Dik en doorlopend = jouw tik houdt hem vast. Normaal en doorlopend = de app
   // houdt hem zelf vast. Dun en gestreept = hij zoekt vrij en kan elk moment
@@ -14570,7 +14570,7 @@ function startCd() {
   // al gezet, elapsed < activeCdDoel + CD_DROPOUT_MAX_S.
   //
   // ── V11.17.98: "ECHTE CYCLUS-OMDRAAIINGEN VALLEN BUITEN DIT VENSTER" ──
-  // © 2026 StoplichtIQ — Y. Lemaalem
+  // © 2026 StoplichtIQ
   //
   // Dat stond hier, en het klopte niet. De voorwaarde meet alleen verstreken
   // WANDTIJD op dezelfde node; of er een groene fase tussen zat weet ze niet.
@@ -14926,7 +14926,7 @@ function tickCd() {
     cdPillLabel.textContent = 'elk moment';
   } else if (activeCdModus === CD_VAAG && activeCdMin != null) {
     // ── V11.17.82: ÉÉN AFTELLEND GETAL IN PLAATS VAN TWEE ──────
-    // © 2026 StoplichtIQ — Y. Lemaalem
+    // © 2026 StoplichtIQ
     //
     // Tot nu toe stond hier `minOver + '-' + maxOver`, met twee getallen die
     // GELIJKTIJDIG aftelden vanaf dezelfde `ver`. Het verschil ertussen bleef
@@ -15014,7 +15014,7 @@ function tickCd() {
     cdPillLabel.textContent = cdPillLabel.textContent + ' · nog ' + richtingTekort.nog + '×';
   }
   // ── V11.18.13: ZEG HET ALS HET GETAL VAN EEN ANDER MOMENT KOMT ──
-  // © 2026 StoplichtIQ — Y. Lemaalem
+  // © 2026 StoplichtIQ
   //
   // Zelfde suffix-patroon als ' · richting?' en ' · nog N×' hierboven, en net
   // als die twee puur visueel: de countdown-waarde verandert er niet door.
@@ -15147,13 +15147,13 @@ function tickCd() {
 }
 
 // ── V11.37.8: KLOPTE/BIJNA/FOUT BLIJFT BIJ HET LICHT VAN DE KNOPPEN ──
-// © 2026 StoplichtIQ — Y. Lemaalem
+// © 2026 StoplichtIQ
 //
 // WAAROM. Wisselde het licht terwijl de knoppen er stonden (rijdend na groen,
 // een correctie, 'geen licht', een keuze uit de lijst), dan verborg de app de
 // knoppen meteen. Een druk die net te laat kwam, ging verloren; bij een
 // lijstkeuze bleven ze staan en gooide bevestig_node_gewisseld de druk weg.
-// Afgesproken met Younes (8 okt): bewaren bij het licht waarvoor de knoppen
+// Afgesproken met de gebruiker (8 okt): bewaren bij het licht waarvoor de knoppen
 // verschenen.
 //
 // HOE. Bij elke wissel, VÓÓR er iets van het oude licht verandert (het
@@ -15296,7 +15296,7 @@ function bevestigCountdown(categorie) {
   if (bevestigNaWisselPad(categorie)) return;   // V11.37.8: na een wissel, zie bevestigBevries
   if (!dichtstbijOSM) { logOpslagMis('bevestig_geen_licht', { element: categorie }); return; }   // V11.37.8: niet meer stil
   // ── V11.17.89: LANDT DEZE TIK OP DE NODE WAAR HIJ VOOR BEDOELD WAS? ──
-  // © 2026 StoplichtIQ — Y. Lemaalem
+  // © 2026 StoplichtIQ
   //
   // Wisselde de node tussen het verschijnen van de knoppen en deze tik, dan is
   // niet alleen het id anders — de hele MEETCONTEXT is dan overschreven. Het
@@ -15344,7 +15344,7 @@ function bevestigCountdown(categorie) {
   // gebruiker ziet dat hij niets registreert, en de knoppenrij blijft staan
   // zodat FOUT alsnog gekozen kan worden.
   // ── V11.17.82: DE POORT WORDT VOORWAARDELIJK ──────────────────
-  // © 2026 StoplichtIQ — Y. Lemaalem
+  // © 2026 StoplichtIQ
   //
   // De return hierboven blijft nodig — hij beschermt tegen een tik tijdens de
   // zandloper, waar de klopte-tak `gem` ongewijzigd terugschrijft met gewicht
@@ -15394,7 +15394,7 @@ function bevestigCountdown(categorie) {
     }
   }
   // ── V11.17.89: DEZELFDE POORT VOOR EEN GEDEMPTE BIJNA ──────
-  // © 2026 StoplichtIQ — Y. Lemaalem
+  // © 2026 StoplichtIQ
   //
   // bijnaIsNoOp (r4384) bestond al, maar stuurde alleen de WEERGAVE. Een tik op
   // een gedempte BIJNA kwam gewoon door, belandde in sl_bevestig_ en telde in
@@ -15536,7 +15536,7 @@ function bevestigCountdown(categorie) {
   });
   { const l = data[data.length - 1]; if (l && l.bron) l.bron = latin1Veilig(l.bron); }   // V11.37.23: idem; huidigCdBron blijft gelijk
   // -- V11.18.20: DEZE CAP BLIJFT OP 20, EN DAT IS GEMETEN ------
-  // (c) 2026 StoplichtIQ - Y. Lemaalem
+  // (c) 2026 StoplichtIQ
   //
   // Fase 1 van het opslagplan overwoog deze cap naar 10 te brengen. De meting
   // wijst dat af. Op de backup van 28 augustus is sl_bevestig_ met 317,2 KB
@@ -15683,7 +15683,7 @@ function checkOsmVoorspelling() {
 }
 
 // ── V11.37.21: DE BADGE ZEGT WAT ER BEKEND IS ─────────────────
-// © 2026 StoplichtIQ — Y. Lemaalem
+// © 2026 StoplichtIQ
 //
 // De badge telde laadM-records ('12x gezien'), en dat zijn ook nul-records
 // (S2-markeringen van vóór V11.2.0, duur 0) en bevestig-correcties. 'Nieuw'
@@ -15771,7 +15771,7 @@ function bijwerkLeerkaart(osm) {
   });
 
   // ── V11.18.13: HOEVEEL WEET DE APP OVER DÍT MOMENT? ──────────
-  // © 2026 StoplichtIQ — Y. Lemaalem
+  // © 2026 StoplichtIQ
   //
   // Het percentage naast deze balk komt van berekenLeerPct, en dat telt ALLE
   // dagdelen bij elkaar op (algemeenMetingen zonder dagdeelfilter, r1763). Een
@@ -15798,7 +15798,7 @@ function bijwerkLeerkaart(osm) {
   }
 
   // ── V11.17.83: OOK DIT BLOK VOLGT DE LAAG ──────────────
-  // © 2026 StoplichtIQ — Y. Lemaalem
+  // © 2026 StoplichtIQ
   //
   // Dit blok schreef leerPctGetal en leerPctBalk OPNIEUW, in beide takken, en
   // altijd uit V4 (laadM en berekenLeerPct). Het stond na de berekening
@@ -15876,7 +15876,7 @@ function bijwerkLeerkaart(osm) {
 // tikRichting voor keuze-actie. GEEN nieuwe scoring-logica — de aggregatie
 // over dagdelen is een gewogen gemiddelde op basis van bestaande outputs.
 // ── V11.37.9: HET GEWICHT VAN ROND LICHT ─────────────────────
-// © 2026 StoplichtIQ — Y. Lemaalem
+// © 2026 StoplichtIQ
 //
 // De Rond-licht-rij hieronder woog elk dagdeel met m.length: ook de lege
 // S2-markeringen (duur 0) telden. Een veldgeval, dag: 46 records, waarvan 45 lege
@@ -15905,7 +15905,7 @@ function renderRichtingBlok(osm) {
   let algGewTot = 0, algGewPct = 0, algGewCyc = 0;   // V11.37.9: zie hieronder
   for (const d of Object.keys(DD)) {
     // ── V11.17.94: ÉÉN FILTER AAN DE INLEESREGEL ──────────
-    // © 2026 StoplichtIQ — Y. Lemaalem
+    // © 2026 StoplichtIQ
     //
     // Hier stond het filter alleen om het PERCENTAGE heen; het aantal en de
     // cyclustijd lazen de volle set. De redenering was dat die twee "alles
@@ -16008,7 +16008,7 @@ function renderRichtingBlok(osm) {
     .sort((a, b) => b.metingen - a.metingen);
 
   // ── V11.18.4: EEN GEKOPPELD KRUISPUNT TOONT NOG ÉÉN RIJ ───────
-  // © 2026 StoplichtIQ — Y. Lemaalem
+  // © 2026 StoplichtIQ
   //
   // Een koppeling (sl_enkelricht_) zegt: dit kruispunt heeft geen apart rond
   // licht, en één richting IS het licht dat voor iedereen geldt. Toch stonden
@@ -16127,7 +16127,7 @@ function renderRichtingBlok(osm) {
       erChip = ` <span onclick="event.stopPropagation();verwijderEnkelRicht('${nodeId}')" title="Dit kruispunt is gemarkeerd als één licht voor ${KOPPEL_NAAM[erMark] || erMark} — tik om los te maken" class="rb-koppel gekoppeld">✕</span>`;
     }
     // ── V11.18.18: HET KOPPELAANBOD IS HIER WEG ─────────────────
-    // © 2026 StoplichtIQ — Y. Lemaalem
+    // © 2026 StoplichtIQ
     //
     // Hier stond de chip 'zelfde als →?': het aanbod om het ronde licht aan de
     // zojuist getikte richting te koppelen. Drie keer is gemeld dat hij opdook
@@ -16212,7 +16212,7 @@ function renderRichtingBlok(osm) {
 }
 
 // ── V11.37.9: MEETREGEL richting_verborgen ─────────────────────
-// © 2026 StoplichtIQ — Y. Lemaalem
+// © 2026 StoplichtIQ
 //
 // Het rijblok laat richtingrijen weg zonder dat te zeggen. Drie redenen,
 // geteld in de STAP 0 van 8 okt (backup 7 okt): het naderingsfilter (alleen
@@ -16306,7 +16306,7 @@ function selecteerDagdeel(dd) {
 }
 
 // ── V11.17.83: WELKE LAAG TOONT DE LEERKAART? ─────────────────
-// © 2026 StoplichtIQ — Y. Lemaalem
+// © 2026 StoplichtIQ
 //
 // De leerkaart toonde altijd de V4-cijfers, ook als er een richting gekozen
 // was: berekenLeerPct (r1619) leest uitsluitend laadM, en de dagdeelstrip
@@ -16363,7 +16363,7 @@ function laagGeldigVoor(nodeId) {
 // regel eronder — test_richting_ui T2c bewaakt dat.
 //
 // ── V11.28.0: ELKE METING TELT ÉÉN KEER ────────────────────────
-// © 2026 StoplichtIQ — Y. Lemaalem
+// © 2026 StoplichtIQ
 //
 // Hier stond laadMV5Geclusterd per paar. Die leest niet één emmer maar een
 // blok van 3x3: het eigen paar voor 1, de acht buren (aanrij en afrij elk 45
@@ -16498,7 +16498,7 @@ function laagDagdeelPct(nodeId, laag, dd) {
 // bijwerkLeerkaart roept renderRichtingBlok aan en die leest richtingLockKeuze
 // voor de koppel-chip — omgekeerd zou het scherm één tik achterlopen.
 // ── V11.37.9: ROND LICHT KORT NA EEN RIJBLOKTIK TELT NIET ──────
-// © 2026 StoplichtIQ — Y. Lemaalem
+// © 2026 StoplichtIQ
 //
 // Na een tik op een richtingrij of een toevoegknop wordt het rijblok opnieuw
 // getekend, en de rij onder je vinger kan dan de Rond-licht-rij zijn. Een
@@ -16529,7 +16529,7 @@ function kiesLaagAlgemeen() {
     richtingLockKeuze  = 'algemeen';
     richtingLockBron   = 'tik';   // V11.17.96: Algemeen indrukken IS een tik
     // ── V11.18.10: ALGEMEEN BETEKENT OOK VOOR HET SCHRIJFPAD 'GEEN RICHTING' ──
-    // © 2026 StoplichtIQ — Y. Lemaalem
+    // © 2026 StoplichtIQ
     //
     // Deze functie zette alleen richtingLockKeuze en liet v9PreSelectieAfrij
     // staan. Stond daar nog een eerder herstelde of getikte richting, dan
@@ -16885,7 +16885,7 @@ function tijdGeleden(ts) {
 // ── DATA EXPORT/IMPORT ────────────────────────────────────────
 
 // ── V11.18.15: DE BACKUP NEEMT ELKE sl_-SLEUTEL MEE ──────────
-// © 2026 StoplichtIQ — Y. Lemaalem
+// © 2026 StoplichtIQ
 //
 // WAT ER MIS WAS. De export liep over een VASTE lijst van 24 prefixen en
 // sleutelnamen. Elke store die na het opstellen van die lijst bijkwam, viel er
@@ -16920,7 +16920,7 @@ function exportSleutelMee(key) {
 // zonder share-dialoog, alert en download te toetsen is. De parse-terugval is
 // ongewijzigd: een waarde die geen JSON is gaat als ruwe tekst mee, nooit weg.
 // -- V11.23.0: DE REDDINGSBOEI STAAT AAN DE GOEDE KANT -------
-// (c) 2026 StoplichtIQ - Y. Lemaalem
+// (c) 2026 StoplichtIQ
 //
 // Deze functie las `Object.keys(localStorage)`. Zolang localStorage de bron is
 // klopt dat, maar het opslagplan haalt die bron er in een latere release
@@ -17057,7 +17057,7 @@ function naarStartscherm() {
 
 // ── OSM ───────────────────────────────────────────────────────
 // ── V11.37.12: EEN REM OP DE KAARTVRAAG ───────────────────────
-// © 2026 StoplichtIQ — Y. Lemaalem
+// © 2026 StoplichtIQ
 //
 // WAAROM. Mislukte de kaartvraag (504 bij drukte, 429, een time-out), dan
 // plande downloadOSM na 30 s een nieuwe. Maar finally zette cacheBezig meteen
@@ -17087,7 +17087,7 @@ function kaartRemNa() {
 }
 
 // ── V11.37.18: DE KAART BLIJFT, EN JE ZIET WAAROM ER GEEN IS ──
-// © 2026 StoplichtIQ — Y. Lemaalem
+// © 2026 StoplichtIQ
 //
 // WAAROM. Bij een drukke Overpass (502, 504) kwam er na de start geen kaart, en
 // dan leek de app dood: de GPS-pil blauw, de Kaart-pil 'Fout' en onderin 'Wacht
@@ -17345,7 +17345,7 @@ function kaartWeergaveBij() {
 }
 
 // ── V11.37.18 (vervolg): ZELF OPNIEUW, EN DE PIL ALS KNOP ──────
-// © 2026 StoplichtIQ — Y. Lemaalem
+// © 2026 StoplichtIQ
 //
 // WAAROM. Na een mislukte kaartvraag start een GPS-tik de volgende poging
 // (onGPS, kaartBewaardTik, C5 in updateDichtbij). De timer van 30 s in de
@@ -17436,7 +17436,7 @@ try {
 } catch (e) { /* geen document: niets aan de hand */ }
 
 // ── V11.37.20: DE KAART UIT EEN EIGEN BESTAND ──────────────────
-// © 2026 StoplichtIQ — Y. Lemaalem
+// © 2026 StoplichtIQ
 //
 // WAAROM. De kaart kwam bij elke vraag van Overpass, en die gaf de laatste
 // weken vaak 502, 504 of niets binnen 25 s; de reserveserver (V11.37.19,
@@ -17537,7 +17537,7 @@ let kaartBron = null;               // 'bestand' of 'overpass': waar de laatste 
 let kaartNetStaart = Promise.resolve(), kaartNetOpen = 0, kaartNetWie = null;
 
 // ── V11.37.20 (CRASHBEWAKING): EEN POGING DIE STIERF ────────────────
-// © 2026 StoplichtIQ — Y. Lemaalem
+// © 2026 StoplichtIQ
 //
 // WAAROM. Fouten die de app zelf merkt, vangt kaartBestandHaal op. Een crash
 // door iOS tijdens het ophalen of inlezen (te weinig geheugen) merkt hij niet:
@@ -18338,7 +18338,7 @@ async function downloadOSM(lat, lon) {
   pOSM.className='pill-dot o'; pOSMT.textContent='laden'; debugWaarden.osm='osm:laden';
   kaartWeergaveBij();   // V11.37.18: de pil en het onderste vak volgen de kaartvraag, zie daar
   // ── V11.17.88: OOK DE WEGEN MET EEN MAXSPEED OPHALEN ──────
-  // © 2026 StoplichtIQ — Y. Lemaalem
+  // © 2026 StoplichtIQ
   //
   // Stond: way(bn.tl)["name"]. Daarmee viel elke naamloze weg buiten de
   // payload, en juist daar zitten opritten en busbanen met een limiet. Het
@@ -18441,7 +18441,7 @@ async function haalStraatnamenOp() {
 }
 
 // ── V11.37.8: FIETS- EN VOETGANGERSLICHTEN ZIJN GEEN KANDIDAAT ──
-// © 2026 StoplichtIQ — Y. Lemaalem
+// © 2026 StoplichtIQ
 //
 // WAAROM. In gebied G1 ligt 47% van de verkeerslichten in OpenStreetMap
 // alleen op een fietspad of voetpad (346 van 735, 5 km rond het centrum, 8 okt
@@ -18463,7 +18463,7 @@ async function haalStraatnamenOp() {
 //      voorheen. De kaartaanvraag zelf verandert niet;
 //   3. het licht dat de app toont doet altijd mee (zoals bij achterSluitUit).
 //      Zo blijft een getikt of uit de lijst gekozen fietslicht staan, ook als
-//      het tik- of lijstslot vervalt. In veldgeval FL4 tikte Younes het
+//      het tik- of lijstslot vervalt. In veldgeval FL4 tikte de gebruiker het
 //      fietslicht zelf, en dat was daar het goede licht;
 //   4. de tik en de lijst lopen niet via deze functie: die blijven altijd
 //      toegestaan.
@@ -18542,7 +18542,7 @@ function fietsPuurDichtst(lat, lon, p) {
 }
 
 // ── V11.37.12: DE LIJST PER GEBIED, EN RUSTIG OPNIEUW PROBEREN ──
-// © 2026 StoplichtIQ — Y. Lemaalem
+// © 2026 StoplichtIQ
 //
 // WAAROM. In gebied G2 gaf Overpass drie minuten lang steeds 504
 // ("Dispatcher_Client ... timeout. The server is probably too busy"); een
@@ -18719,7 +18719,7 @@ async function fietsHaalOp(lat, lon) {
 }
 
 // ── V11.37.11: LICHTEN VOOR DE TEGENRICHTING ZIJN GEEN KANDIDAAT ──
-// © 2026 StoplichtIQ — Y. Lemaalem
+// © 2026 StoplichtIQ
 //
 // WAAROM. Op een weg met gescheiden rijbanen staat het licht voor de andere
 // kant op de overkant van de kruising, 25 tot 74 m voorbij je eigen licht en
@@ -18728,7 +18728,7 @@ async function fietsHaalOp(lat, lon) {
 // van 9 okt): in de opslaglog van 25 sept tot 7 okt toonde de app in 70 van de
 // 911 regels (7,7%) zo'n licht; in de geschiedenis staan 761 V4-metingen op
 // een licht met een koers tegen de weg in. Voorbeeld: veldgeval A
-// (test_tegenrichting TR6): Younes reed 41 graden, de app wisselde naar een licht dat op de
+// (test_tegenrichting TR6): de gebruiker reed 41 graden, de app wisselde naar een licht dat op de
 // rijbaan van 222 graden staat. Een richtingtag staat maar op 11 van de 77 van
 // zulke lichten, dus de regel leunt daar niet op.
 //
@@ -18754,7 +18754,7 @@ async function fietsHaalOp(lat, lon) {
 //   - nooit als enige kandidaat: is er onder de kandidaten geen ander
 //     autolicht, dan doet alles mee zoals vóór V11.37.11;
 //   - het licht dat de app toont doet altijd mee, dus een getikt of uit de
-//     lijst gekozen licht blijft staan (V11.37.13: alleen nog als Younes het
+//     lijst gekozen licht blijft staan (V11.37.13: alleen nog als de gebruiker het
 //     zelf koos, zie R1);
 //   - de tik en de lijst lopen niet via deze functie.
 // Toegepast in vindDichtbij, het puur dichtstbijzijnde licht (updateDichtbij)
@@ -18862,7 +18862,7 @@ function tegenPuurDichtst(lat, lon, p) {
 }
 
 // ── V11.37.13: TEGENLICHT OOK IN DE BOCHT EN BIJ KRUIPEN (R1 EN R3) ──
-// © 2026 StoplichtIQ — Y. Lemaalem
+// © 2026 StoplichtIQ
 //
 // WAAROM. Veldgeval M (STAP 0 van 10 okt, test_tegenbocht TB5). De regel van
 // V11.37.11 liet het tegenlicht toch staan, op twee manieren:
@@ -18874,7 +18874,7 @@ function tegenPuurDichtst(lat, lon, p) {
 // Nagereden op de echte route: 28 GPS-tikken met een tegenlicht in beeld.
 //
 // WAT.
-//   R1. Het getoonde licht doet alleen nog altijd mee als Younes het zelf koos:
+//   R1. Het getoonde licht doet alleen nog altijd mee als de gebruiker het zelf koos:
 //       getikt (op het beeld of op de bbox) of uit de lijst. Alles loopt via
 //       vergrendelNodeHandmatig, en daar wordt het nummer onthouden
 //       (tegenHandId). Een getoond licht dat de app zelf koos, valt af zodra de
@@ -18911,7 +18911,7 @@ const TEGEN_R13_ACTIEF = true;
 const TEGEN_R3_KMH     = 5;
 const TEGEN_VERS_MS    = 1500;   // R3: zo oud mag de koers van 'deze' GPS-tik zijn
 let tegenKoersTikT = 0;          // wanneer onGPS tegenKoersTik zette
-let tegenHandId = null;          // R1: het licht dat Younes tikte of uit de lijst koos
+let tegenHandId = null;          // R1: het licht dat de gebruiker tikte of uit de lijst koos
 function tegenR13Aan() { return TEGEN_R13_ACTIEF && tegenUitAan(); }
 
 // R3: tussen 5 en 10 km/u, met een geldige koers uit deze GPS-tik.
@@ -19011,7 +19011,7 @@ function vindDichtbijScore(lat, lon, heading, sl) {
 // daarvan nodes gaan omwisselen. headingBuffer krijgt alleen geldige waarden
 // (voegHeadingToe r8588, aangeroepen achter de guard op r12067).
 // ── V11.18.6: WAAROM ZEI DE HOEKROUTE NEE? ───────────────────
-// (c) 2026 StoplichtIQ - Y. Lemaalem
+// (c) 2026 StoplichtIQ
 //
 // Deze functie heeft VIJF verschillende redenen om false te geven, en de
 // episode-analyse van 12 september kan er geen van onderscheiden. Twee van de
@@ -19062,7 +19062,7 @@ function peilingDuidelijkBeter(pos, huidige, huidigeAf, alt, altAf) {
 }
 
 // ── V11.19.0: ÉÉN KOERSTOETS, TWEE AANROEPERS ──────────
-// © 2026 StoplichtIQ — Y. Lemaalem
+// © 2026 StoplichtIQ
 //
 // Het koersverschil in graden (0-180) tussen de rijrichting en de peiling naar
 // `node`, of null als er geen oordeel te vellen is.
@@ -19466,7 +19466,7 @@ function isStoplichtVoorbij(stoplichtPos, hPos, rijrichting) {
 }
 
 // ── V11.17.88: DE WETTELIJKE LIMIET VAN DEZE NODE ─────────
-// © 2026 StoplichtIQ — Y. Lemaalem
+// © 2026 StoplichtIQ
 //
 // BEWUST NIET VIA kiesBesteWeg. Die slaat elke naamloze weg over (r9776) —
 // dat is precies wat de straatnaam beschermt, maar het zou ook de opritten en
@@ -19523,7 +19523,7 @@ function kiesBesteWeg(wegen, gpsHeading) {
 // een geslaagde V4-schrijving. Zit de gebruiker al over de drempel maar rijdt
 // hij niet, dan gebeurde er niets.
 // -- V11.18.20: DE REDUNDANTE POSITIECACHE, APART AANROEPBAAR --
-// (c) 2026 StoplichtIQ - Y. Lemaalem
+// (c) 2026 StoplichtIQ
 //
 // Dit is pas 4 van voerOpruimPassenUit, woord voor woord, nu met een naam.
 // Reden voor de extractie: die functie draait ZES passen achter elkaar en pas
@@ -19559,7 +19559,7 @@ function ruimRedundantePosCache() {
 }
 
 // -- V11.18.20: EEN VERLAAGDE CAP MOET OOK TERUGWERKEN ---------
-// (c) 2026 StoplichtIQ - Y. Lemaalem
+// (c) 2026 StoplichtIQ
 //
 // HET PROBLEEM DAT DIT OPLOST. Elke log hieronder knipt zichzelf bij de
 // SCHRIJVING: `if (arr.length > MAX) arr = arr.slice(-MAX)`. Verlaag je de
@@ -19605,7 +19605,7 @@ function trimDiagnostiekLogs() {
 }
 
 // -- V11.18.20: DE EENMALIGE TRIM BIJ HET OPSTARTEN ------------
-// (c) 2026 StoplichtIQ - Y. Lemaalem
+// (c) 2026 StoplichtIQ
 //
 // FASE 1 VAN HET OPSLAGPLAN, EN ALLEEN FASE 1. Het onderzoek stelde vast dat
 // localStorage richting het 5 MB-plafond loopt en dat de noodrem bij 4 MB
@@ -19662,7 +19662,7 @@ function trimDiagnostiekV1() {
 }
 
 // ── V11.30.0: PAS 5 STAAT UIT TOT FASE 3 ──────────────────────
-// © 2026 StoplichtIQ — Y. Lemaalem
+// © 2026 StoplichtIQ
 //
 // Pas 5 halveerde een sl_v4_-emmer zodra de nieuwste meting ouder was dan 180
 // dagen. Niets onthield dat hij al geweest was, dus hij deed het bij elke
@@ -19690,7 +19690,7 @@ function trimDiagnostiekV1() {
 const OPRUIM_V4_HALVEREN = false;
 
 // ── V11.29.0: DE OPRUIMREM TELT WAT HIJ DOET ──────────────────
-// © 2026 StoplichtIQ — Y. Lemaalem
+// © 2026 StoplichtIQ
 //
 // Tot hier logde deze functie niets. Op de exports van 26 september stond de
 // opslag op 4,09 MiB tegen een grens van 4,0: de rem vuurde dus bij elke
@@ -19828,7 +19828,7 @@ function checkLocalStorageRuimte() {
 }
 
 // ── V11.29.0: WAT DE REM DEED, BEWAARD ──────────────────────────
-// © 2026 StoplichtIQ — Y. Lemaalem
+// © 2026 StoplichtIQ
 //
 // Twee plekken, elk met een eigen taak.
 //
@@ -19914,7 +19914,7 @@ function berekenLocalStorageKB() {
 }
 
 // ── V11.36.1: DE OPSLAG ZOALS SAFARI HEM TELT ───────────────────
-// © 2026 StoplichtIQ — Y. Lemaalem
+// © 2026 StoplichtIQ
 //
 // WAAROM. berekenLocalStorageKB hierboven telt elke waarde in UTF-16, twee
 // bytes per teken, en laat de sleutelnamen weg. Safari telt anders. In de
@@ -19984,7 +19984,7 @@ function berekenSafariOpslag() {
 }
 
 // ── V11.37.10: DE OPRUIMREM TELT ZOALS SAFARI ──────────────────
-// © 2026 StoplichtIQ — Y. Lemaalem
+// © 2026 StoplichtIQ
 //
 // WAAROM. De rem vuurde boven 4,0 MiB in UTF-16 zonder sleutelnamen. Safari
 // telt naam plus waarde, één byte per teken (berekenSafariOpslag). Op de backup
@@ -20111,7 +20111,7 @@ function analyseerBevestigLus() {
 
 // Voorvertoning eerst, schrijven pas na confirm. Zelfde vorm als ruimOpslagNuOp.
 // ── V11.37.9: DE KNOP 'RUIM BEVESTIG-LUS OP' STAAT UIT ─────────
-// © 2026 StoplichtIQ — Y. Lemaalem
+// © 2026 StoplichtIQ
 //
 // De knop is gebouwd voor de lus van vóór V11.17.60 (28 aug 10:44): FOUT-
 // tikken die op hun eigen opgeblazen gemiddelde voortbouwden. Op de backup van
@@ -20401,7 +20401,7 @@ function toonRichtingKnoppen(nodeId, forceerTonen = false) {
   // V10.0.3: Richtingkeuze lock — niet opnieuw tonen als keuze al gemaakt voor deze node
   if (richtingLockNodeId === nodeId && rijrichting()) return;
   // ── V11.18.18: DE APP KIEST GEEN RICHTING MEER VOOR JE ───────
-  // © 2026 StoplichtIQ — Y. Lemaalem
+  // © 2026 StoplichtIQ
   //
   // Hier stond het hart van V11.17.17 W1: bestond er een eerder getikte richting
   // met minstens één bevestiging, dan zette activeerPersistenteRichting die
@@ -20512,7 +20512,7 @@ function heropenRichtingKeuze() {
 // Een aanroep zonder element logt 'onbekend', zodat een nieuwe, niet-gelabelde
 // ingang in een export meteen opvalt in plaats van weg te vallen.
 // ── V11.37.5: DE KNOPPEN VOLGEN HET GETOONDE LICHT, EN TWEE METINGEN ─
-// © 2026 StoplichtIQ — Y. Lemaalem
+// © 2026 StoplichtIQ
 //
 // 1. HET GETOONDE LICHT. V11.37.3 stuurt een richtingtik naar het licht dat de
 //    app toont. Drie plekken hingen nog aan huidigBevestigdOsmNodeId, het licht
@@ -20522,7 +20522,7 @@ function heropenRichtingKeuze() {
 //    Nu: de knoppen gaan open voor het getoonde licht, en een tag- of VRI-knop
 //    die na een wissel nog in beeld staat, doet niets meer voor het oude licht.
 //
-// 2. EEN RICHTINGTIK DIE NIETS DOET. Een veldgeval: Younes
+// 2. EEN RICHTINGTIK DIE NIETS DOET. Een veldgeval: de gebruiker
 //    tikte 'linksaf' in het blok, en er staat geen enkele richting_tik in de
 //    opslaglog. Er zijn drie manieren waarop dat stil kan gebeuren; nu laat elk
 //    een regel richting_tik_leeg achter, met de reden in poortReden en de knop in
@@ -20603,7 +20603,7 @@ function detLogBestVelden() {
 }
 
 // -- V11.38.3: MEETREGEL C4 "TIKLOOS DETECTEREN" (ALLEEN METEN) --------
-// (c) 2026 StoplichtIQ — Y. Lemaalem
+// (c) 2026 StoplichtIQ
 //
 // Waarom: zonder deze velden is niet te meten of de app een lamp ZONDER tik vindt
 // (STAP 0 tikloos, 19 nov). Tot hier stonden score en afvalreden van de beste
@@ -20648,7 +20648,7 @@ function detLogC4Velden(st) {
 }
 
 // ── V11.37.3: DE RICHTINGTIK GAAT NAAR HET LICHT DAT JE ZIET ─────
-// © 2026 StoplichtIQ — Y. Lemaalem
+// © 2026 StoplichtIQ
 //
 // DE FOUT. Tot hier ging een richtingtik naar richtingKnoppenNodeId, en zonder
 // knoppen naar huidigBevestigdOsmNodeId. De knoppen zelf verdwijnen bij elke
@@ -20659,14 +20659,14 @@ function detLogC4Velden(st) {
 // alle exports van 25 sept tot 4 okt: 64 richtingtikken, bij 62 daarvan is te
 // zien welk licht er stond, en 5 landden op een ander licht (2 op een ander
 // kruispunt, 3 op een andere mast van hetzelfde kruispunt); 1 V5-meting ging
-// daardoor verloren. In veldgeval RT (test_richtingtik) koos Younes uit de lijst
+// daardoor verloren. In veldgeval RT (test_richtingtik) koos de gebruiker uit de lijst
 // licht B; vier seconden later schreef zijn Rechtsaf-tik
 // ('toevoeg') naar licht A, het licht van vóór de lijstkeuze, 61 graden
 // opzij. Anderhalve minuut later ging 'links' naar datzelfde licht, terwijl een derde
 // licht getoond werd en A ruim 1 km achter de auto lag; de linksaf-meting
 // van het rood erna (38 s) ging verloren.
 //
-// DE REGEL (Younes, 5 oktober): een richtingtik gaat altijd naar het licht waar
+// DE REGEL (gebruiker, 5 oktober): een richtingtik gaat altijd naar het licht waar
 // de box nu op staat, dus het licht dat de app toont (dichtstbijOSM). Alleen als
 // er geen licht getoond wordt, gelden de oude bronnen nog.
 //
@@ -21008,7 +21008,7 @@ function renderV9Lijst() {
 // zichtbaar wat er ontbrak zonder de voorspelling zelf aan te raken.
 //
 // ── V11.18.3: DE TEKST TELDE NAAR EEN GRENS DIE NIET MEER BESTAAT ──
-// © 2026 StoplichtIQ — Y. Lemaalem
+// © 2026 StoplichtIQ
 //
 // De poort hieronder luidde `n >= V9_MIN_METINGEN`, en het getal in de tekst
 // `V9_MIN_METINGEN - n`. Beide wezen naar de drempel van 5 in stap 1 van
@@ -21382,7 +21382,7 @@ function laadEnkelRicht(nodeId) {
   return (v === 'links' || v === 'rechtdoor' || v === 'rechts') ? v : null;
 }
 // ── V11.17.99: MEET DE KOPPELING OP HET MOMENT DAT HIJ GEZET WORDT ──
-// © 2026 StoplichtIQ — Y. Lemaalem
+// © 2026 StoplichtIQ
 //
 // Een koppeling zegt dat het ronde licht en deze richting dezelfde lamp zijn.
 // Klopt dat, dan horen hun cyclustijden dicht bij elkaar te liggen; liggen ze
@@ -21473,7 +21473,7 @@ const KOPPEL_NAAM = { links: 'linksaf', rechtdoor: 'rechtdoor', rechts: 'rechtsa
 const KOPPEL_PIJL = { links: '←', rechtdoor: '↑', rechts: '→' };
 
 // ── V11.17.96: HOE HEET DE RONDE CATEGORIE OP DIT KRUISPUNT ──
-// © 2026 StoplichtIQ — Y. Lemaalem
+// © 2026 StoplichtIQ
 //
 // Is er gemarkeerd dat het ronde licht dezelfde lichtmast is als een richting,
 // dan bestaat 'Algemeen' daar niet als apart begrip. Tot nu toe bleef het woord
@@ -21491,7 +21491,7 @@ const KOPPEL_PIJL = { links: '←', rechtdoor: '↑', rechts: '→' };
 // alleen de naam — de koppelstrip schrijft een andere zin, de indicator een
 // ander label.
 // ── V11.18.11: 'ALGEMEEN' HEET VOOR DE GEBRUIKER 'ROND LICHT' ──
-// © 2026 StoplichtIQ — Y. Lemaalem
+// © 2026 StoplichtIQ
 //
 // 'Algemeen' was een woord uit de code dat op het scherm terechtkwam. Voor de
 // gebruiker is het geen categorie maar een ding dat hij ziet hangen: het ronde
@@ -21618,7 +21618,7 @@ function updateNodeInfoChip(nodeId) {
 }
 
 // ── V11.17.97: HET PANEEL IS ALTIJD BEREIKBAAR, EN RUIMT ZICHZELF OP ──
-// © 2026 StoplichtIQ — Y. Lemaalem
+// © 2026 StoplichtIQ
 //
 // Hier stond `if (snelheidKmh > 15) return;`. Die poort was in V11.16.1
 // overgenomen van de klasse-correctieknop ("zoals klasse-btn", zie
@@ -21745,7 +21745,7 @@ function renderNodeInfo(nodeId) {
   // Algemeen-rij (V4-globaal) per dagdeel met data
   //
   // ── V11.17.94: HIER FILTEREN, MAAR DE RIJ NIET VERBERGEN ──
-  // © 2026 StoplichtIQ — Y. Lemaalem
+  // © 2026 StoplichtIQ
   //
   // Dezelfde D2-omissie als in het rijblok: deze rij heet 'Algemeen' en rekende
   // op de volle set, dus het percentage werd opgeblazen door metingen die bij
@@ -21761,7 +21761,7 @@ function renderNodeInfo(nodeId) {
   // Het rijblok op het hoofdscherm mag de regel wél helemaal laten vallen: daar
   // is hij een leesregel zonder tweede functie.
   // ── V11.18.4: OOK HIER DE GEPOOLDE BRON ──────────────────
-  // © 2026 StoplichtIQ — Y. Lemaalem
+  // © 2026 StoplichtIQ
   //
   // Deze rij las `zonderRichtingVerwant(laadM(...))` rechtstreeks. V11.17.99
   // bracht de pooling onder in algemeenMetingen, maar raakte alleen het rijblok
@@ -21825,7 +21825,7 @@ function renderNodeInfo(nodeId) {
     g.totaal += r.metingen;
   }
   // ── V11.18.4: DE GEKOPPELDE RICHTING KRIJGT GEEN EIGEN RIJ ───
-  // © 2026 StoplichtIQ — Y. Lemaalem
+  // © 2026 StoplichtIQ
   //
   // Zelfde reden als in het rijblok: bij een koppeling is deze richting het
   // ronde licht, en haar metingen staan hierboven al in de (hernoemde)
@@ -21944,7 +21944,7 @@ function toonMergeDialoog() {
   let html = '';
   if (a === 'ALG' || b === 'ALG') {
     // ── V11.17.95: BEIDE KANTEN OP ─────────────────────────
-    // © 2026 StoplichtIQ — Y. Lemaalem
+    // © 2026 StoplichtIQ
     //
     // Hier stond één knop, want er was maar één toegestane beweging. Nu zijn er
     // twee, en ze doen tegengestelde dingen — dus staat er bij elke knop wat er
@@ -22005,7 +22005,7 @@ function voerMergeUit(bronKey, doelKey) {
 
 // De merge-operatie met undo-snapshot en quota-rollback.
 // ── V11.17.91: HET STEMPEL VERHUIST MEE ─────────────────
-// © 2026 StoplichtIQ — Y. Lemaalem
+// © 2026 StoplichtIQ
 //
 // mergeRichtingen verwijderde bij "samenvoegen met Algemeen" alleen de V5-bron,
 // met de aantekening "verliesloos, metingen staan al in V4". Dat klopte toen
@@ -22097,7 +22097,7 @@ function herstelRvVoorMerge(nodeId, bron, bronMetingen) {
 }
 
 // ── V11.17.95: DE ANDERE KANT OP ────────────────────────
-// © 2026 StoplichtIQ — Y. Lemaalem
+// © 2026 StoplichtIQ
 //
 // Samenvoegen kon tot nu toe maar één richting op: een V5-emmer kon opgeslokt
 // worden door Algemeen, nooit andersom (r11721 blokkeerde bronKey === 'ALG').
@@ -22201,7 +22201,7 @@ function telAlgemeenVerplaatsbaar(nodeId) {
 }
 
 // ── V11.37.21: SAMENVOEGEN GOOIT NOOIT EEN UNIEKE METING WEG ──
-// © 2026 StoplichtIQ — Y. Lemaalem
+// © 2026 StoplichtIQ
 //
 // Samenvoegen met Algemeen haalt de V5-emmer weg in de veronderstelling dat
 // elke meting erin ook in V4 staat (de tweeling, zie herstelRvVoorMerge). Dat
@@ -22344,7 +22344,7 @@ function mergeRichtingen(nodeId, bron, doel) {
   }
 
   // ── V11.22.0: DE CACHE WEER GELIJKTREKKEN ──────────────────
-  // © 2026 StoplichtIQ — Y. Lemaalem
+  // © 2026 StoplichtIQ
   //
   // Dit blok schrijft met opzet rauw naar localStorage en niet via
   // opslagSchrijf. De reden staat in de rollback hierboven: die hangt ervan af
@@ -22413,7 +22413,7 @@ function mergeRichtingen(nodeId, bron, doel) {
 }
 
 // ── V11.37.9: NA SAMENVOEGEN VERDWIJNT HET OUDE LABEL ──────────
-// © 2026 StoplichtIQ — Y. Lemaalem
+// © 2026 StoplichtIQ
 //
 // WAAROM. sl_richting_<node> bewaart de laatst getikte richting (tikrichting:
 // links, rechtdoor of rechts). Voegde je de rij 'Rechtdoor' samen met Rond
@@ -22492,7 +22492,7 @@ function ni_kleur(pct) {
 }
 
 // ── V11.18.22: EEN BEELD-TAP OP EEN CLUSTER MAG NIET ZWIJGEN ──
-// © 2026 StoplichtIQ — Y. Lemaalem
+// © 2026 StoplichtIQ
 //
 // HET GEMETEN GAT. Veldgeval L (test_tap_koers K4), acht seconden:
 //   t+0 s     cluster_gemeld            node L1           45 km/u
@@ -22579,7 +22579,7 @@ function meldClusterNaBeeldTap(nodeId) {
 
 // Bug 2 + Bug 3: Handmatige node-selectie
 // ── V11.18.17: ÉÉN PLEK WAAR EEN MENS EEN NODE VASTZET ───────
-// © 2026 StoplichtIQ — Y. Lemaalem
+// © 2026 StoplichtIQ
 //
 // De vier velden die samen "een mens heeft deze node gekozen" betekenen stonden
 // tot nu toe alleen in selecteerNodeHandmatig. De tik op het stoplicht IN HET
@@ -22606,10 +22606,10 @@ function vergrendelNodeHandmatig(nodeId, element) {
   handmatigGeselecteerdTimestamp = Date.now();
   handmatigLockActief = true;
   stilstandAutoLock = false;
-  tegenHandId = n;   // V11.37.13 R1: dit licht koos Younes zelf, zie tegenR1
+  tegenHandId = n;   // V11.37.13 R1: dit licht koos de gebruiker zelf, zie tegenR1
   handLockVervalReset();   // een verse tap begint met een schone vervalteller
   // ── V11.36.0 A1: EEN TIK OP HET BEELD WIST HET NADERINGSBEWIJS NIET MEER ──
-  // © 2026 StoplichtIQ — Y. Lemaalem
+  // © 2026 StoplichtIQ
   //
   // V11.27.0 wiste hier bij ELKE vergrendeling het bewijs: "wie op 8 m nog
   // tikt, heeft het laatste woord". Dat klopt voor een keuze uit de lijst, want
@@ -22619,7 +22619,7 @@ function vergrendelNodeHandmatig(nodeId, element) {
   // mast waarop je tikte"). Op 27 september 13 van de 25 keer een node die toen
   // niet de dichtstbijzijnde was, op mediaan 104 m.
   //
-  // In het veld maakte dat V11.27.0 onbruikbaar. Younes tikt tot in de laatste
+  // In het veld maakte dat V11.27.0 onbruikbaar. De gebruiker tikt tot in de laatste
   // meters, vaker als het model zijn lamp niet ziet (het zoekringetje): zes
   // tikken in 21 s, de laatste op 24 m bij 3 km/u (27 sept 23:48:27-48). Elke
   // tik wiste het bewijs, dus bij stilstand was er nooit bewijs, en de oude route
@@ -23487,7 +23487,7 @@ async function verwijderTrainframes() {
 }
 
 // ── V11.37.6: DE LOSSE LOGKNOPPEN WISSEN NIETS MEER ─────────────
-// © 2026 StoplichtIQ — Y. Lemaalem
+// © 2026 StoplichtIQ
 //
 // Tot hier wisten de vier losse knoppen (conf, zicht, herziening, det) hun log
 // na het delen, een erfenis van V11.16.6 toen de logs nog geen vaste lengte
@@ -24008,7 +24008,7 @@ function updateDichtbij(lat, lon) {
           cdPill.classList.remove('cd-verborgen'); // V11.17.28 W1c: herstelde countdown moet zichtbaar zijn
           sessionHersteld = true;
           // ── V11.17.87: PUUR TELLEN, GEEN GEDRAG ──────────────
-          // © 2026 StoplichtIQ — Y. Lemaalem
+          // © 2026 StoplichtIQ
           //
           // Dit herstelpad is de enige route naar het node-wisselgat in het
           // bevestigpad: fase gaat terug op 'rood', de pill wordt weer actief,
@@ -24191,7 +24191,7 @@ function nodeChkLog(reden, gekozen, closest, gecorrigeerd) {
 function hoekStabielReset() { hoekStabielSleutel = null; hoekStabielTeller = 0; }
 
 // ── V11.17.90: MEET DE BAND DIE GEEN CORRECTIEROUTE DEKT ────
-// © 2026 StoplichtIQ — Y. Lemaalem
+// © 2026 StoplichtIQ
 //
 // Bij stilstand kiest vindDichtbijScore aantoonbaar de dichtstbijzijnde node
 // (r9453-9454: normAf * 0,95 + conf * 0,05, en conf spant maar 0,05). Maar
@@ -24261,7 +24261,7 @@ function meetStilstandNodeAfwijking() {
 }
 
 // ── V11.18.6: BIJ WELKE POORT STAPT DE CORRECTIE UIT? ────────
-// (c) 2026 StoplichtIQ - Y. Lemaalem
+// (c) 2026 StoplichtIQ
 //
 // De episode-analyse van 12 september vond drie auto-lock-episodes: de app
 // stond op de verkeerde node, de stilstand-auto-lock hield hem vast, en de
@@ -24284,7 +24284,7 @@ function meetStilstandNodeAfwijking() {
 let nodeCorrWeiger = null;   // { poort, afstReden, hoekReden, hoekN, voordeel }
 
 // ── V11.18.7: EEN HANDMATIGE KEUZE MAG VERLOPEN ──────────────
-// © 2026 StoplichtIQ — Y. Lemaalem
+// © 2026 StoplichtIQ
 //
 // WAT ER MIS WAS. Een echte tap zette handmatigLockActief, en die vlag doet
 // twee dingen tegelijk: updateDichtbij stapt er meteen op uit (r14398, dus
@@ -24344,7 +24344,7 @@ function checkHandLockVerval(lat, lon) {
       && (Date.now() - stilstandSinds) >= NODE_CHK_STANDSTILL_DUUR_MS) {
     const closestAf = afstand(lat, lon, puurDichtsteNodeCache.lat, puurDichtsteNodeCache.lon);
     // ── V11.19.0: DE KOERSTOETS, EN WAAROM HIJ HÍER MOET STAAN ──
-    // © 2026 StoplichtIQ — Y. Lemaalem
+    // © 2026 StoplichtIQ
     //
     // Deze regel moest erbij VÓÓR de marge van 20 naar 8 mocht. Het bewijs
     // daarvoor zit in vindDichtbijScore: bij snelheidKmh < 5 — exact de
@@ -24423,7 +24423,7 @@ function checkHandLockVerval(lat, lon) {
 }
 
 // ── V11.37.0: A3 — LOSLATEN NA HET PASSEREN ──────────────────
-// © 2026 StoplichtIQ — Y. Lemaalem
+// © 2026 StoplichtIQ
 //
 // DE KLACHT. Na een tik (of een keuze uit de lijst) houdt de app het licht vast
 // tot je meer dan 100 m voorbij bent (checkHandLockVerval, route 1). Bij 40 km/u
@@ -24517,7 +24517,7 @@ function checkHandLockPassage(lat, lon) {
 }
 
 // ── V11.37.4: LOSLATEN VOOR ALLE GEVALLEN — DE ACHTER-REGEL ───────
-// © 2026 StoplichtIQ — Y. Lemaalem
+// © 2026 StoplichtIQ
 //
 // DE KLACHT. Na het passeren houdt de app het oude licht te lang vast. Gemeten in
 // de exports van 25 sept tot 4 okt: van 31 keer dat een tik- of lijstslot
@@ -24528,7 +24528,7 @@ function checkHandLockPassage(lat, lon) {
 // koos de gewone puntentelling een licht achter de auto op 200-382 m, en
 // daarna toonde de terugval tot 1,7 km een licht omdat er binnen 400 m niets was.
 //
-// DE REGEL (Younes, 5 oktober):
+// DE REGEL (gebruiker, 5 oktober):
 //   1. VOORBIJ. Een licht is voorbij na ACHTER_STIJG_N nieuwe GPS-posities op rij
 //      waarop de afstand ernaartoe oploopt, samen minstens ACHTER_STIJG_M, vanaf
 //      ACHTER_MIN_KMH. Dat is dezelfde toets als de schaduwregel (voorbijStap,
@@ -24700,13 +24700,13 @@ function geenLichtTekst() {
 }
 
 // ── V11.37.4: EENMALIGE REPARATIE VAN ÉÉN KRUISPUNT (LICHT A) ───────
-// © 2026 StoplichtIQ — Y. Lemaalem
+// © 2026 StoplichtIQ
 //
 // In veldgeval RT kreeg licht A twee richtingtikken die voor een ander licht
 // bedoeld waren ('rechts' voor licht B en anderhalve minuut later 'links' voor
 // een derde licht, ruim 1 km verder; de fout die V11.37.3 repareerde). Daardoor ging
 // tikrichting van 'rechts' (een eerdere tik) naar 'links' en tik_bevestigingen van
-// 1 naar 3. Younes koos optie b: alleen terugzetten als het record sindsdien
+// 1 naar 3. De gebruiker koos optie b: alleen terugzetten als het record sindsdien
 // niet meer is aangeraakt, herkenbaar aan laatste_update op precies
 // TIJD hieronder (de tweede tik). De rest van het record (passieve koersen,
 // bevestigingen) blijft staan; laatste_update ook, zodat er geen tijd wordt
@@ -24733,7 +24733,7 @@ function reparatieRichting4065739949() {
 }
 
 // ── V11.18.6: DE WEIGERING VASTLEGGEN, ALLEEN BIJ AUTO-LOCK ──
-// (c) 2026 StoplichtIQ - Y. Lemaalem
+// (c) 2026 StoplichtIQ
 //
 // Waarom ALLEEN het auto-lock-scenario. De drie lock-toestanden hebben elk hun
 // eigen verhaal en mogen niet op een hoop:
@@ -24789,7 +24789,7 @@ function meetAutolockWeigering() {
 }
 
 // ── V11.18.12: ZEG HET, OOK ALS JE NIETS VERANDERT ───────────
-// © 2026 StoplichtIQ — Y. Lemaalem
+// © 2026 StoplichtIQ
 //
 // HET GAT DAT DIT DICHT. De app kijkt elke GPS-tick welke node werkelijk het
 // dichtstbij ligt (de lus op r14983, die draait ook tijdens elke lock). Ze deed
@@ -25126,7 +25126,7 @@ function corrigeerNodeAutomatisch(nieuweNode, reden) {
 }
 
 // ══ V11.27.0: BEWIJS VERZAMELEN TIJDENS HET NADEREN ══════════
-// © 2026 StoplichtIQ — Y. Lemaalem
+// © 2026 StoplichtIQ
 //
 // HET GEMETEN PROBLEEM. Op twee rijdagen stond de app 10 keer bij
 // stilstand op het verkeerde licht, en alle 10 begonnen met een tik op het
@@ -25170,7 +25170,7 @@ function corrigeerNodeAutomatisch(nieuweNode, reden) {
 // Ze hebben verschillende foutbronnen: 'weg' mist een passage als iOS een te
 // lage snelheid meldt, 'gestegen' als je vlak na de passage al stilstaat.
 //
-// HET RESTRISICO, bewust aanvaard (Younes, 27 sept). Een node op de stopstreep
+// HET RESTRISICO, bewust aanvaard (gebruiker, 27 sept). Een node op de stopstreep
 // die 1-2 m achter de telefoon gemeten wordt — veldgeval NB1 — is met
 // telefoon-GPS niet te onderscheiden van een licht dat je 2 m geleden passeerde.
 // Sta je binnen ~3 m ná een licht op je pad stil dat 8 m dichterbij ligt dan het
@@ -25327,9 +25327,9 @@ function naderingToastTekst(meter) {
 }
 
 // ── V11.37.2: DE SNELLE STILSTANDROUTE VOOR EEN TIKSLOT ──────────
-// © 2026 StoplichtIQ — Y. Lemaalem
+// © 2026 StoplichtIQ
 //
-// DE KLACHT (Younes, veldgeval SN, test_snelroute): "ik sta stil bij het
+// DE KLACHT (gebruiker, veldgeval SN, test_snelroute): "ik sta stil bij het
 // verkeerde stoplicht en het duurt 5 seconden of langer". Gemeten in de export
 // van 4 oktober: een tik op 67 m zette licht W vast, terwijl
 // licht C recht vooruit dichterbij lag. Bij stilstand op 5 m van dat
@@ -25419,14 +25419,14 @@ function checkTikSlotSnel(lat, lon) {
 }
 
 // ── V11.36.0 A2: DE GETIKTE LAMP OVERLEEFT DE CORRECTIE ─────────
-// © 2026 StoplichtIQ — Y. Lemaalem
+// © 2026 StoplichtIQ
 //
 // corrigeerNodeAutomatisch wist de tik op de lamp (bboxOverride, de sticky en
 // tapSeed), net als een echte node-wissel. Dat is juist als je doorrijdt naar
 // een ander kruispunt. Deze route beslist echter alleen BIJ STILSTAND: het beeld
 // is hetzelfde, de lamp staat op dezelfde plek, alleen de naam van het
 // kruispunt verandert. Gemeten in veldgeval NB15: de correctie liet de
-// tik los (tiklog 'los', reden 'correctie'), Younes tikte een seconde later
+// tik los (tiklog 'los', reden 'correctie'), de gebruiker tikte een seconde later
 // opnieuw, en DIE tik zette een harde vergrendeling op het nieuwe licht die 66 m
 // meereed naar het volgende. Twee regels die elk juist lijken, samen een fout.
 //
@@ -25647,7 +25647,7 @@ async function onGPS(pos) {
           logOpslagMis('kandidaat_vervangen', {
             node: v9KandidaatNode, dur: v9KandidaatDuur, nieuw: nodeId });
           // ── V11.18.1: WAS DIT VERLIES VERMIJDBAAR? ──────────
-          // (c) 2026 StoplichtIQ — Y. Lemaalem
+          // (c) 2026 StoplichtIQ
           //
           // De regel hierboven telt sinds V11.17.42 HOE VAAK een kandidaat
           // wordt overgenomen. Wat hij niet zegt is of de weggegooide meting er
@@ -25832,7 +25832,7 @@ function checkNacht() {
 }
 
 // ── V11.37.7: RADAR EN DEBUGREGEL VOLGEN HET GETOONDE LICHT ──────
-// © 2026 StoplichtIQ — Y. Lemaalem
+// © 2026 StoplichtIQ
 //
 // De debugregel (de tag achter 'osm:') en de radar (tekenRadarSheet, het
 // grote pulserende bolletje) lazen huidigBevestigdOsmNodeId: het licht van de
@@ -26118,7 +26118,7 @@ function sluitKaartOverlay() {
 async function startApp() {
   startLogNieuw();   // V11.37.17: de startlog, zie daar
   // -- V11.18.21: WACHTEN OP DE OPSLAG-BOOT ------------------
-  // (c) 2026 StoplichtIQ - Y. Lemaalem
+  // (c) 2026 StoplichtIQ
   //
   // De poort waar het opslagplan om vraagt: de cache moet gevuld zijn voordat
   // de camera aangaat en de eerste meting geschreven kan worden. In de
@@ -26641,7 +26641,7 @@ function koppelBboxAanNode(bbox) {
 }
 
 // -- V11.18.20: HELEMAAL ONDERAAN, EN DAT IS GEEN SLORDIGHEID --
-// (c) 2026 StoplichtIQ - Y. Lemaalem
+// (c) 2026 StoplichtIQ
 //
 // De drie andere eenmalige passen (saneerS2Nullen, migratieAfrijConventie,
 // migratieRvWezen) staan bij het opstarten rond r6917. Deze niet, en de reden
@@ -26659,7 +26659,7 @@ trimDiagnostiekV1();
 opruimPosV2();   // V11.37.10: eenmalig, zie daar
 
 // -- V11.18.21: DE OPSLAG-BOOT START HIER ---------------------
-// (c) 2026 StoplichtIQ - Y. Lemaalem
+// (c) 2026 StoplichtIQ
 //
 // NA trimDiagnostiekV1 EN NA DE DRIE MIGRATIES (r6966-6968). Die schrijven
 // alle vier rechtstreeks in localStorage; eerder vullen zou een cache

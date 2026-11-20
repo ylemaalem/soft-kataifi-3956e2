@@ -1,6 +1,6 @@
 // ═══════════════════════════════════════════════════════════════
 //  StoplichtIQ — test_richting.js
-//  © 2026 StoplichtIQ — Y. Lemaalem
+//  © 2026 StoplichtIQ
 //
 //  Regressietest bij V11.17.70: de richtingconventie en de eenmalige correctie
 //  van de records die er vóór V11.17.24 naast zaten.

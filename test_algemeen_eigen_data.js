@@ -1,6 +1,6 @@
 // ═══════════════════════════════════════════════════════════════
 //  StoplichtIQ — test_algemeen_eigen_data.js
-//  © 2026 StoplichtIQ — Y. Lemaalem
+//  © 2026 StoplichtIQ
 //
 //  Test bij V11.17.94 (richting release 3): de Algemeen-regel verschijnt alleen
 //  nog als er metingen zijn die NIET richting-verwant zijn.

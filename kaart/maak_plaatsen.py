@@ -1,5 +1,5 @@
 # kaart/maak_plaatsen.py — de plaats (woonplaats) van elk licht in kaart/lichten.json
-# © 2026 StoplichtIQ — Y. Lemaalem
+# © 2026 StoplichtIQ
 #
 # Gebruik:
 #   python kaart/maak_plaatsen.py <woonplaatsen.json> <gemeenten.json> [kaart/lichten.json]

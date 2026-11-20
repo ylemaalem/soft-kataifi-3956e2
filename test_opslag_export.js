@@ -1,6 +1,6 @@
 // ═══════════════════════════════════════════════════════════════
 //  StoplichtIQ — test_opslag_export.js
-//  © 2026 StoplichtIQ — Y. Lemaalem
+//  © 2026 StoplichtIQ
 //
 //  Test bij V11.23.0, release B van het opslagplan. Nog steeds GEEN IndexedDB
 //  en GEEN gedragswijziging: localStorage blijft de bron van waarheid. Wat

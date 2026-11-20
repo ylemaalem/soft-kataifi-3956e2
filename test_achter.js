@@ -1,6 +1,6 @@
 // ═══════════════════════════════════════════════════════════════
 //  StoplichtIQ — test_achter.js
-//  © 2026 StoplichtIQ — Y. Lemaalem
+//  © 2026 StoplichtIQ
 //
 //  Test bij V11.37.4: de achter-regel. Een gepasseerd licht gaat los, met en
 //  zonder tik- of lijstslot; een licht achter je wordt geen nieuwe keuze; verder
@@ -448,15 +448,15 @@ async function testAchter() {
   eis('AR11a vindDichtbij: drie regels met merkteken; zonder die regels byte-gelijk aan V11.37.3 (2db98dab / 2954)',
       merk(vindDichtbij) === 3 && fnv(zonder374(terugV11378(vindDichtbij))) === '2db98dab' && zonder374(terugV11378(vindDichtbij)).length === 2954,
       '3 regels, 2db98dab / 2954', merk(vindDichtbij) + ' regels, ' + fnv(zonder374(terugV11378(vindDichtbij))) + ' / ' + zonder374(terugV11378(vindDichtbij)).length);
-  eis('AR11b updateDichtbij: één regel met merkteken; zonder die regel byte-gelijk aan V11.37.3 (e82d3c0 / 11914)',
-      merk(updateDichtbij) === 1 && fnv(zonder374(terugV11378(updateDichtbij))) === 'e82d3c0' && zonder374(terugV11378(updateDichtbij)).length === 11914,
-      '1 regel, e82d3c0 / 11914', merk(updateDichtbij) + ' regel(s), ' + fnv(zonder374(terugV11378(updateDichtbij))) + ' / ' + zonder374(terugV11378(updateDichtbij)).length);
+  eis('AR11b updateDichtbij: één regel met merkteken; zonder die regel byte-gelijk aan V11.37.3 (65f005bd / 11900)',
+      merk(updateDichtbij) === 1 && fnv(zonder374(terugV11378(updateDichtbij))) === '65f005bd' && zonder374(terugV11378(updateDichtbij)).length === 11900,
+      '1 regel, 65f005bd / 11900', merk(updateDichtbij) + ' regel(s), ' + fnv(zonder374(terugV11378(updateDichtbij))) + ' / ' + zonder374(terugV11378(updateDichtbij)).length);
   const og = zonder374(terugV11374(zonderV113711(zonderV113721(onGPS))));
-  eis('AR11c onGPS: vijf regels met merkteken (de aanroep en vier V9-regels); met die vier terug en de aanroep weg byte-gelijk aan V11.37.3 (e1da9bf9 / 14694)',
-      merk(onGPS) === 5 && fnv(og) === 'e1da9bf9' && og.length === 14694, '5 regels, e1da9bf9 / 14694', merk(onGPS) + ' regels, ' + fnv(og) + ' / ' + og.length);
-  const V11373 = { vindDichtbijScore: ['bc9b7937', 2105], checkHandLockVerval: ['2df4f7ed', 5513], checkNodeCorrectieStilstand: ['8c801fd8', 4751],
+  eis('AR11c onGPS: vijf regels met merkteken (de aanroep en vier V9-regels); met die vier terug en de aanroep weg byte-gelijk aan V11.37.3 (ee74ca80 / 14680)',
+      merk(onGPS) === 5 && fnv(og) === 'ee74ca80' && og.length === 14680, '5 regels, ee74ca80 / 14680', merk(onGPS) + ' regels, ' + fnv(og) + ' / ' + og.length);
+  const V11373 = { vindDichtbijScore: ['bc9b7937', 2105], checkHandLockVerval: ['274f90da', 5499], checkNodeCorrectieStilstand: ['8c801fd8', 4751],
     corrigeerNodeAutomatisch: ['afe7b427', 4118], checkNaderingsCorrectie: ['6aeb87b3', 3595], verzamelNaderingsBewijs: ['3d6ad85f', 3526],
-    checkHandLockPassage: ['7f001264', 1768], checkTikSlotSnel: ['d3a8edbe', 2071], regelTik: ['9c1b361b', 3087], vergrendelNodeHandmatig: ['9a007b96', 2295],
+    checkHandLockPassage: ['7f001264', 1768], checkTikSlotSnel: ['d3a8edbe', 2071], regelTik: ['9c1b361b', 3087], vergrendelNodeHandmatig: ['c7622f4b', 2287],
     selecteerNodeHandmatig: ['5275f4dd', 2379], tikRichting: ['9e40a595', 4410], isStoplichtVoorbij: ['38a0d2ed', 338] };
   // V11.37.5: tikRichting kreeg twee meetregels met merkteken (zie test_knoppen); zonder die regels gelijk.
   const anders11 = Object.entries(V11373).filter(([n, [h, l]]) => { const s = terugV11378(window[n]).split(NL).filter(l => !/V11\.37\.5(?!\d)|V11\.37\.35(?!\d)|V11\.37\.36(?!\d)|V11\.37\.37(?!\d)|V11\.37\.38(?!\d)|V11\.37\.39(?!\d)|V11\.37\.41(?!\d)|V11\.38\.3(?!\d)|V11\.38\.4(?!\d)/.test(l)).join(NL); return fnv(s) !== h || s.length !== l; }).map(x => x[0]);   // V11.37.35: idem

@@ -1,6 +1,6 @@
 // ═══════════════════════════════════════════════════════════════
 //  StoplichtIQ — test_cluster_tap.js
-//  © 2026 StoplichtIQ — Y. Lemaalem
+//  © 2026 StoplichtIQ
 //
 //  Test bij V11.18.22: een tik op het camerabeeld die een node vastzet op een
 //  plek waar meerdere masten staan, waarschuwt — altijd, ook als de app die

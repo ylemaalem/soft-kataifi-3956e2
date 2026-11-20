@@ -1,6 +1,6 @@
 // ═══════════════════════════════════════════════════════════════
 //  StoplichtIQ — test_slot_blijft.js
-//  © 2026 StoplichtIQ — Y. Lemaalem
+//  © 2026 StoplichtIQ
 //
 //  Toets bij V11.37.35: geselecteerd = blijven (opdracht punt 7).
 //  Nagespeelde frames, met een nepklok (Date.now) van 250 ms per run, zodat

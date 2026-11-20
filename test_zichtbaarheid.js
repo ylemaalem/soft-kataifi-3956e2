@@ -1,6 +1,6 @@
 // ═══════════════════════════════════════════════════════════════
 //  StoplichtIQ — test_zichtbaarheid.js
-//  © 2026 StoplichtIQ — Y. Lemaalem
+//  © 2026 StoplichtIQ
 //
 //  Test bij V11.17.78: de bevestigknoppen verschijnen zodra er een countdown
 //  loopt, ongeacht snelheid.

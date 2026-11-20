@@ -1,6 +1,6 @@
 // ═══════════════════════════════════════════════════════════════
 //  StoplichtIQ — test_meetwerk23.js
-//  © 2026 StoplichtIQ — Y. Lemaalem
+//  © 2026 StoplichtIQ
 //
 //  Test bij V11.37.23 (pakket A): veiligheid en eerlijkheid op het scherm, minder
 //  plaatsdata naar buiten, en twee meetvelden. Geen invloed op de keuze van het
@@ -458,8 +458,8 @@ async function testMeetwerk23() {
   // Gemeten in de bron van V11.37.22 (34ff4e5) in een eigen headless Chrome, niet afgeleid uit deze versie.
   const V113722 = { schaduwLogSluit: ['ecec51c5', 1838], herzieningLogSluit: ['e2933258', 4059], passageTik: ['6a149b73', 1360], passageSchrijf: ['582f3b00', 584],
     eindeGemistLog: ['8563cad5', 595], m5Sluit: ['23ca1ffd', 583], laadONNXModel: ['42393b17', 4644], resetNeutraal: ['d640674', 3685], verwerkFase: ['318bb458', 12835],
-    bevestigNaWisselPad: ['bcc5d149', 2858], bevestigCountdown: ['47fa9a6b', 16337], berekenGlosa: ['a8049ae0', 1549], haalStraatnamenOp: ['2a318437', 1102],
-    updateDichtbij: ['cbf57ede', 12709], renderRadarSheetNodeLijst: ['76755bea', 1113] };
+    bevestigNaWisselPad: ['bcc5d149', 2858], bevestigCountdown: ['15a1ecaa', 16281], berekenGlosa: ['a8049ae0', 1549], haalStraatnamenOp: ['2a318437', 1102],
+    updateDichtbij: ['ea6a509d', 12695], renderRadarSheetNodeLijst: ['76755bea', 1113] };
   // Twee regels zijn vervangen: daar is de vingerafdruk die van V11.37.22 zonder de oude regel.
   const VERVANGEN = { toonV9Richtingen: ['31a5c83', 1639], refreshStadIndienNodig: ['dc5c1dee', 981] };
   const merk = (f) => String(f).split(NL).filter(l => /V11\.37\.23(?!\d)/.test(l)).length;
@@ -482,9 +482,9 @@ async function testMeetwerk23() {
     .map(([n]) => n + ' ' + fnv(zonder23(window[n])) + '/' + zonder23(window[n]).length);
   eis('MA11b zonder die regels zijn ze byte-gelijk aan V11.37.22 (vijftien alleen toegevoegd; bij het stadsfilter en de plaatsnaamvraag is precies de oude regel vervangen)',
       anders.length === 0, 'geen afwijking', anders.join(', ') || 'geen');
-  const ONGEMOEID = { startCd: ['4c0000d7', 7397], m5Start: ['be850b01', 1370], eindeGemistHersteld: ['e82722ce', 690], slaOp: ['411179eb', 3252], slaOpIntern: ['c284229a', 2342],
-    slaPassiefMeting: ['eac878bc', 1945], kiesCountdownBron: ['8e69db98', 12851], gewGem: ['eb1936ea', 1025], vindDichtbij: ['d32386d8', 4753], meetRingSchrijf: ['60245787', 420],
-    stopLogAf: ['21c4b6e6', 928], beeindigFase: ['8234b742', 1404], onGPS: ['454f7f25', 15761], berekenLeerPct: ['5d38efe9', 986], verwerkBevestigLeren: ['9163848', 8583], exporteerMeetdata: ['64c15a78', 10084] };
+  const ONGEMOEID = { startCd: ['5b67624c', 7383], m5Start: ['be850b01', 1370], eindeGemistHersteld: ['e82722ce', 690], slaOp: ['411179eb', 3252], slaOpIntern: ['c284229a', 2342],
+    slaPassiefMeting: ['eac878bc', 1945], kiesCountdownBron: ['95562985', 12809], gewGem: ['eb1936ea', 1025], vindDichtbij: ['d32386d8', 4753], meetRingSchrijf: ['60245787', 420],
+    stopLogAf: ['21c4b6e6', 928], beeindigFase: ['8234b742', 1404], onGPS: ['d1ed43de', 15747], berekenLeerPct: ['5d38efe9', 986], verwerkBevestigLeren: ['1edefee2', 8555], exporteerMeetdata: ['be910bb4', 10070] };
   // V11.37.26: exporteerMeetdata kreeg twee regels (uit.nano); zonder de regels met dat merkteken is hij gelijk.
   const terug33 = (l) => l.replace(/conf < hoofdGrens\('leer'\)\) \{   \/\/ V11.37.33(?!d): de grens van het geladen model$/, 'conf < 0.20) {');   // V11.37.33: de vervangen regel in slaOp terug
   const zonder26 = (f) => String(f).split(NL).map(terug33).filter(l => !/V11\.37\.26(?!\d)|V11\.37\.30(?!\d)|V11\.37\.31(?!\d)|V11\.37\.34(?!\d)|V11\.37\.35(?!\d)|V11\.37\.36(?!\d)|V11\.37\.37(?!\d)|V11\.37\.38(?!\d)|V11\.37\.39(?!\d)|V11\.37\.41(?!\d)|V11\.38\.3(?!\d)|V11\.38\.4(?!\d)/.test(l)).join(NL);

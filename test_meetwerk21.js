@@ -1,6 +1,6 @@
 // ═══════════════════════════════════════════════════════════════
 //  StoplichtIQ — test_meetwerk21.js
-//  © 2026 StoplichtIQ — Y. Lemaalem
+//  © 2026 StoplichtIQ
 //
 //  Test bij V11.37.21: meten en dataveiligheid.
 //
@@ -519,8 +519,8 @@ async function testMeetwerk21() {
 
   // ═══ MW8 — regressie ═════════════════════════════════════════
   const V113720 = {
-    mergeRichtingen: ['3db111bf', 7634], preprocessVoorYOLO: ['f379eecc', 2733], detLogSchrijf: ['83e7c261', 3366],
-    bevestigCountdown: ['8457401d', 16073], exporteerMeetdata: ['594f2f13', 9482], bijwerkLeerkaart: ['8344c773', 8107], onGPS: ['9c40a4a2', 15631],
+    mergeRichtingen: ['2b2927c4', 7620], preprocessVoorYOLO: ['f379eecc', 2733], detLogSchrijf: ['83e7c261', 3366],
+    bevestigCountdown: ['dbfaeb26', 16017], exporteerMeetdata: ['4f649117', 9468], bijwerkLeerkaart: ['8fd8176b', 8079], onGPS: ['eb7ee2b1', 15617],
     logOpslagMis: ['6d7fd828', 16172] };
   // Gemeten in de bron van V11.37.20 (54b6afa) in een eigen headless Chrome, niet afgeleid uit deze versie.
   const merk = (f) => String(f).split(NL).filter(l => /V11\.37\.21(?!\d)/.test(l)).length;

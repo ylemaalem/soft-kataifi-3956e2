@@ -1,6 +1,6 @@
 // ═══════════════════════════════════════════════════════════════
 //  StoplichtIQ — test_marge_handlock.js
-//  © 2026 StoplichtIQ — Y. Lemaalem
+//  © 2026 StoplichtIQ
 //
 //  Test bij V11.18.7, twee wijzigingen die elkaar nodig hebben:
 //    1. NODE_CHK_CORRECTIE_MARGE_M van 20 naar 8
@@ -209,7 +209,7 @@ function testMargeHandlock() {
         String(CLOSEST), String(dichtstbijOSM.id));
 
     // ── DIT GEVAL IS TWEE KEER OMGEDRAAID, EN DAT HOORT ZO ──
-    // © 2026 StoplichtIQ — Y. Lemaalem
+    // © 2026 StoplichtIQ
     //
     // V11.18.7 liet een hand-lock bij 12 m vervallen. V11.18.17 draaide dat om:
     // een tap kreeg een eigen, ruimere marge van 20 m, omdat een menselijke

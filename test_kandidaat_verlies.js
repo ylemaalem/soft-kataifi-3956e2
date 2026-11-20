@@ -1,6 +1,6 @@
 // ═══════════════════════════════════════════════════════════════
 //  StoplichtIQ — test_kandidaat_verlies.js
-//  © 2026 StoplichtIQ — Y. Lemaalem
+//  © 2026 StoplichtIQ
 //
 //  Test bij V11.18.1: meten hoeveel van de weggegooide kandidaat-metingen bij
 //  een vroegtijdige node-overname daadwerkelijk een geldig V5-record zouden

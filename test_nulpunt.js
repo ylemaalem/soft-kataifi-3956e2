@@ -1,6 +1,6 @@
 // ═══════════════════════════════════════════════════════════════
 //  StoplichtIQ — test_nulpunt.js
-//  © 2026 StoplichtIQ — Y. Lemaalem
+//  © 2026 StoplichtIQ
 //
 //  Regressietest bij V11.17.64, bijgewerkt in V11.17.68 voor de nieuwe
 //  bevestigindeling. Toetst dat countdownNulTijd het moment

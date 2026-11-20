@@ -1,6 +1,6 @@
 // ═══════════════════════════════════════════════════════════════
 //  StoplichtIQ — test_merge_alg_bron.js
-//  © 2026 StoplichtIQ — Y. Lemaalem
+//  © 2026 StoplichtIQ
 //
 //  Test bij V11.17.95 (richting release 4): Algemeen kan nu ook BRON van een
 //  samenvoeging zijn, niet alleen doel.

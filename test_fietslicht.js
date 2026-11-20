@@ -1,6 +1,6 @@
 // ═══════════════════════════════════════════════════════════════
 //  StoplichtIQ — test_fietslicht.js
-//  © 2026 StoplichtIQ — Y. Lemaalem
+//  © 2026 StoplichtIQ
 //
 //  Test bij V11.37.8: fiets- en voetgangerslichten zijn geen kandidaat meer
 //  (met schakelaar, fail-open, nooit als enige kandidaat, de tik blijft
@@ -334,7 +334,7 @@ async function testFietslicht() {
       verschil(met3, uit3, 'puur') === 0 && verschil(met3, uit3, 'regel') === 0, '0 / 0', verschil(met3, uit3, 'puur') + ' / ' + verschil(met3, uit3, 'regel'));
 
   // ═══ FL4 — het veldgeval ════════════════════════════
-  // Op 60 m voor de stopplek: het autolicht C op 18 m, de fietslichten F2 en F op 23 en 24 m. Younes tikte F (dat was
+  // Op 60 m voor de stopplek: het autolicht C op 18 m, de fietslichten F2 en F op 23 en 24 m. De gebruiker tikte F (dat was
   // daar het goede licht). De auto stopt hier en blijft staan.
   const C = 9800201, F2 = 9800202, F = 9800203;
   const fl4nodes = [{ id: C, x: 3.7, y: 17.6, f: 0 }, { id: F2, x: 7.4, y: 22, f: 1 }, { id: F, x: -7.9, y: 22.8, f: 1 },
@@ -532,20 +532,20 @@ async function testFietslicht() {
     .replace("  if (!dichtstbijOSM) { logOpslagMis('bevestig_geen_licht', { element: categorie }); return; }   // V11.37.8: niet meer stil", "  if (!dichtstbijOSM) return;")
     .split(NL).filter(l => !/V11\.37\.8(?!\d)/.test(l)).join(NL);
   const merk = (f) => String(f).split(NL).filter(l => /V11\.37\.8(?!\d)/.test(l)).length;
-  const V11377 = { vindDichtbij: ['55d1f775', 3320, 3], updateDichtbij: ['42aee748', 12051, 3], regelKies: ['d8d1f767', 1993, 3], wisselLogNoteer: ['c0611735', 1672, 2],
-    wisselNa: ['3f24e1b0', 2527, 1], bevestigCountdown: ['3bfe5b10', 15882, 2], geenLichtZetten: ['b480c850', 1591, 2], corrigeerNodeAutomatisch: ['afe7b427', 4118, 2],
-    selecteerNodeHandmatig: ['5275f4dd', 2379, 1], resetNeutraal: ['32f7f3fd', 3510, 1], downloadOSM: ['488a5324', 4054, 1] };   // V11.37.18: twee commentaarregels in downloadOSM zonder plaatsnaam (was 4711f7f3/4043); verder byte-gelijk, zie test_kaartbewaar KB12
+  const V11377 = { vindDichtbij: ['55d1f775', 3320, 3], updateDichtbij: ['4282e085', 12037, 3], regelKies: ['d8d1f767', 1993, 3], wisselLogNoteer: ['c0611735', 1672, 2],
+    wisselNa: ['3f24e1b0', 2527, 1], bevestigCountdown: ['b01007b', 15826, 2], geenLichtZetten: ['b480c850', 1591, 2], corrigeerNodeAutomatisch: ['afe7b427', 4118, 2],
+    selecteerNodeHandmatig: ['5275f4dd', 2379, 1], resetNeutraal: ['32f7f3fd', 3510, 1], downloadOSM: ['185a4941', 4040, 1] };   // V11.37.18: twee commentaarregels in downloadOSM zonder plaatsnaam (was 4711f7f3/4043); verder byte-gelijk, zie test_kaartbewaar KB12
   const telAf = Object.entries(V11377).filter(([n, [h, l, m]]) => merk(window[n]) !== m).map(([n]) => n + ' ' + merk(window[n]));
   eis('FL11a elf functies veranderen, alleen met regels met merkteken V11.37.8 (drie in vindDichtbij, updateDichtbij en regelKies; twee of één in de rest)',
       telAf.length === 0, 'precies zoveel', telAf.join(', ') || 'precies zoveel');
   const anders = Object.entries(V11377).filter(([n, [h, l]]) => { const s = terug(zonderV113721(window[n])); return fnv(s) !== h || s.length !== l; }).map(x => x[0]);
   eis('FL11b met die regels terug (twee waren een andere regel, de rest is nieuw) zijn ze byte-gelijk aan V11.37.7',
       anders.length === 0, 'geen afwijking', anders.join(', ') || 'geen');
-  const ONGEWIJZIGD = { onGPS: ['d99821b8', 15000], vindDichtbijScore: ['bc9b7937', 2105], achterTik: ['e9e105a3', 1583], achterSluitUit: ['6b7a87d8', 383],
-    checkHandLockVerval: ['2df4f7ed', 5513], checkHandLockPassage: ['7f001264', 1768], checkNodeCorrectieStilstand: ['8c801fd8', 4751], checkTikSlotSnel: ['d3a8edbe', 2071],
-    verzamelNaderingsBewijs: ['3d6ad85f', 3526], checkNaderingsCorrectie: ['6aeb87b3', 3595], regelTik: ['9c1b361b', 3087], vergrendelNodeHandmatig: ['9a007b96', 2295],
-    tikRichting: ['b44110d5', 4619], isGetoondLicht: ['36a3cc63', 126], tickCd: ['b9fe419c', 25016], verwerkBevestigLeren: ['9163848', 8583],
-    meetBevestigMoment: ['1174330f', 4946], updateBevestigKnopStaat: ['d82919e1', 1359], bevestigMarkerSleutel: ['d404cc32', 157], wisselVoor: ['b58f23a8', 937],
+  const ONGEWIJZIGD = { onGPS: ['38878b3b', 14986], vindDichtbijScore: ['bc9b7937', 2105], achterTik: ['e9e105a3', 1583], achterSluitUit: ['6b7a87d8', 383],
+    checkHandLockVerval: ['274f90da', 5499], checkHandLockPassage: ['7f001264', 1768], checkNodeCorrectieStilstand: ['8c801fd8', 4751], checkTikSlotSnel: ['d3a8edbe', 2071],
+    verzamelNaderingsBewijs: ['3d6ad85f', 3526], checkNaderingsCorrectie: ['6aeb87b3', 3595], regelTik: ['9c1b361b', 3087], vergrendelNodeHandmatig: ['c7622f4b', 2287],
+    tikRichting: ['b44110d5', 4619], isGetoondLicht: ['36a3cc63', 126], tickCd: ['460a66b0', 24988], verwerkBevestigLeren: ['1edefee2', 8555],
+    meetBevestigMoment: ['462f38ce', 4932], updateBevestigKnopStaat: ['e70678ee', 1345], bevestigMarkerSleutel: ['d404cc32', 157], wisselVoor: ['b58f23a8', 937],
     koppelBboxAanNode: ['bb6c053d', 1563], vindOsmMatchOpRichting: ['51d96aa', 661] };
   const anders2 = Object.entries(ONGEWIJZIGD).filter(([n, [h, l]]) => { const s = zonderV113711(zonderV113721(window[n])); return fnv(s) !== h || s.length !== l; }).map(x => x[0]);
   eis('FL11c tweeëntwintig functies die V11.37.8 niet raakt (onGPS, de puntentelling, de loslaatroutes, de correcties, de tik, tickCd, het leren, de knopstaat, het koppelen aan een lamp): byte-gelijk aan V11.37.7',

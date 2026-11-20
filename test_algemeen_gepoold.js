@@ -1,6 +1,6 @@
 // ═══════════════════════════════════════════════════════════════
 //  StoplichtIQ — test_algemeen_gepoold.js
-//  © 2026 StoplichtIQ — Y. Lemaalem
+//  © 2026 StoplichtIQ
 //
 //  Test bij V11.17.99 (dubbele rij, stap 1): op een kruispunt waar het ronde
 //  licht aan een richting gekoppeld is, tellen de metingen van beide helften

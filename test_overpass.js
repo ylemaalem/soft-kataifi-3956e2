@@ -1,6 +1,6 @@
 // ═══════════════════════════════════════════════════════════════
 //  StoplichtIQ — test_overpass.js
-//  © 2026 StoplichtIQ — Y. Lemaalem
+//  © 2026 StoplichtIQ
 //
 //  Test bij V11.37.12: Overpass rustiger.
 //    - de fietslijst: opnieuw na 1, 5, 15 en 60 minuten met spreiding,
@@ -300,13 +300,13 @@ async function testOverpass() {
     "               h: k == null ? null : Math.round(Math.min(...sl.eenrichting.map(r => tegenHoekVerschil(r, k)))) } });").split(NL).filter(l => !/V11\.37\.13(?!\d)/.test(l)).join(NL);   // V11.37.13
   const zonder = (s) => terugV113713(s).split(NL).filter(l => !/V11\.37\.12(?!\d)/.test(l)).join(NL);   // V11.37.13: eerst terugV113713
   const merk = (f) => String(f).split(NL).filter(l => /V11\.37\.12(?!\d)/.test(l)).length;
-  const V113711 = { downloadOSM: ['86117b9', 4289, 4], onGPS: ['146fb83c', 15195, 1] };   // V11.37.18: twee commentaarregels in downloadOSM zonder plaatsnaam (was 751a75e4/4278); verder byte-gelijk, zie test_kaartbewaar KB12
+  const V113711 = { downloadOSM: ['7e1668de', 4275, 4], onGPS: ['f3658d6f', 15181, 1] };   // V11.37.18: twee commentaarregels in downloadOSM zonder plaatsnaam (was 751a75e4/4278); verder byte-gelijk, zie test_kaartbewaar KB12
   const telAf = Object.entries(V113711).filter(([n, [h, l, m]]) => merk(zonderV113720(window[n])) !== m).map(([n]) => n + ' ' + merk(zonderV113720(window[n])));   // V11.37.20: op de tekst van vóór V11.37.20 (één regel staat nu in kaartVraagOverpass)
   eis('OV11a twee bestaande functies krijgen regels met merkteken V11.37.12 (vier in downloadOSM, één in onGPS); fietsLees, fietsNaKaart en fietsHaalOp zijn nieuw geschreven (OV3-OV9)',
       telAf.length === 0, 'precies zoveel', telAf.join(', ') || 'precies zoveel');
   const anders = Object.entries(V113711).filter(([n, [h, l]]) => { const s = zonder(zonderV113721(window[n])); return fnv(s) !== h || s.length !== l; }).map(x => x[0]);
   eis('OV11b zonder die regels (alle zijn nieuw) byte-gelijk aan V11.37.11', anders.length === 0, 'geen afwijking', anders.join(', ') || 'geen');
-  const ONGEWIJZIGD = { vindDichtbij: ['f8fd9aa9', 4395], updateDichtbij: ['67e9f3ec', 12423], regelKies: ['80ca7466', 2976], logOpslagMis: ['6d7fd828', 16172],
+  const ONGEWIJZIGD = { vindDichtbij: ['f8fd9aa9', 4395], updateDichtbij: ['80f876a7', 12409], regelKies: ['80ca7466', 2976], logOpslagMis: ['6d7fd828', 16172],
     fietsSluitUit: ['ec1d273c', 170], isFietsLicht: ['89f184ad', 98], fietsPuurDichtst: ['2a9b09f8', 418], fietsTerug: ['6f950997', 372],
     tegenSluitUit: ['efd9cae3', 142], tegenIsTegen: ['a03bdbeb', 263], tegenRijrichtingen: ['54bb2b55', 1112], tegenPuurDichtst: ['3c123d89', 515],
     tegenKoers: ['67e36df', 149], tegenLog: ['75f6b5b4', 569], vindDichtbijScore: ['bc9b7937', 2105], achterSluitUit: ['6b7a87d8', 383],

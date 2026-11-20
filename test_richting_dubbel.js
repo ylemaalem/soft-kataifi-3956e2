@@ -1,6 +1,6 @@
 // ═══════════════════════════════════════════════════════════════
 //  StoplichtIQ — test_richting_dubbel.js
-//  © 2026 StoplichtIQ — Y. Lemaalem
+//  © 2026 StoplichtIQ
 //
 //  Test bij V11.28.0: elke meting telt één keer in een richtingpercentage.
 //
@@ -261,7 +261,7 @@ function testRichtingDubbel() {
     // Bytes van V11.27.0. Deze keten leest laadMV5Geclusterd rechtstreeks en
     // hoort buren te blijven lenen.
     const pin = {
-      laadMV5Geclusterd: ['36b22cc6', 461], kiesCountdownBron: ['8e69db98', 12851],
+      laadMV5Geclusterd: ['36b22cc6', 461], kiesCountdownBron: ['95562985', 12809],
       metDagdeelLening: ['cd42751e', 510], berekenSchaduwWaarden: ['dfd1c572', 1799],
       bepaalRichtingTekort: ['1f0ad938', 665], laadMV5: ['f817ac38', 434],
       richtingLeerPct: ['e4a7222', 925], v5NaarV4Vorm: ['4b36964', 241]

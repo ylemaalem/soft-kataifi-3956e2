@@ -1,6 +1,6 @@
 // ═══════════════════════════════════════════════════════════════
 //  StoplichtIQ — test_opruimrem.js
-//  © 2026 StoplichtIQ — Y. Lemaalem
+//  © 2026 StoplichtIQ
 //
 //  Test bij V11.29.0 (de opruimrem laat zien wat hij doet) en V11.30.0 (pas 5
 //  staat uit tot fase 3).

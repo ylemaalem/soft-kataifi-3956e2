@@ -1,6 +1,6 @@
 // ═══════════════════════════════════════════════════════════════
 //  StoplichtIQ — test_privacyscan.js
-//  © 2026 StoplichtIQ — Y. Lemaalem
+//  © 2026 StoplichtIQ
 //
 //  Test bij V11.37.20: de privacyscan. Sinds V11.37.20 staat het landelijke,
 //  openbare OSM-bestand in de map kaart/ (OSM-nummers en straatnamen van alle

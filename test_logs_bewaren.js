@@ -1,6 +1,6 @@
 // ═══════════════════════════════════════════════════════════════
 //  StoplichtIQ — test_logs_bewaren.js
-//  © 2026 StoplichtIQ — Y. Lemaalem
+//  © 2026 StoplichtIQ
 //
 //  Test bij V11.37.6: de vier losse logknoppen (conf, zicht, herziening, det)
 //  wissen hun log niet meer na het delen.
@@ -113,8 +113,8 @@ async function testLogsBewaren() {
       '50/300/200/500', [MAX_ZICHTLOG, MAX_HERZIENINGLOG, MAX_DETLOG].join('/'));
 
   // ═══ LB4 — regressie ════════════════════════════════════════
-  const V11375 = { vindDichtbij: ['55d1f775', 3320], updateDichtbij: ['42aee748', 12051], onGPS: ['d99821b8', 15000], regelKies: ['d8d1f767', 1993],
-    achterTik: ['e9e105a3', 1583], checkHandLockVerval: ['2df4f7ed', 5513], checkHandLockPassage: ['7f001264', 1768], checkNodeCorrectieStilstand: ['8c801fd8', 4751],
+  const V11375 = { vindDichtbij: ['55d1f775', 3320], updateDichtbij: ['4282e085', 12037], onGPS: ['38878b3b', 14986], regelKies: ['d8d1f767', 1993],
+    achterTik: ['e9e105a3', 1583], checkHandLockVerval: ['274f90da', 5499], checkHandLockPassage: ['7f001264', 1768], checkNodeCorrectieStilstand: ['8c801fd8', 4751],
     corrigeerNodeAutomatisch: ['afe7b427', 4118], checkTikSlotSnel: ['d3a8edbe', 2071], vindDichtbijScore: ['bc9b7937', 2105] };
   const zonderV113718 = (s) => String(s).replace('const d = await kaartLeesInhoud(r, ctrl);   // V11.37.18: ook de inhoud heeft een grens (stond: await r.json()), zie kaartLeesInhoud', 'const d = await r.json();').split('\n').filter(l => !/V11\.37\.18(?!\d)/.test(l)).join('\n');   // V11.37.18: de bewaarde kaart, C5 en C7 (test_kaartbewaar); hier terug
   const zonderV113717 = (s) => zonderV113718(s).split('\n').filter(l => !/V11\.37\.17(?!\d)/.test(l)).join('\n');   // V11.37.17: de startlog (test_startlog); hier terug

@@ -1,6 +1,6 @@
 // ═══════════════════════════════════════════════════════════════
 //  StoplichtIQ — test_tegenrichting.js
-//  © 2026 StoplichtIQ — Y. Lemaalem
+//  © 2026 StoplichtIQ
 //
 //  Test bij V11.37.11: lichten voor de tegenrichting zijn geen kandidaat meer.
 //  Een licht valt af als elke autoweg erdoor eenrichting is en die weg meer
@@ -201,10 +201,10 @@ async function testTegenrichting() {
         'false / false / false', [tegenSluitUit({ id: 1, eenrichting: null }), tegenSluitUit({ id: 1, eenrichting: [] }), tegenSluitUit({ id: 1 })].join(' / '));
     const tegen = tegenSluitUit({ id: 2, eenrichting: [180] }), mee = tegenSluitUit({ id: 3, eenrichting: [0] });
     zet(0, 40, { id: 2, lat: 0, lon: 0 });
-    const handBew = tegenHandId; tegenHandId = '2';   // V11.37.13: alleen een getoond licht dat Younes koos blijft altijd (R1, test_tegenbocht)
+    const handBew = tegenHandId; tegenHandId = '2';   // V11.37.13: alleen een getoond licht dat de gebruiker koos blijft altijd (R1, test_tegenbocht)
     const getoond = tegenSluitUit({ id: 2, eenrichting: [180] });
     tegenHandId = handBew;   // V11.37.13
-    eis('TR1c koers 0 bij 40 km/u: een licht op een weg naar 180 valt af, een licht op een weg naar 0 niet, en het getoonde licht dat Younes koos nooit',   // V11.37.13: 'dat Younes koos'
+    eis('TR1c koers 0 bij 40 km/u: een licht op een weg naar 180 valt af, een licht op een weg naar 0 niet, en het getoonde licht dat de gebruiker koos nooit',   // V11.37.13: 'dat de gebruiker koos'
         tegen === true && mee === false && getoond === false, 'true / false / false', [tegen, mee, getoond].join(' / '));
     const isGetoond = tegenIsTegen({ id: 2, eenrichting: [180] });
     eis('TR1d het getoonde licht blijft, maar telt niet als ánder autolicht: tegenIsTegen zegt ook daar ja (zie TR7)',
@@ -371,7 +371,7 @@ async function testTegenrichting() {
   const tr8n = knopen([[9826001, -15, 60, 0, [180]], [9826002, 0, 150, 0, [0]], [9826003, 3, 400, 0, [0]]]);
   const p8 = lijn(-100, 40, 36); p8[3] = { ...p8[3], tik: 9826001 }; p8[10] = { ...p8[10], los: true };
   const m8 = await rit({ nodes: tr8n, punten: p8 });
-  eis('TR8 Younes tikt het licht voor de tegenrichting: het blijft staan, ook na het vervallen van het slot, bij 36 km/u',
+  eis('TR8 de gebruiker tikt het licht voor de tegenrichting: het blijft staan, ook na het vervallen van het slot, bij 36 km/u',
       !fouten(m8) && m8.rij.slice(3).every(x => x.app === 9826001) && m8.rij[3].slot === 1 && m8.rij[10].slot === 0 && m8.rij.slice(0, 3).every(x => x.app !== 9826001),
       'vanaf de tik elke tik 9826001', fouten(m8) || keten(m8).join(' > ') + ' | slot ' + m8.rij.map(x => x.slot).join(''));
 
@@ -407,8 +407,8 @@ async function testTegenrichting() {
   const zonderV113718 = (s) => zonderV113720(s).replace('const d = await kaartLeesInhoud(r, ctrl);   // V11.37.18: ook de inhoud heeft een grens (stond: await r.json()), zie kaartLeesInhoud', 'const d = await r.json();').replace('setTimeout(() => { if (!cacheBezig && huidigePos && kaartNodig(huidigePos.lat, huidigePos.lon)) downloadOSM(huidigePos.lat, huidigePos.lon); }, 30000);   // V11.37.18: alleen zonder lopende vraag en als er nog een kaart nodig is (stond: cacheBezig=false en altijd downloadOSM, ook naast een lopende vraag), zie kaartNodig', 'setTimeout(() => { cacheBezig=false; if(huidigePos)downloadOSM(huidigePos.lat,huidigePos.lon); }, 30000);').split(NL).filter(l => !/V11\.37\.18(?!\d)/.test(l)).join(NL);   // V11.37.18: de bewaarde kaart, C5 en C7 (test_kaartbewaar); hier terug   // V11.37.20: eerst zonderV113720
   const zonder = (s) => zonderV113718(s).split(NL).filter(l => !/V11\.37\.11(?!\d)|V11\.37\.12(?!\d)|V11\.37\.13(?!\d)|V11\.37\.15(?!\d)|V11\.37\.17(?!\d)/.test(l)).join(NL);   // V11.37.17: ook de startlog (test_startlog); V11.37.12: die regels ook (test_overpass); V11.37.13 ook (test_tegenbocht); V11.37.15 ook (test_koerslog)
   const merk = (f) => String(f).split(NL).filter(l => /V11\.37\.11(?!\d)/.test(l)).length;
-  const V113710 = { vindDichtbij: ['d444ee3', 3717, 4], updateDichtbij: ['7b7fce62', 12303, 1], regelKies: ['cd458100', 2307, 5], onGPS: ['d99821b8', 15000, 1],
-    downloadOSM: ['261d2457', 4158, 1], logOpslagMis: ['e93caaaf', 16068, 1] };   // V11.37.18: twee commentaarregels in downloadOSM zonder plaatsnaam (was 82a16b3c/4147); verder byte-gelijk, zie test_kaartbewaar KB12
+  const V113710 = { vindDichtbij: ['d444ee3', 3717, 4], updateDichtbij: ['8b09641', 12289, 1], regelKies: ['cd458100', 2307, 5], onGPS: ['38878b3b', 14986, 1],
+    downloadOSM: ['55c8ea56', 4144, 1], logOpslagMis: ['e93caaaf', 16068, 1] };   // V11.37.18: twee commentaarregels in downloadOSM zonder plaatsnaam (was 82a16b3c/4147); verder byte-gelijk, zie test_kaartbewaar KB12
   const telAf = Object.entries(V113710).filter(([n, [h, l, m]]) => merk(window[n]) !== m).map(([n]) => n + ' ' + merk(window[n]));
   eis('TR11a zes functies veranderen, alleen met regels met merkteken V11.37.11 (vier in vindDichtbij, vijf in regelKies, één in de rest)',
       telAf.length === 0, 'precies zoveel', telAf.join(', ') || 'precies zoveel');
@@ -418,9 +418,9 @@ async function testTegenrichting() {
   const ONGEWIJZIGD = { vindDichtbijScore: ['bc9b7937', 2105], achterSluitUit: ['6b7a87d8', 383], fietsSluitUit: ['ec1d273c', 170], fietsPuurDichtst: ['2a9b09f8', 418],
     fietsTerug: ['6f950997', 372], checkNodeCorrectieStilstand: ['8c801fd8', 4751],
     selecteerNodeHandmatig: ['8c3e7846', 2480], corrigeerNodeAutomatisch: ['17ca8090', 4208], geenLichtZetten: ['5c1824fd', 1675], achterTik: ['e9e105a3', 1583],
-    checkHandLockVerval: ['2df4f7ed', 5513], checkHandLockPassage: ['7f001264', 1768], checkTikSlotSnel: ['d3a8edbe', 2071], verzamelNaderingsBewijs: ['3d6ad85f', 3526],
+    checkHandLockVerval: ['274f90da', 5499], checkHandLockPassage: ['7f001264', 1768], checkTikSlotSnel: ['d3a8edbe', 2071], verzamelNaderingsBewijs: ['3d6ad85f', 3526],
     checkNaderingsCorrectie: ['6aeb87b3', 3595], regelTik: ['9c1b361b', 3087], peilingDuidelijkBeter: ['a1d2a5c1', 1471], berekenLateraleOffset: ['189b7879', 328],
-    wisselLogNoteer: ['9c1383d4', 1904], bevestigCountdown: ['8457401d', 16073], slaOpIntern: ['c284229a', 2342], tikRichting: ['b44110d5', 4619] };
+    wisselLogNoteer: ['9c1383d4', 1904], bevestigCountdown: ['dbfaeb26', 16017], slaOpIntern: ['c284229a', 2342], tikRichting: ['b44110d5', 4619] };
   const anders2 = Object.entries(ONGEWIJZIGD).filter(([n, [h, l]]) => { const s = zonderV113721(window[n]); return fnv(s) !== h || s.length !== l; }).map(x => x[0]);
   eis('TR11c tweeëntwintig functies die V11.37.11 niet raakt (de puntentelling, de achter-regel, het fietsfilter, de correcties, de tik, de loslaatroutes, de wissellog, het leren): byte-gelijk aan V11.37.10',
       anders2.length === 0, 'geen afwijking', anders2.join(', ') || 'geen');

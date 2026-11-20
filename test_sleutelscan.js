@@ -1,6 +1,6 @@
 // ═══════════════════════════════════════════════════════════════
 //  StoplichtIQ — test_sleutelscan.js
-//  © 2026 StoplichtIQ — Y. Lemaalem
+//  © 2026 StoplichtIQ
 //
 //  Test bij V11.22.0, release A van het opslagplan: de sleutelscan uit het
 //  geheugen. GEEN IndexedDB, GEEN gedragswijziging — localStorage blijft de

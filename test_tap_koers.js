@@ -1,6 +1,6 @@
 // ═══════════════════════════════════════════════════════════════
 //  StoplichtIQ — test_tap_koers.js
-//  © 2026 StoplichtIQ — Y. Lemaalem
+//  © 2026 StoplichtIQ
 //
 //  Test bij V11.19.0: een handmatige tap laat voortaan los zodra een ander
 //  stoplicht 8 meter dichterbij ligt — maar alleen als dat licht ook vóór je

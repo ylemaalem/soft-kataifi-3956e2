@@ -1,6 +1,6 @@
 // ═══════════════════════════════════════════════════════════════
 //  StoplichtIQ — test_koerslog.js
-//  © 2026 StoplichtIQ — Y. Lemaalem
+//  © 2026 StoplichtIQ
 //
 //  Test bij V11.37.15: de koers bij kruipen (sl_koerslog), alleen meten.
 //
@@ -355,7 +355,7 @@ async function testKoerslog() {
   const zonderV113718 = (s) => String(s).replace('const d = await kaartLeesInhoud(r, ctrl);   // V11.37.18: ook de inhoud heeft een grens (stond: await r.json()), zie kaartLeesInhoud', 'const d = await r.json();').split(NL).filter(l => !/V11\.37\.18(?!\d)/.test(l)).join(NL);   // V11.37.18: de bewaarde kaart, C5 en C7 (test_kaartbewaar); hier terug
   const zonderV113717 = (s) => zonderV113718(s).split(NL).filter(l => !/V11\.37\.17(?!\d)/.test(l)).join(NL);   // V11.37.17: de startlog (test_startlog); hier terug
   const zonderV113715 = (s) => zonderV113717(s).split(NL).filter(l => !/V11\.37\.15(?!\d)/.test(l)).join(NL);
-  const V113713 = { onGPS: ['ef388897', 15408, 1], exporteerMeetdata: ['db5a2894', 9165, 2] };
+  const V113713 = { onGPS: ['d27716fc', 15394, 1], exporteerMeetdata: ['ea6e6b78', 9151, 2] };
   const telAf = Object.entries(V113713).filter(([n, [h, l, m]]) => merk(window[n]) !== m).map(([n]) => n + ' ' + merk(window[n]));
   eis('KL11a twee functies krijgen regels met merkteken V11.37.15: één in onGPS (de aanroep), twee in exporteerMeetdata (de bak)',
       telAf.length === 0, 'precies zoveel', telAf.join(', ') || 'precies zoveel');

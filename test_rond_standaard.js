@@ -1,6 +1,6 @@
 // ═══════════════════════════════════════════════════════════════
 //  StoplichtIQ — test_rond_standaard.js
-//  © 2026 StoplichtIQ — Y. Lemaalem
+//  © 2026 StoplichtIQ
 //
 //  Test bij V11.18.18: rond licht is voortaan altijd de actieve standaard.
 //  Een eerder getikte richting wordt niet meer automatisch teruggezet; alleen

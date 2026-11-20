@@ -1,6 +1,6 @@
 // ═══════════════════════════════════════════════════════════════
 //  StoplichtIQ — test_v4_markering.js
-//  © 2026 StoplichtIQ — Y. Lemaalem
+//  © 2026 StoplichtIQ
 //
 //  Test bij V11.17.85 (D2): metingen die bij een richting horen tellen niet
 //  meer mee in het Algemeen-percentage, maar blijven wel de countdown voeden.

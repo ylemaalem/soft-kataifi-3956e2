@@ -1,6 +1,6 @@
 // ═══════════════════════════════════════════════════════════════
 //  StoplichtIQ — test_passage.js
-//  © 2026 StoplichtIQ — Y. Lemaalem
+//  © 2026 StoplichtIQ
 //
 //  Test bij V11.37.0: A3, het slot van een tik of lijstkeuze laat los zodra het
 //  hele kruispunt 30 m voorbij is, in plaats van pas na 100 m.
@@ -296,7 +296,7 @@ async function testPassage() {
   const zonderV113711 = (s) => zonderV113712(s).split(NL).filter(l => !/V11\.37\.11(?!\d)/.test(l)).join(NL);   // V11.37.14: de tegenrichting-regel (test_tegenrichting); idem
   const g = terugV11374(zonderV113711(zonderV113721(onGPS))).split(NL).filter(l => !/V11\.36\.4(?!\d)|V11\.37\.[0124](?!\d)/.test(l)).join(NL);   // V11.37.14: zonderV113711
   eis('PS9a onGPS zonder de A3-regel en de meetregels is byte-gelijk aan V11.34.1',
-      fnv(g) === '58346b1c' && g.length === 14246, '58346b1c / 14246', fnv(g) + ' / ' + g.length);
+      fnv(g) === 'c7585f8d' && g.length === 14232, 'c7585f8d / 14232', fnv(g) + ' / ' + g.length);
   const vast = String(isStoplichtVoorbij);
   eis('PS9b isStoplichtVoorbij is onaangeroerd (vijf aanroepers; A3 gebruikt hem niet)',
       fnv(vast) === '38a0d2ed' && vast.length === 338, '38a0d2ed / 338', fnv(vast) + ' / ' + vast.length);

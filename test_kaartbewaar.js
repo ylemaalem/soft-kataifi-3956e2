@@ -1,6 +1,6 @@
 // ═══════════════════════════════════════════════════════════════
 //  StoplichtIQ — test_kaartbewaar.js
-//  © 2026 StoplichtIQ — Y. Lemaalem
+//  © 2026 StoplichtIQ
 //
 //  Test bij V11.37.18: de laatste kaart blijft bewaard (eigen IndexedDB), de
 //  inhoud van de kaartvraag heeft een grens, en de pil en het onderste vak
@@ -639,7 +639,7 @@ async function testKaartbewaar() {
   const zonderV113720 = (s) => String(s).replace(DL20_NIEUW, DL20_OUD);   // V11.37.20: het eigen kaartbestand (test_kaartbestand); hier de oude zeven regels terug
   const zonderV113718 = (s) => zonderV113720(s).replace(KB_INHOUD_NU, KB_INHOUD_OUD).replace(KB_TIMER_NU, KB_TIMER_OUD).split(NL).filter(l => !/V11\.37\.18(?!\d)/.test(l)).join(NL);   // V11.37.20: eerst zonderV113720
   // downloadOSM: ook twee commentaarregels zonder plaatsnaam (was eb30f65/4968); de oude tekst met die twee regels geeft eb30f65/4968 (bewijs in de commit)
-  const V113717 = { downloadOSM: ['89781264', 4979, 6], updateDichtbij: ['a02224d6', 12487, 1], onGPS: ['37a4a787', 15517, 1], startApp: ['b07bc88b', 4810, 1],
+  const V113717 = { downloadOSM: ['9c3d0417', 4965, 6], updateDichtbij: ['d9d44ad5', 12473, 1], onGPS: ['bf60dbec', 15503, 1], startApp: ['a62dcc13', 4796, 1],
                     voerAIUit: ['63720b32', 2522, 1], laadONNXModel: ['ffa1087c', 4538, 1] };
   const telAf = Object.entries(V113717).filter(([n, [h, l, m]]) => merk(zonderV113720(window[n])) !== m).map(([n]) => n + ' ' + merk(zonderV113720(window[n])));   // V11.37.20: op de tekst van vóór V11.37.20
   eis('KB12a zes functies krijgen regels met merkteken V11.37.18: downloadOSM 6, de andere 1', telAf.length === 0, 'precies zoveel', telAf.join(', ') || 'precies zoveel');

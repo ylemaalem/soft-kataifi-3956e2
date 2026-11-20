@@ -1,6 +1,6 @@
 // ═══════════════════════════════════════════════════════════════
 //  StoplichtIQ — test_countdown_weergave.js
-//  © 2026 StoplichtIQ — Y. Lemaalem
+//  © 2026 StoplichtIQ
 //
 //  Test bij V11.17.82: één aftellend getal bij een onzekere countdown, een
 //  gedimde KLOPTE die klikbaar blijft als de camera al groen ziet, en

@@ -1,6 +1,6 @@
 // ═══════════════════════════════════════════════════════════════
 //  StoplichtIQ — test_tiklog_budget.js
-//  © 2026 StoplichtIQ — Y. Lemaalem
+//  © 2026 StoplichtIQ
 //
 //  Test bij V11.36.2: het tikoverzicht (sl_tiklog) houdt twee budgetten bij,
 //  60 regels voor tik, los en de telling per tik ('tel'), en 40 voor de overige

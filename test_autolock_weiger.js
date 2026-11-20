@@ -1,6 +1,6 @@
 // ═══════════════════════════════════════════════════════════════
 //  StoplichtIQ — test_autolock_weiger.js
-//  © 2026 StoplichtIQ — Y. Lemaalem
+//  © 2026 StoplichtIQ
 //
 //  Test bij V11.18.6: meten welke poort de correctie blokkeert wanneer de
 //  stilstand-auto-lock een verkeerde node vasthoudt.
