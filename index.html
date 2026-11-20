@@ -1109,7 +1109,7 @@ if (typeof ort !== 'undefined') {
 //
 // De stijl volgt de eerdere labels: nummer, kastlijntje, korte omschrijving in
 // kleine letters. De CSS zet hem zelf in kapitalen (text-transform:uppercase).
-const APP_VERSIE = 'V11.38.3 — meetregel tikloos (alleen meten)';
+const APP_VERSIE = 'V11.38.4 — meetvelden volledig en weggegooid rood (alleen meten)';
 
 // ── CONSTANTEN ────────────────────────────────────────────────
 const OSM_RADIUS       = 5000;
@@ -3432,6 +3432,7 @@ function slaOp(osmId, richting, duur, conf=null, bypassAfstand=false, gewichtOve
   const minDuur = (minDuurOverride != null) ? minDuurOverride : 4;
   if (!osmId || duur < minDuur || duur > 180) {
     logOpslagMis(!osmId ? 'geen_node' : (duur < minDuur ? 'te_kort' : 'te_lang'), { node: osmId, dur: duur });
+    if (osmId && duur < minDuur) wegRoodLog('s', osmId, duur, null);   // V11.38.4: alleen een logregel
     return false;  // V11.17.10 Laag 2a: cap 300→180s
   }
   const obsNu = faseStart ? Math.round((performance.now() - faseStart) / 1000) : null;
@@ -3728,6 +3729,7 @@ function slaOpIntern(osmId, richting, duur, gewichtOverride, dd, bron='s1', conf
   // synthetische bevestig-correcties). Nooit gokken naar 1.
   if (zagOvergang === true) entry.zo = 1;
   else if (zagOvergang === false) entry.zo = 0;
+  if (bron === 's1') { try { zvAanvul(entry, osmId); } catch (_) {} }   // V11.38.4: zv/zg, alleen meten
   m.push(entry);
   // V11.17.85: cap-gedrag ONGEWIJZIGD. Sorteren gebeurt uitsluitend op
   // recentheid; `rv` komt hier bewust niet in voor. Een gemarkeerd record
@@ -5885,6 +5887,7 @@ function exporteerMeetdata() {
       uit.passage = {}; uit.m5 = {};   // V11.37.22: zie passageTik en m5Start
       uit.nano = {};   // V11.37.26: de Nano-schaduwproef (sl_nano_*) en de A/B-emmers (sl_modelvgl)
       uit.door = {};   // V11.37.30: de doorrijlog (doorTik)
+      uit.weg = {};    // V11.38.4: weggegooide rode fasen (wegRoodLog)
       for (const key of opslagSleutels('')) {                          // V11.23.0
         let doel = null;
         if (key.startsWith('sl_passief_'))       doel = uit.passief;
@@ -5913,6 +5916,7 @@ function exporteerMeetdata() {
         else if (key === PASSAGE_SLEUTEL)        doel = uit.passage;   // V11.37.22: passages en einde gemist
         else if (key === M5_SLEUTEL)             doel = uit.m5;   // V11.37.22: schaduw wachttijd
         else if (key === DOOR_SLEUTEL)           doel = uit.door;   // V11.37.30: elke passage, ook niet gezien
+        else if (key === WEGROOD_SLEUTEL)        doel = uit.weg;    // V11.38.4: weggegooide rode fasen
         else if (key.startsWith('sl_nano_') || key === 'sl_modelvgl') doel = uit.nano;   // V11.37.26
         // V11.17.33 W2: let op de volgorde — 'sl_richtinglog' begint NIET met
         // 'sl_richting_' (na 'sl_richting' volgt 'l', geen '_'), dus deze twee
@@ -10053,9 +10057,74 @@ function zhActief(nodeId) {
 }
 function m5Aanvul(rec, nodeId) {
   if (zhActief(nodeId)) rec.zh = 1;
+  try { zvAanvul(rec, nodeId); } catch (_) {}   // V11.38.4
   const p = passageStaat.open.get(Number(nodeId));
   if (p && p.d1 !== undefined) rec.d1 = p.d1;
   if (p && p.dr !== undefined) rec.dr = p.dr;
+}
+// ── V11.38.4: ZV EN DE WEGROODLOG (ALLEEN METEN) ─────────────
+// © 2026 StoplichtIQ
+//
+// zv. De vlag zo=1 (volledig) vraagt dat de fase DIRECT vóór rood groen of oranje was op
+// hetzelfde licht. Valt de lamp tussendoor even weg (uitval of verouderde fase), dan is de
+// fase leeg en krijgt het rood zo=0, ook als groen of oranje vlak ervoor wel gezien is.
+// zv:1 legt dat geval vast, met zg = de onderbreking in hele seconden (van de laatste
+// detectie tot het nieuwe rood, hoogstens ZV_MAX_GAT_S). Het komt in het V4-record en in
+// de m5-regel. De vlag zelf (zagRoodOvergang, zo) en alles wat ervan afhangt blijft gelijk.
+//
+// De wegroodlog. Een rode fase die door de minimumduur van verwerkFase (p:'f', 8/3/1 s) of
+// door de 4 s van slaOp (p:'s') niet wordt opgeslagen, krijgt een regel in sl_wegroodlog:
+// d (duur, 0,1 s), vk (kleur ervoor: g/o/r/-), bg (begin gezien = de vlag), gl (groen op
+// hetzelfde licht vlak ervoor, hele s, anders 0), nw (de volgende fase), dd, en zv/zg.
+// Geen positie. Wat er opgeslagen wordt verandert niet. Vol quotum: alleen dit log stopt.
+const ZV_MAX_GAT_S = 120;
+const WEGROOD_SLEUTEL = 'sl_wegroodlog';
+const WEGROOD_MAX = 200;
+let zvVoorReset = null;   // { n, fase, t } bij de laatste uitval/stale
+let zvFase = null;        // { n, fs, zg } de rode fase waarbij zv hoort
+let wegRoodLaatst = null; // { k, t } tegen een dubbele regel (verwerkFase en daarna de vertraagde schrijving)
+function zvNoteerReset(reden) {
+  try {
+    if (reden !== 'dropout' && reden !== 'stale') return;
+    zvVoorReset = { n: faseNodeId === null ? null : String(faseNodeId), fase, t: laatsteDetectieTijd || Date.now() };
+  } catch (e) {}
+}
+function zvBijNieuwRood(nodeId, vorige, zag) {
+  try {
+    const v = zvVoorReset;
+    zvVoorReset = null; zvFase = null;
+    if (!v || vorige !== null || zag || v.n !== String(nodeId)) return;
+    if (v.fase !== 'groen' && v.fase !== 'oranje') return;
+    const zg = Math.round((Date.now() - v.t) / 1000);
+    if (!(zg >= 0 && zg <= ZV_MAX_GAT_S)) return;
+    zvFase = { n: String(nodeId), fs: null, zg };
+  } catch (e) {}
+}
+function zvZetStart() {
+  try { if (zvFase && zvFase.fs === null) zvFase.fs = faseStart; } catch (e) {}
+}
+function zvActief(nodeId) {
+  return !!zvFase && zvFase.fs !== null && faseStart !== null && zvFase.n === String(nodeId) && zvFase.fs === faseStart;
+}
+function zvAanvul(rec, nodeId) {
+  if (zvActief(nodeId)) { rec.zv = 1; rec.zg = zvFase.zg; }
+}
+function wegRoodLog(poort, nodeId, dur, nieuw) {
+  try {
+    const kort = (x) => x === 'groen' ? 'g' : x === 'oranje' ? 'o' : x === 'rood' ? 'r' : '-';
+    const d = Math.round(Number(dur) * 10) / 10;
+    const k = String(nodeId) + '|' + d, nu = Date.now();
+    if (wegRoodLaatst && wegRoodLaatst.k === k && nu - wegRoodLaatst.t < 120000) return;
+    wegRoodLaatst = { k, t: nu };
+    const nNum = Number(nodeId);
+    const rec = { t: nu, n: Number.isFinite(nNum) ? nNum : String(nodeId), p: poort, d,
+                  vk: kort(vorigeFaseVoorRood), bg: zagRoodOvergang ? 1 : 0,
+                  gl: (laatsteGroenNode === nodeId && laatsteGroenDuur > 0) ? Math.round(laatsteGroenDuur) : 0,
+                  dd: huidigDDActief() };
+    if (nieuw) rec.nw = kort(nieuw);
+    zvAanvul(rec, nodeId);
+    meetRingSchrijf(WEGROOD_SLEUTEL, WEGROOD_MAX, rec);
+  } catch (e) {}
 }
 // Vult de zojuist geschreven regel x:'eg' aan (dezelfde ring, dezelfde regel).
 function egAanvul(nodeId) {
@@ -14097,6 +14166,7 @@ function resetNeutraal(reden) {
   zichtResetStaleMs = (staleFaseSinds !== null) ? Date.now() - staleFaseSinds : null;
   eindeGemistLog(reden);   // V11.37.22: idem, bij uitval, stale en het startscherm
   zhNoteerReset(reden);   // V11.37.23: alleen onthouden hoe de fase vóór de blinde periode stond (zh), zie het blok V11.37.23
+  zvNoteerReset(reden);   // V11.38.4: idem voor zv (groen/oranje vóór de blinde periode), zie het blok V11.38.4
   fase = null; faseStart = null; faseBevestigd = null; // V11.5.4
   faseBalk.className=''; faseLamp.className='';
   faseWoord.textContent='—'; faseSub.textContent='Richt camera op stoplicht';
@@ -14359,6 +14429,7 @@ function verwerkFase(nieuw, horizontaal, conf=null) {
     } else if (fase === 'rood') {
       logOpslagMis(!dichtstbijOSM ? 'geen_node' : (dur <= effectieveMinDur ? 'te_kort' : 'te_lang'),
         { node: nodeId, dur });
+      if (dichtstbijOSM && dur <= effectieveMinDur) wegRoodLog('f', nodeId, dur, nieuw);   // V11.38.4: alleen een logregel
     }
   }
   // V11.17.13 W2: passieve meting bij rood→groen. Zuiver meelezend — schrijft
@@ -14396,6 +14467,7 @@ function verwerkFase(nieuw, horizontaal, conf=null) {
   if (nieuw === 'rood') {
     zagRoodOvergang = ((fase === 'groen' || fase === 'oranje') && faseNodeId === nodeId);
   }
+  if (nieuw === 'rood') zvBijNieuwRood(nodeId, fase, zagRoodOvergang);   // V11.38.4: alleen meten, de vlag hierboven blijft zoals hij is
   fase = nieuw; faseStart = nu; geenTeller = 0; aiTeller = 0; aiKleur = nieuw;
   faseNodeId = nodeId;                         // V11.17.13: node van de huidige fase
   hogeFScoreRuns = 0;                          // V11.17.11: fScore-streak begint opnieuw
@@ -14432,6 +14504,7 @@ function verwerkFase(nieuw, horizontaal, conf=null) {
       });
     }
   }
+  if (nieuw === 'rood') zvZetStart();   // V11.38.4: de faseStart van deze rode fase (na een eventueel herstel)
   if (nieuw !== laatsteFase) {
     // V11.13.4: capture de voorgaande fase VOORDAT laatsteFase wordt
     // overschreven, maar ALLEEN bij een echte wissel naar rood. Bij

@@ -157,7 +157,7 @@ async function testMeetregelC4() {
     }
     const xd = ex && ex.det && ex.det.sl_detlog && ex.det.sl_detlog[0], xp = ex && ex.passage && ex.passage[PASSAGE_SLEUTEL] && ex.passage[PASSAGE_SLEUTEL][0];
     eis('MC10 de Meetdata-export bevat de nieuwe detlog- en passagevelden, en de versie V11.38.3',
-      !!xd && xd.ep === 'w' && xd.bx === 1660 && xd.cx === 1610 && !!xp && xp.tk === 2 && xp.b1a === 70 && /^V11\.38\.3(?!\d)/.test(ex.appVersie || ''),
+      !!xd && xd.ep === 'w' && xd.bx === 1660 && xd.cx === 1610 && !!xp && xp.tk === 2 && xp.b1a === 70 && /^V11\.38\.([3-9]|\d\d)(?!\d)/.test(ex.appVersie || '')   /* V11.38.4: V11.38.3 of later */,
       'ep, bx, cx, tk, b1a', JSON.stringify({ xd, xp, v: ex && ex.appVersie }));
     const bk = verzamelBackupData(), bd = (bk.sl_detlog || [])[0] || {}, bp = (bk.sl_passagelog || [])[0] || {};
     eis('MC10b de Backup bevat dezelfde velden', bd.ep === 'w' && bd.bx === 1660 && bp.tk === 2 && bp.b1a === 70, 'ep, bx, tk, b1a', JSON.stringify({ bd, bp }));
@@ -167,7 +167,7 @@ async function testMeetregelC4() {
     const anders = Object.entries(V11382).filter(([n, [h, l]]) => { const s = String(window[n]); return fnv(s) !== h || s.length !== l; }).map(x => x[0]);
     eis('MC11a de 31 beslissende functies (selectie, slot, drempels, filters, crop, poort, tik) zijn byte-gelijk aan V11.38.2',
       anders.length === 0, 'geen afwijking', anders.join(', ') || 'geen');
-    const zonder = (f) => String(f).split('\n').filter(l => !/V11\.38\.3(?!\d)/.test(l)).join('\n');
+    const zonder = (f) => String(f).split('\n').filter(l => !/V11\.38\.3(?!\d)|V11\.38\.4(?!\d)/.test(l)).join('\n');
     const HAAK = { detLogSchrijf: ['c614b2be', 4119], passageSchrijf: ['19666aaa', 696], tikLogTik: ['a0583a9c', 1522] };
     const anders2 = Object.entries(HAAK).filter(([n, [h, l]]) => { const s = zonder(window[n]); return fnv(s) !== h || s.length !== l; }).map(([n]) => n + ' ' + fnv(zonder(window[n])) + '/' + zonder(window[n]).length);
     const tel = { detLogSchrijf: 2, passageSchrijf: 2, tikLogTik: 1 };
