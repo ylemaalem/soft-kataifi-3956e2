@@ -47,7 +47,7 @@ function testKortroodLog() {
     weg(); slaOp(N, 'rechtdoor', 6, null, true, null, null, true); const met = emmer();
     weg(); window.kortRoodLog = () => false; slaOp(N, 'rechtdoor', 6, null, true, null, null, true); const zonder = emmer(); window.kortRoodLog = bewKr;
     eis('KR4 de emmer krijgt dezelfde records als zonder de logregel', met.length > 0 && met.join('|') === zonder.join('|'), kort(zonder), kort(met));
-    const so = String(slaOp).split('\n').filter(l => /V11\.37\.41(?!\d)/.test(l));
+    const so = String(slaOp).split('\n').filter(l => /V11\.37\.41(?!\d)|V11\.38\.3(?!\d)/.test(l));
     eis('KR4b slaOp kreeg alleen de ene aanroep erbij', so.length === 1 && /kortRoodLog\(osmId, duur, zagOvergang\)/.test(so[0]), '1 regel', kort(so));
     // KR5
     localStorage.setItem('sl_conflog', JSON.stringify(Array.from({ length: 50 }, (_, i) => ({ t: i }))));

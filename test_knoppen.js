@@ -29,7 +29,7 @@
 //      s.onload = () => testKnoppen().then(r => console.table(r.regels));
 // ═══════════════════════════════════════════════════════════════
 // V11.37.21: de regels met dit merkteken weg, zodat de vergelijkingen hieronder de functies van vóór V11.37.21 blijven toetsen (zie test_meetwerk21)
-function zonderV113721(s) { return String(s).split('\n').map(terugV113731).map(terugV113726).filter(l => !/V11\.37\.21(?!\d)|V11\.37\.22(?!\d)|V11\.37\.23(?!\d)|V11\.37\.25(?!\d)|V11\.37\.26(?!\d)|V11\.37\.30(?!\d)|V11\.37\.31(?!\d)|V11\.37\.34(?!\d)|V11\.37\.35(?!\d)|V11\.37\.36(?!\d)|V11\.37\.37(?!\d)|V11\.37\.38(?!\d)|V11\.37\.39(?!\d)|V11\.37\.41(?!\d)/.test(l)).join('\n'); }   // V11.37.22: ook de meetregels van V11.37.22 (test_meetwerk22); V11.37.23: idem (test_meetwerk23); V11.37.25: idem (test_plaatsen)   // V11.37.26: idem (test_schaduw_nano), met terugV113726
+function zonderV113721(s) { return String(s).split('\n').map(terugV113731).map(terugV113726).filter(l => !/V11\.37\.21(?!\d)|V11\.37\.22(?!\d)|V11\.37\.23(?!\d)|V11\.37\.25(?!\d)|V11\.37\.26(?!\d)|V11\.37\.30(?!\d)|V11\.37\.31(?!\d)|V11\.37\.34(?!\d)|V11\.37\.35(?!\d)|V11\.37\.36(?!\d)|V11\.37\.37(?!\d)|V11\.37\.38(?!\d)|V11\.37\.39(?!\d)|V11\.37\.41(?!\d)|V11\.38\.3(?!\d)/.test(l)).join('\n'); }   // V11.37.22: ook de meetregels van V11.37.22 (test_meetwerk22); V11.37.23: idem (test_meetwerk23); V11.37.25: idem (test_plaatsen)   // V11.37.26: idem (test_schaduw_nano), met terugV113726
 // V11.37.26: drie regels van laadONNXModel zijn vervangen (de modelnaam komt uit MODEL_PADEN, test_schaduw_nano).
 // Die gaan hier terug naar de oude tekst; daarna vallen de regels met merkteken V11.37.26 weg zoals de andere.
 // V11.37.31: Nano is het hoofdmodel; deze regels zijn VERVANGEN (niet toegevoegd). Hier gaat precies de oude regel terug,
@@ -175,8 +175,8 @@ async function testKnoppen() {
     const d4 = det();
     snelheidKmh = 20; detLogAfst = 50; detLogSchrijf();
     const d5 = det();
-    eis('KM3b rijdend onder 20 m schrijft de detlog niets (zoals altijd); op 50 m een gewone regel zonder de nieuwe velden',
-        d4.length === 0 && d5.length === 1 && d5[0].stil === undefined && d5[0].bf === undefined, '0, dan 1 gewone', JSON.stringify(d5));
+    eis('KM3b rijdend onder 20 m schrijft de detlog niets (zoals altijd); op 50 m een gewone regel, sinds V11.38.3 met de b-velden (meetregel C4)',
+        d4.length === 0 && d5.length === 1 && d5[0].stil === undefined && d5[0].bf !== undefined && d5[0].ep === 'w', '0, dan 1 gewone met bf en ep', JSON.stringify(d5));   // V11.38.3: was bf === undefined
     // Het filter zegt hetzelfde als postprocessYOLO: één anker per geval, klasse 0 (rood).
     const anker = (cx, cy, w, h, s) => { const d = new Float32Array(4 + NC); d[0] = cx; d[1] = cy; d[2] = w; d[3] = h; d[4] = s; return d; };
     snelheidKmh = 30;   // maxY = MAX_Y_RATIO

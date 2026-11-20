@@ -1109,7 +1109,7 @@ if (typeof ort !== 'undefined') {
 //
 // De stijl volgt de eerdere labels: nummer, kastlijntje, korte omschrijving in
 // kleine letters. De CSS zet hem zelf in kapitalen (text-transform:uppercase).
-const APP_VERSIE = 'V11.38.2 — ook onvolledige metingen';
+const APP_VERSIE = 'V11.38.3 — meetregel tikloos (alleen meten)';
 
 // ── CONSTANTEN ────────────────────────────────────────────────
 const OSM_RADIUS       = 5000;
@@ -7679,6 +7679,7 @@ function tikLogAfstTotTik(det) {
 // De tik zelf. Aangeroepen vóór de drie paden van de handler, zodat de anchor
 // en een eventuele vorige tik nog staan zoals de gebruiker ze zag.
 function tikLogTik(videoX, videoY, heeftActieveBbox, gekozen, rand) {
+  passageMerkTik();   // V11.38.3: meetregel C4, zie passageMerkTik
   try {
     tikLogWaak();
     tikTelAf();   // V11.34.1: de telling van de vorige tik
@@ -9621,6 +9622,10 @@ const M5_SLEUTEL       = 'sl_m5log';
 const M5_MAX           = 150;
 const EG_REDEN = { dropout: 'uitval', stale: 'uitval', wissel: 'wissel', handmatig: 'hand', correctie: 'hand', geen: 'weg', startscherm: 'start' };
 let passageStaat = { open: new Map(), vorige: null, tVorig: 0 };
+// V11.38.3: per licht de eerste tik en de eerste box, los van de open passage (die opent pas
+// bij de volgende GPS-tik). passageSchrijf haalt ze op. { tk, tka, b0a, b0t, b1a, b1t, t }
+const passageC4 = new Map();
+const PASSAGE_C4_MS = 600000, PASSAGE_C4_MAX = 30;
 let m5Open = null;
 
 function passageKleur(id) {
@@ -9658,7 +9663,59 @@ function passageTik(lat, lon) {
     }
   } catch (e) {}
 }
+// -- V11.38.3: MEETREGEL C4 IN DE PASSAGELOG (ALLEEN METEN) -----------
+// (c) 2026 StoplichtIQ — Y. Lemaalem
+// Nieuwe velden in een passageregel (alleen als ze er zijn):
+//   tk   aantal tikken op dit licht tijdens de passage (geen veld = niet getikt)
+//   tka  afstand in m tot het licht bij de eerste tik
+//   b0a, b0s  afstand (m) en tijd (s na het begin van de passage, kan negatief zijn)
+//             van de eerste box ZONDER tik
+//   b1a, b1s  idem voor de eerste box NA een tik
+// Een box telt voor het licht dat de app op dat moment als volgende licht had
+// (dichtstbijOSM), net als d1. Beslist niets.
+function passageC4Bij(id) {
+  const nu = Date.now();
+  for (const [k, e] of passageC4) if (nu - e.t > PASSAGE_C4_MS) passageC4.delete(k);
+  let e = passageC4.get(id);
+  if (!e) {
+    if (passageC4.size >= PASSAGE_C4_MAX) passageC4.delete(passageC4.keys().next().value);
+    e = { t: nu }; passageC4.set(id, e);
+  }
+  e.t = nu;
+  return e;
+}
+function passageAfstNu() {
+  return (dichtstbijOSM && typeof dichtstbijOSM.afstand === 'number' && Number.isFinite(dichtstbijOSM.afstand)) ? Math.round(dichtstbijOSM.afstand) : null;
+}
+// Aangeroepen bij elke tik (tikLogTik), na de node-keuze van de tik.
+function passageMerkTik() {
+  try {
+    if (!dichtstbijOSM) return;
+    const e = passageC4Bij(Number(dichtstbijOSM.id));
+    e.tk = (e.tk || 0) + 1;
+    if (e.tka === undefined) e.tka = passageAfstNu();
+  } catch (e) {}
+}
+// Aangeroepen na elke YOLO-run (detLogSchrijf). Alleen een run die een box koos telt.
+function passageBoxRun() {
+  if (!laatsteAI || !laatsteAI.box || !dichtstbijOSM) return;
+  const e = passageC4Bij(Number(dichtstbijOSM.id)), nu = Date.now();
+  if (tapLockLeeft() && e.tk) { if (e.b1t === undefined) { e.b1t = nu; e.b1a = passageAfstNu(); } }
+  else if (!tapLockLeeft()) { if (e.b0t === undefined) { e.b0t = nu; e.b0a = passageAfstNu(); } }
+}
+function passageC4Velden(p) {
+  const e = passageC4.get(p.n);
+  if (!e) return {};
+  passageC4.delete(p.n);
+  const uit = {};
+  if (e.tk) { uit.tk = e.tk; uit.tka = e.tka; }
+  if (e.b0t !== undefined) { uit.b0a = e.b0a; uit.b0s = Math.round((e.b0t - p.t) / 1000); }
+  if (e.b1t !== undefined) { uit.b1a = e.b1a; uit.b1s = Math.round((e.b1t - p.t) / 1000); }
+  return uit;
+}
+
 function passageSchrijf(p) {
+  try { if (!(p.ma <= PASSAGE_NADER_M)) passageC4.delete(p.n); } catch (_) {}   // V11.38.3: geen passage, dan ook de tik en de box van dit licht vergeten
   if (!(p.ma <= PASSAGE_NADER_M)) return;   // nooit echt genaderd: een wissel onderweg, geen passage
   const w = Math.round(p.w);
   const rec = { t: p.t, n: p.n, k: p.k, d1: p.d1, c1: p.c1, c50: p.c50, s: w >= 2 ? 1 : 0, w, ma: Math.round(p.ma) };
@@ -9666,6 +9723,7 @@ function passageSchrijf(p) {
   if (v) { rec.v = v.n; rec.vt = Math.round((p.t - v.eind) / 1000); }
   passageStaat.vorige = { n: p.n, eind: p.laatst };
   if (p.dr !== undefined) rec.dr = p.dr; if (p.zh) rec.zh = 1;   // V11.37.23: dr en zh, zie het blok V11.37.23
+  try { Object.assign(rec, passageC4Velden(p)); } catch (_) {}   // V11.38.3: tik en eerste box, zie passageC4Velden
   for (const k of Object.keys(rec)) if (rec[k] === null || rec[k] === undefined) delete rec[k];
   meetRingSchrijf(PASSAGE_SLEUTEL, PASSAGE_MAX, rec);
 }
@@ -20471,6 +20529,51 @@ function detLogBestVelden() {
            bt: b.tap ? 1 : 0, bf: detLogAfwijsFilter(b, fam) };
 }
 
+// -- V11.38.3: MEETREGEL C4 "TIKLOOS DETECTEREN" (ALLEEN METEN) --------
+// (c) 2026 StoplichtIQ — Y. Lemaalem
+//
+// Waarom: zonder deze velden is niet te meten of de app een lamp ZONDER tik vindt
+// (STAP 0 tikloos, 19 nov). Tot hier stonden score en afvalreden van de beste
+// kandidaat alleen in regels bij stilstand onder 20 m. Nu in elke detlog-regel:
+//   bs, bk, bfam, bf, bt   score, klasse, familiescore, afvalreden en "in de tikzone"
+//                          van de ruwe beste kandidaat (zoals detLogBestVelden)
+//   bx, by, bw, bh         dezelfde kandidaat in CAMERAPIXELS (midden, breedte, hoogte).
+//                          Let op: in regels van voor V11.38.3 (zonder ep) stonden
+//                          bx..bh bij stilstand in YOLO-pixels (640).
+//   cx, cy                 midden van de box die deze run KOOS, in camerapixels;
+//                          ontbreekt als de run geen box opleverde
+//   ta                     1 = er staat een tik (tapLockLeeft)
+//   sa                     1 = het automatische slot houdt een lamp vast (autoSlotActief)
+//   dr                     de drempel: 0,03/0,04 binnen de tikstraal als er een tik staat,
+//                          anders 0,07/0,10 (de grens van het geladen model)
+//   rt                     'h' = hele beeld (geen uitsnede), 'u' = uitsnede
+//   ep                     'w' = wasm (nu altijd), later 'g' = webgpu
+// Niets hiervan wordt ergens gelezen; geen keuze, drempel of filter verandert.
+// Geen positie: alleen camerapixels, scores en vlaggen.
+const DETLOG_EP = 'w';   // de uitvoering van het model; zie ort.InferenceSession.create (wasm)
+function detLogC4Velden(st) {
+  const uit = {};
+  const b = detLogBest;
+  if (b) {
+    const fam = (KLASSE_MAP[b.k] && Array.isArray(debugLaatsteAlle)) ? famSom(debugLaatsteAlle, KLASSE_MAP[b.k], b.s) : b.s;
+    const r2 = (v) => Math.round(v * 100) / 100;
+    uit.bs = r2(b.s); uit.bk = b.k; uit.bfam = r2(fam); uit.bt = b.tap ? 1 : 0; uit.bf = detLogAfwijsFilter(b, fam);
+    if (st && st.s > 0) {
+      uit.bx = Math.round((b.cx - st.px) / st.s + st.x); uit.by = Math.round((b.cy - st.py) / st.s + st.y);
+      uit.bw = Math.round(b.w / st.s); uit.bh = Math.round(b.h / st.s);
+    }
+  } else uit.bf = 'geen';
+  const box = laatsteAI && laatsteAI.box;
+  if (box && Number.isFinite(box.x) && Number.isFinite(box.w)) { uit.cx = Math.round(box.x + box.w / 2); uit.cy = Math.round(box.y + box.h / 2); }
+  const ta = tapLockLeeft();
+  uit.ta = ta ? 1 : 0;
+  uit.sa = autoSlotActief() ? 1 : 0;
+  uit.dr = ta ? hoofdTapConf() : hoofdConf();
+  uit.rt = detLogRatio ? 'u' : 'h';
+  uit.ep = DETLOG_EP;
+  return uit;
+}
+
 // ── V11.37.3: DE RICHTINGTIK GAAT NAAR HET LICHT DAT JE ZIET ─────
 // © 2026 StoplichtIQ — Y. Lemaalem
 //
@@ -23481,6 +23584,7 @@ function detLogSchrijf() {
   // V11.34.2: het aantal gaat met DEZE run mee en begint daarna opnieuw, ook
   // (V11.34.2) als deze run buiten het venster valt en dus niet geschreven wordt.
   const gN = detLogGegate; detLogGegate = 0;   // V11.34.2
+  try { passageBoxRun(); } catch (_) {}   // V11.38.3: de eerste box per passage, zie passageBoxRun
   if (detLogStop) return;
   try {
     const afst = detLogAfst;
@@ -23524,6 +23628,7 @@ function detLogSchrijf() {
     const koDet = getSmoothedHeading();   // V11.37.22
     if (koDet != null && Number.isFinite(koDet)) { rec.ko = Math.round(koDet); if (dichtstbijOSM && huidigePos) rec.kh = peilingTovRijrichting(huidigePos, dichtstbijOSM, koDet); }   // V11.37.22: koers en kaarthoek (peiling min koers)
     if (stil) { detLogStilLaatst = Date.now(); rec.stil = 1; Object.assign(rec, detLogBestVelden()); }   // V11.37.5: zie detLogBestVelden
+    try { Object.assign(rec, detLogC4Velden(stDet)); } catch (_) {}   // V11.38.3: meetregel C4 in elke regel; overschrijft bij stilstand bx..bh met camerapixels, zie detLogC4Velden
     if (detLogArr === null) {
       try { detLogArr = JSON.parse(localStorage.getItem('sl_detlog')) || []; }
       catch(_) { detLogArr = []; }
