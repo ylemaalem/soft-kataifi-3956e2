@@ -1109,7 +1109,7 @@ if (typeof ort !== 'undefined') {
 //
 // De stijl volgt de eerdere labels: nummer, kastlijntje, korte omschrijving in
 // kleine letters. De CSS zet hem zelf in kapitalen (text-transform:uppercase).
-const APP_VERSIE = 'V11.38.6 — meetregel zoom en de laatste 20 m (alleen meten)';
+const APP_VERSIE = 'V11.38.7 — schermzoom zonder slot, 1,0x vanaf 30 m, plafond uit de lamp';
 
 // ── CONSTANTEN ────────────────────────────────────────────────
 const OSM_RADIUS       = 5000;
@@ -19441,6 +19441,97 @@ function berekenDoelZoom(afst) {
   return 1.0;
 }
 
+// ── V11.38.7: DE SCHERMZOOM ZONDER SLOT ─────────────────────────────────
+// © 2026 StoplichtIQ
+//
+// WAAROM. Tot hier stond de schermzoom vast zodra de app een lamp zag (zoomVergrendeld,
+// het hangslot). Hij bleef dan bij het licht op 1,3x tot 3x staan, sprong in blokken
+// van berekenDoelZoom (3 / 2,5 / 2 / 1,5 / 1) en ging pas naar 1,0x nadat de lamp al
+// boven uit beeld was. De gebruiker: "op langere afstand moet hij al helemaal
+// uitgezoomd zijn", "vlekkeloos overgaan, niet statisch en geblokt".
+//
+// WAT. schermZoom is wat je ziet (de CSS-vergroting van het camerabeeld en de overlay).
+//   - Geen slot: zoomVergrendeld speelt hier geen rol.
+//   - Basis uit de afstand tot het licht (dichtstbijOSM.afstand, zonder gpsBuffer):
+//     tot en met SCHERM_ZOOM_1X_M (30 m) 1,0x, daarboven rechtlijnig naar
+//     SCHERM_ZOOM_MAX (3,0x) op SCHERM_ZOOM_MAX_M (110 m). Geen treden meer.
+//     Zonder licht 3,0x en bij bboxDichtbij 1,0x, zoals berekenDoelZoom.
+//   - Plafond uit de lamp: de laatst gekozen box (laatsteAI.box, camerapixels) moet
+//     met SCHERM_PLAFOND_MARGE (3% van het beeld) plus de halve box op het scherm
+//     blijven. Bij object-fit: cover valt er links en rechts al een deel weg; dat
+//     rekent schermZichtbaar mee. Een box blijft SCHERM_PLAFOND_HOUD_MS (3 s) gelden,
+//     zodat de zoom niet terugveert als de lamp even wegvalt. Het plafond verlaagt
+//     alleen, nooit onder 1,0x.
+//   - Demping per beeldje 0,12, dezelfde als de oude zoom.
+//
+// DE HOEK (STAP 2, gemeten op de detlog van 20 nov, n=148 gekozen boxen): tussen 20 en
+// 30 m staat de lamp in het camerabeeld op 0,43 van de hoogte (mediaan; de hoogste op
+// 0,32, 0 = bovenrand), tussen 30 en 100 m op 0,46-0,49. Op 1,0x ziet het scherm de
+// volle hoogte. Met de beeldhoek van de hoofdcamera (verticaal ~35 graden boven het
+// midden) gaat een lamp 2,4 m boven de camera pas op ~3,5 m uit beeld, een portaal
+// 4,5 m erboven op ~6,5 m. Op 1,26x (de oude zoom) gebeurde dat al op ~5 en ~8 m.
+//
+// WAT NIET VERANDERT. Het model ziet de schermzoom niet (yoloCtx tekent de video zelf,
+// de uitsnede komt uit berekenCropRegio). zoomVergrendeld wordt nog precies zo gezet
+// en gewist, en blijft de vlag voor GPS-voorbij (huidigActiefStoplichtPositie) en voor
+// toonTapIndicator. De oude zoom (huidigeZoom met het slot) loopt onzichtbaar door,
+// alleen nog om zoomTransitieActief te geven, de vlag die de reset van aiTeller na een
+// lange uitval tegenhoudt (verwerkDetecties). Zo verandert er buiten het scherm niets.
+const SCHERM_ZOOM_1X_M = 30;            // V11.38.7
+const SCHERM_ZOOM_MAX_M = 110;          // V11.38.7
+const SCHERM_ZOOM_MAX = 3.0;            // V11.38.7
+const SCHERM_ZOOM_DEMPING = 0.12;       // V11.38.7
+const SCHERM_PLAFOND_MARGE = 0.03;      // V11.38.7
+const SCHERM_PLAFOND_HOUD_MS = 3000;    // V11.38.7
+let schermZoom = 1.0;                   // V11.38.7: wat je ziet
+let schermPlafond = null;               // V11.38.7: het plafond uit de lamp, null = geen
+let schermLamp = null;                  // V11.38.7: { cx, cy, w, h, t } de laatst gekozen box, camerapixels
+let schermBasis = 1.0;                  // V11.38.7: het doel uit de afstand alleen, voor de debugbalk
+
+function schermZoomBasis(afst) {   // V11.38.7
+  if (bboxDichtbij) return 1.0;
+  if (afst == null || isNaN(afst) || afst < 0) return 1.0;
+  if (afst <= SCHERM_ZOOM_1X_M) return 1.0;
+  if (afst >= SCHERM_ZOOM_MAX_M) return SCHERM_ZOOM_MAX;
+  return 1.0 + (SCHERM_ZOOM_MAX - 1.0) * (afst - SCHERM_ZOOM_1X_M) / (SCHERM_ZOOM_MAX_M - SCHERM_ZOOM_1X_M);
+}
+
+// Welk deel van het camerabeeld staat op 1,0x op het scherm (object-fit: cover).
+function schermZichtbaar() {   // V11.38.7
+  const cssW = canvas.offsetWidth, cssH = canvas.offsetHeight, W = canvas.width, H = canvas.height;
+  if (!(cssW > 0 && cssH > 0 && W > 0 && H > 0)) return { fx: 1, fy: 1 };
+  const sc = Math.max(cssW / W, cssH / H);
+  return { fx: Math.min(1, cssW / (W * sc)), fy: Math.min(1, cssH / (H * sc)) };
+}
+
+// De hoogste zoom waarbij de lamp met marge op het scherm blijft; null zonder lamp.
+function schermPlafondUitLamp(lamp, nu) {   // V11.38.7
+  if (!lamp || !(nu - lamp.t <= SCHERM_PLAFOND_HOUD_MS)) return null;
+  const W = canvas.width, H = canvas.height;
+  if (!(W > 0 && H > 0)) return null;
+  const z = schermZichtbaar();
+  const mx = Math.abs(lamp.cx / W - 0.5) + (lamp.w || 0) / (2 * W) + SCHERM_PLAFOND_MARGE;
+  const my = Math.abs(lamp.cy / H - 0.5) + (lamp.h || 0) / (2 * H) + SCHERM_PLAFOND_MARGE;
+  const px = mx > 0 ? (z.fx / 2) / mx : SCHERM_ZOOM_MAX;
+  const py = my > 0 ? (z.fy / 2) / my : SCHERM_ZOOM_MAX;
+  return Math.max(1.0, Math.min(SCHERM_ZOOM_MAX, px, py));
+}
+
+// Eén stap per beeldje (lus). Geeft het doel terug.
+function schermZoomStap(afst, nu) {   // V11.38.7
+  const b = laatsteAI && laatsteAI.box;
+  if (b && typeof b.x === 'number' && typeof b.y === 'number')
+    schermLamp = { cx: b.x + (b.w || 0) / 2, cy: b.y + (b.h || 0) / 2, w: b.w || 0, h: b.h || 0, t: nu };
+  const basis = schermZoomBasis(afst);
+  schermBasis = basis;
+  schermPlafond = schermPlafondUitLamp(schermLamp, nu);
+  const doel = schermPlafond !== null ? Math.min(basis, schermPlafond) : basis;
+  schermZoom += (doel - schermZoom) * SCHERM_ZOOM_DEMPING;
+  if (Math.abs(doel - schermZoom) < 0.001) schermZoom = doel;
+  zoomDoelLaatst = doel;   // V11.38.6-veld zd: nu het doel van de schermzoom
+  return doel;
+}
+
 // V11.17.86 (W3): de peiling werd hier plat gerekend, zonder cos(lat). De
 // drempel van 90 graden blijft ongewijzigd; alleen de hoek waarop hij toetst
 // klopt nu. Gemeten: 4,88% van alle (rijrichting, peiling)-combinaties geeft
@@ -23678,9 +23769,10 @@ let zoomDoelLaatst = null;     // V11.38.6: zie lus
 function detLogZoomVelden() {   // V11.38.6
   const uit = {};   // V11.38.6
   const num2 = (v) => (typeof v === 'number' && isFinite(v)) ? Math.round(v * 100) / 100 : null;   // V11.38.6
-  const zm = num2(huidigeZoom), zd = num2(zoomDoelLaatst);   // V11.38.6
+  const zm = num2(schermZoom), zd = num2(zoomDoelLaatst);   // V11.38.6; V11.38.7: schermZoom
   if (zm !== null) uit.zm = zm;   // V11.38.6
   if (zd !== null) uit.zd = zd;   // V11.38.6
+  if (schermPlafond !== null) uit.zp = num2(schermPlafond);   // V11.38.7: het plafond uit de lamp
   uit.zs = zoomVergrendeld ? 1 : 0;   // V11.38.6
   if (bboxOverride !== null) uit.ls = 't';   // V11.38.6
   else if (stickyDetectie && stickyDetectie.bron === 'auto') uit.ls = 'a';   // V11.38.6
@@ -25932,11 +26024,11 @@ function lus(mijnGeneratie) {
     const ruwAfstand = dichtstbijOSM ? dichtstbijOSM.afstand : 999;
     gecorrigeerdeAfstand = Math.max(0, ruwAfstand-gpsBuffer);
     const doelZoom = zoomVergrendeld ? vergrendeldZoomNiveau : berekenDoelZoom(gecorrigeerdeAfstand);
-    zoomDoelLaatst = doelZoom;   // V11.38.6: alleen meten, zie detLogZoomVelden
     vorigeZoom   = huidigeZoom;
     huidigeZoom += (doelZoom-huidigeZoom) * 0.12; // was 0.06 — 2x sneller voor stabielere YOLO
     zoomTransitieActief = Math.abs(huidigeZoom-doelZoom) > 0.005;
-    const nieuweZoomCSS = `scale(${huidigeZoom.toFixed(2)})`;
+    schermZoomStap(ruwAfstand, Date.now());   // V11.38.7: wat je ziet; huidigeZoom hierboven is de oude zoom, alleen nog voor zoomTransitieActief
+    const nieuweZoomCSS = `scale(${schermZoom.toFixed(2)})`;   // V11.38.7: schermZoom, was huidigeZoom
     if (nieuweZoomCSS !== laatsteZoomCSS) {
       canvas.style.transform    = nieuweZoomCSS; canvas.style.transformOrigin    = 'center center';
       overlCanvas.style.transform = nieuweZoomCSS; overlCanvas.style.transformOrigin = 'center center';
@@ -25987,7 +26079,7 @@ function lus(mijnGeneratie) {
   checkEnRefocus();
 
   // Debug waarden bijwerken
-  debugWaarden.zoom = `zm:${huidigeZoom.toFixed(2)}x${zoomVergrendeld?' 🔒':''}`;
+  debugWaarden.zoom = `zm:${schermZoom.toFixed(2)}x${schermPlafond !== null && schermPlafond < schermBasis ? ' pl' : ''}`;   // V11.38.7: was huidigeZoom met het hangslot
 
   requestAnimationFrame(() => lus(mijnGeneratie));
 }
