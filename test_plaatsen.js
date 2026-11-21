@@ -215,11 +215,11 @@ async function testPlaatsen() {
     const merk = (f) => String(f).split(NL).filter(l => /V11\.37\.25(?!\d)/.test(l)).length;
     const telAf = Object.keys(V113723.geraakt).filter(n => merk(window[n]) !== 1).map(n => n + ' ' + merk(window[n]));
     eis('PL8a vier functies krijgen elk één regel met merkteken V11.37.25', telAf.length === 0, 'precies één', telAf.join(', ') || 'precies één');
-    const zonder25 = (f) => String(f).split(NL).filter(l => !/V11\.37\.25(?!\d)|V11\.38\.8(?!\d)/.test(l)).join(NL);   // V11.38.8: ook de regel in downloadOSM (test_dwars_schaduw)
+    const zonder25 = (f) => String(f).split(NL).filter(l => !/V11\.37\.25(?!\d)|V11\.38\.8(?!\d)|V11\.38\.9(?!\d)/.test(l)).join(NL);   // V11.38.8: ook de regel in downloadOSM (test_dwars_schaduw)
     const anders = Object.entries(V113723.geraakt).filter(([n, [hh, l]]) => fnv(zonder25(window[n])) !== hh || zonder25(window[n]).length !== l).map(([n]) => n + ' ' + fnv(zonder25(window[n])) + '/' + zonder25(window[n]).length);
     eis('PL8b zonder die regels zijn ze byte-gelijk aan V11.37.23 (alles is toegevoegd)', anders.length === 0, 'geen afwijking', anders.join(', ') || 'geen');
     const terug33 = (l) => l.replace(/conf < hoofdGrens\('leer'\)\) \{   \/\/ V11.37.33(?!d): de grens van het geladen model$/, 'conf < 0.20) {');   // V11.37.33: de vervangen regel in slaOp terug
-    const zonder26 = (f) => String(f).split(NL).map(terug33).filter(l => !/V11\.37\.26(?!\d)|V11\.37\.30(?!\d)|V11\.37\.31(?!\d)|V11\.37\.34(?!\d)|V11\.37\.35(?!\d)|V11\.37\.36(?!\d)|V11\.37\.37(?!\d)|V11\.37\.38(?!\d)|V11\.37\.39(?!\d)|V11\.37\.41(?!\d)|V11\.38\.3(?!\d)|V11\.38\.4(?!\d)|V11\.38\.8(?!\d)/.test(l)).join(NL);   // V11.37.26: twee regels in exporteerMeetdata (test_schaduw_nano)
+    const zonder26 = (f) => String(f).split(NL).map(terug33).filter(l => !/V11\.37\.26(?!\d)|V11\.37\.30(?!\d)|V11\.37\.31(?!\d)|V11\.37\.34(?!\d)|V11\.37\.35(?!\d)|V11\.37\.36(?!\d)|V11\.37\.37(?!\d)|V11\.37\.38(?!\d)|V11\.37\.39(?!\d)|V11\.37\.41(?!\d)|V11\.38\.3(?!\d)|V11\.38\.4(?!\d)|V11\.38\.8(?!\d)|V11\.38\.9(?!\d)/.test(l)).join(NL);   // V11.37.26: twee regels in exporteerMeetdata (test_schaduw_nano)
     const anders2 = Object.entries(V113723.ongemoeid).filter(([n, [hh, l]]) => typeof window[n] !== 'function' || fnv(zonder26(window[n])) !== hh || zonder26(window[n]).length !== l).map(x => x[0]);
     eis('PL8c twintig functies rond de kaart, de namen, de lichtkeuze en het leren zijn niet aangeraakt', anders2.length === 0, 'geen afwijking', anders2.join(', ') || 'geen');
   } catch (e) {

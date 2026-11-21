@@ -1109,7 +1109,7 @@ if (typeof ort !== 'undefined') {
 //
 // De stijl volgt de eerdere labels: nummer, kastlijntje, korte omschrijving in
 // kleine letters. De CSS zet hem zelf in kapitalen (text-transform:uppercase).
-const APP_VERSIE = 'V11.38.8 — dwarsregel als schaduw (alleen meten)';
+const APP_VERSIE = 'V11.38.9 — scoreonderdelen in de dwarslog (alleen meten)';
 
 // ── CONSTANTEN ────────────────────────────────────────────────
 const OSM_RADIUS       = 5000;
@@ -19099,6 +19099,7 @@ function dwarsTik(lat, lon) {   // V11.38.8
                   ae: echt ? heel(afstand(lat, lon, echt.lat, echt.lon)) : undefined,
                   as: (u.s && sId !== eId) ? heel(u.s.afstand) : undefined };
     for (const x of Object.keys(rec)) if (rec[x] === undefined || rec[x] === null) delete rec[x];
+    Object.assign(rec, dwarsScoreVelden(lat, lon, huidigeRichting, echt, u.s, sId !== eId));   // V11.38.9: de onderdelen van de score, zie dwarsScoreDelen
     meetRingSchrijf(DWARSLOG_SLEUTEL, DWARSLOG_MAX, rec);
   } catch (e) {}
 }
@@ -19120,6 +19121,64 @@ function dwarsWisselVelden(nieuw) {   // V11.38.8
     if (k == null || !nieuw || !Array.isArray(nieuw.dwarsWegen)) return {};
     const h = dwarsMinHoek(nieuw, k);
     return h === null ? {} : { dw: h > DWARS_HOEK ? 1 : 0, dh: Math.round(h) };
+  } catch (e) { return {}; }
+}
+
+// ── V11.38.9: DE ONDERDELEN VAN DE SCORE IN DE DWARSLOG (ALLEEN METEN) ──
+// © 2026 StoplichtIQ
+//
+// WAAROM. De nagebouwde score in de analyse haalde maar 90 van 236 keuzes van
+// de app: de bbox-teller, sl_pos en de bbox-centrering staan nergens in een
+// log. Met de onderdelen per regel kan stap 3 (rijrichting in de score) later
+// op de echte score worden nagerekend in plaats van op een nabouw.
+//
+// WAT. Elke dwarslog-regel krijgt ze (het getoonde licht) en, als de schaduw
+// iets anders kiest, zs (het schaduwlicht): een rij
+//   [z, na, nh, rv, c, bc, lb, p]
+//   z  de score zoals vindDichtbijScore hem geeft (3 decimalen)
+//   na afstandsdeel 1/(af/100+1)          nh cos van het hoekverschil
+//   rv hoekverschil in graden (0-180)     c  bbox-teller/5 (max 1)
+//   bc bbox-centrering (0-1)              lb laterale bonus (0-0,15)
+//   p  1 als sl_pos_ de plek gaf, anders 0
+// Onder 5 km/u telt de score alleen na en c: dan staat er null op nh, rv, bc, lb.
+// Geen positie: alleen verhoudingen, een hoek en een vlag.
+//
+// VEILIG. dwarsScoreDelen is een kopie van de rekenregels van
+// vindDichtbijScore die alleen leest; de toets eist dat z gelijk is aan de
+// echte score. vindDichtbijScore en vindDichtbij zelf veranderen niet.
+function dwarsScoreDelen(lat, lon, heading, sl) {   // V11.38.9
+  const af = afstand(lat, lon, sl.lat, sl.lon);
+  if (af > 400) return null;
+  const r3 = (x) => Math.round(x * 1000) / 1000;
+  const normAf = 1 / (af / 100 + 1);
+  const conf = Math.min(1.0, (s2BboxTeller.get(String(sl.id)) || 0) / 5);
+  if (snelheidKmh < 5) return [r3(Math.min(1.01, normAf * 0.95 + conf * 0.05)), r3(normAf), null, null, r3(conf), null, null, 0];
+  const hoek = peilingNaar({ lat, lon }, sl);
+  let rv = Math.abs(heading - hoek); if (rv > 180) rv = 360 - rv;
+  const normHoek = Math.cos(rv * Math.PI / 180);
+  const bboxOffset = vorigeDetectie ? (vorigeDetectie.cx / YOLO_SIZE - 0.5) * 77 : 0;
+  const hoekSigned = ((hoek - heading + 540) % 360) - 180;
+  const bc = 1 - Math.min(1, Math.abs(hoekSigned - bboxOffset) / 77);
+  let pLat = sl.lat, pLon = sl.lon, pv = 0;
+  try {
+    const posData = localStorage.getItem(`sl_pos_${sl.id}`);
+    if (posData) { const q = JSON.parse(posData); if (q && q.lat && q.lon) { pLat = q.lat; pLon = q.lon; pv = 1; } }
+  } catch (e) { /* zoals vindDichtbijScore: de nodepositie blijft staan */ }
+  const lateraal = berekenLateraleOffset(lat, lon, pLat, pLon, heading);
+  const lb = lateraal != null ? Math.max(0, 0.15 - Math.abs(lateraal) / 100 * 0.15) : 0;
+  const z = normAf * 0.50 + normHoek * 0.35 + conf * 0.15 + bc * 0.01 + lb;
+  return [r3(Math.min(1.01, z)), r3(normAf), r3(normHoek), Math.round(rv), r3(conf), r3(bc), r3(lb), pv];
+}
+
+// De velden ze/zs voor een dwarslog-regel; {} als er niets te zeggen is.   // V11.38.9
+function dwarsScoreVelden(lat, lon, heading, echt, schaduw, anders) {   // V11.38.9
+  try {
+    const uit = {};
+    const ze = echt ? dwarsScoreDelen(lat, lon, heading, echt) : null;
+    if (ze) uit.ze = ze;
+    const zs = (anders && schaduw) ? dwarsScoreDelen(lat, lon, heading, schaduw) : null;
+    if (zs) uit.zs = zs;
+    return uit;
   } catch (e) { return {}; }
 }
 
