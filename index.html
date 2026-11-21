@@ -1109,7 +1109,7 @@ if (typeof ort !== 'undefined') {
 //
 // De stijl volgt de eerdere labels: nummer, kastlijntje, korte omschrijving in
 // kleine letters. De CSS zet hem zelf in kapitalen (text-transform:uppercase).
-const APP_VERSIE = 'V11.38.7 — schermzoom zonder slot, 1,0x vanaf 30 m, plafond uit de lamp';
+const APP_VERSIE = 'V11.38.8 — dwarsregel als schaduw (alleen meten)';
 
 // ── CONSTANTEN ────────────────────────────────────────────────
 const OSM_RADIUS       = 5000;
@@ -5888,6 +5888,7 @@ function exporteerMeetdata() {
       uit.nano = {};   // V11.37.26: de Nano-schaduwproef (sl_nano_*) en de A/B-emmers (sl_modelvgl)
       uit.door = {};   // V11.37.30: de doorrijlog (doorTik)
       uit.weg = {};    // V11.38.4: weggegooide rode fasen (wegRoodLog)
+      uit.dwars = {};  // V11.38.8: de schaduw van de dwarsregel (dwarsTik)
       for (const key of opslagSleutels('')) {                          // V11.23.0
         let doel = null;
         if (key.startsWith('sl_passief_'))       doel = uit.passief;
@@ -5917,6 +5918,7 @@ function exporteerMeetdata() {
         else if (key === M5_SLEUTEL)             doel = uit.m5;   // V11.37.22: schaduw wachttijd
         else if (key === DOOR_SLEUTEL)           doel = uit.door;   // V11.37.30: elke passage, ook niet gezien
         else if (key === WEGROOD_SLEUTEL)        doel = uit.weg;    // V11.38.4: weggegooide rode fasen
+        else if (key === DWARSLOG_SLEUTEL)       doel = uit.dwars;  // V11.38.8: de schaduw van de dwarsregel
         else if (key.startsWith('sl_nano_') || key === 'sl_modelvgl') doel = uit.nano;   // V11.37.26
         // V11.17.33 W2: let op de volgorde — 'sl_richtinglog' begint NIET met
         // 'sl_richting_' (na 'sl_richting' volgt 'l', geen '_'), dus deze twee
@@ -8981,6 +8983,7 @@ function wisselLogNoteer(oud, nieuw, reden, uitMs, lat, lon) {
       min: oud ? heel(oud.min) : null,   // V11.37.4
       tMin: (oud && typeof oud.minT === 'number') ? Math.round((Date.now() - oud.minT) / 100) / 10 : null,   // V11.37.8
       pN: (pos && plek(nieuw)) ? peilingTovRijrichting(pos, nieuw, getSmoothedHeading()) : null,   // V11.37.8
+      ...dwarsWisselVelden(nieuw),   // V11.38.8: dw/dh, zie dwarsTik
       a3: A3_ACTIEF ? 1 : 0,   // V11.37.0
       ac: achterAan() ? 1 : 0   // V11.37.4: de achter-regel stond aan
     };
@@ -17252,6 +17255,7 @@ async function kaartBewaar(lat, lon) {
     const rec = { v: KAART_BEWAAR_VERSIE, t: Date.now(), lat, lon, r: OSM_RADIUS,
                   lichten: osmCache.map(sl => ({ id: sl.id, lat: sl.lat, lon: sl.lon, naam: sl.naam, straat: sl.straat, stad: sl.stad,
                                                  maxspeed: sl.maxspeed, slim: sl.slim, eenrichting: sl.eenrichting })) };
+    rec.lichten.forEach((l, i) => { const w = osmCache[i] && osmCache[i].dwarsWegen; if (Array.isArray(w)) l.dwarsWegen = w; });   // V11.38.8: zie dwarsTik
     const db = await kaartIdbOpen();
     try {
       await new Promise((klaar, mis) => {
@@ -18390,6 +18394,7 @@ async function downloadOSM(lat, lon) {
     });
     logOpslagMis('maxspeed_dekking', { msGedekt, msTotaal: nodes.length });
     for (const sl of osmCache) sl.eenrichting = tegenRijrichtingen(sl.id, nodeWegen.get(sl.id));   // V11.37.11: zie tegenSluitUit
+    for (const sl of osmCache) sl.dwarsWegen = dwarsWegRichtingen(sl.id, nodeWegen.get(sl.id));   // V11.38.8: zie dwarsTik
     plaatsZetOpCache(osmCache);   // V11.37.25: de plaats van elk licht uit kaart/plaatsen.json, niet waar je bent (huidigeStad), zie het blok V11.37.25
     cacheCentrum={lat,lon}; cacheGeladen=true;
     startLogMijl('k1', { kn: osmCache.length });   // V11.37.17: de eerste kaart van deze start
@@ -18938,6 +18943,184 @@ function tegenReden(sl) {
   const r1 = !!(sl && dichtstbijOSM && String(dichtstbijOSM.id) === String(sl.id));
   const r3 = typeof snelheidKmh === 'number' && snelheidKmh < TEGEN_MIN_KMH;
   return r1 && r3 ? 'R1R3' : r1 ? 'R1' : r3 ? 'R3' : null;
+}
+
+// ── V11.38.8: DE DWARSREGEL ALS SCHADUW (ALLEEN METEN) ─────────────────
+// © 2026 StoplichtIQ
+//
+// WAAROM. STAP 0 van 21 november (juiste licht): de app kiest soms een licht
+// waarvan de weg dwars op je rijrichting staat, zoals een oprit naast je
+// (veldgeval C1: koers 61 graden, de weg van het gekozen licht 88 graden
+// dwars). De score in vindDichtbijScore kijkt naar afstand, de hoek náár het
+// licht en eerdere boxen, niet naar hoe de weg van het licht loopt. De
+// tegenrichtingregel (TEGEN_HOEK 135) geldt alleen voor eenrichtingswegen en
+// vangt een dwarse weg dus nooit. Nagerekend op 236 keuzes met koers: een
+// grens van 80 graden vanaf 10 km/u had 13 van de 80 keuzes die binnen 30 s
+// weer weg waren (zonder passage) niet gemaakt, en geen van de 36 lichten die
+// de gebruiker bevestigde (tik of lijst) uitgesloten. Het schuinste bevestigde
+// licht stond op 71 graden. Nagerekend is alleen het moment van kiezen; wat de
+// app in de plaats kiest, weet niemand. Daarom eerst deze schaduw.
+//
+// WAT. Per GPS-tik, NA de beslisketen (dwarsTik, na wisselNa): staat het
+// getoonde licht dwars, dan rekent de schaduw uit wat de app zonder dwarse
+// lichten zou tonen. Een licht is dwars als ELKE autoweg erdoor (TEGEN_AUTO,
+// in twee richtingen of één) op dat punt meer dan DWARS_HOEK afwijkt van de
+// koers, ongericht (0 tot 90 graden: een weg op 268 graden is bij koers 0
+// even dwars als een op 88).
+//
+// VEILIGHEDEN, dezelfde als bij de tegenrichtingregel:
+//   - één schakelaar: DWARS_SCHADUW_ACTIEF;
+//   - alleen met een echt gemeten koers uit deze GPS-tik (tegenKoersTik) en
+//     vanaf DWARS_MIN_KMH; anders geldt de regel niet;
+//   - fail-open: zonder de richting van elke autoweg (dwarsWegen null) is een
+//     licht nooit dwars;
+//   - nooit als enige kandidaat: is er geen ander autolicht, dan houdt de
+//     schaduw het getoonde licht (vr 'enig');
+//   - een licht dat de gebruiker tikte of uit de lijst koos, blijft staan;
+//   - de tik en de lijst lopen er niet doorheen.
+// De andere filters van vindDichtbij gelden in de schaduw ook (achter, fiets,
+// tegen), en de schaduw heeft haar eigen voorsprong: haar vorige keuze blijft
+// binnen DWARS_HOU_M staan tenzij een ander licht DWARS_VOORSPRONG keer zo
+// goed scoort, zoals de hysterese in vindDichtbij.
+//
+// PUUR OBSERVEREND. Niets hieronder verandert een keuze: dichtstbijOSM, het
+// slot en alle logs van vóór V11.38.8 blijven gelijk. De schaduw schrijft
+// alleen sl_dwarslog en de velden dw/dh in de wissellog.
+//
+// LOG. sl_dwarslog, een ring van DWARSLOG_MAX regels, alleen bij een
+// verandering (geen positie):
+//   t     tijdstip (ms)
+//   e     het licht dat de app toont (OSM-nummer, 0 = geen)
+//   s     het licht dat de schaduw zou tonen; s gelijk aan e: de schaduw is
+//         het weer eens met de app
+//   vr    'enig': e is dwars, maar er is geen ander autolicht
+//   kmh, k  snelheid en koers;  h  de kleinste hoek van de weg van e
+//   ae, as  afstand tot e en tot s (m)
+//   tik   1: de gebruiker tikte (of koos uit de lijst) een licht dat de
+//         schaduw in de laatste DWARS_TIK_MS uitsloot; sd = seconden sinds dat
+// In de wissellog krijgt elke wissel dw (1 = het nieuwe licht is dwars, 0 =
+// niet; leeg als de regel niet geldt) en dh (de kleinste hoek).
+//
+// CRITERIUM (besluit 21 nov): bij minstens 100 keuzes 0 bevestigde lichten
+// kwijt (geen regel tik:1, geen tik of lijstkeuze op een licht met dw:1) en
+// minstens 5 procentpunt minder keuzes die binnen 30 s weg zijn zonder
+// passage. Pas daarna, als losse versie, de regel echt aanzetten.
+const DWARS_SCHADUW_ACTIEF = true;   // V11.38.8
+const DWARS_HOEK       = 80;         // V11.38.8: graden, ongericht (0-90)
+const DWARS_MIN_KMH    = 10;         // V11.38.8
+const DWARS_HOU_M      = 150;        // V11.38.8: zoals de voorsprongregel in vindDichtbij
+const DWARS_VOORSPRONG = 1.20;       // V11.38.8
+const DWARS_TIK_MS     = 30000;      // V11.38.8
+const DWARSLOG_SLEUTEL = 'sl_dwarslog';   // V11.38.8
+const DWARSLOG_MAX     = 80;         // V11.38.8: ~110 tekens per regel, ~9 K
+let dwarsStaat = { e: null, s: null, vr: null };   // V11.38.8: de laatst geschreven stand
+const dwarsUitT = new Map();         // V11.38.8: licht -> wanneer de schaduw het het laatst uitsloot
+
+// De richting van elke autoweg door dit licht op dat punt (0-179), of null.   // V11.38.8
+function dwarsWegRichtingen(nodeId, wegen) {   // V11.38.8
+  const auto = (wegen || []).filter(w => w && w.tags && TEGEN_AUTO.has(w.tags.highway));
+  if (!auto.length) return null;
+  const uit = [];
+  for (const w of auto) {
+    const i = Array.isArray(w.nodes) ? w.nodes.indexOf(nodeId) : -1;
+    const g = w.geometry;
+    if (i < 0 || !Array.isArray(g) || g.length !== w.nodes.length) return null;
+    const a = g[Math.max(0, i - 1)], b = g[Math.min(g.length - 1, i + 1)];
+    const br = (a && b && (a.lat !== b.lat || a.lon !== b.lon)) ? peilingNaar(a, b) : null;
+    if (br == null || !isFinite(br)) return null;
+    uit.push(Math.round((br % 180 + 180) % 180) % 180);
+  }
+  return uit;
+}
+
+// De koers van deze GPS-tik vanaf DWARS_MIN_KMH, of null: dan geldt de regel niet.   // V11.38.8
+function dwarsKoers() {   // V11.38.8
+  if (!DWARS_SCHADUW_ACTIEF) return null;
+  return (tegenKoersTik != null && Number.isFinite(tegenKoersTik) && tegenKoersTik >= 0
+    && typeof snelheidKmh === 'number' && snelheidKmh >= DWARS_MIN_KMH) ? tegenKoersTik : null;
+}
+
+// De kleinste ongerichte hoek (0-90) tussen koers k en een weg van sl, of null.   // V11.38.8
+function dwarsMinHoek(sl, k) {   // V11.38.8
+  if (!sl || k == null || !Array.isArray(sl.dwarsWegen) || !sl.dwarsWegen.length) return null;
+  return Math.min(...sl.dwarsWegen.map(r => { const h = tegenHoekVerschil(r, k); return Math.min(h, 180 - h); }));
+}
+function dwarsIsDwars(sl, k) { const h = dwarsMinHoek(sl, k); return h !== null && h > DWARS_HOEK; }   // V11.38.8
+
+// Koos de gebruiker dit licht zelf (getikt of uit de lijst)?   // V11.38.8
+function dwarsDoorGebruiker(sl) {   // V11.38.8
+  if (!sl) return false;
+  const id = String(sl.id);
+  return tegenHandId === id || (!!handmatigLockActief && !stilstandAutoLock && String(handmatigGeselecteerdNodeId) === id);
+}
+
+// Wat de schaduw zou tonen. Puur: leest alleen, schrijft niets.   // V11.38.8
+function dwarsSchaduwKies(lat, lon, heading, echt, k) {   // V11.38.8
+  if (!echt || k == null || !dwarsIsDwars(echt, k) || dwarsDoorGebruiker(echt)) return { s: echt, vr: null };
+  const kand = [];
+  let auto = false;
+  for (const sl of osmCache) {
+    const r = vindDichtbijScore(lat, lon, heading, sl);
+    if (!r) continue;
+    if (dwarsIsDwars(sl, k)) continue;
+    if (achterAan() && achterSluitUit(sl, lat, lon)) continue;
+    if (fietsSluitUit(sl) || tegenSluitUit(sl)) continue;
+    if (!isFietsLicht(sl.id) && !tegenIsTegen(sl)) auto = true;
+    kand.push({ sl, afstand: r.afstand, score: r.score });
+  }
+  if (!auto) return { s: echt, vr: 'enig' };
+  let best = null;
+  for (const c of kand) if (!best || c.score > best.score) best = c;
+  const vor = dwarsStaat.s ? kand.find(c => String(c.sl.id) === dwarsStaat.s) : null;
+  if (vor && vor !== best && vor.afstand < DWARS_HOU_M && best.score < vor.score * DWARS_VOORSPRONG) best = vor;
+  return { s: { ...best.sl, afstand: best.afstand }, vr: null };
+}
+
+// In onGPS, na wisselNa: de schaduw voor deze tik, en een regel bij een verandering.   // V11.38.8
+function dwarsTik(lat, lon) {   // V11.38.8
+  try {
+    if (!DWARS_SCHADUW_ACTIEF || !cacheGeladen || !osmCache.length || typeof lat !== 'number' || typeof lon !== 'number') return;
+    const echt = dichtstbijOSM, k = dwarsKoers(), nu = Date.now();
+    const eId = echt ? String(echt.id) : null;
+    const u = dwarsSchaduwKies(lat, lon, huidigeRichting, echt, k);
+    const sId = u.s ? String(u.s.id) : null;
+    if (eId && sId !== eId) dwarsUitT.set(eId, nu);
+    for (const [id, t] of dwarsUitT) if (nu - t > 2 * DWARS_TIK_MS) dwarsUitT.delete(id);
+    const st = dwarsStaat;
+    const saai = sId === eId && !u.vr;
+    const was = st.s === st.e && !st.vr;
+    if (st.e === eId && st.s === sId && st.vr === u.vr) return;
+    dwarsStaat = { e: eId, s: sId, vr: u.vr };
+    if (saai && was) return;
+    const heel = (x) => (typeof x === 'number' && isFinite(x)) ? Math.round(x) : undefined;
+    const h = dwarsMinHoek(echt, k);
+    const rec = { t: nu, e: eId ? Number(eId) : 0, s: sId ? Number(sId) : 0, kmh: heel(snelheidKmh), k: heel(k),
+                  h: h === null ? undefined : heel(h), vr: u.vr || undefined,
+                  ae: echt ? heel(afstand(lat, lon, echt.lat, echt.lon)) : undefined,
+                  as: (u.s && sId !== eId) ? heel(u.s.afstand) : undefined };
+    for (const x of Object.keys(rec)) if (rec[x] === undefined || rec[x] === null) delete rec[x];
+    meetRingSchrijf(DWARSLOG_SLEUTEL, DWARSLOG_MAX, rec);
+  } catch (e) {}
+}
+
+// In vergrendelNodeHandmatig: tikte de gebruiker een licht dat de schaduw uitsloot?   // V11.38.8
+function dwarsTikNoteer(n) {   // V11.38.8
+  try {
+    if (!DWARS_SCHADUW_ACTIEF || n == null) return;
+    const t = dwarsUitT.get(String(n)), nu = Date.now();
+    if (t === undefined || nu - t > DWARS_TIK_MS) return;
+    meetRingSchrijf(DWARSLOG_SLEUTEL, DWARSLOG_MAX, { t: nu, e: Number(n), tik: 1, sd: Math.round((nu - t) / 100) / 10 });
+  } catch (e) {}
+}
+
+// De velden dw/dh voor de wissellog: is het nieuwe licht dwars?   // V11.38.8
+function dwarsWisselVelden(nieuw) {   // V11.38.8
+  try {
+    const k = dwarsKoers();
+    if (k == null || !nieuw || !Array.isArray(nieuw.dwarsWegen)) return {};
+    const h = dwarsMinHoek(nieuw, k);
+    return h === null ? {} : { dw: h > DWARS_HOEK ? 1 : 0, dh: Math.round(h) };
+  } catch (e) { return {}; }
 }
 
 function berekenLateraleOffset(lat1, lon1, lat2, lon2, heading) {
@@ -22698,6 +22881,7 @@ function vergrendelNodeHandmatig(nodeId, element) {
   handmatigLockActief = true;
   stilstandAutoLock = false;
   tegenHandId = n;   // V11.37.13 R1: dit licht koos de gebruiker zelf, zie tegenR1
+  dwarsTikNoteer(n);   // V11.38.8: meetregel, beslist niets
   handLockVervalReset();   // een verse tap begint met een schone vervalteller
   // ── V11.36.0 A1: EEN TIK OP HET BEELD WIST HET NADERINGSBEWIJS NIET MEER ──
   // © 2026 StoplichtIQ
@@ -25727,6 +25911,7 @@ async function onGPS(pos) {
   // niets aan de keuze.
   if (cacheGeladen) meldNodeVermoeden(lat, lon);    // V11.18.12: zie daar
   wisselNa(lat, lon);   // V11.36.4: meetregel, beslist niets
+  dwarsTik(lat, lon);   // V11.38.8: de schaduw van de dwarsregel, beslist niets
   regelTik(lat, lon);   // V11.37.1: meetregel, beslist niets
   stopLogTik(lat, lon);   // V11.37.21: meetregel, beslist niets
   passageTik(lat, lon);   // V11.37.22: meetregel, beslist niets
