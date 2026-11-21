@@ -144,7 +144,7 @@ function testGate() {
   eis('T9c een run zonder pogingen ervoor draagt geen gN',
       !!rec && !('gN' in rec), 'geen gN', rec ? JSON.stringify(rec.gN) : 'GEEN RECORD');
   slaKanslozeRunOver(); slaKanslozeRunOver();
-  alsRun(5); detLogSchrijf();          // buiten het venster: niet geschreven
+  alsRun(450); detLogSchrijf();        // buiten het venster: niet geschreven (V11.38.6: rijdend onder 20 m valt nu binnen het venster)
   alsRun(214); detLogSchrijf();
   rec = leesDet().slice(-1)[0] || null;
   eis('T9d een run buiten het venster zet de teller óók op nul: niets schuift door',

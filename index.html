@@ -1109,7 +1109,7 @@ if (typeof ort !== 'undefined') {
 //
 // De stijl volgt de eerdere labels: nummer, kastlijntje, korte omschrijving in
 // kleine letters. De CSS zet hem zelf in kapitalen (text-transform:uppercase).
-const APP_VERSIE = 'V11.38.5 — naam uit het commentaar (geen gedrag)';
+const APP_VERSIE = 'V11.38.6 — meetregel zoom en de laatste 20 m (alleen meten)';
 
 // ── CONSTANTEN ────────────────────────────────────────────────
 const OSM_RADIUS       = 5000;
@@ -23652,6 +23652,40 @@ let detLogStop = false;   // true na quota-fout: schrijven definitief gestaakt
 let detLogArr  = null;    // in-memory buffer; pas gevuld bij de eerste schrijfactie
 let detLogGegate = 0;     // V11.34.2: gegate pogingen sinds de vorige run
 let detLogGeenCrop = null;   // V11.37.21: waarom deze run geen crop had, zie preprocessVoorYOLO
+// ── V11.38.6: DE DETLOG ZIET DE SCHERMZOOM EN DE LAATSTE 20 M (ALLEEN METEN) ──
+// © 2026 StoplichtIQ
+//
+// WAAROM. De schermzoom (huidigeZoom, een CSS-vergroting) springt in blokken en staat vlak
+// bij het licht nog op 1,3x tot 3x. Dat stond nergens in een log: alleen op de debugbalk.
+// En rijdend onder DETLOG_MIN_M (20 m) schreef de detlog niets, terwijl de lamp juist
+// daar uit beeld raakt ("ai:filter", "ai:weg"). Zonder die regels was niet te zien welk
+// filter de lamp afwees en of de zoom toen nog vast stond.
+//
+// WAT. Elke detlog-regel krijgt:
+//   zm   de schermzoom op dat moment (2 decimalen)
+//   zd   het doel van de schermzoom in het laatste beeldje (lus): het vaste niveau als
+//        het zoomslot dicht is, anders berekenDoelZoom
+//   zs   1 als het zoomslot (zoomVergrendeld, het hangslot op de debugbalk) dicht is
+//   ls   het lampslot: 't' een tik, 'a' het auto-slot, weggelaten zonder slot
+// Rijdend onder DETLOG_MIN_M komt er nu ook een regel, met dicht:1, hooguit één per
+// DETLOG_DICHT_MS. Bij stilstand blijft het één per 2 s (stil:1), zoals sinds V11.37.5.
+//
+// PUUR OBSERVEREND. Niets hieronder verandert de zoom, het slot, een filter of een keuze.
+// De ring blijft MAX_DETLOG regels; met de regels onder 20 m bestrijkt hij iets minder tijd.
+const DETLOG_DICHT_MS = 400;   // V11.38.6
+let detLogDichtLaatst = 0;     // V11.38.6
+let zoomDoelLaatst = null;     // V11.38.6: zie lus
+function detLogZoomVelden() {   // V11.38.6
+  const uit = {};   // V11.38.6
+  const num2 = (v) => (typeof v === 'number' && isFinite(v)) ? Math.round(v * 100) / 100 : null;   // V11.38.6
+  const zm = num2(huidigeZoom), zd = num2(zoomDoelLaatst);   // V11.38.6
+  if (zm !== null) uit.zm = zm;   // V11.38.6
+  if (zd !== null) uit.zd = zd;   // V11.38.6
+  uit.zs = zoomVergrendeld ? 1 : 0;   // V11.38.6
+  if (bboxOverride !== null) uit.ls = 't';   // V11.38.6
+  else if (stickyDetectie && stickyDetectie.bron === 'auto') uit.ls = 'a';   // V11.38.6
+  return uit;   // V11.38.6
+}   // V11.38.6
 
 function detLogSchrijf() {
   // V11.34.2: het aantal gaat met DEZE run mee en begint daarna opnieuw, ook
@@ -23663,8 +23697,10 @@ function detLogSchrijf() {
     const afst = detLogAfst;
     const stil = typeof afst === 'number' && afst < DETLOG_MIN_M && typeof snelheidKmh === 'number' && snelheidKmh < DETLOG_STIL_KMH;   // V11.37.5
     if (stil && Date.now() - detLogStilLaatst < DETLOG_STIL_MS) return;   // V11.37.5: hooguit één regel per 2 s
+    const dicht = !stil && typeof afst === 'number' && afst < DETLOG_MIN_M;   // V11.38.6: rijdend onder 20 m
+    if (dicht && Date.now() - detLogDichtLaatst < DETLOG_DICHT_MS) return;   // V11.38.6: hooguit één regel per 400 ms
     if (typeof afst !== 'number' || isNaN(afst)
-        || (afst < DETLOG_MIN_M && !stil) || afst > DETLOG_MAX_M) return;   // V11.37.5: stilstand vlak bij het licht mag
+        || (afst < DETLOG_MIN_M && !stil && !dicht) || afst > DETLOG_MAX_M) return;   // V11.37.5: stilstand vlak bij het licht mag; V11.38.6: rijdend ook (dicht)
     const num = (v, d) => (typeof v === 'number' && !isNaN(v))
       ? Math.round(v * Math.pow(10, d || 0)) / Math.pow(10, d || 0) : null;
     // Vergroting t.o.v. het volle beeld: hoeveel groter staat een object in de
@@ -23701,6 +23737,8 @@ function detLogSchrijf() {
     const koDet = getSmoothedHeading();   // V11.37.22
     if (koDet != null && Number.isFinite(koDet)) { rec.ko = Math.round(koDet); if (dichtstbijOSM && huidigePos) rec.kh = peilingTovRijrichting(huidigePos, dichtstbijOSM, koDet); }   // V11.37.22: koers en kaarthoek (peiling min koers)
     if (stil) { detLogStilLaatst = Date.now(); rec.stil = 1; Object.assign(rec, detLogBestVelden()); }   // V11.37.5: zie detLogBestVelden
+    if (dicht) { detLogDichtLaatst = Date.now(); rec.dicht = 1; }   // V11.38.6
+    try { Object.assign(rec, detLogZoomVelden()); } catch (_) {}   // V11.38.6: zm, zd, zs, ls
     try { Object.assign(rec, detLogC4Velden(stDet)); } catch (_) {}   // V11.38.3: meetregel C4 in elke regel; overschrijft bij stilstand bx..bh met camerapixels, zie detLogC4Velden
     if (detLogArr === null) {
       try { detLogArr = JSON.parse(localStorage.getItem('sl_detlog')) || []; }
@@ -25894,6 +25932,7 @@ function lus(mijnGeneratie) {
     const ruwAfstand = dichtstbijOSM ? dichtstbijOSM.afstand : 999;
     gecorrigeerdeAfstand = Math.max(0, ruwAfstand-gpsBuffer);
     const doelZoom = zoomVergrendeld ? vergrendeldZoomNiveau : berekenDoelZoom(gecorrigeerdeAfstand);
+    zoomDoelLaatst = doelZoom;   // V11.38.6: alleen meten, zie detLogZoomVelden
     vorigeZoom   = huidigeZoom;
     huidigeZoom += (doelZoom-huidigeZoom) * 0.12; // was 0.06 — 2x sneller voor stabielere YOLO
     zoomTransitieActief = Math.abs(huidigeZoom-doelZoom) > 0.005;

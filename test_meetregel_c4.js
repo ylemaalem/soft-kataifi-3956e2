@@ -1,3 +1,6 @@
+// V11.38.6: de detlog schrijft rijdend ook onder 20 m (dicht). Hier terug: de ene gewijzigde regel
+// naar zijn oude vorm, daarna gaan de regels met merkteken V11.38.6 weg (zie test_meetregel_zoom).
+function terugV11386(s) { return String(s).replace('afst < DETLOG_MIN_M && !stil && !dicht)', 'afst < DETLOG_MIN_M && !stil)').replace('; V11.38.6: rijdend ook (dicht)', '').split('\n').filter(l => !/V11\.38\.6(?!\d)/.test(l)).join('\n'); }   // V11.38.6
 // ═══════════════════════════════════════════════════════════════
 //  StoplichtIQ — test_meetregel_c4.js
 //  © 2026 StoplichtIQ
@@ -167,7 +170,7 @@ async function testMeetregelC4() {
     const anders = Object.entries(V11382).filter(([n, [h, l]]) => { const s = String(window[n]); return fnv(s) !== h || s.length !== l; }).map(x => x[0]);
     eis('MC11a de 31 beslissende functies (selectie, slot, drempels, filters, crop, poort, tik) zijn byte-gelijk aan V11.38.2',
       anders.length === 0, 'geen afwijking', anders.join(', ') || 'geen');
-    const zonder = (f) => String(f).split('\n').filter(l => !/V11\.38\.3(?!\d)|V11\.38\.4(?!\d)/.test(l)).join('\n');
+    const zonder = (f) => String(terugV11386(f)).split('\n').filter(l => !/V11\.38\.3(?!\d)|V11\.38\.4(?!\d)/.test(l)).join('\n');
     const HAAK = { detLogSchrijf: ['c614b2be', 4119], passageSchrijf: ['19666aaa', 696], tikLogTik: ['a0583a9c', 1522] };
     const anders2 = Object.entries(HAAK).filter(([n, [h, l]]) => { const s = zonder(window[n]); return fnv(s) !== h || s.length !== l; }).map(([n]) => n + ' ' + fnv(zonder(window[n])) + '/' + zonder(window[n]).length);
     const tel = { detLogSchrijf: 2, passageSchrijf: 2, tikLogTik: 1 };

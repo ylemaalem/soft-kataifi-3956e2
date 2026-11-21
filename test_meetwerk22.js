@@ -1,3 +1,6 @@
+// V11.38.6: de detlog schrijft rijdend ook onder 20 m (dicht). Hier terug: de ene gewijzigde regel
+// naar zijn oude vorm, daarna gaan de regels met merkteken V11.38.6 weg (zie test_meetregel_zoom).
+function terugV11386(s) { return String(s).replace('afst < DETLOG_MIN_M && !stil && !dicht)', 'afst < DETLOG_MIN_M && !stil)').replace('; V11.38.6: rijdend ook (dicht)', '').split('\n').filter(l => !/V11\.38\.6(?!\d)/.test(l)).join('\n'); }   // V11.38.6
 // ═══════════════════════════════════════════════════════════════
 //  StoplichtIQ — test_meetwerk22.js
 //  © 2026 StoplichtIQ
@@ -594,7 +597,7 @@ async function testMeetwerk22() {
   const telAf = Object.entries(telVerwacht).filter(([n, m]) => merk(window[n]) !== m).map(([n]) => n + ' ' + merk(window[n]));
   eis('MV11a acht functies krijgen regels met merkteken V11.37.22: detLogSchrijf 4, exporteerMeetdata 3, startCd en verwerkFase 2, de andere 1',
       telAf.length === 0, 'precies zoveel', telAf.join(', ') || 'precies zoveel');
-  const zonder22 = (f) => String(f).split(NL).filter(l => !/V11\.37\.22(?!\d)|V11\.37\.23(?!\d)|V11\.37\.26(?!\d)|V11\.37\.30(?!\d)|V11\.37\.31(?!\d)|V11\.37\.34(?!\d)|V11\.37\.35(?!\d)|V11\.37\.36(?!\d)|V11\.37\.37(?!\d)|V11\.37\.38(?!\d)|V11\.37\.39(?!\d)|V11\.37\.41(?!\d)|V11\.38\.3(?!\d)|V11\.38\.4(?!\d)/.test(l)).join(NL);   // V11.37.23: ook de regels van V11.37.23 (test_meetwerk23); V11.37.26: idem (test_schaduw_nano)
+  const zonder22 = (f) => String(terugV11386(f)).split(NL).filter(l => !/V11\.37\.22(?!\d)|V11\.37\.23(?!\d)|V11\.37\.26(?!\d)|V11\.37\.30(?!\d)|V11\.37\.31(?!\d)|V11\.37\.34(?!\d)|V11\.37\.35(?!\d)|V11\.37\.36(?!\d)|V11\.37\.37(?!\d)|V11\.37\.38(?!\d)|V11\.37\.39(?!\d)|V11\.37\.41(?!\d)|V11\.38\.3(?!\d)|V11\.38\.4(?!\d)/.test(l)).join(NL);   // V11.37.23: ook de regels van V11.37.23 (test_meetwerk23); V11.37.26: idem (test_schaduw_nano)
   const anders = Object.entries(V113721).filter(([n, [h, l]]) => { const s = zonder22(window[n]); return fnv(s) !== h || s.length !== l; })
     .map(([n]) => n + ' ' + fnv(zonder22(window[n])) + '/' + zonder22(window[n]).length);
   eis('MV11b zonder die regels zijn ze byte-gelijk aan V11.37.21 (alles is toegevoegd, niets gewijzigd)', anders.length === 0, 'geen afwijking', anders.join(', ') || 'geen');

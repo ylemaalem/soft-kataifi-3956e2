@@ -175,8 +175,8 @@ async function testKnoppen() {
     const d4 = det();
     snelheidKmh = 20; detLogAfst = 50; detLogSchrijf();
     const d5 = det();
-    eis('KM3b rijdend onder 20 m schrijft de detlog niets (zoals altijd); op 50 m een gewone regel, sinds V11.38.3 met de b-velden (meetregel C4)',
-        d4.length === 0 && d5.length === 1 && d5[0].stil === undefined && d5[0].bf !== undefined && d5[0].ep === 'w', '0, dan 1 gewone met bf en ep', JSON.stringify(d5));   // V11.38.3: was bf === undefined
+    eis('KM3b rijdend onder 20 m schrijft de detlog sinds V11.38.6 één regel met dicht 1; op 50 m een gewone regel, sinds V11.38.3 met de b-velden (meetregel C4)',
+        d4.length === 1 && d4[0].dicht === 1 && d5.length === 2 && d5[1].stil === undefined && d5[1].dicht === undefined && d5[1].bf !== undefined && d5[1].ep === 'w', '1 met dicht, dan 1 gewone met bf en ep', JSON.stringify(d5));   // V11.38.6: d4 heeft nu een regel   // V11.38.3: was bf === undefined
     // Het filter zegt hetzelfde als postprocessYOLO: één anker per geval, klasse 0 (rood).
     const anker = (cx, cy, w, h, s) => { const d = new Float32Array(4 + NC); d[0] = cx; d[1] = cy; d[2] = w; d[3] = h; d[4] = s; return d; };
     snelheidKmh = 30;   // maxY = MAX_Y_RATIO
