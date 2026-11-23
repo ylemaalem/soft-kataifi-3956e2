@@ -1109,7 +1109,7 @@ if (typeof ort !== 'undefined') {
 //
 // De stijl volgt de eerdere labels: nummer, kastlijntje, korte omschrijving in
 // kleine letters. De CSS zet hem zelf in kapitalen (text-transform:uppercase).
-const APP_VERSIE = 'V11.38.9 — scoreonderdelen in de dwarslog (alleen meten)';
+const APP_VERSIE = 'V11.38.10 — schaduw voor het slot dat zijn lamp kwijt is (alleen meten)';
 
 // ── CONSTANTEN ────────────────────────────────────────────────
 const OSM_RADIUS       = 5000;
@@ -5889,6 +5889,7 @@ function exporteerMeetdata() {
       uit.door = {};   // V11.37.30: de doorrijlog (doorTik)
       uit.weg = {};    // V11.38.4: weggegooide rode fasen (wegRoodLog)
       uit.dwars = {};  // V11.38.8: de schaduw van de dwarsregel (dwarsTik)
+      uit.slotmis = {};   // V11.38.10: de schaduw voor het slot dat zijn lamp kwijt is (slotMisTik)
       for (const key of opslagSleutels('')) {                          // V11.23.0
         let doel = null;
         if (key.startsWith('sl_passief_'))       doel = uit.passief;
@@ -5919,6 +5920,7 @@ function exporteerMeetdata() {
         else if (key === DOOR_SLEUTEL)           doel = uit.door;   // V11.37.30: elke passage, ook niet gezien
         else if (key === WEGROOD_SLEUTEL)        doel = uit.weg;    // V11.38.4: weggegooide rode fasen
         else if (key === DWARSLOG_SLEUTEL)       doel = uit.dwars;  // V11.38.8: de schaduw van de dwarsregel
+        else if (key === SLOTMIS_SLEUTEL)        doel = uit.slotmis;   // V11.38.10: zie slotMisTik
         else if (key.startsWith('sl_nano_') || key === 'sl_modelvgl') doel = uit.nano;   // V11.37.26
         // V11.17.33 W2: let op de volgorde — 'sl_richtinglog' begint NIET met
         // 'sl_richting_' (na 'sl_richting' volgt 'l', geen '_'), dus deze twee
@@ -11526,6 +11528,140 @@ function stickyProjecteer(s) {
 // Er is aan het gedrag niets veranderd: dezelfde voorspelling, dezelfde
 // projectie, dezelfde matchradius, dezelfde twee penalties, dezelfde sortering.
 // De tap-tak doet er alleen iets anders mee dan het auto-slot.
+// ── V11.38.10: SCHADUW VOOR HET SLOT DAT ZIJN LAMP KWIJT IS (ALLEEN METEN) ──
+// © 2026 StoplichtIQ
+//
+// WAAROM. Dichtbij schiet de lamp omhoog in beeld en springt buiten de cirkel
+// van het slot (tik_leeg / autoslot_miss). Het model ziet hem wel ("ai:filter"),
+// maar het slot zoekt op de oude plek en laat niet los (SLOT_BLIJFT). STAP 0 van
+// 23 nov: in 277 slot-missers lag de dichtstbijzijnde box mediaan 143 px van het
+// slot, de cirkel is hoogstens 80 px.
+//
+// WAT. Eén regel per nadering waarin het slot zijn lamp kwijtraakt (een
+// "episode"), in sl_slotmislog (ring SLOTMIS_MAX). Een episode begint bij de
+// eerste run met tik_leeg of autoslot_miss en eindigt bij de eerste run met een
+// andere uitkomst (e: 'ok' of de reden), als het slot weg is ('los'), bij een
+// ander licht ('node'), na SLOTMIS_GAT_MS zonder run ('gat') of bij pagehide.
+//   t   begin (ms)            n   licht-id            k   't' tik, 'a' auto-slot
+//   a0  afstand begin (m)     a1  afstand einde (m)   r   aantal runs met misser
+//   ms  duur van de episode   m0  ms sinds de laatste match bij het begin
+//   f   kleur van de app bij het begin (r/g/o/-)      e   hoe de episode eindigde
+//   p   runs waarin de schaduw de lamp vond, paal     q   idem, portaal
+//   pk  kleuren die de schaduw-paal vond {r,g,o}      qk  idem portaal
+//   pv  runs waarin de schaduw-paal een andere kleur vond dan de app toonde; qv idem portaal
+//   s   tot SLOTMIS_RIJ runs: [afst m, d px, h px, kleur, paal, portaal, ms sinds match, crop 0/1, kleur app]
+//       d = afstand van de dichtstbijzijnde box tot waar het slot zocht (modelpixels),
+//       h = hoogte van die box (modelpixels), paal/portaal = kleur die de schaduw vond of '-'
+// DE SCHADUW. De laatste plek waar het slot de lamp zag (in camerapixels, met de
+// afstand van dat moment) schuift omhoog met de elevatie: tan = H / afstand, met
+// H = lamphoogte min camerahoogte, voor een paal (SLOTMIS_PAAL_M) en een portaal
+// (SLOTMIS_PORTAAL_M). Rond die plek een cirkel van STICKY_MATCH_PX maal
+// 15/afstand (minstens 1x, hoogstens 3x). De dichtstbijzijnde box van een
+// bruikbare klasse daarin, die geen bekende buur is, is wat de schaduw zou kiezen.
+// Geen positie: alleen afstanden tot het licht, pixels, kleuren en tijden.
+//
+// VEILIG. slotMisTik leest alleen: het slot, de selectie, de filters, de fase en
+// de countdown veranderen niet. De eigen stand (slotMisStaat, slotMisAnker) staat
+// los van stickyDetectie; het anker is een kopie van getallen.
+const SLOTMIS_SLEUTEL   = 'sl_slotmislog';   // V11.38.10
+const SLOTMIS_MAX       = 40;                // V11.38.10: ~0,5 KB per regel
+const SLOTMIS_RIJ       = 8;                 // V11.38.10: runs per regel
+const SLOTMIS_GAT_MS    = 30000;             // V11.38.10
+const SLOTMIS_CAMERA_M  = 1.3;               // V11.38.10: aangenomen camerahoogte
+const SLOTMIS_PAAL_M    = 3.5;               // V11.38.10: lamp op een paal
+const SLOTMIS_PORTAAL_M = 6.5;               // V11.38.10: lamp aan een portaal
+const SLOTMIS_REDENEN   = ['tik_leeg', 'autoslot_miss'];   // V11.38.10
+let slotMisStaat = null;    // V11.38.10: de lopende episode
+let slotMisAnker = null;    // V11.38.10: { camX, camY, camH, d, t } bij de laatste match
+
+function slotMisKleur(det) {   // V11.38.10
+  const f = det ? KLASSE_MAP[det.klasse] : null;
+  return f === 'rood' ? 'r' : f === 'groen' ? 'g' : f === 'oranje' ? 'o' : '-';
+}
+function slotMisFase() {   // V11.38.10
+  return fase === 'rood' ? 'r' : fase === 'groen' ? 'g' : fase === 'oranje' ? 'o' : '-';
+}
+// Waar de lamp nu zou staan (modelpixels van deze run) bij lamphoogte hM; null zonder anker.   // V11.38.10
+function slotMisPlek(anker, afst, hM) {   // V11.38.10
+  if (!anker || anker.camX == null || !(lbScale > 0)) return null;
+  const vW = video.videoWidth || 0;
+  if (!(vW > 0)) return null;
+  const fov = (typeof CAMERA_FOV !== 'undefined') ? CAMERA_FOV : 70;
+  const f = (vW / 2) / Math.tan(fov / 2 * Math.PI / 180);
+  const H = hM - SLOTMIS_CAMERA_M;
+  let camY = anker.camY;
+  if (typeof anker.d === 'number' && typeof afst === 'number' && anker.d > 1 && afst > 1 && afst < anker.d)
+    camY -= f * H * (1 / afst - 1 / anker.d);
+  return { cx: (anker.camX - (cropRegio ? cropRegio.x : 0)) * lbScale + lbPadX,
+           cy: (camY - (cropRegio ? cropRegio.y : 0)) * lbScale + lbPadY };
+}
+function slotMisStraal(afst) {   // V11.38.10
+  const a = (typeof afst === 'number' && afst > 0) ? afst : 15;
+  return STICKY_MATCH_PX * Math.max(1, Math.min(3, 15 / a));
+}
+// Wat de schaduw zou kiezen: de dichtstbijzijnde bruikbare box in de cirkel, geen bekende buur.   // V11.38.10
+function slotMisZoek(bruikbaar, plek, straal) {   // V11.38.10
+  if (!plek) return null;
+  let best = null, ba = Infinity;
+  for (const det of bruikbaar) {
+    const a = Math.hypot(det.cx - plek.cx, det.cy - plek.cy);
+    if (a < straal && a < ba && !slotIsBuur(det)) { ba = a; best = det; }
+  }
+  return best;
+}
+function slotMisSluit(eind) {   // V11.38.10
+  const e = slotMisStaat;
+  slotMisStaat = null;
+  if (!e) return;
+  const rec = { t: e.t, n: e.n, k: e.k, a0: e.a0, a1: e.a1, r: e.r, ms: e.t1 - e.t, m0: e.m0, f: e.f, e: eind,
+                p: e.p, q: e.q, pk: e.pk, qk: e.qk, pv: e.pv, qv: e.qv, s: e.s };
+  meetRingSchrijf(SLOTMIS_SLEUTEL, SLOTMIS_MAX, rec);
+}
+// Na selecteerBesteDetectie, elke run met boxen.   // V11.38.10
+function slotMisTik(detecties, reden) {   // V11.38.10
+  try {
+    const nu = Date.now();
+    const sd = stickyDetectie;
+    const node = dichtstbijOSM ? Number(dichtstbijOSM.id) : 0;
+    const afst = (dichtstbijOSM && typeof dichtstbijOSM.afstand === 'number') ? dichtstbijOSM.afstand : null;
+    const heel = (x) => (typeof x === 'number' && isFinite(x)) ? Math.round(x) : null;
+    if (slotMisStaat && (nu - slotMisStaat.t1 > SLOTMIS_GAT_MS)) slotMisSluit('gat');
+    if (slotMisStaat && slotMisStaat.n !== node) slotMisSluit('node');
+    const mis = SLOTMIS_REDENEN.includes(reden) && !!sd;
+    if (!mis) {
+      if (slotMisStaat) slotMisSluit(sd ? (reden || '-') : 'los');
+      if (sd && reden === 'ok' && sd.camX != null)
+        slotMisAnker = { camX: sd.camX, camY: sd.camY, camH: sd.camH, d: (typeof sd.camAfst === 'number' ? sd.camAfst : afst), t: (sd.tijd || nu) };
+      else if (!sd) slotMisAnker = null;
+      return;
+    }
+    const bruikbaar = (detecties || []).filter(d => KLASSE_MAP[d.klasse]);
+    let dich = null, dd = Infinity;
+    for (const det of bruikbaar) {
+      const a = Math.hypot(det.cx - sd.cx, det.cy - sd.cy);
+      if (a < dd) { dd = a; dich = det; }
+    }
+    const straal = slotMisStraal(afst);
+    const vp = slotMisZoek(bruikbaar, slotMisPlek(slotMisAnker, afst, SLOTMIS_PAAL_M), straal);
+    const vq = slotMisZoek(bruikbaar, slotMisPlek(slotMisAnker, afst, SLOTMIS_PORTAAL_M), straal);
+    const fa = slotMisFase();
+    const sinds = slotMisAnker ? nu - slotMisAnker.t : null;
+    if (!slotMisStaat) {
+      slotMisStaat = { t: nu, t1: nu, n: node, k: bboxOverride !== null ? 't' : 'a', a0: heel(afst), a1: heel(afst), r: 0,
+                       m0: heel(sinds), f: fa, p: 0, q: 0, pk: {}, qk: {}, pv: 0, qv: 0, s: [] };
+    }
+    const e = slotMisStaat;
+    e.t1 = nu; e.a1 = heel(afst); e.r++;
+    const kp = slotMisKleur(vp), kq = slotMisKleur(vq);
+    if (vp) { e.p++; e.pk[kp] = (e.pk[kp] || 0) + 1; if (fa !== '-' && kp !== fa) e.pv++; }
+    if (vq) { e.q++; e.qk[kq] = (e.qk[kq] || 0) + 1; if (fa !== '-' && kq !== fa) e.qv++; }
+    if (e.s.length < SLOTMIS_RIJ)
+      e.s.push([heel(afst), dich ? heel(dd) : null, dich ? heel(dich.h) : null, slotMisKleur(dich),
+                vp ? kp : '-', vq ? kq : '-', heel(sinds), cropRegio ? 1 : 0, fa]);
+  } catch (e) {}
+}
+try { window.addEventListener('pagehide', () => { try { slotMisSluit('weg'); } catch (_) {} }); } catch (e) {}   // V11.38.10
+
 function stickySlotMatch(bruikbaar, straal = STICKY_MATCH_PX) {   // V11.33.0: de tik-tak geeft tikStraalYolo()
   if (!stickyDetectie) return null;
   // V11.17.45/54: eerst voorspellen waar hij NU hoort te staan, dan pas
@@ -12381,6 +12517,7 @@ function _verwerkWorkerResultaatKern(detecties) {
     return;
   }
   const { s1:beste, s2Rest, afwijsReden } = selecteerBesteDetectie(detecties);
+  slotMisTik(detecties, afwijsReden);   // V11.38.10: schaduw, beslist niets, zie slotMisTik
   // V11.17.7 W2: hoogst-scorende bruikbare kandidaat (detecties zijn al op score
   // gesorteerd in postprocessYOLO r3078). Gebruikt voor kandidaatH/Cy/Klasse-log.
   const bruikbaarLog = detecties.find(d => KLASSE_MAP[d.klasse]);
