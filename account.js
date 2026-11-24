@@ -434,6 +434,7 @@
       regel('sliq-sync-af', 'Afgewezen: ' + s.afgewezen + (red ? ' (' + red + ')' : '')),
       regel('sliq-sync-laatst', 'Laatste geslaagde pakket: ' + (s.laatst ? tijdKort(s.laatst) : 'nog geen')),
     ];
+    if (s.inhaal) uit.push(regel('sliq-sync-inhaal', 'Inhaalslag (V11.38.11): ' + s.inhaal.n + (s.inhaal.n === 1 ? ' meting' : ' metingen') + ' alsnog in de wachtrij gezet, ' + tijdKort(s.inhaal.t) + '.'));
     if (s.overgeslagen) uit.push(regel('sliq-sync-uit', 'Niet verstuurd: ' + s.overgeslagen + ' metingen; ze blijven op dit toestel.'));
     if (s.wachtReden === 'daglimiet') uit.push(regel('sliq-sync-wacht', 'De server neemt tijdelijk geen nieuwe metingen aan (daglimiet). Volgende poging om ' + tijdKort(s.wachtTot) + '.'));
     else if (s.wachtReden === 'geen_toestemming') uit.push(regel('sliq-sync-wacht', 'De server kent je toestemming nog niet. Volgende poging om ' + tijdKort(s.wachtTot) + '.'));
@@ -547,7 +548,10 @@
     }
     // V11.38.2: nieuwe sleutel, zodat de leerdata een keer opnieuw worden gelezen en de onvolledige metingen die V11.38.1 oversloeg
     // alsnog meegaan. Wat al verstuurd is of al in de wachtrij staat, wordt niet dubbel opgenomen (zelfde ref).
-    const HISTORIE_SLEUTEL = 'historie2_';
+    // V11.38.11: weer een nieuwe sleutel. Tot V11.38.10 pakte naMeting het nieuwste record van de lijst; kwam er binnen 1,5 s een
+    // KLOPTE/BIJNA/FOUT-tik bij, dan was dat het bevestig-record en ging de meting zelf nooit mee. Die metingen staan nog in de
+    // leerdata en gaan met deze eenmalige inhaalslag alsnog mee. Hoeveel er meegaan, staat bij de sleutel en in het paneel.
+    const HISTORIE_SLEUTEL = 'historie3_';
     function maakItem(uid, nodeId, dd, rec, voorspeld) {
       const duur = rec.duur, tijd = rec.tijd;
       if (typeof duur !== 'number' || !(duur > 3 && duur < 600) || typeof tijd !== 'number') return null;
@@ -574,16 +578,16 @@
       historieBezig = true;
       try {
         const klaar = await klaarSleutels(), inRij = new Set((await wachtrijAlles()).map(x => x.ref));
-        const sleutels = opslagSleutels('sl_v4_');
+        const sleutels = opslagSleutels('sl_v4_'); let aantal = 0;
         for (let i = 0; i < sleutels.length; i++) {
           const mm = /^sl_v4_(.+)_(ochtend|dag|avond|nacht)$/.exec(sleutels[i]); if (!mm) continue;
           const lijst = opslagLees(sleutels[i], []); if (!Array.isArray(lijst)) continue;
           const nieuw = [];
           for (const rec of lijst) { const it = maakItem(m.uid, mm[1], mm[2], rec, null); if (it && !klaar.has(it.ref) && !inRij.has(it.ref)) { inRij.add(it.ref); nieuw.push(it); } }
-          if (nieuw.length) await wachtrijZet(nieuw);
+          if (nieuw.length) { await wachtrijZet(nieuw); aantal += nieuw.length; }
           if (i % 25 === 24) await new Promise(r => setTimeout(r, 30));
         }
-        await kvZet('staat', HISTORIE_SLEUTEL + m.uid, Date.now());
+        await kvZet('staat', HISTORIE_SLEUTEL + m.uid, { t: Date.now(), n: aantal });   // V11.38.11: met het aantal
       } catch (e) {} finally { historieBezig = false; }
       plan(500);
     }
@@ -663,7 +667,12 @@
       return { wacht, kaart, onvolledig, teVersturen: wacht + kaart, afgewezen: a.filter(x => x.st === 'af').length, redenen, overgeslagen: a.filter(x => x.st === 'uit').length,
                klaar: await klaarAantal(), laatst: (await kvLees('staat', 'sync_laatst')) || null, fout: laatsteFout, pogingen,
                tel: (await kvLees('staat', 'sync_tel')) || { geaccepteerd: 0, quarantaine: 0, dubbel: 0, afgewezen: 0 },
-               wachtReden: nietVoor > Date.now() ? (wachtReden || (laatsteFout ? 'netwerk' : null)) : null, wachtTot: nietVoor > Date.now() ? nietVoor : null, volgende: volgendeOp || null };
+               wachtReden: nietVoor > Date.now() ? (wachtReden || (laatsteFout ? 'netwerk' : null)) : null, wachtTot: nietVoor > Date.now() ? nietVoor : null, volgende: volgendeOp || null,
+               inhaal: await inhaalStand(uid) };
+    }
+    // V11.38.11: de uitslag van de eenmalige inhaalslag { t, n }, of null zolang hij niet gedraaid heeft.
+    async function inhaalStand(uid) {
+      try { const v = await kvLees('staat', HISTORIE_SLEUTEL + uid); return v && typeof v === 'object' && typeof v.n === 'number' ? { t: v.t, n: v.n } : null; } catch (e) { return null; }
     }
     // V11.38.2: onvolledige metingen gaan WEL mee (met volledig=false). Wat V11.38.1 daarom opzij zette, gaat terug in de wachtrij.
     async function opruimen(uid) {
@@ -682,12 +691,24 @@
     function stop() { gestopt = true; if (timer) { clearTimeout(timer); timer = null; volgendeOp = 0; } toonRegel(0); }
     // Na elke echte meting (slaOpIntern, bron s1): het zojuist geschreven record opzoeken en melden. Wat de app
     // toonde komt uit het schaduwlog van dezelfde rode fase. Alleen lezen; het leren zelf is niet aangeraakt.
-    function naMeting(nodeId, dd) {
+    // V11.38.11: welk record dat is, staat vast op het moment van schrijven (tijd uit laatsteV4Schrijvingen, zie zojuistGeschreven).
+    // Na 1,5 s wordt PRECIES dat record gezocht. Lukt dat niet, dan het nieuwste meetrecord (bron s1 of zonder bron), nooit een
+    // bevestig-record: een KLOPTE/BIJNA/FOUT-tik binnen 1,5 s hield de meting tot V11.38.10 van de server.
+    const isMeetRecord = (x) => !!x && typeof x.tijd === 'number' && (x.bron == null || x.bron === 's1');
+    function zojuistGeschreven(dd) {
+      try {
+        const l = laatsteV4Schrijvingen, w = Array.isArray(l) && l.length ? l[l.length - 1] : null;   // index.html, gevuld door slaOpIntern
+        if (w && w.dd === dd && typeof w.tijd === 'number' && Math.abs(Date.now() - w.tijd) < 5000) return w.tijd;
+      } catch (e) {}
+      return null;
+    }
+    function naMeting(nodeId, dd, tijd) {
       const m = P.staat(); if (!m || m.sync !== true) return;
       setTimeout(() => {
         try {
           const lijst = opslagLees('sl_v4_' + nodeId + '_' + dd, []); if (!Array.isArray(lijst) || !lijst.length) return;
-          const rec = lijst.reduce((a, b) => (b && b.tijd > (a ? a.tijd : 0) ? b : a), null);
+          let rec = typeof tijd === 'number' ? lijst.find(x => isMeetRecord(x) && x.tijd === tijd) : null;
+          if (!rec) rec = lijst.reduce((a, b) => (isMeetRecord(b) && b.tijd > (a ? a.tijd : 0) ? b : a), null);
           if (!rec || Date.now() - rec.tijd > 20000) return;
           let voorspeld = null;
           try { const sl = opslagLees('sl_schaduwlog', []); const s = Array.isArray(sl) ? sl.filter(x => x && String(x.node) === String(nodeId) && Math.abs(x.t - rec.tijd) < 15000).pop() : null; if (s && typeof s.geb === 'number') voorspeld = { node: nodeId, geb: s.geb, t: Date.now() }; } catch (e) {}
@@ -700,7 +721,7 @@
       if (typeof orig === 'function' && !orig.sliqOrig) {
         const schil = function (osmId, richting, duur, gewichtOverride, dd, bron) {
           const r = orig.apply(this, arguments);
-          try { if (bron === undefined || bron === 's1') naMeting(String(osmId), dd); } catch (e) {}
+          try { if (bron === undefined || bron === 's1') naMeting(String(osmId), dd, zojuistGeschreven(dd)); } catch (e) {}
           return r;
         };
         schil.toString = () => orig.toString(); schil.sliqOrig = orig; window.slaOpIntern = schil;
