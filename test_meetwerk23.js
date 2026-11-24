@@ -207,6 +207,7 @@ async function meetwerk23Binnen(soort, opt) {
     cdWallStart = 700; activeCdDoel = 40;
     if (opt.blind !== false) {
       laatsteFase = fase; laatsteFaseStart = faseStart; laatsteFaseNodeId = String(N);
+      laatsteDetectieTijd = Date.now() - 5000;   // V11.38.12: de laatste detectie 5 s voor de uitval (zu), met en zonder de haken gelijk
       resetNeutraal('dropout');
       dichtstbijOSM = { id: N, lat: 52, lon: 5, afstand: 30 };
       verwerkFase('rood', true, 0.9);
@@ -399,7 +400,7 @@ async function testMeetwerk23() {
       'uit, 27, null, null, null, null', kort(g6));
 
   // ═══ MA7 — zh ════════════════════════════════════════════════
-  const TIJDVELD = ['zh', 'pzh', 't', 'tijd', 'ts', 'laatste_update', 'sinds', 'laatst', 'opgeslagenOp'];
+  const TIJDVELD = ['zh', 'zu', 'pzh', 't', 'tijd', 'ts', 'laatste_update', 'sinds', 'laatst', 'opgeslagenOp'];   // zu: V11.38.12, alleen meten, net als zh
   const norm = (x) => {
     if (typeof x === 'string' && /^[\[{]/.test(x)) { try { return norm(JSON.parse(x)); } catch (e) { return x; } }
     if (Array.isArray(x)) return x.map(norm);
@@ -431,6 +432,15 @@ async function testMeetwerk23() {
   const gelijk7 = ['gezien', 'gemist', 'zonderBlind', 'eg'].filter(k => !!zh[k].fout || tekst7(k) !== tekst7(k + '_zonder'));
   eis('MA7d met en zonder de nieuwe haken: dezelfde fase en vlag na het herstel, dezelfde countdown, metingen en leerdata (op zh na)',
       gelijk7.length === 0 && Object.keys(G.leer || {}).length >= 1, 'gelijk', gelijk7.map(k => { const a = tekst7(k), b = tekst7(k + '_zonder'); let i = 0; while (i < a.length && a[i] === b[i]) i++; return k + ' @' + i + ' ' + a.slice(Math.max(0, i - 60), i + 60) + ' <> ' + b.slice(Math.max(0, i - 60), i + 60); }).join(' || ') || ('gelijk, ' + Object.keys(G.leer || {}).length + ' sleutels'));
+
+  // V11.38.12: de echte route (uitval, resetNeutraal, herstel in verwerkFase, opslaan) zet zh en zu in het V4-record.
+  const v4van = (r) => { const uit = []; for (const [k, v] of Object.entries((r && r.leer) || {})) if (/^sl_v4_/.test(k)) { try { for (const x of JSON.parse(v)) uit.push(x); } catch (e) {} } return uit; };
+  const nieuwste = (r) => v4van(r).reduce((a, b) => (b && b.tijd > (a ? a.tijd : 0) ? b : a), null) || {};
+  const n4 = { gezien: nieuwste(G), zonder: nieuwste(zh.gezien_zonder), gemist: nieuwste(zh.gemist), zonderBlind: nieuwste(zh.zonderBlind) };
+  eis('MA7f (V11.38.12) de echte route: het nieuwe V4-record draagt zh:1 en zu 5; zonder de haken geen van beide; zonder gezien begin zu 5 zonder zh; zonder blinde periode geen van beide',
+      n4.gezien.zh === 1 && n4.gezien.zu === 5 && n4.gezien.zo === 0 && n4.zonder.zh === undefined && n4.zonder.zu === undefined && n4.zonder.duur === n4.gezien.duur
+      && n4.gemist.zh === undefined && n4.gemist.zu === 5 && n4.zonderBlind.zh === undefined && n4.zonderBlind.zu === undefined,
+      'zh 1 zu 5 | geen | zu 5 | geen', kort(n4));
 
   // ═══ MA8 — d1 en dr ══════════════════════════════════════════
   const d8 = await inFrame((w) => w.meetwerk23Binnen('dr', { N: vers() }));
@@ -476,7 +486,7 @@ async function testMeetwerk23() {
     [/^(\s*)sModelLabel\.textContent = `✓ Model klaar: \$\{modelNaamVan\(modelPad\)\} \(\$\{t\}s\)`;.*V11\.37\.26(?!\d).*$/, '$1sModelLabel.textContent = `✓ YOLOv8 klaar (${t}s)`;'],
     [/^(\s*)pAI\.className='pill-dot g'; pAIT\.textContent='YOLOv8n';.*V11\.37\.26(?!\d).*$/, "$1pAI.className='pill-dot g'; pAIT.textContent='YOLOv8';"]];
   const terug26 = (l) => { for (const [re, oud] of TERUG26) if (re.test(l)) return l.replace(re, oud); return l; };
-  const zonder23 = (f) => String(terugV113727(f)).split(NL).map(terugV113731).map(terug26).filter(l => !/V11\.37\.23(?!\d)|V11\.37\.25(?!\d)|V11\.37\.26(?!\d)|V11\.37\.30(?!\d)|V11\.37\.31(?!\d)|V11\.37\.34(?!\d)|V11\.37\.35(?!\d)|V11\.37\.36(?!\d)|V11\.37\.37(?!\d)|V11\.37\.38(?!\d)|V11\.37\.39(?!\d)|V11\.37\.41(?!\d)|V11\.38\.3(?!\d)|V11\.38\.4(?!\d)|V11\.38\.8(?!\d)|V11\.38\.9(?!\d)|V11\.38\.10(?!\d)/.test(l)).join(NL);   // V11.37.25: ook de regels van V11.37.25 (test_plaatsen); V11.37.26 idem   // V11.37.27: eerst terugV113727
+  const zonder23 = (f) => String(terugV113727(f)).split(NL).map(terugV113731).map(terug26).filter(l => !/V11\.37\.23(?!\d)|V11\.37\.25(?!\d)|V11\.37\.26(?!\d)|V11\.37\.30(?!\d)|V11\.37\.31(?!\d)|V11\.37\.34(?!\d)|V11\.37\.35(?!\d)|V11\.37\.36(?!\d)|V11\.37\.37(?!\d)|V11\.37\.38(?!\d)|V11\.37\.39(?!\d)|V11\.37\.41(?!\d)|V11\.38\.3(?!\d)|V11\.38\.4(?!\d)|V11\.38\.8(?!\d)|V11\.38\.9(?!\d)|V11\.38\.10(?!\d)|V11\.38\.12(?!\d)/.test(l)).join(NL);   // V11.37.25: ook de regels van V11.37.25 (test_plaatsen); V11.37.26 idem   // V11.37.27: eerst terugV113727
   const anders = Object.entries(Object.assign({}, V113722, VERVANGEN)).filter(([n]) => n !== 'laadONNXModel').filter(([n, [h, l]]) =>   // V11.37.36: laadONNXModel bewust herschreven
     { const s = zonder23(window[n]); return fnv(s) !== h || s.length !== l; })
     .map(([n]) => n + ' ' + fnv(zonder23(window[n])) + '/' + zonder23(window[n]).length);
@@ -487,7 +497,7 @@ async function testMeetwerk23() {
     stopLogAf: ['21c4b6e6', 928], beeindigFase: ['8234b742', 1404], onGPS: ['d1ed43de', 15747], berekenLeerPct: ['5d38efe9', 986], verwerkBevestigLeren: ['1edefee2', 8555], exporteerMeetdata: ['be910bb4', 10070] };
   // V11.37.26: exporteerMeetdata kreeg twee regels (uit.nano); zonder de regels met dat merkteken is hij gelijk.
   const terug33 = (l) => l.replace(/conf < hoofdGrens\('leer'\)\) \{   \/\/ V11.37.33(?!d): de grens van het geladen model$/, 'conf < 0.20) {');   // V11.37.33: de vervangen regel in slaOp terug
-  const zonder26 = (f) => String(f).split(NL).map(terug33).filter(l => !/V11\.37\.26(?!\d)|V11\.37\.30(?!\d)|V11\.37\.31(?!\d)|V11\.37\.34(?!\d)|V11\.37\.35(?!\d)|V11\.37\.36(?!\d)|V11\.37\.37(?!\d)|V11\.37\.38(?!\d)|V11\.37\.39(?!\d)|V11\.37\.41(?!\d)|V11\.38\.3(?!\d)|V11\.38\.4(?!\d)|V11\.38\.8(?!\d)|V11\.38\.9(?!\d)|V11\.38\.10(?!\d)/.test(l)).join(NL);
+  const zonder26 = (f) => String(f).split(NL).map(terug33).filter(l => !/V11\.37\.26(?!\d)|V11\.37\.30(?!\d)|V11\.37\.31(?!\d)|V11\.37\.34(?!\d)|V11\.37\.35(?!\d)|V11\.37\.36(?!\d)|V11\.37\.37(?!\d)|V11\.37\.38(?!\d)|V11\.37\.39(?!\d)|V11\.37\.41(?!\d)|V11\.38\.3(?!\d)|V11\.38\.4(?!\d)|V11\.38\.8(?!\d)|V11\.38\.9(?!\d)|V11\.38\.10(?!\d)|V11\.38\.12(?!\d)/.test(l)).join(NL);
   const anders2 = Object.entries(ONGEMOEID).filter(([n, [h, l]]) => fnv(zonder26(window[n])) !== h || zonder26(window[n]).length !== l).map(x => x[0]);
   eis('MA11c zestien functies voor het leren, de countdown, de lichtkeuze en de export zijn niet aangeraakt (op twee regels V11.37.26 in de export na)', anders2.length === 0, 'geen afwijking', anders2.join(', ') || 'geen');
   let code = [];

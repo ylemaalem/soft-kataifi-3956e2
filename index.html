@@ -1109,7 +1109,7 @@ if (typeof ort !== 'undefined') {
 //
 // De stijl volgt de eerdere labels: nummer, kastlijntje, korte omschrijving in
 // kleine letters. De CSS zet hem zelf in kapitalen (text-transform:uppercase).
-const APP_VERSIE = 'V11.38.11 — de upload pakt precies de meting die net is opgeslagen';
+const APP_VERSIE = 'V11.38.12 — de meting onthoudt een korte uitval tijdens rood (alleen meten)';
 
 // ── CONSTANTEN ────────────────────────────────────────────────
 const OSM_RADIUS       = 5000;
@@ -3730,6 +3730,7 @@ function slaOpIntern(osmId, richting, duur, gewichtOverride, dd, bron='s1', conf
   if (zagOvergang === true) entry.zo = 1;
   else if (zagOvergang === false) entry.zo = 0;
   if (bron === 's1') { try { zvAanvul(entry, osmId); } catch (_) {} }   // V11.38.4: zv/zg, alleen meten
+  if (bron === 's1') { try { zhV4Aanvul(entry, osmId); } catch (_) {} }   // V11.38.12: zh/zu, alleen meten
   m.push(entry);
   // V11.17.85: cap-gedrag ONGEWIJZIGD. Sorteren gebeurt uitsluitend op
   // recentheid; `rv` komt hier bewust niet in voor. Een gemarkeerd record
@@ -10044,13 +10045,14 @@ let zhFase = null;        // { n, fs } de herstelde rode fase waarbij zh hoort
 function zhNoteerReset(reden) {
   try {
     if (reden !== 'dropout' && reden !== 'stale') return;
-    zhVoorReset = { n: faseNodeId === null ? null : String(faseNodeId), fase, zag: !!zagRoodOvergang };
+    zhVoorReset = { n: faseNodeId === null ? null : String(faseNodeId), fase, zag: !!zagRoodOvergang, t: laatsteDetectieTijd || Date.now() };
   } catch (e) {}
 }
 function zhBijHerstel(nodeId) {
   try {
     const v = zhVoorReset, n = String(nodeId);
     zhVoorReset = null;
+    if (v && v.n === n && v.fase === 'rood') zuBijHerstel(n, v.t);   // V11.38.12: alleen meten, zie het blok V11.38.12
     if (!v || v.n !== n || v.fase !== 'rood' || !v.zag || zagRoodOvergang) return;
     zhFase = { n, fs: faseStart };
     const p = passageStaat.open.get(Number(n));
@@ -10066,6 +10068,34 @@ function m5Aanvul(rec, nodeId) {
   const p = passageStaat.open.get(Number(nodeId));
   if (p && p.d1 !== undefined) rec.d1 = p.d1;
   if (p && p.dr !== undefined) rec.dr = p.dr;
+}
+// ── V11.38.12: ZH EN ZU IN HET V4-RECORD (ALLEEN METEN) ──────
+// © 2026 StoplichtIQ
+//
+// Een rode fase die na een blinde periode (uitval of verouderde fase) bij hetzelfde
+// licht wordt hersteld (de continuïteit in verwerkFase), krijgt in het V4-record (bron s1):
+//   zh:1  als het begin vóór de blinde periode wél gezien was. Dezelfde regel als zhActief
+//         (V11.37.23); tot nu toe stond zh alleen in sl_passagelog en sl_m5log.
+//   zu    hoe lang de app blind was, in hele seconden: van de laatste detectie vóór de
+//         uitval tot het herstel. Bij meer dan één uitval in dezelfde fase opgeteld.
+//         zu staat er ook bij een herstel zonder gezien begin (dan zonder zh).
+// Niets beslist hierop: de vlag zo, de duur, het gewicht, de countdown en de upload
+// blijven gelijk. Een fout blijft binnen het blok.
+let zuFase = null;   // { n, fs, zu } de herstelde rode fase en de opgetelde blinde tijd (s)
+function zuBijHerstel(n, t) {
+  try {
+    const s = Math.round((Date.now() - t) / 1000);
+    if (!(s >= 0 && s <= FASE_CONTINUITEIT_MS / 1000)) return;
+    if (zuFase && zuFase.n === n && zuFase.fs === faseStart) zuFase = { n, fs: faseStart, zu: zuFase.zu + s };
+    else zuFase = { n, fs: faseStart, zu: s };
+  } catch (e) {}
+}
+function zuActief(nodeId) {
+  return !!zuFase && faseStart !== null && zuFase.n === String(nodeId) && zuFase.fs === faseStart;
+}
+function zhV4Aanvul(entry, nodeId) {
+  if (zhActief(nodeId)) entry.zh = 1;
+  if (zuActief(nodeId)) entry.zu = zuFase.zu;
 }
 // ── V11.38.4: ZV EN DE WEGROODLOG (ALLEEN METEN) ─────────────
 // © 2026 StoplichtIQ
