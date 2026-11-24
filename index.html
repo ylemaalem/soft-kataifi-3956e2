@@ -1109,7 +1109,7 @@ if (typeof ort !== 'undefined') {
 //
 // De stijl volgt de eerdere labels: nummer, kastlijntje, korte omschrijving in
 // kleine letters. De CSS zet hem zelf in kapitalen (text-transform:uppercase).
-const APP_VERSIE = 'V11.38.12 — de meting onthoudt een korte uitval tijdens rood (alleen meten)';
+const APP_VERSIE = 'V11.38.13 — de tik houdt dichtbij zijn lamp vast';
 
 // ── CONSTANTEN ────────────────────────────────────────────────
 const OSM_RADIUS       = 5000;
@@ -5891,6 +5891,7 @@ function exporteerMeetdata() {
       uit.weg = {};    // V11.38.4: weggegooide rode fasen (wegRoodLog)
       uit.dwars = {};  // V11.38.8: de schaduw van de dwarsregel (dwarsTik)
       uit.slotmis = {};   // V11.38.10: de schaduw voor het slot dat zijn lamp kwijt is (slotMisTik)
+      uit.tikdicht = {}; uit.autoslot = {};   // V11.38.13: zie tikDichtbijNa en autoSlotLogZet
       for (const key of opslagSleutels('')) {                          // V11.23.0
         let doel = null;
         if (key.startsWith('sl_passief_'))       doel = uit.passief;
@@ -5922,6 +5923,8 @@ function exporteerMeetdata() {
         else if (key === WEGROOD_SLEUTEL)        doel = uit.weg;    // V11.38.4: weggegooide rode fasen
         else if (key === DWARSLOG_SLEUTEL)       doel = uit.dwars;  // V11.38.8: de schaduw van de dwarsregel
         else if (key === SLOTMIS_SLEUTEL)        doel = uit.slotmis;   // V11.38.10: zie slotMisTik
+        else if (key === TIKDICHT_SLEUTEL)       doel = uit.tikdicht;   // V11.38.13: zie tikDichtbijNa
+        else if (key === AUTOSLOTLOG_SLEUTEL)    doel = uit.autoslot;   // V11.38.13: zie autoSlotLogZet
         else if (key.startsWith('sl_nano_') || key === 'sl_modelvgl') doel = uit.nano;   // V11.37.26
         // V11.17.33 W2: let op de volgorde — 'sl_richtinglog' begint NIET met
         // 'sl_richting_' (na 'sl_richting' volgt 'l', geen '_'), dus deze twee
@@ -7900,6 +7903,7 @@ function tikStraalVast() {
   if (cam === null || !(lbScale > 0)) return gewoon;
   const camH = (stickyDetectie && stickyDetectie.camH > 0) ? stickyDetectie.camH : 0;
   const vast = Math.max(cam * TIK_VAST_MIN_FRACTIE, camH * TIK_VAST_FACTOR);
+  { const d13 = tikDichtbijStraal(vast); if (d13 !== null) return d13; }   // V11.38.13: dichtbij 0,75 x lamphoogte, hooguit 80 (zie tikDichtbijStraal)
   return Math.min(gewoon, vast * lbScale);
 }
 
@@ -7998,6 +8002,7 @@ function tikKiesDetectie(videoX, videoY) {
 // (een sticky in camerapixels, bron 'tik'); zonder zoekt de tik-tak rond de plek.
 function tikZet(keuze, videoX, videoY) {
   const camX = keuze ? keuze.camX : videoX, camY = keuze ? keuze.camY : videoY;
+  autoSlotLogTik(camX, camY);   // V11.38.13: meetregel, beslist niets
   bboxOverrideCamX = camX; bboxOverrideCamY = camY;
   const p = (lbScale > 0) ? tikNaarYolo(camX, camY) : { cx: camX, cy: camY };
   bboxOverride = { cx: p.cx, cy: p.cy };
@@ -11692,6 +11697,186 @@ function slotMisTik(detecties, reden) {   // V11.38.10
 }
 try { window.addEventListener('pagehide', () => { try { slotMisSluit('weg'); } catch (_) {} }); } catch (e) {}   // V11.38.10
 
+// ── V11.38.13: DE TIK HOUDT DICHTBIJ ZIJN LAMP VAST ──────────────
+// © 2026 StoplichtIQ
+//
+// WAAROM (STAP 0 van 25 nov, export 24 nov). Onder 15 m kijkt elke run naar het
+// hele beeld. Daar is de vaste tikstraal (tikStraalVast) hooguit tikStraalYolo():
+// 162 camerapixels, op een beeld van 2160x3840 maar 27 modelpixels. In 55 runs
+// tot 10 m waarin de tik zijn lamp miste, lag de dichtstbijzijnde box 0 keer
+// binnen 27 px, mediaan 37 px, bij een lamphoogte van mediaan 57 px. Het slot
+// zocht op de goede plek, met een te kleine cirkel.
+//
+// DE REGEL. Alleen met een tik (bboxOverride), alleen tot TIK_DICHTBIJ_M van het
+// licht en alleen in een run op het hele beeld (geen cropRegio): de vaste straal
+// is 0,75 x de hoogte van jouw lamp (TIK_VAST_FACTOR, de lamp bij de laatste
+// vondst), minstens de bestaande ondergrens (TIK_VAST_MIN_FRACTIE) en hooguit
+// STICKY_MATCH_PX. Daarbuiten, of met TIK_DICHTBIJ = false, precies de straal
+// van V11.38.12. Plek, buurfilter (slotZonderBuur), fase en AI_DREMPEL zijn
+// ongewijzigd: de straal is nooit kleiner dan voorheen, alleen groter.
+//
+// MEETREGEL 1: sl_tikdichtlog (ring TIKDICHT_MAX), één regel per nadering
+// (licht + tik) met minstens één run in deze regel:
+//   t  begin (ms)   n  licht-id   a0/a1  afstand begin/einde (m)   e  einde
+//   r  runs in de regel   nm  vondst binnen de oude straal   no  overnames
+//      (vondst die V11.38.12 had gemist)   nv  runs die toch verloren gingen
+//   nb/nw  overnames die de volgende 3 runs bleven / waarna een run leeg was
+//   o  tot TIKDICHT_RIJ overnames: [afst m, d px, h px, kleur box, kleur app,
+//      straal px, oude straal px, b/w/-]
+//   v  tot TIKDICHT_RIJ verloren runs: [afst m, d px, lamphoogte px, d/lamphoogte,
+//      straal px]; d = dichtstbijzijnde box tot de zoekplek, null zonder box
+// MEETREGEL 2: sl_autoslotlog (ring AUTOSLOTLOG_MAX), één regel per keer dat het
+// automatische slot dichtgaat:
+//   t  moment   n  licht-id   a  afstand (m)   r  runs dezelfde box   ms  sinds de
+//   eerste van die runs   c  uitsnede 0/1   k  kleur   h  hoogte (px)
+//   tk 'a' binnen AUTOSLOTLOG_TIK_MS een tik op een andere lamp (verder dan
+//      tikStraalCam() van het slot), 'z' op dezelfde lamp, '-' geen tik
+//   ts ms tot die tik   d  afstand tik-slot (camerapixels)
+// Geen positie: alleen afstanden tot het licht, pixels, kleuren en tijden.
+const TIK_DICHTBIJ        = true;              // V11.38.13: schakelaar; false = gedrag van V11.38.12
+const TIK_DICHTBIJ_M      = 10;                // V11.38.13
+const TIKDICHT_SLEUTEL    = 'sl_tikdichtlog';  // V11.38.13
+const TIKDICHT_MAX        = 40;                // V11.38.13
+const TIKDICHT_RIJ        = 8;                 // V11.38.13
+const TIKDICHT_VOLG_RUNS  = 3;                 // V11.38.13
+const AUTOSLOTLOG_SLEUTEL = 'sl_autoslotlog';  // V11.38.13
+const AUTOSLOTLOG_MAX     = 40;                // V11.38.13
+const AUTOSLOTLOG_TIK_MS  = 10000;             // V11.38.13
+let tikDichtbijRun = null;    // V11.38.13: { straal, oud, afst } van de lopende run
+let tikDichtStaat = null;     // V11.38.13: de lopende nadering
+let autoSlotLogOpen = null;   // V11.38.13: het laatste auto-slot, wacht op een tik
+
+function tikDichtHeel(x) { return (typeof x === 'number' && isFinite(x)) ? Math.round(x) : null; }   // V11.38.13
+function tikDichtAfst() {   // V11.38.13
+  return (dichtstbijOSM && typeof dichtstbijOSM.afstand === 'number') ? dichtstbijOSM.afstand : null;
+}
+// De straal dichtbij, of null als de regel niet geldt. Alleen aangeroepen uit tikStraalVast.   // V11.38.13
+function tikDichtbijStraal(vast) {   // V11.38.13
+  tikDichtbijRun = null;
+  if (!TIK_DICHTBIJ || bboxOverride === null || cropRegio || !(lbScale > 0)) return null;
+  const afst = tikDichtAfst();
+  if (afst === null || afst > TIK_DICHTBIJ_M) return null;
+  if (!(stickyDetectie && stickyDetectie.camH > 0) || !(vast > 0)) return null;
+  const oud = Math.min(tikStraalYolo(), vast * lbScale);
+  const straal = Math.min(STICKY_MATCH_PX, vast * lbScale);
+  tikDichtbijRun = { straal, oud, afst };
+  return straal;
+}
+function tikDichtSluit(eind) {   // V11.38.13
+  const e = tikDichtStaat;
+  tikDichtStaat = null;
+  if (!e) return;
+  for (const p of e.volg) { if (p.i >= 0) e.o[p.i][7] = '-'; }
+  if (!e.r) return;
+  meetRingSchrijf(TIKDICHT_SLEUTEL, TIKDICHT_MAX, { t: e.t, n: e.n, a0: e.a0, a1: e.a1, e: eind, r: e.r, nm: e.nm, no: e.no,
+    nv: e.nv, nb: e.nb, nw: e.nw, o: e.o, v: e.v });
+}
+// Na tikSlotMatch in de tik-tak, vóór stickyNeemOver. Leest alleen.   // V11.38.13
+function tikDichtbijNa(winner, bruikbaar) {   // V11.38.13
+  try {
+    const run = tikDichtbijRun;
+    tikDichtbijRun = null;
+    const sd = stickyDetectie;
+    if (!sd) return;
+    const nu = Date.now();
+    const node = dichtstbijOSM ? Number(dichtstbijOSM.id) : 0;
+    let e = tikDichtStaat;
+    if (e && (e.n !== node || e.tk !== bboxOverrideTijd || nu - e.t1 > SLOTMIS_GAT_MS)) {
+      tikDichtSluit(e.n !== node ? 'node' : e.tk !== bboxOverrideTijd ? 'tik' : 'gat');
+      e = null;
+    }
+    if (e) {   // de overnames van eerdere runs volgen
+      const rest = [];
+      for (const p of e.volg) {
+        if (!winner) { e.nw++; if (p.i >= 0) e.o[p.i][7] = 'w'; }
+        else if (++p.k >= TIKDICHT_VOLG_RUNS) { e.nb++; if (p.i >= 0) e.o[p.i][7] = 'b'; }
+        else rest.push(p);
+      }
+      e.volg = rest;
+      e.t1 = nu;
+    }
+    if (!run) return;
+    if (!e) {
+      e = tikDichtStaat = { t: nu, t1: nu, n: node, tk: bboxOverrideTijd, a0: tikDichtHeel(run.afst), a1: null, r: 0,
+                            nm: 0, no: 0, nv: 0, nb: 0, nw: 0, o: [], v: [], volg: [] };
+    }
+    e.r++; e.a1 = tikDichtHeel(run.afst);
+    const st = Math.round(run.straal * 10) / 10, oud = Math.round(run.oud * 10) / 10;
+    if (winner && winner.afst >= run.oud) {
+      e.no++;
+      const det = winner.det;
+      let i = -1;
+      if (e.o.length < TIKDICHT_RIJ) {
+        e.o.push([tikDichtHeel(run.afst), tikDichtHeel(winner.afst), tikDichtHeel(det.h), slotMisKleur(det), slotMisFase(), st, oud, '-']);
+        i = e.o.length - 1;
+      }
+      e.volg.push({ i, k: 0 });
+    } else if (winner) {
+      e.nm++;
+    } else {
+      e.nv++;
+      let d = null;
+      for (const det of (bruikbaar || [])) {
+        const a = Math.hypot(det.cx - sd.cx, det.cy - sd.cy);
+        if (d === null || a < d) d = a;
+      }
+      const hs = sd.camH > 0 ? sd.camH * lbScale : null;
+      if (e.v.length < TIKDICHT_RIJ)
+        e.v.push([tikDichtHeel(run.afst), tikDichtHeel(d), tikDichtHeel(hs), (d !== null && hs > 0) ? Math.round(d / hs * 100) / 100 : null, st]);
+    }
+  } catch (e) {}
+}
+function autoSlotLogSchrijf(tk, ts, d) {   // V11.38.13
+  const o = autoSlotLogOpen;
+  autoSlotLogOpen = null;
+  if (!o) return;
+  meetRingSchrijf(AUTOSLOTLOG_SLEUTEL, AUTOSLOTLOG_MAX, { t: o.t, n: o.n, a: o.a, r: o.r, ms: o.ms, c: o.c, k: o.k, h: o.h,
+    tk, ts: tikDichtHeel(ts), d: tikDichtHeel(d) });
+}
+// Direct na autoSlotZet in selecteerBesteDetectie (het slot gaat dicht).   // V11.38.13
+function autoSlotLogZet(det) {   // V11.38.13
+  try {
+    if (autoSlotLogOpen) autoSlotLogSchrijf('-', null, null);
+    const nu = Date.now(), sd = stickyDetectie;
+    autoSlotLogOpen = { t: nu, n: dichtstbijOSM ? Number(dichtstbijOSM.id) : 0, a: tikDichtHeel(tikDichtAfst()),
+      r: voorkeursBboxRuns, ms: tikDichtHeel(nu - voorkeursBboxStart), c: cropRegio ? 1 : 0, k: slotMisKleur(det),
+      h: tikDichtHeel(det && det.h), x: sd ? sd.camX : null, y: sd ? sd.camY : null };
+  } catch (e) {}
+}
+// Bovenaan tikZet: een tik binnen AUTOSLOTLOG_TIK_MS na het dichtgaan. Leest alleen.   // V11.38.13
+function autoSlotLogTik(camX, camY) {   // V11.38.13
+  try {
+    const o = autoSlotLogOpen;
+    if (!o) return;
+    const nu = Date.now();
+    if (nu - o.t > AUTOSLOTLOG_TIK_MS) { autoSlotLogSchrijf('-', null, null); return; }
+    if (o.x == null || o.y == null || camX == null || camY == null) { autoSlotLogSchrijf('?', nu - o.t, null); return; }
+    const d = Math.hypot(camX - o.x, camY - o.y);
+    const r = tikStraalCam();
+    autoSlotLogSchrijf((r !== null && d > r) ? 'a' : 'z', nu - o.t, d);
+  } catch (e) {}
+}
+// Na slotMisTik, elke run met boxen: sluit een nadering zonder tik, volgt het auto-slot.   // V11.38.13
+function slotMeetTik() {   // V11.38.13
+  try {
+    tikDichtbijRun = null;
+    const nu = Date.now();
+    const e = tikDichtStaat;
+    if (e) {
+      const node = dichtstbijOSM ? Number(dichtstbijOSM.id) : 0;
+      if (bboxOverride === null || !stickyDetectie) tikDichtSluit('los');
+      else if (e.n !== node) tikDichtSluit('node');
+      else if (nu - e.t1 > SLOTMIS_GAT_MS) tikDichtSluit('gat');
+    }
+    const o = autoSlotLogOpen;
+    if (o) {
+      if (nu - o.t > AUTOSLOTLOG_TIK_MS) autoSlotLogSchrijf('-', null, null);
+      else if (autoSlotActief() && stickyDetectie.camX != null) { o.x = stickyDetectie.camX; o.y = stickyDetectie.camY; }
+    }
+  } catch (e) {}
+}
+try { window.addEventListener('pagehide', () => { try { tikDichtSluit('weg'); autoSlotLogSchrijf('-', null, null); } catch (_) {} }); } catch (e) {}   // V11.38.13
+
 function stickySlotMatch(bruikbaar, straal = STICKY_MATCH_PX) {   // V11.33.0: de tik-tak geeft tikStraalYolo()
   if (!stickyDetectie) return null;
   // V11.17.45/54: eerst voorspellen waar hij NU hoort te staan, dan pas
@@ -12128,6 +12313,7 @@ function selecteerBesteDetectie(detecties) {
       const straalVast = tikStraalVast();   // V11.36.3: dichtbij of niets
       const winner = tikSlotMatch(bruikbaar, straalVast);
       const ref = { cx: stickyDetectie.cx, cy: stickyDetectie.cy };   // V11.34.1: waar hij zocht, in deze run
+      tikDichtbijNa(winner, bruikbaar);   // V11.38.13: meetregel, beslist niets
       if (winner) {
         const match = winner.det;
         tikLogSprong(basis, match);
@@ -12348,6 +12534,7 @@ function selecteerBesteDetectie(detecties) {
     // dezelfde box". Alleen zonder tap, en alleen als er nog niets vastligt.
     if (bboxSlot === 'vast' && bboxOverride === null && stickyDetectie === null) {
       autoSlotZet(beste);
+      autoSlotLogZet(beste);   // V11.38.13: meetregel, beslist niets
     }
 
     const verlopen = (nu - voorkeursBboxTijd) > VOORKEUR_TIMEOUT_MS;
@@ -12548,6 +12735,7 @@ function _verwerkWorkerResultaatKern(detecties) {
   }
   const { s1:beste, s2Rest, afwijsReden } = selecteerBesteDetectie(detecties);
   slotMisTik(detecties, afwijsReden);   // V11.38.10: schaduw, beslist niets, zie slotMisTik
+  slotMeetTik();   // V11.38.13: meetregels tik dichtbij en auto-slot, beslissen niets
   // V11.17.7 W2: hoogst-scorende bruikbare kandidaat (detecties zijn al op score
   // gesorteerd in postprocessYOLO r3078). Gebruikt voor kandidaatH/Cy/Klasse-log.
   const bruikbaarLog = detecties.find(d => KLASSE_MAP[d.klasse]);

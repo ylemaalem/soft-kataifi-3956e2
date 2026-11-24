@@ -114,7 +114,7 @@ function testSlotMisSchaduw() {
       faseMagOfficieelWorden: '8e6db571', tolerantieVerlopen: 'f8ff54c3', verwerkDetecties: '319a4ea6', verwerkS2: '6c7c8546', verwerkFase: '5335de24',
       updateUI: '3170b33d', kiesCountdownBron: '95562985', bevestigCountdown: 'a41caa7e', _verwerkWorkerResultaatKern: 'b7c52393'
     };
-    const zonder = (t) => String(t).split(NL).filter(l => !/V11\.38\.10(?!\d)/.test(l)).join(NL);
+    const zonder = (t) => String(t).split(NL).filter(l => !/V11\.38\.10(?!\d)|V11\.38\.13(?!\d)/.test(l)).join(NL);
     const af = {};
     for (const n of Object.keys(PIN)) af[n] = fnv(zonder(window[n]));
     const mis7 = Object.keys(PIN).filter(n => af[n] !== PIN[n]);
