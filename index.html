@@ -1109,7 +1109,7 @@ if (typeof ort !== 'undefined') {
 //
 // De stijl volgt de eerdere labels: nummer, kastlijntje, korte omschrijving in
 // kleine letters. De CSS zet hem zelf in kapitalen (text-transform:uppercase).
-const APP_VERSIE = 'V11.38.13 — de tik houdt dichtbij zijn lamp vast';
+const APP_VERSIE = 'V11.38.14 — kleur bij aankomst in de doorrijlog';
 
 // ── CONSTANTEN ────────────────────────────────────────────────
 const OSM_RADIUS       = 5000;
@@ -9542,6 +9542,7 @@ function doorTik(lat, lon) {
       if (d < p.ma) { p.ma = d; p.tMa = nu; }
       const c = passageKleur(id);
       if (c && p.c === undefined && d <= DOOR_OPEN_M) p.c = c;
+      aankomstKleurTik(p, id, d);   // V11.38.14: alleen meten, zie het blok V11.38.14
       if (d <= DOOR_STIL_M && kmh < NODE_CHK_STANDSTILL_KMH) { p.s += dt; p.stil = true; }
       if (p.stil && c === 'g' && p.groenT === undefined) p.groenT = nu;
       if (p.stil && kmh >= 5 && p.wegT === undefined) p.wegT = nu;
@@ -9555,6 +9556,7 @@ function doorSluit(p) {
   if (!(p.ma <= DOOR_NADER_M) || p.voor === false) return;
   const rec = { t: p.tMa, n: p.n, c: p.c || '-', ma: Math.round(p.ma), dd: huidigDDActief(p.tMa) };
   const s = Math.round(p.s); if (s > 0) rec.s = s;
+  aankomstKleurVeld(p, rec);   // V11.38.14: alleen meten, zie het blok V11.38.14
   if (p.stil) rec.wg = (p.groenT !== undefined && p.wegT !== undefined && p.wegT >= p.groenT && p.wegT - p.groenT <= DOOR_WG_MS) ? 1 : 0;
   // Het vorige KRUISPUNT: lichten binnen DOOR_KRUIS_M van elkaar horen bij hetzelfde kruispunt. Per kruispunt
   // één vertegenwoordiger: het eerste licht waarvan de kleur gezien is, anders het eerste licht.
@@ -9593,6 +9595,70 @@ try {
   document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'hidden') doorBergOp(); });
   window.addEventListener('pagehide', () => doorBergOp());
 } catch (e) { /* geen document: niets aan de hand */ }
+
+// ── V11.38.14: ALLEEN METEN — KLEUR BIJ AANKOMST IN DE DOORRIJLOG ──
+// © 2026 StoplichtIQ
+//
+// WAAROM (STAP 0 van 25 nov). In sl_doorlog is c de eerste kleur binnen 80 m en
+// alleen als de fase bij dit licht hoorde. Voor de golftoets is nodig welke kleur
+// de app TOONDE vlak voor het licht, hoe lang die kleur er al stond en waar hij
+// vandaan kwam. Zonder dat waren de tijden in de leerdata alleen wisselmomenten.
+//
+// WAT. Eén extra veld ka in een doorrijregel, met drie momenten: het eerste
+// GPS-punt binnen AANKOMST_M[0] (30 m), [1] (15 m) en [2] (5 m) van het licht.
+// Per moment een stukje, achter elkaar (zonder spatie: een stukje eindigt altijd op
+// d/v/c, of is '-' of '.'):
+//   kleur  r/g/o = de kleur die op het scherm stond (faseLamp), en alleen als die
+//          kleur bij DIT licht hoorde (de fase-node, of zonder fase het licht dat
+//          de app volgde); '-' = er stond geen kleur van dit licht
+//   fa     seconden dat die kleur al stond (fase-leeftijd), hooguit AANKOMST_FA_MAX
+//          (99 = 99 of meer); weg als onbekend
+//   bron   d = de laatste run zag deze kleur (detectie); v = vastgehouden zonder
+//          detectie in de laatste run (uitval, herstel); c = rood met een lopende
+//          countdown. Een voorspelde kleur bestaat niet: de app zet een kleur
+//          alleen uit een detectie (test_aankomstkleur_v113814, AK5).
+//   '.'    dit moment is niet bereikt (de auto kwam niet zo dichtbij)
+// Voorbeeld: "g12dr3cr3v" = op 30 m groen 12 s (gezien), op 15 m rood 3 s met countdown,
+// op 5 m rood 3 s vastgehouden. Hooguit 12 tekens. Het veld staat er alleen als minstens één moment
+// een kleur had (besluit 25 nov); zonder kleur geen veld, dus geen extra opslag.
+// Geen positie: alleen kleur, seconden en een letter. Beslist niets; de bestaande
+// velden (c, ma, s, wg, v, va, vt) blijven precies zoals ze waren.
+// AANKOMSTKLEUR_LOG = false: geen veld, gedrag van V11.38.13.
+const AANKOMSTKLEUR_LOG = true;          // V11.38.14: schakelaar
+const AANKOMST_M = [30, 15, 5];          // V11.38.14
+const AANKOMST_FA_MAX = 99;              // V11.38.14: twee cijfers, zodat 500 regels samen onder 10 KB blijven
+function aankomstKleurNu(id) {   // V11.38.14: leest alleen
+  const k = (typeof faseLamp !== 'undefined' && faseLamp) ? String(faseLamp.className || '') : '';
+  const letter = k === 'rood' ? 'r' : k === 'groen' ? 'g' : k === 'oranje' ? 'o' : null;
+  const van = (fase !== null && faseNodeId != null) ? Number(faseNodeId) : (dichtstbijOSM ? Number(dichtstbijOSM.id) : null);
+  if (!letter || van !== Number(id)) return '-';
+  let fa = null;
+  if (fase === k && typeof faseStart === 'number') fa = (performance.now() - faseStart) / 1000;
+  else if (aiKleur === k && aiTellerStart > 0) fa = (Date.now() - aiTellerStart) / 1000;
+  const bron = (k === 'rood' && cdStart !== null && activeCdDoel > 0) ? 'c' : (geenTeller === 0 && aiKleur === k) ? 'd' : 'v';
+  return letter + (fa !== null && fa >= 0 && isFinite(fa) ? String(Math.min(AANKOMST_FA_MAX, Math.round(fa))) : '') + bron;
+}
+// Uit doorTik, per open passage en per GPS-tik, na de bestaande kleurregel.
+function aankomstKleurTik(p, id, d) {   // V11.38.14
+  if (!AANKOMSTKLEUR_LOG) return;
+  try {
+    if (!(d >= 0)) return;
+    for (let i = 0; i < AANKOMST_M.length; i++) {
+      if (d > AANKOMST_M[i]) continue;
+      if (!p.ak) p.ak = [];
+      if (p.ak[i] === undefined) p.ak[i] = aankomstKleurNu(id);
+    }
+  } catch (e) {}
+}
+// Uit doorSluit: het veld ka, alleen als er een kleur was.
+function aankomstKleurVeld(p, rec) {   // V11.38.14
+  if (!AANKOMSTKLEUR_LOG) return;
+  try {
+    if (!p.ak) return;
+    const delen = AANKOMST_M.map((_, i) => p.ak[i] === undefined ? '.' : p.ak[i]);
+    if (delen.some(x => /^[rgo]/.test(x))) rec.ka = delen.join('');
+  } catch (e) {}
+}
 
 // ── V11.37.22: ALLEEN METEN — PASSAGES, EINDE GEMIST, SCHADUW WACHTTIJD ──
 // © 2026 StoplichtIQ
