@@ -32,6 +32,7 @@
   const db = window.supabase.createClient(S.URL_, S.ANON, { auth: { persistSession: true, autoRefreshToken: true, storageKey: 'dash_sessie', detectSessionInUrl: leesLink } });
   const app = document.getElementById('app');
   let profiel = null, tab = null, kaart = null, laag = null, uren = 24, klok = null, config = {}, offline = false;
+  let alleenVolledig = false;   // V11.38.14: filter "alleen volledig" (kaart en tab Volledig)
 
   // ── hulpjes ─────────────────────────────────────────────────
   // De uitleg achter de (i)-knopjes. Nagelezen tegen de databasefuncties (14 nov 2026, alleen lezen):
@@ -46,7 +47,8 @@
     laatstesync: 'Het moment waarop de app van deze gebruiker voor het laatst een meting heeft verstuurd. "deelt niet" = de gebruiker heeft geen toestemming gegeven voor synchronisatie; "nog niets" = wel toestemming, nog geen meting ontvangen.',
     vertrouwen: "Getal van 0 tot 1. Nieuw = 0,50. Het stijgt met 0,01 bij elke meting die meteen wordt geaccepteerd, tot maximaal 1,00. Vanaf 0,70 telt iemand als 'vertrouwd' (een beheerder altijd): dan is voor een nieuw kruispunt maar 1 andere gebruiker nodig om het te bevestigen in plaats van 2. Het daalt nu nooit; slechte metingen blijven gewoon in quarantaine.",
     quarantaine: 'Sinds V11.38.2 worden metingen van de beheerder of een vertrouwd account (vertrouwen 0,7 of meer) en onvolledige metingen (begin van rood niet gezien) binnen de harde grenzen direct aangenomen. Voor andere metingen: een meting die afwijkt van wat we al weten (meer dan 15 s of 35% naast de gewone waarde van de metingen van VOOR dat moment, 400 dagen, recente zwaarder), of voor een kruispunt waar nog niets bekend is, wacht tot genoeg andere gebruikers hetzelfde melden: bij een afwijking 2 anderen binnen 7 dagen, bij een nieuw kruispunt 2 anderen (of 1 als er een vertrouwde gebruiker bij is) binnen 30 dagen. Dat gebeurt zodra die laatste meting binnenkomt; daarna is hij automatisch geaccepteerd. Jij hoeft niets goed te keuren.',
-    vandaag: 'Metingen die vandaag zijn binnengekomen en nu zijn aangenomen (tussen haakjes: waarvan onvolledig, begin van rood niet gezien) / die nog wachten / aantal gebruikers dat vandaag iets stuurde. "Vandaag" is de dag in UTC (in Nederland begint die om 01:00 of 02:00).',
+    vandaag: 'V11.38.14: metingen die VANDAAG GEMETEN zijn (de dag van de meting zelf, in Nederlandse tijd) en nu zijn aangenomen, met tussen haakjes hoeveel daarvan volledig, onvolledig (begin van rood niet gezien) en onbekend (oude meting van voor de vlag) / die nog wachten / aantal gebruikers. Een meting die later binnenkomt, telt op de dag dat hij gemeten is. Lukt het ophalen van deze telling niet, dan valt het blok terug op de oude telling (dag van binnenkomst, UTC) en staat dat erbij.',
+    volledig: 'V11.38.14. Volledig = de app zag het begin en het einde van rood: de hele rode fase is gemeten. Onvolledig = het begin van rood was niet gezien, de gemeten duur is dus te kort. Onbekend = een oude meting van voor de vlag bestond (geimporteerd); die telt hier nergens als volledig. Alleen aangenomen metingen tellen mee; wat in quarantaine staat, staat apart. Het percentage is van alle aangenomen metingen.',
     log: 'Vraagt deze gebruiker EENMALIG om een logbestand te sturen. Dat kan alleen als hij diagnose-toestemming heeft gegeven. Na versturen is het verzoek verbruikt. Let op: de app zelf leest dit verzoek nog niet; dat komt in een volgende fase.',
     beta: 'Een vertrouwde tester die elke dag automatisch logs mag sturen (hoogstens 1 per soort per dag) zonder dat jij het vraagt. Alleen met diagnose-toestemming. Een gewone gebruiker kan dat niet. Let op: de app stuurt nog niets; dat komt in een volgende fase.',
     diag: 'Als je dit aanzet, mag de app dagelijks technische gegevens sturen: appversie, opslag in KB, opstarttijd, gemiddelde rekentijd, aantal ritten en teltallen. Daarin staan geen locatie en geen naam. Met deze toestemming kan ook een logbestand worden gestuurd als de beheerder erom vraagt of als je beta-tester bent; een logbestand kan wel kruispuntnummers bevatten. Staat standaard uit en je kunt het altijd uitzetten. De app stuurt op dit moment nog niets.',
@@ -250,7 +252,7 @@
     stopKlok(); kaart = null;
     const knop = (id, t) => el('button', { tekst: t, klasse: tab === id ? 'aan' : null, klik: () => { tab = id; teken(); } });
     const kop = el('header', { klasse: 'kop' }, el('h1', { klasse: 'kopmerk' }, S.logo(28), 'Stoplicht', el('span', { tekst: 'IQ' })),
-      el('nav', { klasse: 'tabs' }, knop('kaart', 'Kaart'), knop('gebruikers', 'Gebruikers'), knop('quarantaine', 'Quarantaine'), knop('kwaliteit', 'Countdown'), knop('feedback', 'Feedback'), knop('beveiliging', 'Beveiliging'), knop('mijn', 'Mijn gegevens')),
+      el('nav', { klasse: 'tabs' }, knop('kaart', 'Kaart'), knop('gebruikers', 'Gebruikers'), knop('quarantaine', 'Quarantaine'), knop('volledig', 'Volledig'), knop('kwaliteit', 'Countdown'), knop('feedback', 'Feedback'), knop('beveiliging', 'Beveiliging'), knop('mijn', 'Mijn gegevens')),
       el('span', { klasse: 'ruimte' }), el('button', { tekst: 'Uitloggen', klik: async () => { await db.auth.signOut(); profiel = null; try { localStorage.removeItem(ROL_SLEUTEL); } catch (e) {} toonInlog(); } }));
     const inhoud = el('div', { stijl: { flex: '1', display: 'flex', flexDirection: 'column', minHeight: '0' } });
     vervangInhoud(app, kop,
@@ -260,6 +262,7 @@
     if (tab === 'kaart') tekenBeheer(inhoud);
     else if (tab === 'gebruikers') tekenGebruikers(inhoud);
     else if (tab === 'quarantaine') tekenQuarantaine(inhoud);
+    else if (tab === 'volledig') tekenVolledig(inhoud);   // V11.38.14
     else if (tab === 'kwaliteit') tekenKwaliteit(inhoud);
     else if (tab === 'feedback') tekenFeedback(inhoud);
     else if (tab === 'beveiliging') tekenBeveiliging(inhoud);
@@ -358,7 +361,8 @@
     const legenda = el('div', { klasse: 'legenda' }, el('b', null, metInfo('Nieuw in deze periode', 'nieuw')),
       STAPPEN.map(s => el('div', null, el('span', { klasse: 'punt', stijl: { width: '10px', height: '10px', background: s.kleur } }), s.t)),
       el('div', { klasse: 'stil', tekst: 'Pulserend: laatste ' + PULS_UUR + ' uur' }));
-    const vak = el('div', { klasse: 'kaartvak' }, kaartEl, el('div', { klasse: 'kaartbalk' }, filter(1, '1 u'), filter(24, '24 u'), filter(168, '7 d'), status), legenda, leeg);
+    const vFilter = el('button', { tekst: 'Alleen volledig', klasse: alleenVolledig ? 'aan' : null, 'aria-pressed': String(alleenVolledig), klik: () => { alleenVolledig = !alleenVolledig; teken(); } });   // V11.38.14
+    const vak = el('div', { klasse: 'kaartvak' }, kaartEl, el('div', { klasse: 'kaartbalk' }, filter(1, '1 u'), filter(24, '24 u'), filter(168, '7 d'), vFilter, status), legenda, leeg);
     const zij = el('aside', { klasse: 'zij' });
     vervangInhoud(doel, el('div', { klasse: 'beheer' }, vak, zij));
 
@@ -375,53 +379,70 @@
       attribution: '&copy; <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener">OpenStreetMap</a>-bijdragers' }).addTo(kaart);
     laag = L.layerGroup().addTo(kaart);
 
-    const ververs = () => Promise.all([laadKaart(status, leeg), laadZij(zij)]);
+    // V11.38.14: de volledig-telling een keer per verversing, voor kaart en zijpaneel samen.
+    const ververs = async () => { const ov = await haalOverzicht(); return Promise.all([laadKaart(status, leeg, ov), laadZij(zij, ov)]); };
     ververs();
     klok = setInterval(() => { if (!document.hidden) ververs(); }, VERVERS_MS);
   }
 
-  async function laadKaart(status, leeg) {
+  async function laadKaart(status, leeg, ov) {
     const mijnKaart = kaart;
     try {
       const rijen = (await rpc('admin_kaart_activiteit', { p_uren: uren })) || [];
       if (kaart !== mijnKaart) return;
       laag.clearLayers();
       const grens = Date.now() - PULS_UUR * 3600000;
+      const perNode = ovPerNode(ov);   // V11.38.14
+      const metVolledig = (r) => { const v = perNode.get(String(r.node_id)); return !!v && Number(v.n_volledig) > 0; };   // V11.38.14
       for (const r of rijen) {
         if (typeof r.lat !== 'number' || typeof r.lon !== 'number') continue;
+        if (alleenVolledig && !metVolledig(r)) continue;   // V11.38.14
+        const vn = perNode.get(String(r.node_id));   // V11.38.14
         const n = Number(r.nieuw_in_periode) || 0, s = stap(n), rad = straal(n);
         const tip = el('div', null, el('b', { tekst: r.naam || r.node_id }), r.stad ? el('div', { tekst: r.stad }) : null,
           el('div', { tekst: 'nieuw: ' + getal(n) + ' · quarantaine: ' + getal(r.in_quarantaine) }),
           el('div', { tekst: 'geaccepteerd: ' + getal(r.totaal_geaccepteerd) + ' · bijdragers: ' + getal(r.bijdragers) }),
+          vn ? el('div', { tekst: 'volledig: ' + getal(vn.n_volledig) + ' · onvolledig: ' + getal(vn.n_onvolledig) + ' · onbekend: ' + getal(vn.n_onbekend) }) : null,   // V11.38.14
+          vn ? el('div', { klasse: 'stil', tekst: 'laatste volledige: ' + moment(vn.laatste_volledig) }) : null,
           el('div', { klasse: 'stil', tekst: 'laatste: ' + moment(r.laatste_meting) }));
         if (n > 0) L.circleMarker([r.lat, r.lon], { radius: rad * 2.3, stroke: false, fillColor: s.kleur, fillOpacity: 0.16, interactive: false }).addTo(laag);
         L.circleMarker([r.lat, r.lon], { radius: rad, stroke: false, fillColor: s.kleur, fillOpacity: 0.95 }).bindTooltip(tip, { direction: 'top' }).addTo(laag);
       }
-      rijen.filter(r => Number(r.nieuw_in_periode) > 0 && r.laatste_meting && new Date(r.laatste_meting).getTime() >= grens && typeof r.lat === 'number')
+      rijen.filter(r => !alleenVolledig || metVolledig(r))   // V11.38.14
+        .filter(r => Number(r.nieuw_in_periode) > 0 && r.laatste_meting && new Date(r.laatste_meting).getTime() >= grens && typeof r.lat === 'number')
         .sort((a, b) => new Date(b.laatste_meting) - new Date(a.laatste_meting)).slice(0, PULS_MAX)
         .forEach(r => { const d = 2 * straal(Number(r.nieuw_in_periode)); L.marker([r.lat, r.lon], { interactive: false, keyboard: false, icon: L.divIcon({ className: 'puls', iconSize: [d, d] }) }).addTo(laag); });
       leeg.style.display = rijen.length ? 'none' : '';
-      status.className = 'status'; status.textContent = getal(rijen.length) + ' kruispunten · ' + new Date().toLocaleTimeString('nl-NL');
+      const getoond = alleenVolledig ? rijen.filter(metVolledig).length : rijen.length;   // V11.38.14
+      status.className = 'status'; status.textContent = getal(getoond) + ' kruispunten' + (alleenVolledig ? ' met een volledige meting' : '') + ' · ' + new Date().toLocaleTimeString('nl-NL');
     } catch (e) { status.className = 'status fout'; status.textContent = foutTekst(e); }
   }
 
-  async function laadZij(zij) {
-    const [inflow, steden, quar, events] = await Promise.all(['admin_inflow_daily', 'admin_city_progress', 'admin_quarantaine_monitor', 'admin_recent_events'].map(n => rpc(n).catch(e => ({ fout: foutTekst(e) }))));
+  async function laadZij(zij, ov) {
+    // V11.38.14: de dagtegel en de grafiek komen uit admin_volledig_overzicht (dag van observed_at, Amsterdamse tijd).
+    // Lukt dat niet, dan de oude telling (admin_inflow_daily: dag van binnenkomst, UTC), met een melding erbij.
+    const oud = !Array.isArray(ov);
+    const [inflow, steden, quar, events] = await Promise.all([oud ? 'admin_inflow_daily' : null, 'admin_city_progress', 'admin_quarantaine_monitor', 'admin_recent_events'].map(n => n ? rpc(n).catch(e => ({ fout: foutTekst(e) })) : Promise.resolve(ovDagen(ov))));
     const sectie = (titel, d, maak, sl) => el('section', null, sl ? el('h2', null, metInfo(titel, sl)) : el('h2', { tekst: titel }), d && d.fout ? el('p', { klasse: 'status fout', tekst: d.fout }) : maak(d || []));
     vervangInhoud(zij,
-      sectie('Binnenkomst, 30 dagen', inflow, inflowBlok),
+      oud ? null : sectie('Volledig, alle metingen', ov, totaalBlok, 'volledig'),   // V11.38.14
+      sectie(oud ? 'Binnenkomst, 30 dagen' : 'Gemeten, 30 dagen', inflow, d => inflowBlok(d, oud)),
       sectie('Steden', steden, d => tabel([{ t: 'Stad', w: r => r.stad }, { t: 'Totaal', g: 1, w: r => getal(r.nodes_totaal) }, { t: 'Vers 7 d', g: 1, w: r => getal(r.nodes_vers_7d) }, { t: 'Geverif.', g: 1, w: r => getal(r.nodes_geverifieerd) }], d.slice(0, 15), 'Nog geen steden.'), 'steden'),
       sectie('Quarantaine', quar, d => tabel([{ t: 'Kruispunt', w: r => r.node_id }, { t: 'Aantal', g: 1, w: r => getal(r.in_quarantaine) }, { t: 'Dagen oud', g: 1, w: r => getal(r.dagen_oud) }], d.slice(0, 10), 'Niets in quarantaine.'), 'quarantaine'),
       sectie('Recente gebeurtenissen', events, d => tabel([{ t: 'Tijd', w: r => moment(r.created_at) }, { t: 'Soort', w: r => r.soort }, { t: 'Stad', w: r => r.city }, { t: 'Wie', w: r => r.gebruiker_kort }], d.slice(0, 15), 'Nog geen gebeurtenissen.')));
   }
 
-  function inflowBlok(rijen) {
+  function inflowBlok(rijen, oud) {
     const d = rijen.slice().sort((a, b) => new Date(a.dag) - new Date(b.dag));
-    // 14 nov: de laatste rij is de laatste dag MET metingen, niet per se vandaag. Alleen een rij van vandaag (UTC, zoals de database telt) telt.
-    const vandaagUTC = new Date().toISOString().slice(0, 10);
-    const nu = d.find(r => String(r.dag).slice(0, 10) === vandaagUTC) || {};
-    const tegels = el('div', null, el('div', { klasse: 'tegels' },
-      [['Geaccepteerd', nu.geaccepteerd, nu.onvolledig], ['Quarantaine', nu.in_quarantaine], ['Actief', nu.actieve_gebruikers]].map(([t, w, o]) => el('div', { klasse: 'tegel' }, el('b', { tekst: getal(w || 0) }), el('span', { tekst: t + ' vandaag' + (Number(o) > 0 ? ' (' + getal(o) + ' onvolledig)' : '') })))),
+    // 14 nov: de laatste rij is de laatste dag MET metingen, niet per se vandaag. Alleen een rij van vandaag telt.
+    // V11.38.14: vandaag in Amsterdamse tijd (de dag van observed_at); alleen de oude terugval telt in UTC.
+    const vandaag = oud ? new Date().toISOString().slice(0, 10) : amsterdamDag(Date.now());
+    const nu = d.find(r => String(r.dag).slice(0, 10) === vandaag) || {};
+    const haakjes = (r) => oud ? (Number(r.onvolledig) > 0 ? ' (' + getal(r.onvolledig) + ' onvolledig)' : '')
+      : (Number(r.geaccepteerd) > 0 ? ' (' + getal(Number(r.volledig) || 0) + ' volledig, ' + getal(Number(r.onvolledig) || 0) + ' onvolledig' + (Number(r.onbekend) > 0 ? ', ' + getal(r.onbekend) + ' onbekend' : '') + ')' : '');
+    const tegels = el('div', null, el('div', { klasse: 'tegels', id: 'dagtegels' },
+      [['Geaccepteerd', nu.geaccepteerd, haakjes(nu)], ['Quarantaine', nu.in_quarantaine, ''], ['Actief', nu.actieve_gebruikers, '']].map(([t, w, h]) => el('div', { klasse: 'tegel' }, el('b', { tekst: getal(w || 0) }), el('span', { tekst: t + (oud ? ' vandaag' : ' vandaag gemeten') + h })))),
+      oud ? el('div', { klasse: 'melding', id: 'oude-telling', tekst: 'Oude telling: dag van binnenkomst (UTC). De telling per meetdag kon niet worden opgehaald.' }) : null,
       el('div', { klasse: 'klein stil', stijl: { marginTop: '4px' } }, metInfo('Wat tellen deze drie?', 'vandaag')));
     if (!d.length) return el('div', null, tegels, el('p', { klasse: 'stil klein', tekst: 'Nog geen metingen binnen.' }));
     const B = 348, H = 110, onder = 16, max = Math.max(1, ...d.map(r => (Number(r.geaccepteerd) || 0) + (Number(r.in_quarantaine) || 0)));
@@ -434,7 +455,7 @@
       if (a) svg.append(sv('rect', { x, y: hgt - ha, width: br, height: Math.max(1, ha), rx: Math.min(2, br / 2), fill: css('--s1') }));
       if (q) svg.append(sv('rect', { x, y: hgt - ha - hq - (a ? 2 : 0), width: br, height: Math.max(1, hq), rx: Math.min(2, br / 2), fill: css('--s2') }));
       const hit = sv('rect', { x: i * sl, y: 0, width: sl, height: H, class: 'hit' });
-      hit.addEventListener('mouseenter', () => { tip.textContent = dag(r.dag) + ': ' + getal(a) + ' geaccepteerd (' + getal(Number(r.onvolledig) || 0) + ' onvolledig), ' + getal(q) + ' quarantaine, ' + getal(r.actieve_gebruikers) + ' actief'; tip.style.display = ''; tip.style.top = '0'; tip.style.left = Math.min(i * sl, B - 230) + 'px'; });
+      hit.addEventListener('mouseenter', () => { tip.textContent = dag(r.dag) + ': ' + getal(a) + ' geaccepteerd' + (oud ? ' (' + getal(Number(r.onvolledig) || 0) + ' onvolledig)' : haakjes(r)) + ', ' + getal(q) + ' quarantaine, ' + getal(r.actieve_gebruikers) + ' actief'; tip.style.display = ''; tip.style.top = '0'; tip.style.left = Math.min(i * sl, B - 230) + 'px'; });
       hit.addEventListener('mouseleave', () => { tip.style.display = 'none'; });
       svg.append(hit);
     });
@@ -442,7 +463,44 @@
     lab(0, dag(d[0].dag), 'start'); lab(B, dag(d[d.length - 1].dag), 'end');
     return el('div', null, tegels, el('div', { klasse: 'legenda-rij', stijl: { marginTop: '10px' } }, el('span', null, el('i', { klasse: 'blokje s1' }), 'Geaccepteerd'), el('span', null, el('i', { klasse: 'blokje s2' }), 'Quarantaine')),
       el('div', { klasse: 'grafiek' }, svg, tip),
-      el('details', null, el('summary', { tekst: 'Als tabel' }), tabel([{ t: 'Dag', w: r => dag(r.dag) }, { t: 'Geacc.', g: 1, w: r => getal(r.geaccepteerd) }, { t: 'Onvolledig', g: 1, w: r => getal(Number(r.onvolledig) || 0) }, { t: 'Quar.', g: 1, w: r => getal(r.in_quarantaine) }, { t: 'Actief', g: 1, w: r => getal(r.actieve_gebruikers) }], d.slice().reverse())));
+      el('details', null, el('summary', { tekst: 'Als tabel' }), tabel([{ t: 'Dag', w: r => dag(r.dag) }, { t: 'Geacc.', g: 1, w: r => getal(r.geaccepteerd) }, oud ? null : { t: 'Volledig', g: 1, w: r => getal(Number(r.volledig) || 0) }, { t: 'Onvolledig', g: 1, w: r => getal(Number(r.onvolledig) || 0) }, oud ? null : { t: 'Onbekend', g: 1, w: r => getal(Number(r.onbekend) || 0) }, { t: 'Quar.', g: 1, w: r => getal(r.in_quarantaine) }, { t: 'Actief', g: 1, w: r => getal(r.actieve_gebruikers) }].filter(Boolean), d.slice().reverse())));
+  }
+
+  // ── V11.38.14: volledig / onvolledig / onbekend ─────────────
+  // Een leesfunctie op de server (admin_volledig_overzicht, met de beheerderscontrole van de andere admin_-functies).
+  // Rijen: soort 'totaal' (een), 'dag' (sleutel JJJJ-MM-DD = Amsterdamse dag van observed_at, 30 dagen), 'node' (sleutel node_id).
+  function amsterdamDag(t) { try { return new Date(t).toLocaleDateString('sv-SE', { timeZone: 'Europe/Amsterdam' }); } catch (e) { return new Date(t).toISOString().slice(0, 10); } }
+  async function haalOverzicht() { try { const d = await rpc('admin_volledig_overzicht'); return Array.isArray(d) ? d : { fout: 'geen gegevens' }; } catch (e) { return { fout: foutTekst(e) }; } }
+  function ovPerNode(ov) { const m = new Map(); if (Array.isArray(ov)) for (const r of ov) if (r.soort === 'node') m.set(String(r.sleutel), r); return m; }
+  function ovDagen(ov) {
+    return (Array.isArray(ov) ? ov : []).filter(r => r.soort === 'dag').map(r => ({ dag: r.sleutel, geaccepteerd: Number(r.n_totaal) || 0, volledig: Number(r.n_volledig) || 0,
+      onvolledig: Number(r.n_onvolledig) || 0, onbekend: Number(r.n_onbekend) || 0, in_quarantaine: Number(r.in_quarantaine) || 0, actieve_gebruikers: Number(r.actieve_gebruikers) || 0 }));
+  }
+  const pct = (a, n) => Number(n) > 0 ? (Math.round(1000 * Number(a) / Number(n)) / 10).toLocaleString('nl-NL') + '%' : '–';
+  function totaalBlok(ov) {
+    const t = (Array.isArray(ov) ? ov : []).find(r => r.soort === 'totaal') || {};
+    const n = Number(t.n_totaal) || 0;
+    return el('div', null, el('div', { klasse: 'tegels', id: 'volledig-totaal' },
+      [['Volledig', t.n_volledig], ['Onvolledig', t.n_onvolledig], ['Onbekend', t.n_onbekend], ['Totaal', t.n_totaal]].map(([s, w]) =>
+        el('div', { klasse: 'tegel' }, el('b', { tekst: getal(Number(w) || 0) }), el('span', { tekst: s + (s === 'Totaal' ? ' (n)' : ' · ' + pct(w, n)) })))),
+      el('div', { klasse: 'klein stil', tekst: 'Laatste volledige meting: ' + moment(t.laatste_volledig) }));
+  }
+  async function tekenVolledig(doel) {
+    const lijst = el('div', { id: 'vol-lijst' }, el('p', { klasse: 'stil', tekst: 'Laden…' })), top = el('div', null);
+    const vink = el('input', { type: 'checkbox', id: 'alleen-volledig' }); vink.checked = alleenVolledig;
+    pagina(doel, 'Volledig per kruispunt', 'volledig', top, el('div', { klasse: 'rij' }, el('label', { klasse: 'schakel', for: 'alleen-volledig' }, vink, 'Alleen kruispunten met een volledige meting')), lijst);
+    const ov = await haalOverzicht();
+    if (!Array.isArray(ov)) { vervangInhoud(lijst, el('p', { klasse: 'status fout', tekst: ov.fout })); return; }
+    vervangInhoud(top, totaalBlok(ov));
+    const alle = [...ovPerNode(ov).values()].filter(r => Number(r.n_totaal) > 0 || Number(r.in_quarantaine) > 0)
+      .sort((a, b) => (new Date(b.laatste_volledig || 0) - new Date(a.laatste_volledig || 0)) || (Number(b.n_totaal) - Number(a.n_totaal)));
+    const toon = () => vervangInhoud(lijst, tabel([
+      { t: 'Kruispunt', w: r => r.naam || r.sleutel }, { t: 'Stad', w: r => r.stad },
+      { t: 'Volledig', g: 1, w: r => getal(r.n_volledig) }, { t: 'Onvolledig', g: 1, w: r => getal(r.n_onvolledig) }, { t: 'Onbekend', g: 1, w: r => getal(r.n_onbekend) },
+      { t: 'Totaal', g: 1, w: r => getal(r.n_totaal) }, { t: 'Laatste volledige', w: r => moment(r.laatste_volledig) },
+    ], alleenVolledig ? alle.filter(r => Number(r.n_volledig) > 0) : alle, alleenVolledig ? 'Nog geen kruispunt met een volledige meting.' : 'Nog geen metingen.'));
+    vink.addEventListener('change', () => { alleenVolledig = vink.checked; toon(); });
+    toon();
   }
 
   // ── beheer: gebruikers ──────────────────────────────────────
@@ -517,7 +575,12 @@
     if (offline) { vervangInhoud(lijst, el('p', { klasse: 'stil', tekst: 'Niet beschikbaar zonder verbinding.' })); return; }
     rpc('mijn_kruispunten').then(rijen => vervangInhoud(lijst, tabel([
       { t: 'Kruispunt', w: r => r.naam || r.node_id }, { t: 'Stad', w: r => r.stad },
-      { t: 'Metingen', g: 1, w: r => getal(r.n_metingen) }, { t: 'Mediaan (s)', g: 1, w: r => r.mediaan_sec == null ? '–' : Math.round(r.mediaan_sec) },
+      { t: 'Metingen', g: 1, w: r => getal(r.n_metingen) },
+      // V11.38.14: geeft de server de drie tellers, dan is de mediaan alleen over volledige metingen (onbekend telt niet als volledig).
+      ...((rijen || []).some(r => r.n_volledig !== undefined)
+        ? [{ t: 'Volledig', g: 1, w: r => getal(r.n_volledig) }, { t: 'Onvolledig', g: 1, w: r => getal(r.n_onvolledig) }, { t: 'Onbekend', g: 1, w: r => getal(r.n_onbekend) },
+           { t: 'Mediaan volledig (s)', g: 1, w: r => r.mediaan_sec == null ? '–' : Math.round(r.mediaan_sec) }]
+        : [{ t: 'Mediaan (s)', g: 1, w: r => r.mediaan_sec == null ? '–' : Math.round(r.mediaan_sec) }]),
       { t: 'Laatste', w: r => moment(r.laatste_meting) }], rijen || [], 'Er zijn nog geen kruispunten van jou binnen.')))
       .catch(e => vervangInhoud(lijst, el('p', { klasse: 'status fout', tekst: foutTekst(e) })));
   }
