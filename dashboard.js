@@ -577,7 +577,13 @@
       { t: 'Kruispunt', w: r => r.naam || r.node_id }, { t: 'Stad', w: r => r.stad },
       { t: 'Metingen', g: 1, w: r => getal(r.n_metingen) },
       // V11.38.14: geeft de server de drie tellers, dan is de mediaan alleen over volledige metingen (onbekend telt niet als volledig).
-      ...((rijen || []).some(r => r.n_volledig !== undefined)
+      // V11.38.14 (aanvulling): geeft de server ook "bron", dan komt de mediaan uit de volledige metingen (minstens 3,
+      // of 1-2 als er geen onbekende zijn) of anders uit de onbekende; de kolom Bron zegt welke.
+      ...((rijen || []).some(r => r.bron !== undefined)
+        ? [{ t: 'Volledig', g: 1, w: r => getal(r.n_volledig) }, { t: 'Onvolledig', g: 1, w: r => getal(r.n_onvolledig) }, { t: 'Onbekend', g: 1, w: r => getal(r.n_onbekend) },
+           { t: 'Mediaan (s)', g: 1, w: r => r.mediaan_sec == null ? '–' : Math.round(r.mediaan_sec) },
+           { t: 'Bron', w: r => r.bron === 'volledig' || r.bron === 'onbekend' ? r.bron : 'geen' }]
+        : (rijen || []).some(r => r.n_volledig !== undefined)
         ? [{ t: 'Volledig', g: 1, w: r => getal(r.n_volledig) }, { t: 'Onvolledig', g: 1, w: r => getal(r.n_onvolledig) }, { t: 'Onbekend', g: 1, w: r => getal(r.n_onbekend) },
            { t: 'Mediaan volledig (s)', g: 1, w: r => r.mediaan_sec == null ? '–' : Math.round(r.mediaan_sec) }]
         : [{ t: 'Mediaan (s)', g: 1, w: r => r.mediaan_sec == null ? '–' : Math.round(r.mediaan_sec) }]),
